@@ -7,8 +7,8 @@
 <br/>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="assets/credits-dark.png" />
-  <img src="assets/credits-light.png" alt="Gustavo Moreira · Design × Lucas Coimbra · Design²" width="640" />
+  <source media="(prefers-color-scheme: dark)" srcset="assets/credits-dark.png?v=2" />
+  <img src="assets/credits-light.png?v=2" alt="Gustavo Moreira · Design × Lucas Coimbra · Design²" width="640" />
 </picture>
 
 </div>
