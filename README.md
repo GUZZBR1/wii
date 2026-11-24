@@ -6,6 +6,9 @@
 
 <br/>
 
-<img src="assets/credits.png" alt="Gustavo Moreira · Design × Lucas Coimbra · Design²" width="640" />
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/credits-dark.png" />
+  <img src="assets/credits-light.png" alt="Gustavo Moreira · Design × Lucas Coimbra · Design²" width="640" />
+</picture>
 
 </div>
