@@ -6,6 +6,6 @@
 
 <br/>
 
-<sub>*Gustavo Moreira · Design&nbsp;&nbsp;×&nbsp;&nbsp;Lucas Coimbra · Design²*</sub>
+<img src="assets/credits.png" alt="Gustavo Moreira · Design × Lucas Coimbra · Design²" width="640" />
 
 </div>
