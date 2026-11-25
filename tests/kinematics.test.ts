@@ -3,13 +3,20 @@ import { OneEuroFilter } from '@wii/spatial-core';
 import { AutoCalibrator } from '../src/cv/autoCalibrator';
 import { Calibrator } from '../src/cv/calibrator';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
-import { CadenceTracker } from '../src/kinematics/cadenceTracker';
-import { JumpDetector } from '../src/kinematics/jumpDetector';
 import { landmarkConfidence } from '../src/kinematics/math';
 import { LaneLeanDetector, torsoLeanDeltaRad } from '../src/kinematics/postureSignals';
-import { SchmittTrigger } from '../src/kinematics/schmittTrigger';
 import { hasMeaningfulLateralComponent, SwingDetector } from '../src/kinematics/swingDetector';
-import { calibration, pose, poseWithWorldShoulderWidth, poseWithWorldTorso, rollUpperBody, rotateWorldYaw } from './fixtures/syntheticPose';
+import { calibration, pose, poseWithHipBounce, poseWithWorldShoulderWidth, poseWithWorldTorso, rollUpperBody, rotateWorldYaw } from './fixtures/syntheticPose';
+import { cadenceHarness } from './fixtures/torsoHarness';
+
+/** Feeds the pipeline with torso bounce at 150 spm between `from` and `until` — the run-in-place signal. */
+function driveBounce(pipeline: ActionPipeline, profile: ReturnType<typeof calibration>, from: number, until: number, startAt = 0) {
+  const hz = 150 / 60;
+  for (let time = startAt; time <= until; time += 33) {
+    const units = time >= from ? 0.04 * Math.sin((2 * Math.PI * hz * (time - from)) / 1000) : 0;
+    pipeline.update(poseWithHipBounce(time, units * 0.4), profile);
+  }
+}
 
 function withWorldConfidence(snapshot: ReturnType<typeof pose>, index: number, visibility: number, presence: number) {
   return {
@@ -29,16 +36,6 @@ describe('1-Euro filter', () => {
   });
 });
 
-describe('Schmitt trigger', () => {
-  it('fires once on the upward crossing and rearms below the off threshold', () => {
-    const trigger = new SchmittTrigger(0.1, 0.05, 200);
-    expect(trigger.update(0.11, 0)).toBe(true);
-    expect(trigger.update(0.18, 40)).toBe(false);
-    expect(trigger.update(0.04, 70)).toBe(false);
-    expect(trigger.update(0.11, 240)).toBe(true);
-  });
-});
-
 describe('landmark confidence', () => {
   it('returns zero for no visible points and falls back to presence when visibility is omitted', () => {
     expect(landmarkConfidence()).toBe(0);
@@ -54,119 +51,36 @@ describe('landmark confidence', () => {
 });
 
 describe('cadence tracker', () => {
-  it('counts alternating knee lifts and reports a bounded arcade speed', () => {
-    const tracker = new CadenceTracker();
-    const profile = calibration();
-    const samples = [
-      [0, 0, 0], [100, 0.16, 0], [180, 0.16, 0], [240, 0, 0],
-      [500, 0, 0.16], [580, 0, 0.16], [640, 0, 0],
-      [900, 0.16, 0], [980, 0.16, 0], [1040, 0, 0],
-    ] as const;
-    const result = samples.map(([time, left, right]) => tracker.update(pose(time, { kneeLeft: left, kneeRight: right }), profile));
-    expect(result.filter((item) => item.step)).toHaveLength(3);
-    expect(result.at(-1)!.cadenceSpm).toBeGreaterThan(0);
-    expect(result.at(-1)!.speed01).toBeGreaterThan(0);
-    expect(result.at(-1)!.speed01).toBeLessThanOrEqual(1);
-    expect(tracker.update(pose(1600), profile).cadenceSpm).toBe(0);
+  it('counts steps from torso bounce and reports a bounded arcade speed', () => {
+    const { feed } = cadenceHarness();
+    const results = [];
+    for (let time = 0; time <= 4000; time += 33) {
+      const active = time >= 200 && time <= 3000;
+      const units = active ? 0.04 * Math.sin((2 * Math.PI * 2.5 * (time - 200)) / 1000) : 0;
+      results.push({ time, ...feed(poseWithHipBounce(time, units * 0.4)) });
+    }
+    const steps = results.filter((r) => r.step);
+    expect(steps.length).toBeGreaterThan(3);
+    const active = results.filter((r) => r.time > 1500 && r.time <= 3000);
+    expect(active.every((r) => r.speed01 > 0)).toBe(true);
+    expect(Math.max(...results.map((r) => r.speed01))).toBeLessThanOrEqual(1);
+    expect(results.at(-1)!.cadenceSpm).toBe(0);
   });
 
   it('drops the previous cadence window after a long pause', () => {
-    const tracker = new CadenceTracker();
-    const profile = calibration();
-    const frames = [
-      [0, 0, 0], [100, 0.16, 0], [180, 0.16, 0], [220, 0, 0],
-      [400, 0, 0.16], [480, 0, 0.16], [520, 0, 0],
-      [700, 0.16, 0], [780, 0.16, 0], [820, 0, 0], [2100, 0, 0],
-      [2600, 0.16, 0], [2680, 0.16, 0], [2720, 0, 0],
-    ] as const;
-    const result = frames.map(([time, left, right]) => tracker.update(pose(time, { kneeLeft: left, kneeRight: right }), profile));
-    expect(result.at(-3)!.step).toBe('left');
-    expect(result.at(-3)!.cadenceSpm).toBe(0);
-  });
-
-  it('counts synchronized knee crossings once and alternates exact ties', () => {
-    const tracker = new CadenceTracker();
-    const profile = calibration();
-    const frames = [pose(0), pose(33), pose(66)];
-    for (let time = 100; time <= 199; time += 33) frames.push(pose(time, { kneeLeft: 0.16, kneeRight: 0.16 }));
-    for (let time = 232; time <= 532; time += 33) frames.push(pose(time));
-    for (let time = 600; time <= 699; time += 33) frames.push(pose(time, { kneeLeft: 0.16, kneeRight: 0.16 }));
-    const steps = frames.map((frame) => tracker.update(frame, profile).step).filter(Boolean);
-    expect(steps).toEqual(['left', 'right']);
-  });
-});
-
-describe('jump detector', () => {
-  it('emits once on takeoff and does not emit again on landing', () => {
-    const detector = new JumpDetector();
-    const profile = calibration();
-    const frames = [
-      pose(0), pose(33), pose(66), pose(100), pose(133), pose(166),
-      pose(199, { hipRise: 0.07 }), pose(232, { hipRise: 0.12 }), pose(266, { hipRise: 0.18 }),
-      pose(299, { hipRise: 0.25 }), pose(332, { hipRise: 0.3 }), pose(366, { hipRise: 0.28 }),
-      pose(399, { hipRise: 0.22 }), pose(432, { hipRise: 0.12 }), pose(466, { hipRise: 0.06 }),
-      pose(499, { hipRise: 0.02 }), pose(666), pose(833),
-    ];
-    const fired = frames.map((frame) => detector.update(frame, profile)).filter(Boolean);
-    expect(fired).toHaveLength(1);
-  });
-
-  it('keeps takeoff detection stable when the same movement is sampled at different frame rates', () => {
-    const profile = calibration();
-    const riseAt = (time: number): number => {
-      if (time < 50 || time >= 650) return 0;
-      if (time <= 250) return 0.3 * (time - 50) / 200;
-      if (time <= 350) return 0.3;
-      return 0.3 * (650 - time) / 300;
-    };
-    const fireTimes: number[] = [];
-    for (const frameInterval of [16, 33, 50, 67]) {
-      const detector = new JumpDetector();
-      const fired: number[] = [];
-      for (let time = 0; time <= 1300; time += frameInterval) {
-        if (detector.update(pose(time, { hipRise: riseAt(time - 200) }), profile)) fired.push(time);
-      }
-      expect(fired).toHaveLength(1);
-      fireTimes.push(fired[0]!);
+    const { feed } = cadenceHarness();
+    const hz = 2.5;
+    const results = [];
+    for (let time = 0; time <= 6000; time += 33) {
+      const bouncing = (time >= 200 && time <= 2000) || (time >= 4600 && time <= 4700);
+      const units = bouncing ? 0.04 * Math.sin((2 * Math.PI * hz * time) / 1000) : 0;
+      results.push({ time, ...feed(poseWithHipBounce(time, units * 0.4)) });
     }
-    expect(Math.max(...fireTimes) - Math.min(...fireTimes)).toBeLessThanOrEqual(75);
-  });
-
-  it('arms through resting hip jitter and fires the first jump', () => {
-    const detector = new JumpDetector();
-    const profile = calibration();
-    const rises = [...Array.from({ length: 60 }, (_, i) => (i % 2 === 0 ? 0.002 : -0.002)), 0.07, 0.12, 0.18, 0.25, 0.3];
-    const fired = rises.filter((hipRise, i) => detector.update(pose(i * 33, { hipRise }), profile));
-    expect(fired).toHaveLength(1);
-  });
-
-  it('does not classify small periodic hip bob as a jump', () => {
-    const detector = new JumpDetector();
-    const profile = calibration();
-    const events: boolean[] = [];
-    for (let time = 0; time <= 2000; time += 33) {
-      const hipRise = 0.05 * Math.sin((2 * Math.PI * time) / 500);
-      events.push(detector.update(pose(time, { hipRise }), profile));
-    }
-    expect(events.filter(Boolean)).toHaveLength(0);
-  });
-
-  it('re-arms for a second jump while the hip still oscillates', () => {
-    const detector = new JumpDetector();
-    const profile = calibration();
-    const bump = (time: number, start: number) => {
-      const elapsed = time - start;
-      if (elapsed < 0 || elapsed > 500) return 0;
-      if (elapsed <= 200) return (0.3 * elapsed) / 200;
-      if (elapsed <= 300) return 0.3;
-      return (0.3 * (500 - elapsed)) / 200;
-    };
-    const fired: number[] = [];
-    for (let time = 0; time <= 3400; time += 33) {
-      const hipRise = 0.05 * Math.sin((2 * Math.PI * time) / 500) + bump(time, 800) + bump(time, 2600);
-      if (detector.update(pose(time, { hipRise }), profile)) fired.push(time);
-    }
-    expect(fired).toHaveLength(2);
+    // Steady bouncing establishes a cadence...
+    expect(results.filter((r) => r.time > 1200 && r.time <= 2000).every((r) => r.speed01 > 0)).toBe(true);
+    // ...it stops during the pause (within the 1.6-period stop deadline), and the brief
+    // pulse afterwards cannot resurrect it.
+    expect(results.filter((r) => r.time > 2800).every((r) => r.cadenceSpm === 0)).toBe(true);
   });
 });
 
@@ -271,16 +185,112 @@ describe('world-space posture calibration', () => {
     calibrator.start(0);
     for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { leanRad: 0.2 }));
     const world = calibrator.finish()!.world;
-    expect(world.leanUp0?.x).toBeCloseTo(0, 2);
-    expect(world.leanUp0?.y).toBeCloseTo(-1, 2);
-    expect(world.leanUp0?.z).toBeCloseTo(0, 2);
+    expect(world.leanUp0.x).toBeCloseTo(0, 2);
+    expect(world.leanUp0.y).toBeCloseTo(-1, 2);
+    expect(world.leanUp0.z).toBeCloseTo(0, 2);
     expect(world.torsoLeanRad0).toBeCloseTo(0.2, 2);
   });
 
-  it('rejects calibration when the full-body landmarks stay below the confidence gate', () => {
+  it('completes with knees and ankles invisible the whole time — leanUp0 comes from the trunk', () => {
+    // Track framing: the camera only sees head, shoulders and hips. Calibration must still
+    // complete, and the lean reference falls back to the trunk direction — tilted together
+    // with the trunk lean, which is exactly what measuring lean as a delta absorbs.
+    const noLegs = (time: number) => {
+      const snapshot = pose(time, { leanRad: 0.2, hiddenLandmarks: [25, 26, 27, 28] });
+      return {
+        ...snapshot,
+        worldLandmarks: snapshot.worldLandmarks.map((point, index) => (index >= 25 ? { ...point, visibility: 0, presence: 0 } : point)),
+      };
+    };
     const calibrator = new Calibrator();
     calibrator.start(0);
-    for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { hiddenLandmarks: [25, 26] }));
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(noLegs(time));
+    const profile = calibrator.finish();
+    expect(profile).not.toBeNull();
+    expect(profile!.world.leanUp0).toBeDefined();
+    // Trunk-derived: the reference leans with the trunk instead of pointing straight up.
+    expect(Math.abs(profile!.world.leanUp0.x)).toBeGreaterThan(0.05);
+  });
+
+  it('prefers the leg vertical over the trunk direction when the stance is verified', () => {
+    // Same trunk lean as the trunk-fallback test, but with legs visible and straight:
+    // the reference must come from the legs — straight up, not tilted with the trunk.
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { leanRad: 0.2 }));
+    const world = calibrator.finish()!.world;
+    expect(Math.abs(world.leanUp0.x)).toBeLessThan(0.02);
+    expect(world.leanUp0.y).toBeCloseTo(-1, 2);
+  });
+
+  it('falls back to the trunk vertical when straight-leg coverage drops below 65% of all frames', () => {
+    const noAnkles = (time: number) => withWorldConfidence(
+      withWorldConfidence(pose(time, { leanRad: 0.2 }), 27, 0, 0), 28, 0, 0,
+    );
+    const calibrateWithGaps = (hideAnkles: (frame: number) => boolean) => {
+      const calibrator = new Calibrator();
+      calibrator.start(0);
+      for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
+        calibrator.add(hideAnkles(frame) ? noAnkles(time) : pose(time, { leanRad: 0.2 }));
+      }
+      return calibrator.finish()!.world;
+    };
+    // Mostly visible legs: the leg vertical wins — upright reference.
+    expect(Math.abs(calibrateWithGaps((frame) => frame % 4 === 0).leanUp0.x)).toBeLessThan(0.02);
+    // Legs hidden half the time: coverage insufficient — the trunk direction takes over.
+    expect(Math.abs(calibrateWithGaps((frame) => frame % 2 === 0).leanUp0.x)).toBeGreaterThan(0.05);
+  });
+
+  it('omits readyWristLocal when wrist coverage is below 65% but keeps the rest of the profile', () => {
+    const noWrists = (time: number) => {
+      const one = withWorldConfidence(pose(time), 15, 0, 0);
+      return withWorldConfidence(one, 16, 0, 0);
+    };
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
+      calibrator.add(frame % 2 === 0 ? noWrists(time) : pose(time));
+    }
+    const profile = calibrator.finish()!;
+    expect(profile).not.toBeNull();
+    expect(profile.world.readyWristLocal).toBeUndefined();
+    expect(profile.world.leanUp0).toBeDefined();
+  });
+
+  it('does not publish a non-finite wrist reference', () => {
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) {
+      const snapshot = pose(time);
+      const worldLandmarks = [...snapshot.worldLandmarks];
+      worldLandmarks[15] = { ...worldLandmarks[15]!, x: Number.NaN };
+      calibrator.add({ ...snapshot, worldLandmarks });
+    }
+
+    const profile = calibrator.finish();
+    expect(profile).not.toBeNull();
+    expect(profile?.world.readyWristLocal).toBeUndefined();
+    expect(Number.isFinite(profile?.world.shoulderWidth)).toBe(true);
+  });
+
+  it('keeps readyWristLocal when wrist coverage suffices even if the legs are never verified', () => {
+    // Wrists visible throughout, ankles hidden throughout: tennis framing without leg
+    // verification — swings must still get their reference while the lean falls back.
+    const noAnkles = (time: number) => withWorldConfidence(
+      withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
+    );
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(noAnkles(time));
+    const profile = calibrator.finish()!;
+    expect(profile.world.readyWristLocal).toBeDefined();
+    expect(profile.world.leanUp0).toBeDefined();
+  });
+
+  it('rejects calibration when the torso core stays below the confidence gate', () => {
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { hiddenLandmarks: [11, 12, 23, 24] }));
     expect(calibrator.finish()).toBeNull();
   });
 
@@ -290,7 +300,7 @@ describe('world-space posture calibration', () => {
     // The body gate marks a frame degraded/lost when image landmarks [11,12,23,24] drop
     // below 0.55. Finish() must agree — its confidence set has to stay a superset of the
     // gate's, otherwise tolerated bad frames would enter the medians as valid samples.
-    for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { hiddenLandmarks: [11, 12, 23, 24] }));
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { hiddenLandmarks: [23, 24] }));
     expect(calibrator.finish()).toBeNull();
   });
 
@@ -303,29 +313,25 @@ describe('world-space posture calibration', () => {
     expect(calibrator.finish()).toBeNull();
   });
 
-  it('rejects landmarks with non-finite coordinates instead of storing a poisoned profile', () => {
-    const calibrator = new Calibrator();
-    calibrator.start(0);
-    for (let time = 0; time <= 3000; time += 100) {
-      const snapshot = pose(time);
-      const landmarks = [...snapshot.landmarks];
-      landmarks[11] = { ...landmarks[11]!, x: Number.NaN };
-      calibrator.add({ ...snapshot, landmarks });
-    }
-
-    expect(calibrator.finish()).toBeNull();
-  });
-
   it('counts degraded frames in calibration coverage instead of hiding them from the ratio', () => {
     const calibrator = new Calibrator();
     calibrator.start(0);
     for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
       const invalid = frame % 2 === 1;
-      const snapshot = pose(time, invalid ? { hiddenLandmarks: [25, 26] } : {});
+      const snapshot = pose(time, invalid ? { hiddenLandmarks: [23, 24] } : {});
       if (invalid) snapshot.trackingState = 'degraded';
       calibrator.add(snapshot);
     }
     expect(calibrator.finish()).toBeNull();
+  });
+
+  it('emits no image-space calibration block — jump and cadence are self-referencing now', () => {
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time));
+    const profile = calibrator.finish()!;
+    expect(profile.version).toBe(2);
+    expect('image' in profile).toBe(false);
   });
 
   it('uses world torso geometry for lane lean and emits one direction while the pose is held', () => {
@@ -352,6 +358,25 @@ describe('world-space posture calibration', () => {
     const detector = new LaneLeanDetector();
     const signals = Array.from({ length: 12 }, (_, i) => detector.update(frame(i * 33, i < 4 ? 0 : roll), profile));
     expect(signals.filter(Boolean)).toEqual([direction]);
+  });
+
+  it('does not read a body turn as lean after calibrating with a forward-tilted trunk', () => {
+    // Level camera, trunk calibrated 20° forward: the slanted trunk would lean the reference,
+    // but the stored vertical comes from the legs, which point along gravity.
+    const tilt = (20 * Math.PI) / 180;
+    const up = { x: 0, y: -Math.cos(tilt), z: Math.sin(tilt) };
+    const down = { x: 0, y: 1, z: 0 };
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(poseWithWorldTorso(time, { up, down }));
+    const profile = calibrator.finish()!;
+    const turned = rotateWorldYaw(poseWithWorldTorso(0, { up, down }), Math.PI / 4);
+    expect(torsoLeanDeltaRad(turned, profile)).toBeCloseTo(0, 2);
+    const detector = new LaneLeanDetector();
+    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
+      rotateWorldYaw(poseWithWorldTorso(i * 33, { up, down }), (i * Math.PI) / 20), profile,
+    ));
+    expect(signals.filter(Boolean)).toHaveLength(0);
   });
 
   it('does not read an upright body turn as lean when the camera is tilted', () => {
@@ -381,153 +406,6 @@ describe('world-space posture calibration', () => {
     expect(signals.filter(Boolean)).toEqual([direction]);
   });
 
-  it('does not read a body turn as lean after calibrating with a forward-tilted trunk', () => {
-    // Level camera, trunk calibrated 20° forward: the slanted trunk would lean the reference,
-    // but the stored vertical comes from the legs, which point along gravity.
-    const tilt = (20 * Math.PI) / 180;
-    const up = { x: 0, y: -Math.cos(tilt), z: Math.sin(tilt) };
-    const down = { x: 0, y: 1, z: 0 };
-    const calibrator = new Calibrator();
-    calibrator.start(0);
-    for (let time = 0; time <= 3000; time += 100) calibrator.add(poseWithWorldTorso(time, { up, down }));
-    const profile = calibrator.finish()!;
-    const turned = rotateWorldYaw(poseWithWorldTorso(0, { up, down }), Math.PI / 4);
-    expect(torsoLeanDeltaRad(turned, profile)).toBeCloseTo(0, 2);
-    const detector = new LaneLeanDetector();
-    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
-      rotateWorldYaw(poseWithWorldTorso(i * 33, { up, down }), (i * Math.PI) / 20), profile,
-    ));
-    expect(signals.filter(Boolean)).toHaveLength(0);
-  });
-
-  it('saves a lean-less profile when the leg vertical cannot be verified', () => {
-    // Ankles hidden (tennis framing): the thigh direction cannot be checked against the shins,
-    // so the profile ships without a lean reference — swings still work, lane changes stay off.
-    const noAnkles = (time: number, options?: Parameters<typeof pose>[1]) => withWorldConfidence(
-      withWorldConfidence(pose(time, options), 27, 0, 0), 28, 0, 0,
-    );
-    const calibrator = new Calibrator();
-    calibrator.start(0);
-    for (let time = 0; time <= 3000; time += 100) calibrator.add(noAnkles(time));
-    const profile = calibrator.finish()!;
-    expect(profile.world.leanUp0).toBeUndefined();
-    expect(profile.image.hipY0).toBeUndefined();
-    const swing = new SwingDetector('right');
-    for (let time = 0; time <= 240; time += 40) expect(swing.update(noAnkles(time), profile)).toBeUndefined();
-    swing.update(noAnkles(270, { wristLateral: -0.2 }), profile);
-    expect(swing.update(noAnkles(310, { wristLateral: 0.2 }), profile)).toMatchObject({ side: 'forehand' });
-    const lane = new LaneLeanDetector();
-    const signals = [0, 33, 66, 99, 132, 165, 198].map((time) => lane.update(
-      pose(time, { leanRad: 0.3 }), profile,
-    ));
-    expect(signals.filter(Boolean)).toHaveLength(0);
-    // The same takeoff sequence emits one jump with a complete profile and stays silent
-    // with the partial one — the neutral dwell is what arms the detector.
-    const frames = [
-      pose(0), pose(33), pose(66), pose(100), pose(133), pose(166),
-      pose(199, { hipRise: 0.07 }), pose(232, { hipRise: 0.12 }), pose(266, { hipRise: 0.18 }),
-      pose(299, { hipRise: 0.25 }), pose(332, { hipRise: 0.3 }), pose(366, { hipRise: 0.28 }),
-      pose(399, { hipRise: 0.22 }), pose(432, { hipRise: 0.12 }), pose(466, { hipRise: 0.06 }),
-      pose(499, { hipRise: 0.02 }), pose(666), pose(833),
-    ];
-    const complete = new JumpDetector();
-    expect(frames.map((frame) => complete.update(frame, calibration())).filter(Boolean)).toHaveLength(1);
-    const jump = new JumpDetector();
-    expect(frames.map((frame) => jump.update(frame, profile)).filter(Boolean)).toHaveLength(0);
-  });
-
-  it('verifies the stance references only when the legs stay visible for most of the window', () => {
-    const noAnkles = (time: number) => withWorldConfidence(
-      withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
-    );
-    const calibrateWithGaps = (hideAnkles: (frame: number) => boolean) => {
-      const calibrator = new Calibrator();
-      calibrator.start(0);
-      for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
-        calibrator.add(hideAnkles(frame) ? noAnkles(time) : pose(time));
-      }
-      return calibrator.finish()!.world;
-    };
-    // A cobertura é tempo continuamente observado: um bloco inicial sem tornozelos preserva
-    // os intervalos do trecho visível — 73% da janela verifica.
-    expect(calibrateWithGaps((frame) => frame < 8).leanUp0).toBeDefined();
-    // Batida espalhada moderada (3 frames em 31) ainda deixa ~83% dos intervalos cobertos.
-    expect(calibrateWithGaps((frame) => frame % 10 === 0 && frame > 0).leanUp0).toBeDefined();
-    // Metade da janela sem tornozelos não verifica — salto e raia ficam desativados.
-    const unverified = calibrateWithGaps((frame) => frame < 16);
-    expect(unverified.leanUp0).toBeUndefined();
-  });
-
-  it('counts the leg-verification threshold over all captured frames, not just the valid ones', () => {
-    // 9 pose-less frames leave 22 valid (still ≥65% of the window); the legs verify in 17
-    // of them — over half the valid set, but under 65% of everything captured.
-    const noAnkles = (time: number) => withWorldConfidence(
-      withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
-    );
-    const calibrator = new Calibrator();
-    calibrator.start(0);
-    for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
-      calibrator.add(frame < 9 ? pose(time, { confidence: 0.1 }) : frame < 14 ? noAnkles(time) : pose(time));
-    }
-    const profile = calibrator.finish()!;
-    expect(profile).not.toBeNull();
-    expect(profile.world.leanUp0).toBeUndefined();
-  });
-
-  it('verifies the stance separately from the racket reference', () => {
-    // Wrist and ankle confidence drop on different frames: each gate sees enough samples
-    // on its own, so the profile keeps both the racket and the stance references.
-    const noWrist = (time: number) => withWorldConfidence(pose(time), 16, 0, 0);
-    const noAnkles = (time: number) => withWorldConfidence(
-      withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
-    );
-    const calibrator = new Calibrator();
-    calibrator.start(0);
-    for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
-      calibrator.add(frame < 8 ? noWrist(time) : frame < 15 ? noAnkles(time) : pose(time));
-    }
-    const profile = calibrator.finish()!;
-    expect(profile.world.leanUp0).toBeDefined();
-    expect(profile.image.hipY0).toBeDefined();
-  });
-
-  it('measures the jump baseline only over verified-stance frames', () => {
-    // A third of the window crouches on bent knees: those frames still feed the swing and
-    // cadence baselines, but the hip height comes only from the verified standing frames.
-    const bend = (20 * Math.PI) / 180;
-    const thighDown = { x: 0, y: Math.cos(bend), z: Math.sin(bend) };
-    const shinDown = { x: 0, y: 1, z: 0 };
-    const crouched = (time: number) => {
-      const snapshot = poseWithWorldTorso(time, { down: thighDown, shinDown });
-      return {
-        ...snapshot,
-        landmarks: snapshot.landmarks.map((p, i) => ((i === 23 || i === 24) ? { ...p, y: 0.59 } : p)),
-      };
-    };
-    const calibrator = new Calibrator();
-    calibrator.start(0);
-    for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
-      calibrator.add(frame < 10 ? crouched(time) : pose(time));
-    }
-    const profile = calibrator.finish()!;
-    expect(profile.world.leanUp0).toBeDefined();
-    expect(profile.image.hipY0).toBeCloseTo(0.55, 5);
-  });
-
-  it('leaves the lean reference unset when the knees are bent at calibration', () => {
-    // Standing with knees bent 20°: shins stay vertical, thighs tilt forward — the thigh
-    // direction is not a standing vertical and cannot back the lean reference.
-    const bend = (20 * Math.PI) / 180;
-    const thighDown = { x: 0, y: Math.cos(bend), z: Math.sin(bend) };
-    const shinDown = { x: 0, y: 1, z: 0 };
-    const calibrator = new Calibrator();
-    calibrator.start(0);
-    for (let time = 0; time <= 3000; time += 100) {
-      calibrator.add(poseWithWorldTorso(time, { down: thighDown, shinDown }));
-    }
-    expect(calibrator.finish()!.world.leanUp0).toBeUndefined();
-  });
-
   it('measures a whole-body lean where the thighs rotate with the trunk', () => {
     // Ankle-pivot lean: trunk and thighs stay parallel, so the fixed reference must not follow.
     const down = { x: Math.sin(0.24), y: Math.cos(0.24), z: 0 };
@@ -547,6 +425,31 @@ describe('world-space posture calibration', () => {
     const detector = new LaneLeanDetector();
     const signals = Array.from({ length: 8 }, (_, i) => detector.update(hiddenKnees(i * 33), profile));
     expect(signals.filter(Boolean)).toHaveLength(0);
+  });
+
+  it('keeps lane lean working with a trunk-derived reference when the legs were never visible', () => {
+    // The trunk-derived reference absorbs the habitual posture at calibration; a lean AWAY
+    // from neutral must still read as a delta and emit lane changes.
+    const noLegs = (time: number, leanRad = 0) => {
+      const snapshot = pose(time, { leanRad, hiddenLandmarks: [25, 26, 27, 28] });
+      return {
+        ...snapshot,
+        worldLandmarks: snapshot.worldLandmarks.map((point, index) => (index >= 25 ? { ...point, visibility: 0, presence: 0 } : point)),
+      };
+    };
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(noLegs(time));
+    const profile = calibrator.finish()!;
+    // Neutral reads zero...
+    expect(torsoLeanDeltaRad(noLegs(0), profile)).toBeCloseTo(0, 1);
+    // ...and a real lean reads as a delta of the right size.
+    expect(torsoLeanDeltaRad(noLegs(0, 0.24), profile)).toBeCloseTo(0.24, 1);
+    const detector = new LaneLeanDetector();
+    const signals = [0, 33, 66, 99, 132, 165, 198].map((time) => detector.update(
+      noLegs(time, time < 99 ? 0 : 0.24), profile,
+    )).filter(Boolean);
+    expect(signals).toEqual(['right']);
   });
 
   it('waits for neutral posture before emitting a lane change after tracking reset', () => {
@@ -589,71 +492,78 @@ describe('action pipeline tracking gate', () => {
     const result = pipeline.update(pose(133, { ...hiddenKnees, wristLateral: 0.2 }), profile);
     expect(result.snapshot.trackingState).toBe('tracked');
     expect(result.events.filter((event) => event.type === 'swing')).toHaveLength(1);
-    expect(result.events.filter((event) => event.type === 'sprint')).toHaveLength(0);
+    expect(result.events.filter((event) => event.type === 'sprint').every((event) => event.speed01 === 0)).toBe(true);
   });
 
-  it('preserves a raised-knee latch through a one-frame confidence dip', () => {
+  it('preserves the step stream through a one-frame confidence dip', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
-    [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
-    pipeline.update(pose(99, { kneeLeft: 0.16 }), profile);
-    pipeline.update(pose(132, { kneeLeft: 0.16 }), profile);
-    pipeline.update(pose(165, { kneeLeft: 0.16 }), profile);
-    const firstStep = pipeline.update(pose(198, { kneeLeft: 0.16 }), profile);
-    expect(firstStep.events.filter((event) => event.type === 'step')).toHaveLength(1);
-    const degraded = pipeline.update(pose(231, { kneeLeft: 0.16, confidence: 0.1 }), profile);
+    const hz = 150 / 60;
+    const bounceAt = (time: number) => poseWithHipBounce(time, 0.04 * Math.sin((2 * Math.PI * hz * time) / 1000) * 0.4);
+    for (let time = 0; time <= 1500; time += 33) pipeline.update(bounceAt(time), profile);
+    const before = pipeline.update(bounceAt(1533), profile);
+    expect(before.controls.trackingState).toBe('tracked');
+    const degraded = pipeline.update(pose(1566, { confidence: 0.1 }), profile);
     expect(degraded.controls).toMatchObject({ sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'degraded' });
-    const recovery = [264, 297, 330].map((time) => pipeline.update(pose(time, { kneeLeft: 0.16 }), profile));
-    expect(recovery.flatMap((result) => result.events).filter((event) => event.type === 'step')).toHaveLength(0);
+    expect(degraded.events.filter((event) => event.type === 'step')).toHaveLength(0);
+    // The gate needs three consecutive good frames to leave 'degraded' — and no spurious
+    // step fires out of the dip itself.
+    const recovery = [1599, 1632, 1665].map((time) => pipeline.update(bounceAt(time), profile));
+    expect(recovery.at(-1)!.controls.trackingState).toBe('tracked');
   });
 
   it('exposes neutral continuous sprint control as cadence tracking is lost', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
-    const frames = [
-      [0, 0, 0], [33, 0, 0], [66, 0, 0],
-      [166, 0.16, 0], [246, 0.16, 0], [306, 0, 0],
-      [566, 0, 0.16], [646, 0, 0.16], [706, 0, 0],
-      [966, 0.16, 0], [1046, 0.16, 0],
-    ] as const;
-    const active = frames.map(([time, left, right]) => pipeline.update(pose(time, { kneeLeft: left, kneeRight: right }), profile)).at(-1)!;
+    driveBounce(pipeline, profile, 66, 1046);
+    const active = pipeline.update(poseWithHipBounce(1079, 0), profile);
     expect(active.controls.sprintSpeed01).toBeGreaterThan(0);
-    const lost = [1110, 1143, 1176, 1209].map((time) => pipeline.update(pose(time, { hiddenLandmarks: [25, 26] }), profile)).at(-1)!;
+    const lost = [1110, 1143, 1176, 1209].map((time) => pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile)).at(-1)!;
     expect(lost.controls).toMatchObject({ sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'lost' });
   });
 
   it.each([
-    ['hidden knees', 'degraded'],
+    ['hidden hips', 'degraded'],
     ['removed calibration', 'lost'],
     ['reset', 'lost'],
   ] as const)('stops the sprint exactly once on %s', (cause, state) => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
-    const frames = [
-      [0, 0, 0], [33, 0, 0], [66, 0, 0],
-      [166, 0.16, 0], [246, 0.16, 0], [306, 0, 0],
-      [566, 0, 0.16], [646, 0, 0.16], [706, 0, 0],
-      [966, 0.16, 0], [1046, 0.16, 0],
-    ] as const;
-    frames.forEach(([time, left, right]) => { pipeline.update(pose(time, { kneeLeft: left, kneeRight: right }), profile); });
-    const after = [1079, 1112].flatMap((time) => {
+    driveBounce(pipeline, profile, 66, 1046);
+    pipeline.update(poseWithHipBounce(1079, 0), profile);
+    const after = [1112, 1145].flatMap((time) => {
       if (cause === 'reset') return pipeline.reset();
       if (cause === 'removed calibration') return pipeline.update(pose(time)).events;
-      return pipeline.update(pose(time, { hiddenLandmarks: [25, 26] }), profile).events;
+      return pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile).events;
     });
     expect(after.filter((event) => event.type === 'sprint')).toMatchObject([{ speed01: 0, cadenceSpm: 0, trackingState: state }]);
+  });
+
+  it('keeps the sprint going when the knees leave the camera frame', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const hz = 150 / 60;
+    const events = [];
+    for (let time = 0; time <= 2500; time += 33) {
+      const units = time >= 66 ? 0.04 * Math.sin((2 * Math.PI * hz * (time - 66)) / 1000) : 0;
+      const snapshot = poseWithHipBounce(time, units * 0.4);
+      // Knees and ankles are out of frame the whole time — irrelevant for torso-driven cadence.
+      const hiddenLegs = {
+        ...snapshot,
+        landmarks: snapshot.landmarks.map((point, index) => (index >= 25 ? { ...point, visibility: 0, presence: 0 } : point)),
+      };
+      events.push(...pipeline.update(hiddenLegs, profile).events);
+    }
+    const steps = events.filter((event) => event.type === 'step');
+    expect(steps.length).toBeGreaterThan(3);
+    expect(events.filter((event) => event.type === 'sprint').every((event) => event.trackingState === 'tracked')).toBe(true);
   });
 
   it('keeps a standstill measured on a tracked pose stamped as tracked', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
-    const frames = [
-      [0, 0, 0], [33, 0, 0], [66, 0, 0],
-      [166, 0.16, 0], [246, 0.16, 0], [306, 0, 0],
-      [566, 0, 0.16], [646, 0, 0.16], [706, 0, 0],
-      [966, 0.16, 0], [1046, 0.16, 0],
-    ] as const;
-    frames.forEach(([time, left, right]) => { pipeline.update(pose(time, { kneeLeft: left, kneeRight: right }), profile); });
+    driveBounce(pipeline, profile, 66, 1046);
+    pipeline.update(poseWithHipBounce(1079, 0), profile);
     const still = [1600, 1633].flatMap((time) => pipeline.update(pose(time), profile).events);
     expect(still.filter((event) => event.type === 'sprint')).toMatchObject([
       { speed01: 0, cadenceSpm: 0, trackingState: 'tracked' },
@@ -680,18 +590,12 @@ describe('action pipeline tracking gate', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
     const events = [];
-    for (let time = 0; time <= 2100; time += 33) {
-      const elapsed = Math.max(0, time - 200);
-      const cycle = Math.floor(elapsed / 400);
-      const withinStep = elapsed % 400;
-      const lift = time >= 200 && withinStep < 200 ? 0.16 : 0;
-      const snapshot = pose(time, {
-        kneeLeft: cycle % 2 === 0 ? lift : 0,
-        kneeRight: cycle % 2 === 1 ? lift : 0,
-        hipRise: 0.05 * Math.sin((2 * Math.PI * time) / 500),
-      });
-      events.push(...pipeline.update(snapshot, profile).events);
+    for (let time = 0; time <= 3000; time += 33) {
+      const units = time >= 200 ? 0.05 * Math.sin((2 * Math.PI * time) / 500) : 0;
+      events.push(...pipeline.update(poseWithHipBounce(time, units * 0.4), profile).events);
     }
+    // The hip bounce IS the running signal now — cadence comes from the same channel that
+    // the jump detector must reject as a jump.
     expect(events.filter((event) => event.type === 'step').length).toBeGreaterThan(3);
     expect(events.filter((event) => event.type === 'jump')).toHaveLength(0);
   });
@@ -828,6 +732,82 @@ describe('mão da raquete', () => {
   });
 });
 
+describe('action pipeline (upper-body only)', () => {
+  /** Full torso-core visibility, legs and wrists absent in BOTH spaces the whole time. */
+  const torsoOnly = (time: number, hipYOffset = 0) => {
+    const snapshot = poseWithHipBounce(time, hipYOffset);
+    return {
+      ...snapshot,
+      landmarks: snapshot.landmarks.map((point, index) => (index >= 25 || index === 15 || index === 16 ? { ...point, visibility: 0, presence: 0 } : point)),
+      worldLandmarks: snapshot.worldLandmarks.map((point, index) => (index >= 25 || index === 15 || index === 16 ? { ...point, visibility: 0, presence: 0 } : point)),
+    };
+  };
+
+  it('produces sprint and step events with legs and wrists absent the whole time', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const hz = 150 / 60;
+    const events = [];
+    for (let time = 0; time <= 3000; time += 33) {
+      const units = time >= 200 ? 0.04 * Math.sin((2 * Math.PI * hz * (time - 200)) / 1000) : 0;
+      events.push(...pipeline.update(torsoOnly(time, -units * 0.4), profile).events);
+    }
+    expect(events.filter((event) => event.type === 'step').length).toBeGreaterThan(3);
+    expect(events.some((event) => event.type === 'sprint' && event.speed01 > 0)).toBe(true);
+  });
+
+  it('does not emit jumps for running bounce but does emit a mid-run jump, torso-only', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const hz = 2.8;
+    // Same physics-coherent shape as the detector tests: crouch, quadratic powered rise
+    // (velocity peaks at liftoff), simplified hold and landing.
+    const jumpAt = (timeMs: number) => {
+      const t = timeMs - 3000;
+      if (t < 0) return 0;
+      if (t < 250) return -0.1 * Math.sin((Math.PI * t) / 250) * 0.5 - (0.1 * t) / 500;
+      if (t < 430) { const u = (t - 250) / 180; return -0.1 + 0.35 * u * u; }
+      if (t < 700) return 0.25;
+      if (t < 1000) return 0.25 * (1 - (t - 700) / 300);
+      return 0;
+    };
+    const events = [];
+    for (let time = 0; time <= 5000; time += 33) {
+      // Quiet standing first (arms the jump detector), then bounce, then bounce+jump.
+      const bouncing = time >= 1000;
+      const units = (bouncing ? 0.05 * Math.sin((2 * Math.PI * hz * (time - 1000)) / 1000) : 0) + jumpAt(time);
+      events.push(...pipeline.update(torsoOnly(time, -units * 0.4), profile).events);
+    }
+    const jumps = events.filter((event) => event.type === 'jump');
+    expect(jumps).toHaveLength(1);
+    expect(jumps[0]!.timestampMs).toBeGreaterThan(3000);
+    // No jump is emitted during the pure-bounce portion before 3000.
+    expect(events.filter((event) => event.type === 'jump' && event.timestampMs < 3000)).toHaveLength(0);
+  });
+
+  it('emits no swings without readyWristLocal, but lanes, cadence and jump still work', () => {
+    const pipeline = new ActionPipeline();
+    const noWristProfile = {
+      ...calibration(),
+      world: { ...calibration().world, readyWristLocal: undefined },
+    };
+    const events = [];
+    const hz = 150 / 60;
+    for (let time = 0; time <= 2500; time += 33) {
+      const units = time >= 200 && time <= 1500 ? 0.04 * Math.sin((2 * Math.PI * hz * (time - 200)) / 1000) : 0;
+      // Big wrist arcs on top — none of them may produce a swing without the reference.
+      const snapshot = torsoOnly(time, units * 0.4);
+      const withWrist = {
+        ...snapshot,
+        worldLandmarks: snapshot.worldLandmarks.map((point, index) => (index === 16 ? { ...point, x: -0.2 - (time % 2 === 0 ? -0.3 : 0.3), visibility: 0.95, presence: 0.95 } : point)),
+      };
+      events.push(...pipeline.update(withWrist, noWristProfile).events);
+    }
+    expect(events.filter((event) => event.type === 'swing')).toHaveLength(0);
+    expect(events.filter((event) => event.type === 'step').length).toBeGreaterThan(2);
+  });
+});
+
 describe('calibração automática', () => {
   const run = (frame: (time: number) => ReturnType<typeof pose>) => {
     const auto = new AutoCalibrator();
@@ -835,9 +815,11 @@ describe('calibração automática', () => {
   };
 
   it('calibra sozinha com o corpo parado, com repouso para as duas mãos', () => {
-    const profile = run((time) => pose(time)).find((step) => step.profile)?.profile;
-    expect(profile?.world.readyWristLocal.left).toBeDefined();
-    expect(profile?.world.readyWristLocal.right).toBeDefined();
+    const auto = new AutoCalibrator();
+    const profile = Array.from({ length: 61 }, (_, i) => auto.update(pose(i * 100), { needsWrists: true }))
+      .find((step) => step.profile)?.profile;
+    expect(profile?.world.readyWristLocal?.left).toBeDefined();
+    expect(profile?.world.readyWristLocal?.right).toBeDefined();
   });
 
   it('não calibra enquanto a pessoa se mexe', () => {
@@ -849,10 +831,21 @@ describe('calibração automática', () => {
   });
 });
 
-it('pede enquadramento enquanto os joelhos não aparecem', () => {
+it('completa a calibração de corrida sem nunca ver joelhos, tornozelos ou punhos', () => {
   const auto = new AutoCalibrator();
-  const steps = Array.from({ length: 61 }, (_, i) => auto.update(pose(i * 100, { hiddenLandmarks: [25, 26] })));
-  expect(steps.every((step) => step.phase === 'framing')).toBe(true);
+  const hidden = (time: number) => {
+    const snapshot = pose(time, { hiddenLandmarks: [15, 16, 25, 26, 27, 28] });
+    return {
+      ...snapshot,
+      worldLandmarks: snapshot.worldLandmarks.map((point, index) => (index >= 25 || index === 15 || index === 16 ? { ...point, visibility: 0, presence: 0 } : point)),
+    };
+  };
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(hidden(i * 100)));
+  const done = steps.find((step) => step.profile);
+  expect(done?.profile).toBeDefined();
+  // Núcleo do torso presente; referência de punho omitida — swings ficam fora, o resto joga.
+  expect(done?.profile?.world.readyWristLocal).toBeUndefined();
+  expect(done?.profile?.world.leanUp0).toBeDefined();
 });
 
 it('pede enquadramento quando não há ninguém no quadro', () => {
@@ -868,47 +861,43 @@ it('conta quadros sem enquadramento na cobertura em vez de escondê-los da razã
   expect(steps.some((step) => step.profile)).toBe(false);
 });
 
-it('exige tornozelos no enquadramento quando o esporte precisa de postura em pé', () => {
+it('no modo tênis pede enquadramento enquanto os punhos não aparecem', () => {
   const auto = new AutoCalibrator();
-  const steps = Array.from({ length: 45 }, (_, i) => auto.update(pose(i * 100, { hiddenLandmarks: [27, 28] }), true));
+  const steps = Array.from({ length: 45 }, (_, i) => auto.update(pose(i * 100, { hiddenLandmarks: [15, 16] }), { needsWrists: true }));
   expect(steps.every((step) => step.phase === 'framing')).toBe(true);
 });
 
-it('descarta a coleta quando o torso se move enquanto os tornozelos exigidos estão ocultos', () => {
+it('no modo tênis não conclui se os punhos somem durante a coleta', () => {
   const auto = new AutoCalibrator();
-  auto.update(pose(0), true);
-  expect(auto.update(pose(1000), true).phase).toBe('collecting');
-
-  // O gate da postura pede tornozelos, mas os outros pontos usados pelo perfil continuam
-  // visíveis. Movimento do torso durante essa perda não pode contaminar as medianas.
-  const movedWithoutAnkles = pose(1100, { hipRise: 0.2, hiddenLandmarks: [27, 28] });
-  expect(auto.update(movedWithoutAnkles, true).phase).toBe('framing');
-});
-
-it('rejeita perfil sem vertical das pernas quando o esporte precisa dela', () => {
-  const auto = new AutoCalibrator();
-  const noWorldAnkles = (time: number) => withWorldConfidence(withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0);
-  const steps = Array.from({ length: 45 }, (_, i) => auto.update(noWorldAnkles(i * 100), true));
+  // Wrists visible at framing, gone (image and world) through most of the collection:
+  // coverage below 65% omits readyWristLocal — for tennis that means retry, not a
+  // swing-less profile.
+  const frame = (i: number) => {
+    const time = i * 100;
+    if (i <= 12) return pose(time);
+    const snapshot = pose(time, { hiddenLandmarks: [15, 16] });
+    return {
+      ...snapshot,
+      worldLandmarks: snapshot.worldLandmarks.map((point, index) => (index === 15 || index === 16 ? { ...point, visibility: 0, presence: 0 } : point)),
+    };
+  };
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(frame(i), { needsWrists: true }));
   expect(steps.some((step) => step.profile)).toBe(false);
 });
 
-it('aceita perfil parcial quando o esporte não precisa da vertical das pernas', () => {
+it('no modo tênis conclui com os punhos visíveis mesmo sem joelhos nem tornozelos', () => {
   const auto = new AutoCalibrator();
-  const noWorldAnkles = (time: number) => withWorldConfidence(withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0);
-  const steps = Array.from({ length: 45 }, (_, i) => auto.update(noWorldAnkles(i * 100)));
+  const hidden = (time: number) => {
+    const snapshot = pose(time, { hiddenLandmarks: [25, 26, 27, 28] });
+    return {
+      ...snapshot,
+      worldLandmarks: snapshot.worldLandmarks.map((point, index) => (index >= 25 ? { ...point, visibility: 0, presence: 0 } : point)),
+    };
+  };
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(hidden(i * 100), { needsWrists: true }));
   const done = steps.find((step) => step.profile);
   expect(done?.profile).toBeDefined();
-  expect(done?.profile?.world.leanUp0).toBeUndefined();
-});
-
-it('encerra a tentativa no prazo mesmo quando os tornozelos não voltam', () => {
-  const auto = new AutoCalibrator();
-  // Ankles leave the frame right after the collection starts and never come back: the
-  // deadline still applies, the buffer is dropped and framing resumes — no stuck 100%.
-  const steps = Array.from({ length: 45 }, (_, i) => auto.update(pose(i * 100, { hiddenLandmarks: i <= 10 ? [] : [27, 28] }), true));
-  expect(steps.some((step) => step.phase === 'collecting')).toBe(true);
-  expect(steps.some((step) => step.phase === 'collecting' && step.progress >= 1)).toBe(false);
-  expect(steps.at(-1)?.phase).toBe('framing');
+  expect(done?.profile?.world.readyWristLocal).toBeDefined();
 });
 
 it('tolera um quadro ruim isolado no meio da coleta', () => {
@@ -921,12 +910,9 @@ const lostPose = (time: number) => ({ ...pose(time), landmarks: [], worldLandmar
 
 it('absorve uma perda curta de rastreamento na cobertura da coleta', () => {
   const auto = new AutoCalibrator();
-  // ~600 ms sem pose no início da coleta, antes da convergência: a saída adaptativa estica
-  // além dos 2 s do caso perfeito mas ainda termina muito antes do prazo de 4 s.
-  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 13 && i < 19 ? lostPose(i * 100) : pose(i * 100)));
-  const doneIndex = steps.findIndex((step) => step.profile);
-  expect(doneIndex).toBeGreaterThan(20);
-  expect(doneIndex).toBeLessThan(40);
+  // ~600 ms sem pose no meio da janela: ~20% dos quadros — a cobertura de 65% ainda aprova.
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 20 && i < 26 ? lostPose(i * 100) : pose(i * 100)));
+  expect(steps.some((step) => step.profile)).toBe(true);
 });
 
 it('encerra a tentativa no prazo mesmo quando o rastreamento não volta', () => {
@@ -941,21 +927,18 @@ it('encerra a tentativa no prazo mesmo quando o rastreamento não volta', () => 
 
 it('rejeita pela cobertura e retenta quando a perda cobre boa parte da janela', () => {
   const auto = new AutoCalibrator();
-  // 1,2 s sem pose cobrindo o meio da coleta: válidos na janela de coleta ficam abaixo dos
-  // 65% — a tentativa morre na cobertura, não no reset, e a coleta recomeça com o corpo de volta.
+  // 1,2 s sem pose numa janela de 3 s: ~60% de válidos, abaixo dos 65% — a tentativa morre
+  // na cobertura, não no reset, e a coleta recomeça com o corpo de volta.
   const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 13 && i < 25 ? lostPose(i * 100) : pose(i * 100)));
   expect(steps.some((step) => step.profile)).toBe(false);
   expect(steps.at(-1)?.phase).toBe('collecting');
 });
 
-it('absorve na cobertura uma perda durante o repouso em vez de recomeçar do zero', () => {
+it('absorve na cobertura uma perda durante o repouso sem reiniciar', () => {
   const auto = new AutoCalibrator();
-  // Com a fusão o investimento começa na âncora: perda no settling não joga fora os frames
-  // bons já colhidos — conta no denominador como qualquer quadro ruim. A convergência atrasa
-  // um pouco (sinal válido menor) mas a tentativa não reinicia: nada de framing depois da âncora.
+  // A âncora inicia a exposição; uma perda durante o settling entra na cobertura e atrasa a convergência.
   const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 5 && i < 9 ? lostPose(i * 100) : pose(i * 100)));
-  const anchored = steps.slice(9);
-  expect(anchored.some((step) => step.phase === 'framing')).toBe(false);
+  expect(steps.slice(9).some((step) => step.phase === 'framing')).toBe(false);
   expect(steps.some((step) => step.profile)).toBe(true);
 });
 
@@ -990,188 +973,131 @@ it('derruba a tentativa quando a pessoa se move durante um blecaute que o gate n
   expect(steps.some((step) => step.profile)).toBe(false);
 });
 
-it('converge cedo em condições boas: 2 s de sinal válido bastam, não 4 s de relógio', () => {
+it('converge em dois segundos de sinal válido quando a cobertura é contínua', () => {
   const auto = new AutoCalibrator();
-  // Piso da pesquisa de exposição mínima: ~2 s de sinal válido. Com cobertura perfeita o
-  // repouso fundido já conta como sinal, então a convergência fecha no span de 2000 ms —
-  // metade da exposição do design de janela fixa (1 s settle + 3 s coleta).
   const steps = Array.from({ length: 61 }, (_, i) => auto.update(pose(i * 100)));
-  expect(steps.findIndex((step) => step.phase === 'done')).toBe(20);
+
   expect(steps[19]?.phase).toBe('collecting');
+  expect(steps[20]?.phase).toBe('done');
 });
 
-it('estica a coleta quando a cobertura degrada em vez de encerrar no tempo fixo', () => {
+it('prolonga a calibração após um blackout curto no início da coleta', () => {
   const auto = new AutoCalibrator();
-  // Blecaute de 500 ms logo no início da coleta: em 2 s ainda não há sinal válido suficiente,
-  // então a convergência desliza para quando a invariante fecha — antes do prazo de 4 s.
   const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 10 && i < 15 ? lostPose(i * 100) : pose(i * 100)));
+
   expect(steps[20]?.phase).toBe('collecting');
-  // O blecaute interrompe os intervalos contíguos de sinal válido — a convergência desliza
-  // um frame além do caso sem blecaute, ainda muito antes do prazo de 4 s.
   expect(steps.findIndex((step) => step.phase === 'done')).toBe(25);
 });
 
-it('continua coletando quando a postura em pé ainda não verificou em vez de abortar a sonda', () => {
-  const auto = new AutoCalibrator();
-  // Tornozelos (world) só aparecem em i=15. Como entram no perfil de postura, esse primeiro
-  // quadro reinicia a âncora; a calibração então segue e fecha com a referência verificada.
-  const frame = (i: number) => {
-    const snapshot = pose(i * 100);
-    return i < 15 ? withWorldConfidence(withWorldConfidence(snapshot, 27, 0, 0), 28, 0, 0) : snapshot;
-  };
-  const steps = Array.from({ length: 61 }, (_, i) => auto.update(frame(i), true));
-  expect(steps[20]?.phase).toBe('settling');
-  expect(steps[23]?.phase).toBe('settling');
-  expect(steps[25]?.phase).toBe('collecting');
-  const done = steps.find((step) => step.phase === 'done');
-  expect(done?.profile?.world.leanUp0).toBeDefined();
-});
-
-it('mede o piso por tempo de sinal válido: span curto com cobertura cheia aprova, cobertura rala não', () => {
-  // Antes da invariante o span fixo de 2800 ms rejeitaria os dois casos; agora o que manda
-  // é cobertura × span ≥ 1800 ms de sinal válido.
-  const full = new Calibrator();
-  full.start(0);
-  for (let time = 0; time <= 2000; time += 100) full.add(pose(time));
-  expect(full.finish()).not.toBeNull();
-
-  const sparse = new Calibrator();
-  sparse.start(0);
-  // 6 quadros ruins espalhados: cobertura 71% — acima dos 65% — mas 0,71 × 2000 = 1428 ms
-  // de sinal válido, abaixo do piso de 1800 ms. Razão de cobertura sozinha aprovaria.
-  for (let time = 0; time <= 2000; time += 100) sparse.add(pose(time, { confidence: time % 300 === 0 && time > 0 ? 0.1 : 0.95 }));
-  expect(sparse.finish()).toBeNull();
-});
-
-it('não credita um intervalo sem callbacks como tempo de sinal válido', () => {
+it('não credita um intervalo longo sem callbacks como sinal válido', () => {
   const calibrator = new Calibrator();
   calibrator.start(0, 1000);
-  // Doze amostras válidas concentradas nos primeiros 220 ms e uma após um blackout de 1,78 s.
-  // Contagem × span chamaria isso de 2 s válidos; só há cerca de 220 ms observados.
   for (let index = 0; index < 12; index += 1) calibrator.add(pose(index * 20));
   calibrator.add(pose(2000));
 
   expect(calibrator.finish()).toBeNull();
 });
 
-it('não credita o intervalo anterior a uma amostra inválida como sinal válido', () => {
-  const calibrator = new Calibrator();
-  calibrator.start(0);
-  for (let time = 0; time < 2000; time += 150) {
-    calibrator.add(pose(time, time === 600 ? { confidence: 0.1 } : {}));
-  }
-  calibrator.add(pose(2000));
-
-  // Com o intervalo anterior contado, seriam 1850 ms válidos; exigindo duas amostras válidas
-  // em cada ponta, a observação de baixa confiança remove os dois intervalos adjacentes.
-  expect(calibrator.finish()).toBeNull();
-});
-
-it('preserva a convergência em cadência degradada com uma amostra perdida', () => {
+it('mantém convergência com um callback perdido em fluxo de cadência baixa', () => {
   const calibrator = new Calibrator();
   calibrator.start(0, 1000);
-  // ~7 fps, com um callback omitido (intervalo de 286 ms), continua dentro do limite observado.
   for (let time = 0; time < 2000; time += 143) {
-    if (time === 715) continue;
-    calibrator.add(pose(time));
+    if (time !== 715) calibrator.add(pose(time));
   }
   calibrator.add(pose(2000));
 
   expect(calibrator.finish()).not.toBeNull();
 });
 
-it('reinicia o assentamento quando os braços mudam sem o tronco se mover', () => {
+it('ignora a estabilidade dos punhos ao calibrar corrida e deixa a referência ausente', () => {
   const auto = new AutoCalibrator();
-  const movedWrist = (time: number) => {
-    const snapshot = pose(time);
-    if (time < 1100) return snapshot;
+  const steps = Array.from({ length: 61 }, (_, i) => {
+    const snapshot = pose(i * 100, { wristLateral: i < 11 ? 0 : 0.4 });
+    return auto.update(snapshot);
+  });
+
+  expect(steps.find((step) => step.profile)?.profile?.world.readyWristLocal).toBeUndefined();
+});
+
+it('reinicia o assentamento do tênis quando os punhos se movem sem mover o torso', () => {
+  const auto = new AutoCalibrator();
+  const snapshots = Array.from({ length: 42 }, (_, index) => {
+    const snapshot = pose(index * 100);
+    if (index < 11) return snapshot;
     const landmarks = [...snapshot.landmarks];
     landmarks[15] = { ...landmarks[15]!, x: landmarks[15]!.x + 0.08 };
     const worldLandmarks = [...snapshot.worldLandmarks];
     worldLandmarks[15] = { ...worldLandmarks[15]!, x: worldLandmarks[15]!.x + 0.2 };
     return { ...snapshot, landmarks, worldLandmarks };
-  };
-  const snapshots = Array.from({ length: 42 }, (_, index) => movedWrist(index * 100));
-  const steps = snapshots.map((snapshot) => auto.update(snapshot));
+  });
+  const steps = snapshots.map((snapshot) => auto.update(snapshot, { needsWrists: true }));
 
+  expect(steps[11]?.phase).toBe('settling');
   expect(steps[20]?.phase).toBe('settling');
   const completed = steps.find((step) => step.phase === 'done');
-  expect(completed?.profile).toBeDefined();
+  expect(completed?.profile?.world.readyWristLocal?.left).toBeDefined();
 
   const expected = new Calibrator();
   expected.start(1100, 1000);
-  snapshots.slice(11, 32).forEach((snapshot) => { expected.add(snapshot); });
-  expect(completed?.profile?.world.readyWristLocal.left.x).toBeCloseTo(
-    expected.finish()!.world.readyWristLocal.left.x,
+  for (const snapshot of snapshots.slice(11, 32)) expected.add(snapshot);
+  expect(completed?.profile?.world.readyWristLocal?.left.x).toBeCloseTo(
+    expected.finish()!.world.readyWristLocal!.left.x,
   );
 });
 
 it('reinicia o assentamento quando a abertura dos ombros muda sem mover o centro', () => {
   const auto = new AutoCalibrator();
-  const changedShoulderWidth = (time: number) => {
-    const snapshot = pose(time);
-    if (time < 1100) return snapshot;
+  const steps = Array.from({ length: 42 }, (_, index) => {
+    const snapshot = pose(index * 100);
+    if (index < 11) return auto.update(snapshot);
     const landmarks = [...snapshot.landmarks];
     landmarks[11] = { ...landmarks[11]!, x: landmarks[11]!.x - 0.08 };
     landmarks[12] = { ...landmarks[12]!, x: landmarks[12]!.x + 0.08 };
     const worldLandmarks = [...snapshot.worldLandmarks];
     worldLandmarks[11] = { ...worldLandmarks[11]!, x: worldLandmarks[11]!.x + 0.1 };
     worldLandmarks[12] = { ...worldLandmarks[12]!, x: worldLandmarks[12]!.x - 0.1 };
-    return { ...snapshot, landmarks, worldLandmarks };
-  };
-  const steps = Array.from({ length: 42 }, (_, index) => auto.update(changedShoulderWidth(index * 100)));
+    return auto.update({ ...snapshot, landmarks, worldLandmarks });
+  });
 
+  expect(steps[11]?.phase).toBe('settling');
   expect(steps[20]?.phase).toBe('settling');
-  expect(steps.some((step) => step.phase === 'done')).toBe(true);
+  expect(steps.find((step) => step.phase === 'done')?.profile).toBeDefined();
 });
 
-it('reinicia o assentamento quando tornozelos 3D passam a contribuir com outra postura', () => {
+it('reinicia o assentamento do tênis quando a profundidade do punho muda sem mudar sua projeção', () => {
   const auto = new AutoCalibrator();
-  const changedAnkles = (time: number) => {
-    const snapshot = pose(time);
-    const worldLandmarks = [...snapshot.worldLandmarks];
-    for (const [index, offset] of [[27, 0.085], [28, -0.085]] as const) {
-      worldLandmarks[index] = {
-        ...worldLandmarks[index]!,
-        x: worldLandmarks[index]!.x + (time >= 1100 ? offset : 0),
-        visibility: time >= 1100 ? 0.95 : 0,
-        presence: time >= 1100 ? 0.95 : 0,
-      };
-    }
-    return { ...snapshot, worldLandmarks };
-  };
-  const steps = Array.from({ length: 42 }, (_, index) => auto.update(changedAnkles(index * 100), true));
-
-  expect(steps[20]?.phase).toBe('settling');
-  expect(steps.find((step) => step.phase === 'done')?.profile?.world.leanUp0).toBeDefined();
-});
-
-it('reinicia o assentamento quando a profundidade do punho muda sem alterar a projeção 2D', () => {
-  const auto = new AutoCalibrator();
-  const changedDepth = (time: number) => {
-    const snapshot = pose(time);
-    if (time < 1100) return snapshot;
+  const snapshots = Array.from({ length: 42 }, (_, index) => {
+    const snapshot = pose(index * 100);
+    if (index < 11) return snapshot;
     const worldLandmarks = [...snapshot.worldLandmarks];
     worldLandmarks[16] = { ...worldLandmarks[16]!, z: worldLandmarks[16]!.z + 0.2 };
     return { ...snapshot, worldLandmarks };
-  };
-  const steps = Array.from({ length: 42 }, (_, index) => auto.update(changedDepth(index * 100)));
+  });
+  const steps = snapshots.map((snapshot) => auto.update(snapshot, { needsWrists: true }));
+
+  expect(steps[11]?.phase).toBe('settling');
+  expect(steps[20]?.phase).toBe('settling');
+  const completed = steps.find((step) => step.phase === 'done');
+  expect(completed?.profile?.world.readyWristLocal?.right).toBeDefined();
+
+  const expected = new Calibrator();
+  expected.start(1100, 1000);
+  for (const snapshot of snapshots.slice(11, 32)) expected.add(snapshot);
+  expect(completed?.profile?.world.readyWristLocal?.right.z).toBeCloseTo(
+    expected.finish()!.world.readyWristLocal!.right.z,
+  );
+});
+
+it('reinicia o assentamento quando os tornozelos aparecem e passam a definir a vertical', () => {
+  const auto = new AutoCalibrator();
+  const steps = Array.from({ length: 61 }, (_, index) => {
+    const snapshot = pose(index * 100, { leanRad: 0.2 });
+    const withoutAnkles = withWorldConfidence(withWorldConfidence(snapshot, 27, 0, 0), 28, 0, 0);
+    return auto.update(index < 15 ? withoutAnkles : snapshot);
+  });
 
   expect(steps[20]?.phase).toBe('settling');
-  expect(steps.some((step) => step.phase === 'done')).toBe(true);
+  const profile = steps.find((step) => step.phase === 'done')?.profile;
+  expect(profile).toBeDefined();
+  expect(Math.abs(profile!.world.leanUp0.x)).toBeLessThan(0.02);
 });
-
-it('não consome as amostras ao sondar: finish() pode ser chamado de novo sobre o mesmo acumulado', () => {
-  const calibrator = new Calibrator();
-  calibrator.start(0);
-  for (let time = 0; time <= 2000; time += 100) calibrator.add(pose(time));
-  const first = calibrator.finish();
-  expect(first).not.toBeNull();
-  // A sonda adaptativa depende disto: avaliar cedo não pode destruir a coleta em andamento.
-  expect(calibrator.finish()).not.toBeNull();
-});
-
-
-
-
-

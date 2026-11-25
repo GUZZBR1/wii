@@ -97,15 +97,11 @@ export default function App() {
         const result = pipelineRef.current.update(raw, profileRef.current);
         const current = result.snapshot;
         if (!profileRef.current) {
-          const step = calibratorRef.current.update(current, sportRef.current === 'track');
+          const step = calibratorRef.current.update(current, { needsWrists: sportRef.current === 'tennis' });
           profileRef.current = step.profile;
           setCalibrationPhase(step.phase);
           setCalibrationProgress(step.progress);
-          if (step.profile) {
-            setCameraStatus(step.profile.world.leanUp0
-              ? 'Calibração aprovada · postura neutra salva'
-              : 'Calibração parcial · troca de raia e salto desativados · estenda as pernas e enquadre os tornozelos');
-          }
+          if (step.profile) setCameraStatus('Calibração aprovada · postura neutra salva');
         }
         const decision = contextRef.current.update(current, profileRef.current);
         const activity = decision.confidence01 > 0.4 ? ` · ${ACTIVITY_LABEL[decision.activity]}` : '';
@@ -162,12 +158,13 @@ export default function App() {
 
     <div className="hud-dock">
       <nav className="sport-dock" aria-label="Modalidades">
-        <button type="button" className={sport === 'track' ? 'active' : ''} onClick={() => {
-          setSport('track');
-          // Um perfil parcial vindo do tênis não tem referência de salto/raia: a corrida refaz a calibração.
-          if (profileRef.current && !profileRef.current.world.leanUp0) recalibrate();
-        }}>01 · CORRIDA</button>
-        <button type="button" className={sport === 'tennis' ? 'active' : ''} onClick={() => setSport('tennis')}>02 · TÊNIS</button>
+        <button type="button" className={sport === 'track' ? 'active' : ''} onClick={() => setSport('track')}>01 · CORRIDA</button>
+        <button type="button" className={sport === 'tennis' ? 'active' : ''} onClick={() => {
+          setSport('tennis');
+          // Um perfil vindo da corrida pode não ter referência de punhos — e sem ela o swing
+          // não dispara: o tênis refaz a calibração pedindo as mãos visíveis.
+          if (profileRef.current && !profileRef.current.world.readyWristLocal) recalibrate();
+        }}>02 · TÊNIS</button>
       </nav>
       <button type="button" className="mute-fab" onClick={toggleMute} title={muted ? 'Áudio desligado' : 'Áudio ligado'}>{muted ? '×' : '♫'}</button>
     </div>

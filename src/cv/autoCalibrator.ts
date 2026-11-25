@@ -9,12 +9,13 @@ const STILL_TOLERANCE = 0.04;
 /** Movimento 3D máximo relativo à largura do ombro; piso para não amplificar escalas degeneradas. */
 const WORLD_STILL_FRACTION = 0.2;
 const MIN_WORLD_STILL_METERS = 0.08;
-/** Ombros, punhos, quadris e joelhos: o que o Calibrator precisa enxergar. */
-const REQUIRED = [11, 12, 15, 16, 23, 24, 25, 26] as const;
-/** A postura em pé (salto e raia) só se verifica com os tornozelos: a corrida não abre mão dela. */
-const REQUIRED_STANCE = [...REQUIRED, 27, 28] as const;
-/** Todas as articulações que podem entrar nos valores de referência do perfil. */
-const CALIBRATION_LANDMARKS = [11, 12, 15, 16, 23, 24, 25, 26, 27, 28] as const;
+/** Ombros e quadris formam o núcleo necessário para todos os esportes. */
+const REQUIRED_CORE = [11, 12, 23, 24] as const;
+/** Punhos entram no gate somente para o tênis, que precisa de referência para os swings. */
+const REQUIRED_WRISTS = [15, 16] as const;
+/** Pontos opcionais que podem contribuir para a referência neutra quando estão visíveis. */
+const BODY_AND_LEGS = [11, 12, 23, 24, 25, 26, 27, 28] as const;
+const CALIBRATION_LANDMARKS = [...BODY_AND_LEGS, ...REQUIRED_WRISTS] as const;
 
 export type CalibrationPhase = 'framing' | 'settling' | 'collecting' | 'done';
 export interface CalibrationStep { phase: CalibrationPhase; progress: number; profile?: CalibrationProfile }
@@ -29,8 +30,8 @@ export class AutoCalibrator {
     since: number;
   };
 
-  update(snapshot: PoseSnapshot, needsStance = false): CalibrationStep {
-    const required = needsStance ? REQUIRED_STANCE : REQUIRED;
+  update(snapshot: PoseSnapshot, options: { needsWrists?: boolean } = {}): CalibrationStep {
+    const required = options.needsWrists ? [...REQUIRED_CORE, ...REQUIRED_WRISTS] : [...REQUIRED_CORE];
     const visible = required.every((index) => snapshot.landmarks[index]) && landmarkConfidence(...required.map((index) => snapshot.landmarks[index]!)) >= 0.55;
     // Sem âncora não há investimento a proteger: quadro ruim é só enquadramento.
     if (!this.anchor && (snapshot.trackingState !== 'tracked' || !visible)) {
@@ -43,43 +44,41 @@ export class AutoCalibrator {
     // do quadro e voltar antes de contaminar as medianas. Pontos ausentes são ignorados por
     // moved(); qualquer movimento observável invalida a tentativa.
     if (snapshot.trackingState !== 'tracked' || !visible) {
-      if (this.moved(snapshot)) {
+      if (this.moved(snapshot, options)) {
         this.reset();
         return { phase: 'framing', progress: 0 };
       }
       this.calibrator.add(snapshot);
-      return this.advance(snapshot, needsStance);
+      return this.advance(snapshot, options);
     }
 
-    if (!this.anchor || this.moved(snapshot)) {
+    if (!this.anchor || this.moved(snapshot, options)) {
       this.reset();
-      this.anchor = this.createAnchor(snapshot);
+      this.anchor = this.createAnchor(snapshot, options);
       // A coleta começa na âncora, não no fim do repouso: os frames do settling já são
       // verificados como parados, então contam como sinal válido — a invariante de
       // qualidade é tempo de sinal válido, e o repouso é o trecho mais estável da janela.
       this.calibrator.start(snapshot.timestampMs, SETTLE_MS);
     }
     this.calibrator.add(snapshot);
-    return this.advance(snapshot, needsStance);
+    return this.advance(snapshot, options);
   }
 
-  /** Fase pelo tempo desde a âncora e sonda a convergência a cada frame: o finish() decide sozinho quando a qualidade fecha — condições boas terminam cedo, degradadas esticam até o prazo. */
-  private advance(snapshot: PoseSnapshot, needsStance: boolean): CalibrationStep {
+  /** Sonda a convergência em cada frame; cobertura boa encerra cedo e gaps estendem até o prazo. */
+  private advance(snapshot: PoseSnapshot, options: { needsWrists?: boolean }): CalibrationStep {
     const stillMs = snapshot.timestampMs - this.anchor!.since;
     if (stillMs < SETTLE_MS) return { phase: 'settling', progress: 0 };
     const probe = this.calibrator.finish();
-    if (probe && (!needsStance || probe.world.leanUp0)) {
-      this.reset();
-      return { phase: 'done', progress: 1, profile: probe };
-    }
+    if (probe && (!options.needsWrists || probe.world.readyWristLocal)) return this.complete(probe, options);
     const progress = Math.min(1, (stillMs - SETTLE_MS) / COLLECT_MS);
     if (progress < 1) return { phase: 'collecting', progress };
-    return this.conclude(needsStance);
+    return this.conclude(options);
   }
 
   /** Alguma articulação usada no perfil mudou em imagem ou em espaço mundial. */
-  private moved(snapshot: PoseSnapshot): boolean {
-    for (const index of CALIBRATION_LANDMARKS) {
+  private moved(snapshot: PoseSnapshot, options: { needsWrists?: boolean }): boolean {
+    const landmarks = options.needsWrists ? CALIBRATION_LANDMARKS : BODY_AND_LEGS;
+    for (const index of landmarks) {
       const imagePoint = this.confidentPoint(snapshot.landmarks, index);
       const anchoredImagePoint = this.anchor!.imageLandmarks.get(index);
       if (!anchoredImagePoint && imagePoint) return true;
@@ -93,10 +92,11 @@ export class AutoCalibrator {
     return false;
   }
 
-  private createAnchor(snapshot: PoseSnapshot) {
+  private createAnchor(snapshot: PoseSnapshot, options: { needsWrists?: boolean }) {
     const imageLandmarks = new Map<number, Point3>();
     const worldLandmarks = new Map<number, Point3>();
-    for (const index of CALIBRATION_LANDMARKS) {
+    const landmarks = options.needsWrists ? CALIBRATION_LANDMARKS : BODY_AND_LEGS;
+    for (const index of landmarks) {
       const imagePoint = this.confidentPoint(snapshot.landmarks, index);
       if (imagePoint) imageLandmarks.set(index, imagePoint);
       const worldPoint = this.confidentPoint(snapshot.worldLandmarks, index);
@@ -118,13 +118,23 @@ export class AutoCalibrator {
     return isFinitePoint(point) && landmarkConfidence(point) >= 0.55 ? point : undefined;
   }
 
-  private conclude(needsStance: boolean): CalibrationStep {
+  private conclude(options: { needsWrists?: boolean }): CalibrationStep {
     const profile = this.calibrator.finish();
+    // Sem referência dos punhos o tênis não consegue registrar swing; corrida, salto e raia
+    // usam apenas o perfil do torso e continuam sem exigir pernas ou pés no quadro.
+    if (profile && (!options.needsWrists || profile.world.readyWristLocal)) return this.complete(profile, options);
     this.reset();
-    // Sem a vertical das pernas não há salto nem raia: na corrida isso é calibração incompleta,
-    // não parcial — volta ao enquadramento. No tênis o perfil sem stance segue útil.
-    if (profile && (!needsStance || profile.world.leanUp0)) return { phase: 'done', progress: 1, profile };
     return { phase: 'framing', progress: 0 };
+  }
+
+  private complete(profile: CalibrationProfile, options: { needsWrists?: boolean }): CalibrationStep {
+    this.reset();
+    // Corrida não pede mãos estáticas. Omitir uma referência incidental faz o tênis solicitar
+    // a calibração de punhos quando o usuário trocar de modalidade.
+    const completed = options.needsWrists
+      ? profile
+      : { ...profile, world: { ...profile.world, readyWristLocal: undefined } };
+    return { phase: 'done', progress: 1, profile: completed };
   }
 
   reset(): void { this.calibrator.reset(); this.anchor = undefined; }
