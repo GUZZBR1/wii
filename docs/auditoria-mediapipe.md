@@ -131,9 +131,11 @@ Coisas que **não** são problema (verificadas): `detectForVideo` não tem varia
 
 ### #7 — Sem aquecimento: o primeiro `detectForVideo` paga o custo lazy
 
-**O que é.** `createFromOptions` retorna após `setGraph` + init — mas o primeiro frame real ainda paga alocações de tensor/interpreter que são lazy na prática (primeira inferência tipicamente mais lenta que o regime). Um `detectForVideo` num `OffscreenCanvas` 1×1 (ou no primeiro bitmap) logo após `READY`, com timestamp baixo, absorveria o spike antes do primeiro gesto do usuário — truque comum nessa stack, invisível para o pipeline (timestamps só precisam ser crescentes a partir daí).
+**O que é — agora medido** (`pesquisa-pipeline-cv.md` §7.5, Chromium 159): o primeiro `detectForVideo` após `READY` custou **≈142 ms no delegate CPU** e **≈2 016 ms no GPU** (SwiftShader — compilação de programas GL + alocação lazy), contra ~16/~96 ms do regime. Com pessoa na entrada, a pose já saiu nesse primeiro frame (`firstPoseIndex = 0`) — o "warmup" é puro custo wall-clock, não frames perdidos.
 
-**Impacto.** Baixo — um único frame lento a mais no primeiro segundo de captura — mas trivial de implementar dentro do `createTask`.
+**Ressalva de cobertura** (do review): um frame dummy 1×1/vazio aquece a alocação do grafo e o **detector de pessoa**, mas não entrega ROI alguma ao estágio landmarker — a aquisição de tracking do landmarker só se aquece com um frame que contenha pessoa. Se a intenção for esconder também esse custo, o warmup precisa de um bitmap com figura humana (ou aceitar que só a parte de alocação/detecção é coberta).
+
+**Impacto.** Um `detectForVideo` num `OffscreenCanvas` logo após `READY`, com timestamp crescente, absorveria a fatia de alocação antes do primeiro gesto — trivial dentro do `createTask`; a parte de aquisição só é eliminável com frame contendo pessoa.
 
 ### #8 — Menores
 
@@ -189,7 +191,7 @@ Coisas que **não** são problema (verificadas): `detectForVideo` não tem varia
 
 1. **`new VideoFrame(video)` vs `createImageBitmap(video, {resizeWidth:640})`** — ms/frame na main thread e latência total até `POSE`, em Chrome/Firefox/Safari 17+. (VideoFrame é baseline set/2024 — medir também o custo de `texImage2D` com cada tipo.)
 2. **Overlap bitmap↔inferência** — criar o bitmap do frame N+1 enquanto o worker processa N: quanto reduz o intervalo médio entre respostas no fallback CPU?
-3. **Custo do primeiro `detectForVideo`** após `READY` vs regime — se >50 ms, vale o frame dummy 1×1.
+3. ~~Custo do primeiro `detectForVideo`~~ — **medido**: ~142 ms CPU / ~2 016 ms GPU(SwiftShader) após READY vs ~16/~96 ms de regime (`pesquisa-pipeline-cv.md` §7.5). Dummy frame cobre a alocação; a aquisição do landmarker pede frame com pessoa.
 4. **`setOptions({baseOptions:{delegate:'CPU'}})` reconstrói o grafo no mesmo módulo?** Medir memória do worker e latência do fallback vs `createFromOptions` novo.
 5. **Dupla suavização** (interna + `OneEuroFilter` próprio): medir atraso efetivo marcadores→evento em gesto rápido; re-tunar `minCutoff`/`beta` sabendo que o input já é EMA-filtrado — talvez filtros mais leves ou elimináveis em alguns detectores.
 6. **Lite vs Full** na taxa real de detecção de swing/jump (F1 em sessões reais) — se Full for viável (~18 FPS CPU é pouco, ~40 GPU é ok), o ganho de PDJ pode valer 3,6 MB a mais de download.

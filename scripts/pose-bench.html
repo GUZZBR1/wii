@@ -2,7 +2,8 @@
 <!-- Benchmark local de inferência do PoseLandmarker no worker real do build.
      Uso: `npm run build && cp scripts/pose-bench.html dist/bench.html && npm run preview`,
      depois abra http://localhost:4173/bench.html. Resultados em window.BENCH / console.
-     Opcional: copie uma foto com pessoa para dist/pose.jpg para medir o caminho "tracked". -->
+     Para o caminho "tracked" (pessoa real): `curl -o dist/pose.jpg
+     https://storage.googleapis.com/mediapipe-assets/pose.jpg` antes de abrir a página. -->
 <meta charset="utf-8">
 <title>pose bench</title>
 <script type="module">
@@ -57,10 +58,11 @@ async function bench(delegate, canvas, label) {
   const out = { input: label, requested: delegate, times: [], bitmapMs: [], detected: 0, empty: 0, errors: [] };
   const tInit = performance.now();
   let lastTs = 0;
+  let readyAt = 0;
   const ready = await new Promise((resolve) => {
     worker.onmessage = (e) => {
       const m = e.data;
-      if (m.type === 'READY') { out.initMs = +(performance.now() - tInit).toFixed(1); out.delegate = m.delegate; resolve(true); }
+      if (m.type === 'READY') { readyAt = performance.now(); out.initMs = +(readyAt - tInit).toFixed(1); out.delegate = m.delegate; resolve(true); }
       else if (m.type === 'FALLBACK') out.fellBack = true;
       else if (m.type === 'ERROR') { out.errors.push(m.message); if (m.fatal) resolve(false); }
     };
@@ -81,10 +83,18 @@ async function bench(delegate, canvas, label) {
       worker.onmessage = (e) => {
         const m = e.data;
         if (m.type === 'POSE' || m.type === 'ERROR') { clearTimeout(to); resolve(m); }
-        else if (m.type === 'FALLBACK') out.fellBack = true;
+        else if (m.type === 'FALLBACK') { out.fellBack = true; clearTimeout(to); resolve({ type: 'FELL_BACK' }); }
       };
     });
     const dt = performance.now() - t0;
+    // primeiro frame com landmarks — sustenta a afirmação de warm-up (§7.5)
+    if (res.type === 'POSE' && res.landmarks?.length && out.firstPoseIndex === undefined) {
+      out.firstPoseIndex = i;
+      out.firstPoseMsAfterReady = +(performance.now() - readyAt).toFixed(1);
+    }
+    // FALLBACK no meio da rodada: frames seguintes rodam no landmarker NOVO (outro delegate)
+    // — misturar os tempos nos mesmos percentis é inválido; invalida a rodada.
+    if (res.type === 'FELL_BACK') { out.invalid = 'GPU→CPU mid-run: amostras misturariam delegates'; break; }
     if (i >= WARMUP) {
       out.bitmapMs.push(bitmapMs);
       if (res.type === 'POSE') { out.times.push(dt); if (res.landmarks?.length) out.detected++; else out.empty++; }
