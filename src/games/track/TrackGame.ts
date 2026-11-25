@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { SportActionEvent } from '../../cv/protocol';
 import { disposeObjectTree, GameLoop } from '../core/GameLoop';
+import { TrackScore } from './trackScore';
 
 export interface GameHudState { score: number; label: string; speed01: number; status: string }
 type Hurdle = { group: THREE.Group; lane: number; z: number; passed: boolean };
@@ -17,7 +18,7 @@ export class TrackGame {
   private lane = 0;
   private speed01 = 0.32;
   private distance = 0;
-  private score = 0;
+  private readonly score = new TrackScore();
   private jumpTime = 0;
   private hurdleClock = 0;
   private lastHud = '';
@@ -92,7 +93,7 @@ export class TrackGame {
 
   private update(dt: number): void {
     this.distance += dt * (4 + this.speed01 * 12);
-    this.score += dt * (5 + this.speed01 * 45);
+    this.score.advance(dt, this.speed01);
     this.runner.position.x += (this.lane * 1.5 - this.runner.position.x) * Math.min(1, dt * 10);
     if (this.jumpTime > 0) {
       this.jumpTime = Math.max(0, this.jumpTime - dt);
@@ -107,8 +108,8 @@ export class TrackGame {
       hurdle.z += advance; hurdle.group.position.z = hurdle.z;
       if (!hurdle.passed && hurdle.z > 0.2) {
         hurdle.passed = true;
-        if (hurdle.lane !== this.lane || this.jumpTime > 0.15 || this.runner.position.y > 0.45) this.score += 100;
-        else this.score = Math.max(0, this.score - 35);
+        if (hurdle.lane !== this.lane || this.jumpTime > 0.15 || this.runner.position.y > 0.45) this.score.hurdleCleared();
+        else this.score.hurdleHit();
       }
     }
     while (this.hurdles.length && this.hurdles[0]!.z > 8) {
@@ -123,7 +124,7 @@ export class TrackGame {
   }
 
   private publishHud(): void {
-    const score = Math.floor(this.score);
+    const score = this.score.display;
     const label = String(score).padStart(5, '0');
     const key = `${label}-${this.speed01.toFixed(2)}-${this.status}`;
     if (key === this.lastHud) return;
