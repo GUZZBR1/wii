@@ -24,8 +24,16 @@ export class AutoCalibrator {
       this.reset();
       return { phase: 'framing', progress: 0 };
     }
-    // Um quadro ruim isolado não reinicia a contagem.
-    if (snapshot.trackingState !== 'tracked' || !visible) return { phase: this.collecting ? 'collecting' : this.anchor ? 'settling' : 'framing', progress: 0 };
+    // Um quadro ruim isolado não reinicia a contagem — mas durante a coleta ele conta no
+    // denominador de cobertura: o Calibrator ignora quadros inválidos nas medianas, não no total.
+    if (snapshot.trackingState !== 'tracked' || !visible) {
+      if (this.collecting) {
+        this.calibrator.add(snapshot);
+        const progress = Math.min(1, (snapshot.timestampMs - this.anchor!.since - SETTLE_MS) / COLLECT_MS);
+        return { phase: 'collecting', progress: Math.max(0, progress) };
+      }
+      return { phase: this.anchor ? 'settling' : 'framing', progress: 0 };
+    }
 
     const l = snapshot.landmarks;
     const shoulders = midpoint(l[11]!, l[12]!);

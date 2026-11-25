@@ -733,3 +733,17 @@ it('pede enquadramento quando não há ninguém no quadro', () => {
   const empty = { ...pose(0), landmarks: [], worldLandmarks: [], trackingState: 'lost' as const };
   expect(new AutoCalibrator().update(empty)).toEqual({ phase: 'framing', progress: 0 });
 });
+
+it('conta quadros sem enquadramento na cobertura em vez de escondê-los da razão', () => {
+  const auto = new AutoCalibrator();
+  // All good until the collection starts (~1 s), then every other frame goes bad: in the
+  // 3 s window they are ~half the total — under the 65% coverage gate, so it must retry.
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(pose(i * 100, { confidence: i <= 10 || i % 2 === 0 ? 0.95 : 0.1 })));
+  expect(steps.some((step) => step.profile)).toBe(false);
+});
+
+it('tolera um quadro ruim isolado no meio da coleta', () => {
+  const auto = new AutoCalibrator();
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(pose(i * 100, { confidence: i === 25 ? 0.1 : 0.95 })));
+  expect(steps.some((step) => step.profile)).toBe(true);
+});
