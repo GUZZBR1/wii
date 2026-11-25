@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CalibrationProfile, SportActionEvent } from './cv/protocol';
 import { AutoCalibrator, type CalibrationPhase } from './cv/autoCalibrator';
+import { observeEarlyRejection } from './cv/observeEarlyRejection';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { ActionPipeline } from './kinematics/actionPipeline';
 import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
@@ -118,7 +119,9 @@ export default function App() {
       if (stale()) return;
       clientRef.current ??= new PoseClient();
       const client = clientRef.current;
-      const visionReady = client.init(callbacks);
+      // Camera permission/video readiness may take longer than the worker; observe an early
+      // worker rejection now, while preserving it for the await below.
+      const visionReady = observeEarlyRejection(client.init(callbacks));
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } },
