@@ -360,6 +360,26 @@ describe('world-space posture calibration', () => {
     expect(signals.filter(Boolean)).toHaveLength(0);
   });
 
+  it('falls back to the trunk direction when the legs are not extended at calibration', () => {
+    // Standing with knees bent 20°: shins stay vertical, thighs tilt forward — the thigh
+    // direction is rejected as the lean reference and the upright trunk takes over.
+    const bend = (20 * Math.PI) / 180;
+    const thighDown = { x: 0, y: Math.cos(bend), z: Math.sin(bend) };
+    const shinDown = { x: 0, y: 1, z: 0 };
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) {
+      calibrator.add(poseWithWorldTorso(time, { down: thighDown, shinDown }));
+    }
+    const profile = calibrator.finish('right')!;
+    expect(profile.world.leanUp0.y).toBeCloseTo(-1, 2);
+    const detector = new LaneLeanDetector();
+    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
+      rotateWorldYaw(pose(i * 33), (i * Math.PI) / 20), profile,
+    ));
+    expect(signals.filter(Boolean)).toHaveLength(0);
+  });
+
   it('measures a whole-body lean where the thighs rotate with the trunk', () => {
     // Ankle-pivot lean: trunk and thighs stay parallel, so the fixed reference must not follow.
     const down = { x: Math.sin(0.24), y: Math.cos(0.24), z: 0 };

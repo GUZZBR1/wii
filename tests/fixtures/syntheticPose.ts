@@ -43,6 +43,8 @@ export function pose(timestampMs: number, options: {
   world[24] = { ...world[24]!, x: -0.1, y: 0 };
   world[25] = { ...world[25]!, x: 0.1, y: 0.45 };
   world[26] = { ...world[26]!, x: -0.1, y: 0.45 };
+  world[27] = { ...world[27]!, x: 0.1, y: 0.9 };
+  world[28] = { ...world[28]!, x: -0.1, y: 0.9 };
   return { timestampMs, landmarks: points, worldLandmarks: world, trackingState: 'tracked', bodyConfidence: options.confidence ?? 0.95 };
 }
 
@@ -91,7 +93,7 @@ const crossed = (a: Point3, b: Point3): Point3 => ({ x: a.y * b.z - a.z * b.y, y
  */
 export function poseWithWorldTorso(
   timestampMs: number,
-  options: { up?: Point3; down?: Point3; yawRad?: number; leanRad?: number } = {},
+  options: { up?: Point3; down?: Point3; shinDown?: Point3; yawRad?: number; leanRad?: number } = {},
 ): PoseSnapshot {
   const snapshot = pose(timestampMs);
   const up = unit(options.up ?? { x: 0, y: -1, z: 0 });
@@ -106,6 +108,8 @@ export function poseWithWorldTorso(
   // Gravity direction for the legs; defaults to under the trunk (standing upright).
   const down = options.down ? unit(options.down) : scaled(up, -1);
   const kneeMid = scaled(down, 0.45);
+  const shinDown = options.shinDown ? unit(options.shinDown) : down;
+  const ankleMid = added(kneeMid, scaled(shinDown, 0.45));
   const world = snapshot.worldLandmarks.map((point, index) => {
     if (index === 11) return { ...point, ...added(shoulderMid, scaled(shoulderAxis, -0.2)) };
     if (index === 12) return { ...point, ...added(shoulderMid, scaled(shoulderAxis, 0.2)) };
@@ -113,6 +117,8 @@ export function poseWithWorldTorso(
     if (index === 24) return { ...point, ...scaled(axis, 0.1) };
     if (index === 25) return { ...point, ...added(kneeMid, scaled(axis, -0.1)) };
     if (index === 26) return { ...point, ...added(kneeMid, scaled(axis, 0.1)) };
+    if (index === 27) return { ...point, ...added(ankleMid, scaled(axis, -0.1)) };
+    if (index === 28) return { ...point, ...added(ankleMid, scaled(axis, 0.1)) };
     return point;
   });
   return { ...snapshot, worldLandmarks: world };

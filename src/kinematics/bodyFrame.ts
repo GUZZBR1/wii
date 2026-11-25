@@ -4,6 +4,7 @@ import { landmarkConfidence, midpoint } from './math';
 const EPSILON = 1e-6;
 const KNEE_CONFIDENCE_MIN = 0.55;
 const MIN_LEG_SPAN = 0.1;
+const STRAIGHT_LEG_DOT = Math.cos(0.2);
 
 function subtract(a: Point3, b: Point3): Point3 {
   return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
@@ -73,20 +74,30 @@ export function torsoUpDirection(snapshot: PoseSnapshot): Point3 | undefined {
 
 /**
  * Standing vertical estimated from the legs: hip midpoint minus knee midpoint points up along
- * gravity regardless of trunk posture. The calibrator uses it to capture the fixed lean reference
- * at neutral — a per-frame estimate would co-rotate with a whole-body lean and hide it. Undefined
- * when the knees are hidden or tucked.
+ * gravity regardless of trunk posture — but only while the knees are extended, so the shin
+ * direction (knee midpoint minus ankle midpoint) must roughly agree, otherwise a bent-knee stance
+ * would store a tilted thigh as the vertical. The calibrator uses it to capture the fixed lean
+ * reference at neutral. Undefined when knees or ankles are hidden, tucked or bent.
  */
 export function legsVertical(snapshot: PoseSnapshot): Point3 | undefined {
   const leftHip = snapshot.worldLandmarks[23];
   const rightHip = snapshot.worldLandmarks[24];
   const leftKnee = snapshot.worldLandmarks[25];
   const rightKnee = snapshot.worldLandmarks[26];
-  if (!leftHip || !rightHip || !leftKnee || !rightKnee) return undefined;
+  const leftAnkle = snapshot.worldLandmarks[27];
+  const rightAnkle = snapshot.worldLandmarks[28];
+  if (!leftHip || !rightHip || !leftKnee || !rightKnee || !leftAnkle || !rightAnkle) return undefined;
   if (landmarkConfidence(leftKnee, rightKnee) < KNEE_CONFIDENCE_MIN) return undefined;
-  const span = subtract(midpoint(leftHip, rightHip), midpoint(leftKnee, rightKnee));
-  if (Math.hypot(span.x, span.y, span.z) < MIN_LEG_SPAN) return undefined;
-  return normalize(span);
+  if (landmarkConfidence(leftAnkle, rightAnkle) < KNEE_CONFIDENCE_MIN) return undefined;
+  const kneeMid = midpoint(leftKnee, rightKnee);
+  const thigh = subtract(midpoint(leftHip, rightHip), kneeMid);
+  const shin = subtract(kneeMid, midpoint(leftAnkle, rightAnkle));
+  const thighLength = Math.hypot(thigh.x, thigh.y, thigh.z);
+  const shinLength = Math.hypot(shin.x, shin.y, shin.z);
+  if (thighLength < MIN_LEG_SPAN || shinLength < MIN_LEG_SPAN) return undefined;
+  const up = { x: thigh.x / thighLength, y: thigh.y / thighLength, z: thigh.z / thighLength };
+  const shinUp = { x: shin.x / shinLength, y: shin.y / shinLength, z: shin.z / shinLength };
+  return dot(up, shinUp) >= STRAIGHT_LEG_DOT ? up : undefined;
 }
 
 /**
