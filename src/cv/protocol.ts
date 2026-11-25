@@ -22,7 +22,6 @@ export interface PoseSnapshot {
 export interface CalibrationProfile {
   version: 1;
   completedAtMs: number;
-  dominantHand: Hand;
   image: {
     torsoHeight: number;
     /**
@@ -46,8 +45,8 @@ export interface CalibrationProfile {
     leanUp0?: Point3;
     /** Lateral trunk lean of the neutral calibration pose; runtime lean is reported as the delta from it. */
     torsoLeanRad0: number;
-    /** Dominant wrist relative to its shoulder in a body-local frame, normalized by calibrated shoulder width. */
-    readyWristLocal: Point3;
+    /** Each wrist relative to its shoulder in a body-local frame, normalized by calibrated shoulder width. */
+    readyWristLocal: Record<Hand, Point3>;
   };
   quality: { validFrameRatio: number; medianConfidence: number };
 }

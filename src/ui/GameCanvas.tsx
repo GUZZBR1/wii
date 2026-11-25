@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SportActionEvent } from '../cv/protocol';
 import type { GameHudState } from '../games/track/TrackGame';
+import { forwardKeyDown } from './keys';
 
 export type Sport = 'track' | 'tennis';
 export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; dispose(): void }
@@ -23,6 +24,7 @@ export function GameCanvas({ sport, onEngine, tracking }: Props) {
     let disposed = false;
     const keydown = (event: KeyboardEvent) => {
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(event.key)) event.preventDefault();
+      if (!forwardKeyDown(event.key, event.repeat)) return;
       game?.onKey(event.key);
     };
     window.addEventListener('keydown', keydown);
@@ -54,6 +56,6 @@ export function GameCanvas({ sport, onEngine, tracking }: Props) {
     <canvas ref={canvasRef} />
     <div className="game-hud"><div><span>{sport === 'track' ? 'SCORE' : 'PONTOS'}</span><strong>{hud.label}</strong></div><div className="game-speed"><span>{sport === 'track' ? 'RITMO' : 'MIRA'}</span><strong>{sport === 'track' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>
     <div className="game-ready"><i className={tracking === 'TRACKING' ? 'ready' : ''} />{hud.status}</div>
-    <div className="game-controls">{sport === 'track' ? '← → trocar raia  ·  ↑ / espaço saltar' : 'espaço bater  ·  ← → escolher direção'}</div>
+    <div className="game-controls">{sport === 'track' ? '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' : 'espaço bater  ·  ← → escolher direção'}</div>
   </div>;
 }

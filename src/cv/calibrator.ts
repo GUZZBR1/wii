@@ -19,15 +19,16 @@ export class Calibrator {
     if (this.startedAt !== undefined) this.samples.push(snapshot);
   }
 
-  finish(hand: Hand): CalibrationProfile | null {
+  finish(): CalibrationProfile | null {
     if (this.startedAt === undefined || this.samples.length < 12) return null;
     const first = this.samples[0]!.timestampMs;
     const last = this.samples.at(-1)!.timestampMs;
     if (last - first < 2800) return null;
 
-    // The stance gate needs body geometry only; the racket gate adds the dominant
-    // wrist. They are counted separately — frames where the wrist and the ankles
-    // drop out on different frames must not sink both references.
+    // The stance gate needs body geometry only; the racket gate adds both wrists
+    // (the dominant hand is detected at runtime, so each side needs its own
+    // reference). They are counted separately — frames where the wrists and the
+    // ankles drop out on different frames must not sink both references.
     const stance: { up: Point3; hipY: number; sample: PoseSnapshot }[] = [];
     const valid: {
       torsoHeight: number;
@@ -35,9 +36,9 @@ export class Calibrator {
       kneeLeft: number;
       kneeRight: number;
       worldShoulderWidth: number;
-      wristLocal: Point3;
+      left: Point3;
+      right: Point3;
       confidence: number;
-      sample: PoseSnapshot;
     }[] = [];
     for (const sample of this.samples) {
       const l = sample.landmarks;
@@ -48,6 +49,8 @@ export class Calibrator {
       const rightHip = point(l, IDX.rightHip);
       const leftKnee = point(l, IDX.leftKnee);
       const rightKnee = point(l, IDX.rightKnee);
+      const leftWrist = point(w, IDX.leftWrist);
+      const rightWrist = point(w, IDX.rightWrist);
       const worldLeftShoulder = point(w, IDX.leftShoulder);
       const worldRightShoulder = point(w, IDX.rightShoulder);
       const worldLeftHip = point(w, IDX.leftHip);
@@ -63,13 +66,12 @@ export class Calibrator {
       if (torsoHeight < 0.03 || shoulderWidth < 0.03 || worldShoulderWidth < 0.03) continue;
       const up = legsVertical(sample);
       if (up) stance.push({ up, hipY: hipCenter.y, sample });
-      const wrist = point(w, hand === 'right' ? IDX.rightWrist : IDX.leftWrist);
-      const shoulder = point(w, hand === 'right' ? IDX.rightShoulder : IDX.leftShoulder);
-      if (!wrist || !shoulder || landmarkConfidence(wrist, shoulder) < 0.55) continue;
-      const confidence = Math.min(bodyConfidence, landmarkConfidence(wrist, shoulder));
-      const wristLocal = bodyLocalPoint(wrist, shoulder, worldLeftShoulder, worldRightShoulder, worldLeftHip, worldRightHip, 1);
-      if (!wristLocal) continue;
-      valid.push({ torsoHeight, shoulderWidth, kneeLeft: (hipCenter.y - leftKnee.y) / torsoHeight, kneeRight: (hipCenter.y - rightKnee.y) / torsoHeight, worldShoulderWidth, wristLocal, confidence, sample });
+      if (!leftWrist || !rightWrist || landmarkConfidence(leftWrist, rightWrist) < 0.55) continue;
+      const confidence = Math.min(bodyConfidence, landmarkConfidence(leftWrist, rightWrist));
+      const left = bodyLocalPoint(leftWrist, worldLeftShoulder, worldLeftShoulder, worldRightShoulder, worldLeftHip, worldRightHip, 1);
+      const right = bodyLocalPoint(rightWrist, worldRightShoulder, worldLeftShoulder, worldRightShoulder, worldLeftHip, worldRightHip, 1);
+      if (!left || !right) continue;
+      valid.push({ torsoHeight, shoulderWidth, kneeLeft: (hipCenter.y - leftKnee.y) / torsoHeight, kneeRight: (hipCenter.y - rightKnee.y) / torsoHeight, worldShoulderWidth, left, right, confidence });
     }
     if (valid.length < this.samples.length * 0.65) return null;
     // The lean and jump references are only trusted when the leg geometry verified an extended,
@@ -93,22 +95,21 @@ export class Calibrator {
     }
     const values = <K extends keyof (typeof valid)[number]>(key: K): number[] => valid.map((item) => item[key] as number);
     const worldShoulderWidth = median(values('worldShoulderWidth'));
-    const wristLocal = {
-      x: median(valid.map((v) => v.wristLocal.x)) / worldShoulderWidth,
-      y: median(valid.map((v) => v.wristLocal.y)) / worldShoulderWidth,
-      z: median(valid.map((v) => v.wristLocal.z)) / worldShoulderWidth,
-    };
+    const readyWrist = (hand: Hand): Point3 => ({
+      x: median(valid.map((v) => v[hand].x)) / worldShoulderWidth,
+      y: median(valid.map((v) => v[hand].y)) / worldShoulderWidth,
+      z: median(valid.map((v) => v[hand].z)) / worldShoulderWidth,
+    });
     const profile: CalibrationProfile = {
       version: 1,
       completedAtMs: last,
-      dominantHand: hand,
       image: {
         torsoHeight: median(values('torsoHeight')),
         hipY0: stanceVerified ? median(stance.map((v) => v.hipY)) : undefined,
         kneeToHipY0: { left: median(values('kneeLeft')), right: median(values('kneeRight')) },
         shoulderWidth: median(values('shoulderWidth')),
       },
-      world: { shoulderWidth: worldShoulderWidth, leanUp0, torsoLeanRad0, readyWristLocal: wristLocal },
+      world: { shoulderWidth: worldShoulderWidth, leanUp0, torsoLeanRad0, readyWristLocal: { left: readyWrist('left'), right: readyWrist('right') } },
       quality: { validFrameRatio: valid.length / this.samples.length, medianConfidence: median(values('confidence')) },
     };
     this.startedAt = undefined;

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { CalibrationProfile, Hand, SportActionEvent } from './cv/protocol';
-import { Calibrator } from './cv/calibrator';
+import type { CalibrationProfile, SportActionEvent } from './cv/protocol';
+import { AutoCalibrator, type CalibrationPhase } from './cv/autoCalibrator';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { ActionPipeline } from './kinematics/actionPipeline';
 import { ProceduralAudio } from './games/audio';
@@ -14,9 +14,7 @@ export default function App() {
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraStatus, setCameraStatus] = useState('Permissão da câmera ainda não solicitada');
   const [tracking, setTracking] = useState('SEM POSE');
-  const [profile, setProfile] = useState<CalibrationProfile>();
-  const [hand, setHand] = useState<Hand>('right');
-  const [calibrating, setCalibrating] = useState(false);
+  const [calibrationPhase, setCalibrationPhase] = useState<CalibrationPhase>('framing');
   const [calibrationProgress, setCalibrationProgress] = useState(0);
   const [muted, setMuted] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -25,13 +23,11 @@ export default function App() {
   const streamRef = useRef<MediaStream | undefined>(undefined);
   const engineRef = useRef<GameEngineHandle | null>(null);
   const pipelineRef = useRef(new ActionPipeline());
-  const calibratorRef = useRef(new Calibrator());
+  const calibratorRef = useRef(new AutoCalibrator());
+  const sportRef = useRef(sport);
+  sportRef.current = sport;
   const profileRef = useRef<CalibrationProfile | undefined>(undefined);
-  const calibratingRef = useRef(false);
-  const calibrationStartedRef = useRef(0);
   const audioRef = useRef(new ProceduralAudio());
-  const handRef = useRef(hand);
-  handRef.current = hand;
   const cameraAttemptRef = useRef(0);
 
   useEffect(() => {
@@ -46,33 +42,19 @@ export default function App() {
     };
   }, []);
 
-  useEffect(() => {
-    const timer = window.setInterval(() => {
-      if (!calibratingRef.current) return;
-      const progress = Math.min(1, (performance.now() - calibrationStartedRef.current) / 3000);
-      setCalibrationProgress(progress);
-      if (progress >= 1) {
-        const nextProfile = calibratorRef.current.finish(handRef.current);
-        calibratingRef.current = false;
-        setCalibrating(false);
-        if (nextProfile) {
-          profileRef.current = nextProfile;
-          setProfile(nextProfile);
-          setCameraStatus(nextProfile.world.leanUp0
-            ? 'Calibração aprovada · postura neutra salva'
-            : 'Calibração parcial · troca de raia e salto desativados · estenda as pernas e enquadre os tornozelos');
-        } else setCameraStatus('Calibração incompleta · enquadre o corpo inteiro e tente de novo');
-      }
-    }, 200);
-    return () => window.clearInterval(timer);
-  }, []);
-
   const onEngine = useCallback((engine: GameEngineHandle | null) => { engineRef.current = engine; }, []);
   const dispatchEvent = useCallback((event: SportActionEvent) => {
     engineRef.current?.onAction(event);
     if (event.type === 'swing') audioRef.current.hit(event.power01);
     if (event.type === 'jump') audioRef.current.jump();
     if (event.type === 'step') audioRef.current.step(event.side);
+  }, []);
+
+  const recalibrate = useCallback(() => {
+    profileRef.current = undefined;
+    calibratorRef.current.reset();
+    setCalibrationPhase('framing');
+    setCalibrationProgress(0);
   }, []);
 
   const stopCamera = useCallback(() => {
@@ -85,11 +67,9 @@ export default function App() {
     setTracking('SEM POSE');
     setCameraStatus('Câmera desligada');
     for (const event of pipelineRef.current.reset()) dispatchEvent(event);
-    calibratorRef.current.reset();
-    calibratingRef.current = false;
-    setCalibrating(false);
+    recalibrate();
     drawPose(overlayRef.current, videoRef.current);
-  }, [dispatchEvent]);
+  }, [dispatchEvent, recalibrate]);
 
   const startCamera = useCallback(async () => {
     stopCamera();
@@ -106,7 +86,17 @@ export default function App() {
         const result = pipelineRef.current.update(raw, profileRef.current);
         const current = result.snapshot;
         setTracking(current.trackingState === 'tracked' ? 'TRACKING' : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
-        if (calibratingRef.current) calibratorRef.current.add(current);
+        if (!profileRef.current) {
+          const step = calibratorRef.current.update(current, sportRef.current === 'track');
+          profileRef.current = step.profile;
+          setCalibrationPhase(step.phase);
+          setCalibrationProgress(step.progress);
+          if (step.profile) {
+            setCameraStatus(step.profile.world.leanUp0
+              ? 'Calibração aprovada · postura neutra salva'
+              : 'Calibração parcial · troca de raia e salto desativados · estenda as pernas e enquadre os tornozelos');
+          }
+        }
         drawPose(overlayRef.current, videoRef.current, current);
         for (const event of result.events) dispatchEvent(event);
       },
@@ -147,21 +137,6 @@ export default function App() {
     }
   }, [stopCamera, dispatchEvent]);
 
-  const startCalibration = useCallback(() => {
-    if (!cameraOn) return;
-    handRef.current = hand;
-    calibratorRef.current.start(performance.now());
-    calibrationStartedRef.current = performance.now();
-    calibratingRef.current = true;
-    setCalibrationProgress(0);
-    setCalibrating(true);
-    setCameraStatus('Fique em pé, neutro e com o corpo enquadrado por 3 segundos.');
-  }, [cameraOn, hand]);
-
-  const changeHand = useCallback((next: Hand) => {
-    handRef.current = next; setHand(next); profileRef.current = undefined; setProfile(undefined);
-    calibratorRef.current.reset(); calibratingRef.current = false; setCalibrating(false);
-  }, []);
   const toggleMute = useCallback(() => {
     void audioRef.current.unlock();
     setMuted((value) => { audioRef.current.setMuted(!value); return !value; });
@@ -172,16 +147,21 @@ export default function App() {
 
     <div className="hud-dock">
       <nav className="sport-dock" aria-label="Modalidades">
-        <button type="button" className={sport === 'track' ? 'active' : ''} onClick={() => setSport('track')}>01 · CORRIDA</button>
+        <button type="button" className={sport === 'track' ? 'active' : ''} onClick={() => {
+          setSport('track');
+          // Um perfil parcial vindo do tênis não tem referência de salto/raia: a corrida refaz a calibração.
+          if (profileRef.current && !profileRef.current.world.leanUp0) recalibrate();
+        }}>01 · CORRIDA</button>
         <button type="button" className={sport === 'tennis' ? 'active' : ''} onClick={() => setSport('tennis')}>02 · TÊNIS</button>
       </nav>
       <button type="button" className="mute-fab" onClick={toggleMute} title={muted ? 'Áudio desligado' : 'Áudio ligado'}>{muted ? '×' : '♫'}</button>
     </div>
 
     <CameraPip
+      sport={sport}
       videoRef={videoRef} canvasRef={overlayRef} cameraOn={cameraOn} status={cameraStatus} tracking={tracking}
-      calibration={profile} hand={hand} calibrating={calibrating} calibrationProgress={calibrationProgress}
-      onStart={() => void startCamera()} onStop={stopCamera} onHand={changeHand} onCalibrate={startCalibration}
+      calibrationPhase={calibrationPhase} calibrationProgress={calibrationProgress}
+      onStart={() => void startCamera()} onStop={stopCamera} onRecalibrate={recalibrate}
     />
   </main>;
 }

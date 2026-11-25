@@ -21,7 +21,7 @@ npm ci
 npm run dev
 ```
 
-O servidor local imprime a URL de desenvolvimento. A primeira ação **Ativar câmera** solicita permissão; a calibração inicial leva três segundos. Se a câmera não estiver disponível, setas e espaço continuam funcionando.
+O servidor local imprime a URL de desenvolvimento. A primeira ação **Ativar câmera** solicita permissão; a câmera abre em tela grande e calibra sozinha quando você fica parado e enquadrado (cerca de quatro segundos). A mão da raquete é detectada pelo movimento. Se a câmera não estiver disponível, setas e espaço continuam funcionando.
 
 ```bash
 npm test
@@ -50,7 +50,7 @@ Com o Vercel CLI autenticado, execute `npx vercel --prod`. O projeto usa `dist/`
 
 | Ação | Webcam | Teclado |
 | --- | --- | --- |
-| Correr | Corra no lugar | Seta para baixo acelera |
+| Correr | Ande ou corra no lugar | Seta para baixo alterna andar / correr / parar |
 | Pular | Salto vertical | Espaço ou seta para cima |
 | Trocar de raia | Incline o tronco | Setas esquerda/direita |
 | Bater no tênis | Raquetada dominante | Espaço |

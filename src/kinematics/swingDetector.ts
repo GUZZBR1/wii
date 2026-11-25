@@ -1,4 +1,4 @@
-import type { AimZone, CalibrationProfile, PoseSnapshot } from '../cv/protocol';
+import type { AimZone, CalibrationProfile, Hand, PoseSnapshot } from '../cv/protocol';
 import { OneEuroFilter } from '../cv/oneEuroFilter';
 import { clamp, distance3, landmarkConfidence } from './math';
 import { bodyLocalPoint } from './bodyFrame';
@@ -16,7 +16,7 @@ const MIN_SWING_SPEED_BODY_WIDTHS_PER_SEC = 2;
 const FULL_POWER_SWING_SPEED_BODY_WIDTHS_PER_SEC = 7;
 const SWING_DIRECTION_EPSILON_BODY_WIDTHS_PER_SEC = 0.5;
 const SWING_MIN_DURATION_MS = 30;
-const SWING_MAX_DURATION_MS = 300;
+export const SWING_MAX_DURATION_MS = 300;
 
 export function hasMeaningfulLateralComponent(speedBodyWidthsPerSecond: number, lateralSpeedBodyWidthsPerSecond: number): boolean {
   return speedBodyWidthsPerSecond >= MIN_SWING_SPEED_BODY_WIDTHS_PER_SEC
@@ -39,6 +39,8 @@ interface PendingSwing {
 }
 
 export class SwingDetector {
+  constructor(private readonly hand: Hand) {}
+
   private readonly xFilter = new OneEuroFilter({ minCutoff: 1, beta: 0.5, derivativeCutoff: 1 });
   private readonly yFilter = new OneEuroFilter({ minCutoff: 1, beta: 0.5, derivativeCutoff: 1 });
   private readonly zFilter = new OneEuroFilter({ minCutoff: 1, beta: 0.5, derivativeCutoff: 1 });
@@ -49,7 +51,7 @@ export class SwingDetector {
   private readySince?: number;
 
   update(snapshot: PoseSnapshot, calibration: CalibrationProfile): SwingSignal | undefined {
-    const hand = calibration.dominantHand;
+    const hand = this.hand;
     const wrist = snapshot.worldLandmarks[hand === 'right' ? 16 : 15];
     const shoulder = snapshot.worldLandmarks[hand === 'right' ? 12 : 11];
     const leftShoulder = snapshot.worldLandmarks[11];
@@ -75,7 +77,7 @@ export class SwingDetector {
     const vz = (current.z - this.previous.z) / dt;
     const speedBodyWidthsPerSecond = Math.hypot(vx, vy, vz);
     const lateralSpeedBodyWidthsPerSecond = vx;
-    const readyDistance = distance3(current, calibration.world.readyWristLocal);
+    const readyDistance = distance3(current, calibration.world.readyWristLocal[hand]);
     const confidence = landmarkConfidence(leftShoulder, rightShoulder, leftHip, rightHip, wrist);
     this.previous = current;
 
@@ -111,7 +113,7 @@ export class SwingDetector {
 
       this.enterReturn();
       const forehandDirection = hand === 'right' ? pending.direction < 0 : pending.direction > 0;
-      const aimValue = (pending.peak.x - calibration.world.readyWristLocal.x) * (hand === 'right' ? -1 : 1);
+      const aimValue = (pending.peak.x - calibration.world.readyWristLocal[hand].x) * (hand === 'right' ? -1 : 1);
       const aimZone: AimZone = aimValue < -0.2 ? 'cross' : aimValue > 0.2 ? 'line' : 'center';
       return {
         side: forehandDirection ? 'forehand' : 'backhand',
@@ -131,6 +133,9 @@ export class SwingDetector {
     }
     return undefined;
   }
+
+  /** A swing in flight that has not confirmed yet: the arbiter may hold a rival's confirmation for it. */
+  hasPending(): boolean { return this.pendingSwing !== undefined; }
 
   private enterReturn(): void {
     this.pendingSwing = undefined;

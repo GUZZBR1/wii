@@ -3,7 +3,7 @@ export class TrackScore {
 
   advance(dt: number, speed01: number): void {
     if (!Number.isFinite(speed01)) return;
-    this.value += dt * (5 + speed01 * 45);
+    this.value += dt * speed01 * 50;
   }
 
   hurdleCleared(): void {
