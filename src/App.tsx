@@ -89,6 +89,11 @@ export default function App() {
           profileRef.current = step.profile;
           setCalibrationPhase(step.phase);
           setCalibrationProgress(step.progress);
+          if (step.profile) {
+            setCameraStatus(step.profile.world.leanUp0
+              ? 'Calibração aprovada · postura neutra salva'
+              : 'Calibração parcial · troca de raia e salto desativados · estenda as pernas e enquadre os tornozelos');
+          }
         }
         drawPose(overlayRef.current, videoRef.current, current);
         for (const event of result.events) dispatchEvent(event);

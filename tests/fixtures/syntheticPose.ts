@@ -42,6 +42,10 @@ export function pose(timestampMs: number, options: {
   };
   world[23] = { ...world[23]!, x: 0.1, y: 0 };
   world[24] = { ...world[24]!, x: -0.1, y: 0 };
+  world[25] = { ...world[25]!, x: 0.1, y: 0.45 };
+  world[26] = { ...world[26]!, x: -0.1, y: 0.45 };
+  world[27] = { ...world[27]!, x: 0.1, y: 0.9 };
+  world[28] = { ...world[28]!, x: -0.1, y: 0.9 };
   return { timestampMs, landmarks: points, worldLandmarks: world, trackingState: 'tracked', bodyConfidence: options.confidence ?? 0.95 };
 }
 
@@ -79,11 +83,53 @@ export function poseWithWorldShoulderWidth(timestampMs: number, width: number, w
   return { ...snapshot, worldLandmarks: world };
 }
 
+const unit = (v: Point3): Point3 => { const m = Math.hypot(v.x, v.y, v.z); return { x: v.x / m, y: v.y / m, z: v.z / m }; };
+const scaled = (v: Point3, k: number): Point3 => ({ x: v.x * k, y: v.y * k, z: v.z * k });
+const added = (a: Point3, b: Point3): Point3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
+const crossed = (a: Point3, b: Point3): Point3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+
+/**
+ * Torso built from an explicit trunk-up direction — e.g. a tilted webcam tips the up axis in camera
+ * space. `yawRad` turns the body about that axis; `leanRad` tilts the trunk toward the player's right.
+ */
+export function poseWithWorldTorso(
+  timestampMs: number,
+  options: { up?: Point3; down?: Point3; shinDown?: Point3; yawRad?: number; leanRad?: number } = {},
+): PoseSnapshot {
+  const snapshot = pose(timestampMs);
+  const up = unit(options.up ?? { x: 0, y: -1, z: 0 });
+  // Player-right reference flattened perpendicular to the trunk; valid for any non-sideways up.
+  const side0 = unit({ x: up.x * up.x - 1, y: up.x * up.y, z: up.x * up.z });
+  const yaw = options.yawRad ?? 0;
+  const axis = added(scaled(side0, Math.cos(yaw)), scaled(crossed(up, side0), Math.sin(yaw)));
+  const lean = options.leanRad ?? 0;
+  const torsoDir = added(scaled(up, Math.cos(lean)), scaled(axis, Math.sin(lean)));
+  const shoulderAxis = added(scaled(axis, Math.cos(lean)), scaled(up, -Math.sin(lean)));
+  const shoulderMid = scaled(torsoDir, 0.4);
+  // Gravity direction for the legs; defaults to under the trunk (standing upright).
+  const down = options.down ? unit(options.down) : scaled(up, -1);
+  const kneeMid = scaled(down, 0.45);
+  const shinDown = options.shinDown ? unit(options.shinDown) : down;
+  const ankleMid = added(kneeMid, scaled(shinDown, 0.45));
+  const world = snapshot.worldLandmarks.map((point, index) => {
+    if (index === 11) return { ...point, ...added(shoulderMid, scaled(shoulderAxis, -0.2)) };
+    if (index === 12) return { ...point, ...added(shoulderMid, scaled(shoulderAxis, 0.2)) };
+    if (index === 23) return { ...point, ...scaled(axis, -0.1) };
+    if (index === 24) return { ...point, ...scaled(axis, 0.1) };
+    if (index === 25) return { ...point, ...added(kneeMid, scaled(axis, -0.1)) };
+    if (index === 26) return { ...point, ...added(kneeMid, scaled(axis, 0.1)) };
+    if (index === 27) return { ...point, ...added(ankleMid, scaled(axis, -0.1)) };
+    if (index === 28) return { ...point, ...added(ankleMid, scaled(axis, 0.1)) };
+    return point;
+  });
+  return { ...snapshot, worldLandmarks: world };
+}
+
 export function calibration(): CalibrationProfile {
   return {
     version: 1, completedAtMs: 3000,
     image: { torsoHeight: 0.4, hipY0: 0.55, kneeToHipY0: { left: -0.5, right: -0.5 }, shoulderWidth: 0.14 },
-    world: { shoulderWidth: 0.4, torsoLeanRad0: 0, readyWristLocal: { left: { x: 0, y: -1.25, z: 0 }, right: { x: 0, y: -1.25, z: 0 } } },
+    world: { shoulderWidth: 0.4, leanUp0: { x: 0, y: -1, z: 0 }, torsoLeanRad0: 0, readyWristLocal: { left: { x: 0, y: -1.25, z: 0 }, right: { x: 0, y: -1.25, z: 0 } } },
     quality: { validFrameRatio: 1, medianConfidence: 0.95 },
   };
 }

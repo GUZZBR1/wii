@@ -17,6 +17,7 @@ export class JumpDetector {
   private lastJumpAt = Number.NEGATIVE_INFINITY;
 
   update(snapshot: PoseSnapshot, calibration: CalibrationProfile): boolean {
+    if (calibration.image.hipY0 === undefined) return false;
     const hips = midpoint(snapshot.landmarks[23]!, snapshot.landmarks[24]!);
     const rise = this.riseFilter.filter((calibration.image.hipY0 - hips.y) / calibration.image.torsoHeight, snapshot.timestampMs);
     const dtSeconds = this.previousTimeMs === undefined ? undefined : Math.max((snapshot.timestampMs - this.previousTimeMs) / 1000, 1 / 120);

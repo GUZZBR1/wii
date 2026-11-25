@@ -9,7 +9,7 @@ import { landmarkConfidence } from '../src/kinematics/math';
 import { LaneLeanDetector, torsoLeanDeltaRad } from '../src/kinematics/postureSignals';
 import { SchmittTrigger } from '../src/kinematics/schmittTrigger';
 import { hasMeaningfulLateralComponent, SwingDetector } from '../src/kinematics/swingDetector';
-import { calibration, pose, poseWithWorldShoulderWidth, rollUpperBody, rotateWorldYaw } from './fixtures/syntheticPose';
+import { calibration, pose, poseWithWorldShoulderWidth, poseWithWorldTorso, rollUpperBody, rotateWorldYaw } from './fixtures/syntheticPose';
 
 function withWorldConfidence(snapshot: ReturnType<typeof pose>, index: number, visibility: number, presence: number) {
   return {
@@ -143,6 +143,24 @@ describe('jump detector', () => {
     }
     expect(events.filter(Boolean)).toHaveLength(0);
   });
+
+  it('re-arms for a second jump while the hip still oscillates', () => {
+    const detector = new JumpDetector();
+    const profile = calibration();
+    const bump = (time: number, start: number) => {
+      const elapsed = time - start;
+      if (elapsed < 0 || elapsed > 500) return 0;
+      if (elapsed <= 200) return (0.3 * elapsed) / 200;
+      if (elapsed <= 300) return 0.3;
+      return (0.3 * (500 - elapsed)) / 200;
+    };
+    const fired: number[] = [];
+    for (let time = 0; time <= 3400; time += 33) {
+      const hipRise = 0.05 * Math.sin((2 * Math.PI * time) / 500) + bump(time, 800) + bump(time, 2600);
+      if (detector.update(pose(time, { hipRise }), profile)) fired.push(time);
+    }
+    expect(fired).toHaveLength(2);
+  });
 });
 
 describe('swing detector', () => {
@@ -241,11 +259,15 @@ describe('swing detector', () => {
 });
 
 describe('world-space posture calibration', () => {
-  it('stores neutral trunk lean in world coordinates', () => {
+  it('stores the leg-derived vertical and the habitual lean baseline', () => {
     const calibrator = new Calibrator();
     calibrator.start(0);
     for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { leanRad: 0.2 }));
-    expect(calibrator.finish()?.world.torsoLeanRad0).toBeCloseTo(0.2, 2);
+    const world = calibrator.finish()!.world;
+    expect(world.leanUp0?.x).toBeCloseTo(0, 2);
+    expect(world.leanUp0?.y).toBeCloseTo(-1, 2);
+    expect(world.leanUp0?.z).toBeCloseTo(0, 2);
+    expect(world.torsoLeanRad0).toBeCloseTo(0.2, 2);
   });
 
   it('rejects calibration when the full-body landmarks stay below the confidence gate', () => {
@@ -291,6 +313,196 @@ describe('world-space posture calibration', () => {
     const detector = new LaneLeanDetector();
     const signals = Array.from({ length: 12 }, (_, i) => detector.update(frame(i * 33, i < 4 ? 0 : roll), profile));
     expect(signals.filter(Boolean)).toEqual([direction]);
+  });
+
+  it('does not read an upright body turn as lean when the camera is tilted', () => {
+    // Webcam pitched 25°: the calibrated trunk-up is tilted in camera space.
+    const tilt = (25 * Math.PI) / 180;
+    const up = { x: 0, y: -Math.cos(tilt), z: Math.sin(tilt) };
+    const profile = { ...calibration(), world: { ...calibration().world, leanUp0: up } };
+    expect(torsoLeanDeltaRad(poseWithWorldTorso(0, { up }), profile)).toBeCloseTo(0, 3);
+    // A 45° body turn measured ≈ −0.30 rad against the camera's horizontal plane.
+    expect(torsoLeanDeltaRad(poseWithWorldTorso(0, { up, yawRad: Math.PI / 4 }), profile)).toBeCloseTo(0, 2);
+    const detector = new LaneLeanDetector();
+    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
+      poseWithWorldTorso(i * 33, { up, yawRad: (i * Math.PI) / 20 }), profile,
+    ));
+    expect(signals.filter(Boolean)).toHaveLength(0);
+  });
+
+  it.each([[0.24, 'right'], [-0.24, 'left']] as const)('measures a real %s rad lean at 45° yaw with a tilted camera', (leanRad, direction) => {
+    const tilt = (25 * Math.PI) / 180;
+    const up = { x: 0, y: -Math.cos(tilt), z: Math.sin(tilt) };
+    const profile = { ...calibration(), world: { ...calibration().world, leanUp0: up } };
+    expect(torsoLeanDeltaRad(poseWithWorldTorso(0, { up, yawRad: Math.PI / 4, leanRad }), profile)).toBeCloseTo(leanRad, 2);
+    const detector = new LaneLeanDetector();
+    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
+      poseWithWorldTorso(i * 33, { up, yawRad: Math.PI / 4, leanRad: i < 4 ? 0 : leanRad }), profile,
+    ));
+    expect(signals.filter(Boolean)).toEqual([direction]);
+  });
+
+  it('does not read a body turn as lean after calibrating with a forward-tilted trunk', () => {
+    // Level camera, trunk calibrated 20° forward: the slanted trunk would lean the reference,
+    // but the stored vertical comes from the legs, which point along gravity.
+    const tilt = (20 * Math.PI) / 180;
+    const up = { x: 0, y: -Math.cos(tilt), z: Math.sin(tilt) };
+    const down = { x: 0, y: 1, z: 0 };
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(poseWithWorldTorso(time, { up, down }));
+    const profile = calibrator.finish()!;
+    const turned = rotateWorldYaw(poseWithWorldTorso(0, { up, down }), Math.PI / 4);
+    expect(torsoLeanDeltaRad(turned, profile)).toBeCloseTo(0, 2);
+    const detector = new LaneLeanDetector();
+    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
+      rotateWorldYaw(poseWithWorldTorso(i * 33, { up, down }), (i * Math.PI) / 20), profile,
+    ));
+    expect(signals.filter(Boolean)).toHaveLength(0);
+  });
+
+  it('saves a lean-less profile when the leg vertical cannot be verified', () => {
+    // Ankles hidden (tennis framing): the thigh direction cannot be checked against the shins,
+    // so the profile ships without a lean reference — swings still work, lane changes stay off.
+    const noAnkles = (time: number, options?: Parameters<typeof pose>[1]) => withWorldConfidence(
+      withWorldConfidence(pose(time, options), 27, 0, 0), 28, 0, 0,
+    );
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(noAnkles(time));
+    const profile = calibrator.finish()!;
+    expect(profile.world.leanUp0).toBeUndefined();
+    expect(profile.image.hipY0).toBeUndefined();
+    const swing = new SwingDetector('right');
+    for (let time = 0; time <= 240; time += 40) expect(swing.update(noAnkles(time), profile)).toBeUndefined();
+    swing.update(noAnkles(270, { wristLateral: -0.2 }), profile);
+    expect(swing.update(noAnkles(310, { wristLateral: 0.2 }), profile)).toMatchObject({ side: 'forehand' });
+    const lane = new LaneLeanDetector();
+    const signals = [0, 33, 66, 99, 132, 165, 198].map((time) => lane.update(
+      pose(time, { leanRad: 0.3 }), profile,
+    ));
+    expect(signals.filter(Boolean)).toHaveLength(0);
+    // The same takeoff sequence emits one jump with a complete profile and stays silent
+    // with the partial one — the neutral dwell is what arms the detector.
+    const frames = [
+      pose(0), pose(33), pose(66), pose(100), pose(133), pose(166),
+      pose(199, { hipRise: 0.07 }), pose(232, { hipRise: 0.12 }), pose(266, { hipRise: 0.18 }),
+      pose(299, { hipRise: 0.25 }), pose(332, { hipRise: 0.3 }), pose(366, { hipRise: 0.28 }),
+      pose(399, { hipRise: 0.22 }), pose(432, { hipRise: 0.12 }), pose(466, { hipRise: 0.06 }),
+      pose(499, { hipRise: 0.02 }), pose(666), pose(833),
+    ];
+    const complete = new JumpDetector();
+    expect(frames.map((frame) => complete.update(frame, calibration())).filter(Boolean)).toHaveLength(1);
+    const jump = new JumpDetector();
+    expect(frames.map((frame) => jump.update(frame, profile)).filter(Boolean)).toHaveLength(0);
+  });
+
+  it('verifies the stance references only when most samples show straight legs', () => {
+    const noAnkles = (time: number) => withWorldConfidence(
+      withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
+    );
+    const calibrateWithGaps = (hideAnkles: (frame: number) => boolean) => {
+      const calibrator = new Calibrator();
+      calibrator.start(0);
+      for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
+        calibrator.add(hideAnkles(frame) ? noAnkles(time) : pose(time));
+      }
+      return calibrator.finish()!.world;
+    };
+    expect(calibrateWithGaps((frame) => frame % 4 === 0).leanUp0).toBeDefined();
+    const unverified = calibrateWithGaps((frame) => frame % 2 === 0);
+    expect(unverified.leanUp0).toBeUndefined();
+  });
+
+  it('counts the leg-verification threshold over all captured frames, not just the valid ones', () => {
+    // 9 pose-less frames leave 22 valid (still ≥65% of the window); the legs verify in 17
+    // of them — over half the valid set, but under 65% of everything captured.
+    const noAnkles = (time: number) => withWorldConfidence(
+      withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
+    );
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
+      calibrator.add(frame < 9 ? pose(time, { confidence: 0.1 }) : frame < 14 ? noAnkles(time) : pose(time));
+    }
+    const profile = calibrator.finish()!;
+    expect(profile).not.toBeNull();
+    expect(profile.world.leanUp0).toBeUndefined();
+  });
+
+  it('verifies the stance separately from the racket reference', () => {
+    // Wrist and ankle confidence drop on different frames: each gate sees enough samples
+    // on its own, so the profile keeps both the racket and the stance references.
+    const noWrist = (time: number) => withWorldConfidence(pose(time), 16, 0, 0);
+    const noAnkles = (time: number) => withWorldConfidence(
+      withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
+    );
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
+      calibrator.add(frame < 8 ? noWrist(time) : frame < 15 ? noAnkles(time) : pose(time));
+    }
+    const profile = calibrator.finish()!;
+    expect(profile.world.leanUp0).toBeDefined();
+    expect(profile.image.hipY0).toBeDefined();
+  });
+
+  it('measures the jump baseline only over verified-stance frames', () => {
+    // A third of the window crouches on bent knees: those frames still feed the swing and
+    // cadence baselines, but the hip height comes only from the verified standing frames.
+    const bend = (20 * Math.PI) / 180;
+    const thighDown = { x: 0, y: Math.cos(bend), z: Math.sin(bend) };
+    const shinDown = { x: 0, y: 1, z: 0 };
+    const crouched = (time: number) => {
+      const snapshot = poseWithWorldTorso(time, { down: thighDown, shinDown });
+      return {
+        ...snapshot,
+        landmarks: snapshot.landmarks.map((p, i) => ((i === 23 || i === 24) ? { ...p, y: 0.59 } : p)),
+      };
+    };
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
+      calibrator.add(frame < 10 ? crouched(time) : pose(time));
+    }
+    const profile = calibrator.finish()!;
+    expect(profile.world.leanUp0).toBeDefined();
+    expect(profile.image.hipY0).toBeCloseTo(0.55, 5);
+  });
+
+  it('leaves the lean reference unset when the knees are bent at calibration', () => {
+    // Standing with knees bent 20°: shins stay vertical, thighs tilt forward — the thigh
+    // direction is not a standing vertical and cannot back the lean reference.
+    const bend = (20 * Math.PI) / 180;
+    const thighDown = { x: 0, y: Math.cos(bend), z: Math.sin(bend) };
+    const shinDown = { x: 0, y: 1, z: 0 };
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) {
+      calibrator.add(poseWithWorldTorso(time, { down: thighDown, shinDown }));
+    }
+    expect(calibrator.finish()!.world.leanUp0).toBeUndefined();
+  });
+
+  it('measures a whole-body lean where the thighs rotate with the trunk', () => {
+    // Ankle-pivot lean: trunk and thighs stay parallel, so the fixed reference must not follow.
+    const down = { x: Math.sin(0.24), y: Math.cos(0.24), z: 0 };
+    const profile = calibration();
+    expect(torsoLeanDeltaRad(poseWithWorldTorso(0, { leanRad: 0.24, down }), profile)).toBeCloseTo(0.24, 2);
+  });
+
+  it('keeps the neutral baseline when the knees leave the camera frame', () => {
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { leanRad: 0.2 }));
+    const profile = calibrator.finish()!;
+    const hiddenKnees = (time: number) => withWorldConfidence(
+      withWorldConfidence(pose(time, { leanRad: 0.2 }), 25, 0, 0), 26, 0, 0,
+    );
+    expect(torsoLeanDeltaRad(hiddenKnees(0), profile)).toBeCloseTo(0, 2);
+    const detector = new LaneLeanDetector();
+    const signals = Array.from({ length: 8 }, (_, i) => detector.update(hiddenKnees(i * 33), profile));
+    expect(signals.filter(Boolean)).toHaveLength(0);
   });
 
   it('waits for neutral posture before emitting a lane change after tracking reset', () => {
@@ -366,7 +578,11 @@ describe('action pipeline tracking gate', () => {
     expect(lost.controls).toMatchObject({ sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'lost' });
   });
 
-  it.each(['hidden knees', 'removed calibration', 'reset'])('stops the sprint exactly once on %s', (cause) => {
+  it.each([
+    ['hidden knees', 'degraded'],
+    ['removed calibration', 'lost'],
+    ['reset', 'lost'],
+  ] as const)('stops the sprint exactly once on %s', (cause, state) => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
     const frames = [
@@ -381,7 +597,24 @@ describe('action pipeline tracking gate', () => {
       if (cause === 'removed calibration') return pipeline.update(pose(time)).events;
       return pipeline.update(pose(time, { hiddenLandmarks: [25, 26] }), profile).events;
     });
-    expect(after.filter((event) => event.type === 'sprint')).toMatchObject([{ speed01: 0, cadenceSpm: 0 }]);
+    expect(after.filter((event) => event.type === 'sprint')).toMatchObject([{ speed01: 0, cadenceSpm: 0, trackingState: state }]);
+  });
+
+  it('keeps a standstill measured on a tracked pose stamped as tracked', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const frames = [
+      [0, 0, 0], [33, 0, 0], [66, 0, 0],
+      [166, 0.16, 0], [246, 0.16, 0], [306, 0, 0],
+      [566, 0, 0.16], [646, 0, 0.16], [706, 0, 0],
+      [966, 0.16, 0], [1046, 0.16, 0],
+    ] as const;
+    frames.forEach(([time, left, right]) => { pipeline.update(pose(time, { kneeLeft: left, kneeRight: right }), profile); });
+    const still = [1600, 1633].flatMap((time) => pipeline.update(pose(time), profile).events);
+    expect(still.filter((event) => event.type === 'sprint')).toMatchObject([
+      { speed01: 0, cadenceSpm: 0, trackingState: 'tracked' },
+      { speed01: 0, cadenceSpm: 0, trackingState: 'tracked' },
+    ]);
   });
 
   it('keeps the swing arc across a brief wrist occlusion and reports the gate confidence', () => {
