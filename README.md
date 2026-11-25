@@ -30,7 +30,7 @@ npm run preview
 npm run lint
 ```
 
-O build copia a variante module do WASM do MediaPipe fixado no lockfile para `public/mediapipe/wasm/` e verifica o SHA-256 do modelo Lite local antes de compilar. Os ativos de `mediapipe/` e `assets/` são servidos com `Cache-Control: immutable` (ver `vercel.json`).
+O build copia a variante module do WASM do MediaPipe fixado no lockfile para `public/mediapipe/wasm-<versão>/` e verifica o SHA-256 do modelo Lite local — servido com o hash no nome — antes de compilar. Os ativos de `mediapipe/` e `assets/` são servidos com `Cache-Control: immutable` (ver `vercel.json`).
 
 ## Arquitetura
 
