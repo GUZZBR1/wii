@@ -170,6 +170,9 @@ export class HandFeatureExtractor {
       return [];
     }
 
+    const stableIdentities = this.hasStableIdentities(snapshot.hands);
+    if (!stableIdentities) this.previousHands.clear();
+
     const seenHands = new Set<string>();
     const result: CanonicalHandFeatures[] = [];
     snapshot.hands.forEach((hand, index) => {
@@ -182,7 +185,7 @@ export class HandFeatureExtractor {
       }
 
       const image = imagePositionAndScale(hand.landmarks);
-      const previous = this.previousHands.get(key);
+      const previous = stableIdentities ? this.previousHands.get(key) : undefined;
       const elapsedMs = previous ? snapshot.timestampMs - previous.timestampMs : undefined;
       const hasVelocityWindow = elapsedMs !== undefined && elapsedMs > 0 && elapsedMs <= this.maxVelocityGapMs;
       const elapsedSeconds = hasVelocityWindow ? elapsedMs / 1000 : 0;
@@ -201,13 +204,15 @@ export class HandFeatureExtractor {
         imagePosition: image?.position,
         imageVelocity,
       });
-      seenHands.add(key);
-      this.previousHands.set(key, {
-        timestampMs: snapshot.timestampMs,
-        landmarks: canonical.landmarks,
-        imagePosition: image?.position,
-        imagePalmLength: image?.palmLength,
-      });
+      if (stableIdentities) {
+        seenHands.add(key);
+        this.previousHands.set(key, {
+          timestampMs: snapshot.timestampMs,
+          landmarks: canonical.landmarks,
+          imagePosition: image?.position,
+          imagePalmLength: image?.palmLength,
+        });
+      }
     });
 
     for (const key of this.previousHands.keys()) {
@@ -219,6 +224,18 @@ export class HandFeatureExtractor {
   reset(): void {
     this.previousHands.clear();
     this.lastTimestampMs = undefined;
+  }
+
+  private hasStableIdentities(hands: readonly HandObservation[]): boolean {
+    const confidentLabels = hands.every((hand) =>
+      hand.handednessScore === undefined ||
+      (Number.isFinite(hand.handednessScore) && hand.handednessScore >= 0.5),
+    );
+    if (!confidentLabels) return false;
+    if (hands.length <= 1) return true;
+
+    const labels = hands.map((hand) => hand.handedness);
+    return labels.every((label) => label !== undefined) && new Set(labels).size === hands.length;
   }
 
   private imageVelocity(

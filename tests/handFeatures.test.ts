@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { HandFeatureExtractor, MockReplayProvider, PinchClutch, pinchDistanceRatio } from '@wii/spatial-core';
+import type { HandObservation } from '@wii/spatial-core';
 import { handSnapshot, syntheticHand } from './fixtures/syntheticHand';
 
 describe('hand feature canonicalization', () => {
@@ -57,6 +58,58 @@ describe('hand feature canonicalization', () => {
     expect(() => extractor.extract(handSnapshot(100))).toThrow(/strictly increasing/);
     extractor.reset();
     expect(extractor.extract(handSnapshot(0))).toHaveLength(1);
+  });
+
+  it('keeps velocity attached to confident handedness when two-hand order changes', () => {
+    const extractor = new HandFeatureExtractor();
+    extractor.extract({
+      timestampMs: 0,
+      hands: [
+        syntheticHand({ handedness: 'left', screenX: 0.3 }),
+        syntheticHand({ handedness: 'right', screenX: 0.7 }),
+      ],
+    });
+
+    const reordered = extractor.extract({
+      timestampMs: 100,
+      hands: [
+        syntheticHand({ handedness: 'right', screenX: 0.68 }),
+        syntheticHand({ handedness: 'left', screenX: 0.32 }),
+      ],
+    });
+
+    expect(reordered.find(({ handedness }) => handedness === 'left')?.imageVelocity.x).toBeGreaterThan(0);
+    expect(reordered.find(({ handedness }) => handedness === 'right')?.imageVelocity.x).toBeLessThan(0);
+  });
+
+  it('zeros motion across ambiguous multi-hand identity and restarts after labels recover', () => {
+    const extractor = new HandFeatureExtractor();
+    extractor.extract({
+      timestampMs: 0,
+      hands: [
+        syntheticHand({ handedness: 'left', screenX: 0.3 }),
+        syntheticHand({ handedness: 'right', screenX: 0.7 }),
+      ],
+    });
+
+    const ambiguousHands: HandObservation[] = [
+      { ...syntheticHand({ handedness: 'left', screenX: 0.7 }), handedness: 'right', handednessScore: 0.2 },
+      { ...syntheticHand({ handedness: 'right', screenX: 0.3 }), handedness: 'left', handednessScore: 0.2 },
+    ];
+    const ambiguous = extractor.extract({ timestampMs: 100, hands: ambiguousHands });
+    expect(ambiguous.every(({ imageVelocity, landmarkVelocities }) =>
+      imageVelocity.x === 0 && imageVelocity.y === 0 &&
+      landmarkVelocities.every(({ x, y, z }) => x === 0 && y === 0 && z === 0),
+    )).toBe(true);
+
+    const recovered = extractor.extract({
+      timestampMs: 200,
+      hands: [
+        syntheticHand({ handedness: 'left', screenX: 0.34 }),
+        syntheticHand({ handedness: 'right', screenX: 0.66 }),
+      ],
+    });
+    expect(recovered.every(({ imageVelocity }) => imageVelocity.x === 0 && imageVelocity.y === 0)).toBe(true);
   });
 });
 
