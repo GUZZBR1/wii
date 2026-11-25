@@ -7,6 +7,26 @@ export interface CadenceResult { cadenceSpm: number; speed01: number; step?: 'le
 
 const KNEE_ON_THRESHOLD = 0.1;
 const KNEE_OFF_THRESHOLD = 0.05;
+const MIN_STEP_INTERVAL_MS = 220;
+const MAX_STEP_INTERVAL_MS = 1500;
+/** The player has stopped once the next step is this many periods late. */
+const STOP_AFTER_PERIODS = 1.6;
+const MAX_STOP_DELAY_MS = 1600;
+/**
+ * Steps/min to game speed, interpolated. Anchors follow the CADENCE-Adults studies (100 steps/min is a
+ * moderate walk; walking turns into running around 135-140). Those were measured moving forward, not in place.
+ */
+const SPEED_BY_CADENCE = [[40, 0.1], [100, 0.3], [137.5, 0.55], [200, 1]] as const;
+
+export function speedFromCadence(spm: number): number {
+  if (spm <= 0) return 0;
+  let [fromSpm, fromSpeed]: readonly [number, number] = SPEED_BY_CADENCE[0];
+  for (const [toSpm, toSpeed] of SPEED_BY_CADENCE) {
+    if (spm <= toSpm) return toSpm === fromSpm ? toSpeed : fromSpeed + (toSpeed - fromSpeed) * clamp((spm - fromSpm) / (toSpm - fromSpm));
+    [fromSpm, fromSpeed] = [toSpm, toSpeed];
+  }
+  return fromSpeed;
+}
 
 export class CadenceTracker {
   private readonly left = new SchmittTrigger(KNEE_ON_THRESHOLD, KNEE_OFF_THRESHOLD, 220);
@@ -38,19 +58,17 @@ export class CadenceTracker {
     else if (rightStep) step = 'right';
     if (step) {
       const interval = snapshot.timestampMs - this.lastStepAt;
-      if (Number.isFinite(interval) && interval > 1200) this.lastSteps = [];
-      if (Number.isFinite(interval) && interval >= 220 && interval <= 1200) {
-        this.lastSteps.push(interval);
-        this.lastSteps = this.lastSteps.slice(-4);
-      }
+      if (interval > MAX_STEP_INTERVAL_MS) this.lastSteps = [];
+      else if (interval >= MIN_STEP_INTERVAL_MS) this.lastSteps = [...this.lastSteps, interval].slice(-3);
       this.lastStepAt = snapshot.timestampMs;
       this.lastStepSide = step;
     }
-    const cadenceSpm = this.lastSteps.length >= 2 ? 60_000 / median(this.lastSteps) : 0;
-    const fresh = snapshot.timestampMs - this.lastStepAt < 450;
-    const activeCadence = fresh ? cadenceSpm : 0;
-    const speed01 = fresh ? clamp((activeCadence - 60) / 120) : 0;
-    return { cadenceSpm: activeCadence, speed01, step };
+    // One interval (two steps) is enough to start moving. A late step slows the pace before it stops it.
+    const period = median(this.lastSteps);
+    const elapsed = snapshot.timestampMs - this.lastStepAt;
+    const moving = period > 0 && elapsed <= Math.min(period * STOP_AFTER_PERIODS, MAX_STOP_DELAY_MS);
+    const cadenceSpm = moving ? 60_000 / Math.max(period, elapsed) : 0;
+    return { cadenceSpm, speed01: speedFromCadence(cadenceSpm), step };
   }
 
   reset(): void {

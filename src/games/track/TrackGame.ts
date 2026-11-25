@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { SportActionEvent } from '../../cv/protocol';
 import { disposeObjectTree, GameLoop } from '../core/GameLoop';
+import { type Gait, gaitFor } from './gait';
 import { TrackScore } from './trackScore';
 
 export interface GameHudState { score: number; label: string; speed01: number; status: string }
@@ -16,13 +17,17 @@ export class TrackGame {
   private readonly loop: GameLoop;
   private readonly hudTimer: number;
   private lane = 0;
-  private speed01 = 0.32;
-  private distance = 0;
+  /** Speed asked for by the player; `shownSpeed` eases toward it. */
+  private speed01 = 0;
+  private shownSpeed = 0;
+  private cadenceSpm = 0;
+  private gait: Gait = 'idle';
+  private stridePhase = 0;
   private readonly score = new TrackScore();
   private jumpTime = 0;
-  private hurdleClock = 0;
+  private sinceHurdle = 0;
   private lastHud = '';
-  private status = 'Use setas + espaço ou ative a câmera';
+  private status = 'Ande ou corra no lugar com a câmera, ou use ↓';
 
   constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: GameHudState) => void) {
     this.scene.background = new THREE.Color(0x223038);
@@ -79,7 +84,7 @@ export class TrackGame {
   }
 
   onAction(event: SportActionEvent): void {
-    if (event.type === 'sprint') { this.speed01 = event.speed01; this.status = 'Correndo'; }
+    if (event.type === 'sprint') { this.speed01 = event.speed01; this.cadenceSpm = event.cadenceSpm; }
     if (event.type === 'jump') { this.jumpTime = 0.72; this.status = 'Salto!'; }
     if (event.type === 'lane') { this.lane = Math.max(-1, Math.min(1, this.lane + (event.direction === 'left' ? -1 : 1))); }
   }
@@ -88,22 +93,36 @@ export class TrackGame {
     if (key === 'ArrowLeft' || key.toLowerCase() === 'a') this.lane = Math.max(-1, this.lane - 1);
     if (key === 'ArrowRight' || key.toLowerCase() === 'd') this.lane = Math.min(1, this.lane + 1);
     if (key === ' ' || key === 'ArrowUp' || key.toLowerCase() === 'w') this.jumpTime = 0.72;
-    if (key === 'ArrowDown' || key.toLowerCase() === 's') this.speed01 = Math.min(1, this.speed01 + 0.15);
+    if (key === 'ArrowDown' || key.toLowerCase() === 's') {
+      // Keyboard cycles stopped → walking → running.
+      this.speed01 = this.speed01 === 0 ? 0.3 : this.speed01 < 0.55 ? 0.8 : 0;
+      this.cadenceSpm = 0;
+    }
   }
 
   private update(dt: number): void {
-    this.distance += dt * (4 + this.speed01 * 12);
-    this.score.advance(dt, this.speed01);
+    this.shownSpeed += (this.speed01 - this.shownSpeed) * Math.min(1, dt * 6);
+    if (this.speed01 === 0 && this.shownSpeed < 0.02) this.shownSpeed = 0;
+    const speed = this.shownSpeed;
+    const gait = gaitFor(speed, this.gait);
+    if (gait !== this.gait) this.status = { idle: 'Parado', walk: 'Andando', run: 'Correndo' }[gait];
+    this.gait = gait;
+
+    this.score.advance(dt, speed);
     this.runner.position.x += (this.lane * 1.5 - this.runner.position.x) * Math.min(1, dt * 10);
+    // One leg swing per step: follow the player's cadence, or estimate it from speed for the keyboard.
+    if (gait !== 'idle') this.stridePhase += dt * Math.PI * (this.cadenceSpm || 70 + speed * 130) / 60;
+    const swing = gait === 'idle' ? 0 : gait === 'walk' ? 0.4 : 0.95;
+    const stride = Math.sin(this.stridePhase) * swing;
+    this.legs[0]!.rotation.x = stride; this.legs[1]!.rotation.x = -stride;
+    this.arms[0]!.rotation.x = -stride * (gait === 'run' ? 1.1 : 0.65); this.arms[1]!.rotation.x = -this.arms[0]!.rotation.x;
+    this.runner.rotation.x = gait === 'run' ? -0.16 : 0;
     if (this.jumpTime > 0) {
       this.jumpTime = Math.max(0, this.jumpTime - dt);
       this.runner.position.y = Math.sin((1 - this.jumpTime / 0.72) * Math.PI) * 1.35;
-    } else this.runner.position.y = 0;
-    const stride = Math.sin(this.distance * 2.4) * (0.18 + this.speed01 * 0.5);
-    this.legs[0]!.rotation.x = stride; this.legs[1]!.rotation.x = -stride;
-    this.arms[0]!.rotation.x = -stride * 0.65; this.arms[1]!.rotation.x = stride * 0.65;
-    const advance = dt * (7 + this.speed01 * 17);
-    this.hurdleClock += dt;
+    } else this.runner.position.y = gait === 'run' ? Math.abs(Math.sin(this.stridePhase)) * 0.14 : 0;
+    const advance = dt * speed * 22;
+    this.sinceHurdle += advance;
     for (const hurdle of this.hurdles) {
       hurdle.z += advance; hurdle.group.position.z = hurdle.z;
       if (!hurdle.passed && hurdle.z > 0.2) {
@@ -117,8 +136,8 @@ export class TrackGame {
       this.scene.remove(old.group);
       disposeObjectTree(old.group);
     }
-    if (this.hurdleClock > Math.max(1.5, 3.4 - this.speed01 * 1.4)) {
-      this.hurdleClock = 0;
+    if (this.sinceHurdle > 26) {
+      this.sinceHurdle = 0;
       this.addHurdle(Math.round(Math.random() * 2) - 1, -48 - Math.random() * 5);
     }
   }
@@ -126,10 +145,10 @@ export class TrackGame {
   private publishHud(): void {
     const score = this.score.display;
     const label = String(score).padStart(5, '0');
-    const key = `${label}-${this.speed01.toFixed(2)}-${this.status}`;
+    const key = `${label}-${this.shownSpeed.toFixed(2)}-${this.status}`;
     if (key === this.lastHud) return;
     this.lastHud = key;
-    this.onHud({ score, label, speed01: this.speed01, status: this.status });
+    this.onHud({ score, label, speed01: this.shownSpeed, status: this.status });
   }
 
   dispose(): void { window.clearInterval(this.hudTimer); this.loop.dispose(); }
