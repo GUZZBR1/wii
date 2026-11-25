@@ -1,5 +1,5 @@
 import type { CalibrationProfile, PoseSnapshot } from '../cv/protocol';
-import { OneEuroFilter } from '../cv/oneEuroFilter';
+import { OneEuroFilter } from '@wii/spatial-core';
 import { torsoLeanRad } from './bodyFrame';
 
 export function torsoLeanDeltaRad(snapshot: PoseSnapshot, calibration: CalibrationProfile): number {

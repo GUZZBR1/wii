@@ -1,5 +1,5 @@
 import type { AimZone, CalibrationProfile, Hand, PoseSnapshot } from '../cv/protocol';
-import { OneEuroFilter } from '../cv/oneEuroFilter';
+import { OneEuroFilter } from '@wii/spatial-core';
 import { clamp, distance3, landmarkConfidence } from './math';
 import { bodyLocalPoint } from './bodyFrame';
 
