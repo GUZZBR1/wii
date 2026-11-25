@@ -13,3 +13,16 @@ export function gaitFor(speed01: number, previous: Gait): Gait {
 export function nextPace(speed01: number): number {
   return speed01 === 0 ? 0.3 : speed01 < RUN_ON_SPEED ? 0.8 : 0;
 }
+
+export type PaceOwner = 'camera' | 'keyboard';
+export interface Pace { owner: PaceOwner; speed01: number; cadenceSpm: number }
+
+/**
+ * Who paces the runner. Measured steps are the player's body — they always take over.
+ * A tracked standstill only cancels the keyboard's pick when the camera was already
+ * the one pacing, so ↓/S selections survive frames of "standing still" data.
+ */
+export function applySprint(pace: Pace, event: { speed01: number; cadenceSpm: number }): Pace {
+  if (event.cadenceSpm > 0) return { owner: 'camera', speed01: event.speed01, cadenceSpm: event.cadenceSpm };
+  return pace.owner === 'camera' ? { ...pace, speed01: event.speed01, cadenceSpm: event.cadenceSpm } : pace;
+}

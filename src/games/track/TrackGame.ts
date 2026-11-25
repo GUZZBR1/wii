@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { SportActionEvent } from '../../cv/protocol';
 import { disposeObjectTree, GameLoop } from '../core/GameLoop';
-import { type Gait, gaitFor, nextPace } from './gait';
+import { applySprint, type Gait, gaitFor, nextPace, type Pace } from './gait';
 import { HurdleFlow, RUNNER_Z } from './hurdleFlow';
 import { TrackScore } from './trackScore';
 
@@ -19,10 +19,9 @@ export class TrackGame {
   private readonly loop: GameLoop;
   private readonly hudTimer: number;
   private lane = 0;
-  /** Speed asked for by the player; `shownSpeed` eases toward it. */
-  private speed01 = 0;
+  /** Speed asked for by the player and who set it; `shownSpeed` eases toward it. */
+  private pace: Pace = { owner: 'camera', speed01: 0, cadenceSpm: 0 };
   private shownSpeed = 0;
-  private cadenceSpm = 0;
   private gait: Gait = 'idle';
   private stridePhase = 0;
   private readonly score = new TrackScore();
@@ -86,7 +85,7 @@ export class TrackGame {
   }
 
   onAction(event: SportActionEvent): void {
-    if (event.type === 'sprint') { this.speed01 = event.speed01; this.cadenceSpm = event.cadenceSpm; }
+    if (event.type === 'sprint') this.pace = applySprint(this.pace, event);
     if (event.type === 'jump') { this.jumpTime = 0.72; this.status = 'Salto!'; }
     if (event.type === 'lane') { this.lane = Math.max(-1, Math.min(1, this.lane + (event.direction === 'left' ? -1 : 1))); }
   }
@@ -96,15 +95,14 @@ export class TrackGame {
     if (key === 'ArrowRight' || key.toLowerCase() === 'd') this.lane = Math.min(1, this.lane + 1);
     if (key === ' ' || key === 'ArrowUp' || key.toLowerCase() === 'w') this.jumpTime = 0.72;
     if (key === 'ArrowDown' || key.toLowerCase() === 's') {
-      // Keyboard cycles stopped → walking → running.
-      this.speed01 = nextPace(this.speed01);
-      this.cadenceSpm = 0;
+      // Keyboard cycles stopped → walking → running and keeps the pick until the player steps on camera.
+      this.pace = { owner: 'keyboard', speed01: nextPace(this.pace.speed01), cadenceSpm: 0 };
     }
   }
 
   private update(dt: number): void {
-    this.shownSpeed += (this.speed01 - this.shownSpeed) * Math.min(1, dt * 6);
-    if (this.speed01 === 0 && this.shownSpeed < 0.02) this.shownSpeed = 0;
+    this.shownSpeed += (this.pace.speed01 - this.shownSpeed) * Math.min(1, dt * 6);
+    if (this.pace.speed01 === 0 && this.shownSpeed < 0.02) this.shownSpeed = 0;
     const speed = this.shownSpeed;
     const gait = gaitFor(speed, this.gait);
     if (gait !== this.gait) this.status = GAIT_STATUS[gait];
@@ -113,7 +111,7 @@ export class TrackGame {
     this.score.advance(dt, speed);
     this.runner.position.x += (this.lane * 1.5 - this.runner.position.x) * Math.min(1, dt * 10);
     // One leg swing per step: follow the player's cadence, or estimate it from speed for the keyboard.
-    if (gait !== 'idle') this.stridePhase += dt * Math.PI * (this.cadenceSpm || 70 + speed * 130) / 60;
+    if (gait !== 'idle') this.stridePhase += dt * Math.PI * (this.pace.cadenceSpm || 70 + speed * 130) / 60;
     const swing = gait === 'idle' ? 0 : gait === 'walk' ? 0.4 : 0.95;
     const stride = Math.sin(this.stridePhase) * swing;
     this.legs[0]!.rotation.x = stride; this.legs[1]!.rotation.x = -stride;

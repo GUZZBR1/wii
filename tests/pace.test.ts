@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { gaitFor, type Gait, nextPace } from '../src/games/track/gait';
+import { applySprint, gaitFor, type Gait, nextPace, type Pace } from '../src/games/track/gait';
 import { CadenceTracker, type CadenceResult } from '../src/kinematics/cadenceTracker';
 import { calibration, pose } from './fixtures/syntheticPose';
 
@@ -136,5 +136,42 @@ describe('pace from marching in place', () => {
     expect(nextPace(0.3)).toBe(0.8);
     expect(nextPace(0.8)).toBe(0);
     expect(nextPace(0.64)).toBe(0);
+  });
+});
+
+describe('pace ownership between camera and keyboard', () => {
+  const still = { speed01: 0, cadenceSpm: 0 };
+  const press = (pace: Pace): Pace => ({ owner: 'keyboard', speed01: nextPace(pace.speed01), cadenceSpm: 0 });
+
+  it('lets the camera stop a run it is pacing', () => {
+    const pace = applySprint({ owner: 'camera', speed01: 0.8, cadenceSpm: 160 }, still);
+    expect(pace).toEqual({ owner: 'camera', speed01: 0, cadenceSpm: 0 });
+  });
+
+  it('keeps the keyboard pick through frames of measured still', () => {
+    const pace = applySprint({ owner: 'keyboard', speed01: 0.8, cadenceSpm: 0 }, still);
+    expect(pace).toEqual({ owner: 'keyboard', speed01: 0.8, cadenceSpm: 0 });
+  });
+
+  it.each(['camera', 'keyboard'] as const)('hands the pace to the camera on measured steps from %s', (owner) => {
+    const pace = applySprint({ owner, speed01: owner === 'keyboard' ? 0.8 : 0.2, cadenceSpm: 0 }, { speed01: 0.6, cadenceSpm: 150 });
+    expect(pace).toEqual({ owner: 'camera', speed01: 0.6, cadenceSpm: 150 });
+  });
+
+  it('reaches running on two presses separated by still frames', () => {
+    let pace: Pace = { owner: 'camera', speed01: 0, cadenceSpm: 0 };
+    for (const target of [0.3, 0.8]) {
+      pace = press(pace);
+      pace = applySprint(pace, still);
+      expect(pace.speed01).toBe(target);
+    }
+  });
+
+  it('stops when the keyboard cycles back to zero and stays stopped', () => {
+    let pace: Pace = { owner: 'keyboard', speed01: 0, cadenceSpm: 0 };
+    pace = press(press(pace));
+    pace = press(pace);
+    pace = applySprint(pace, still);
+    expect(pace.speed01).toBe(0);
   });
 });
