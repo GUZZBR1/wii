@@ -700,6 +700,38 @@ describe('mão da raquete', () => {
     const swings = frames.flatMap((frame) => pipeline.update(frame, profile).events).filter((event) => event.type === 'swing');
     expect(swings).toHaveLength(1);
   });
+
+  it('segura a confirmação enquanto a outra mão ainda voa e deixa o golpe mais forte vencer', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
+    // Weak right arc reverses and confirms fast; the left wrist starts a strong arc in the
+    // same frame, so the right's confirmation is held instead of locking the left out.
+    pipeline.update(pose(99, { wristLateral: -0.15 }), profile);
+    const held = pipeline.update(pose(132, { wristLateral: 0.05, leftWristLateral: 0.15 }), profile);
+    expect(held.events.filter((event) => event.type === 'swing')).toHaveLength(0);
+    pipeline.update(pose(165, { leftWristLateral: 0.35 }), profile);
+    pipeline.update(pose(198, { leftWristLateral: 0.55 }), profile);
+    const released = pipeline.update(pose(231, { leftWristLateral: 0.2 }), profile);
+    const swings = released.events.filter((event) => event.type === 'swing');
+    expect(swings).toHaveLength(1);
+    expect(swings[0]).toMatchObject({ side: 'forehand', aimZone: 'line' });
+    expect(swings[0]!.type === 'swing' && swings[0]!.power01).toBeGreaterThan(0.5);
+  });
+
+  it('solta o golpe segurado quando a mão rival perde o rastreamento sem confirmar', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
+    pipeline.update(pose(99, { wristLateral: -0.15, leftWristLateral: 0.15 }), profile);
+    const held = pipeline.update(pose(132, { wristLateral: 0.05, leftWristLateral: 0.35 }), profile);
+    expect(held.events.filter((event) => event.type === 'swing')).toHaveLength(0);
+    // Left wrist vanishes: once its gate is lost the pending arc dies and the held swing emits.
+    const swings = [165, 198, 231, 264]
+      .flatMap((time) => pipeline.update(withWorldConfidence(pose(time, { wristLateral: 0.05 }), 15, 0, 0), profile).events)
+      .filter((event) => event.type === 'swing');
+    expect(swings).toHaveLength(1);
+  });
 });
 
 describe('calibração automática', () => {

@@ -16,7 +16,7 @@ const MIN_SWING_SPEED_BODY_WIDTHS_PER_SEC = 2;
 const FULL_POWER_SWING_SPEED_BODY_WIDTHS_PER_SEC = 7;
 const SWING_DIRECTION_EPSILON_BODY_WIDTHS_PER_SEC = 0.5;
 const SWING_MIN_DURATION_MS = 30;
-const SWING_MAX_DURATION_MS = 300;
+export const SWING_MAX_DURATION_MS = 300;
 
 export function hasMeaningfulLateralComponent(speedBodyWidthsPerSecond: number, lateralSpeedBodyWidthsPerSecond: number): boolean {
   return speedBodyWidthsPerSecond >= MIN_SWING_SPEED_BODY_WIDTHS_PER_SEC
@@ -133,6 +133,9 @@ export class SwingDetector {
     }
     return undefined;
   }
+
+  /** A swing in flight that has not confirmed yet: the arbiter may hold a rival's confirmation for it. */
+  hasPending(): boolean { return this.pendingSwing !== undefined; }
 
   private enterReturn(): void {
     this.pendingSwing = undefined;

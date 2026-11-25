@@ -2,7 +2,7 @@ import type { CalibrationProfile, ContinuousControls, PoseSnapshot, SportActionE
 import { CadenceTracker } from './cadenceTracker';
 import { JumpDetector } from './jumpDetector';
 import { LaneLeanDetector } from './postureSignals';
-import { SwingDetector } from './swingDetector';
+import { SWING_MAX_DURATION_MS, SwingDetector, type SwingSignal } from './swingDetector';
 import { TrackingGate } from './trackingGate';
 
 export class ActionPipeline {
@@ -18,6 +18,8 @@ export class ActionPipeline {
     { wrist, gate: new TrackingGate([], 'world'), detector: new SwingDetector(hand) }
   ));
   private lastSwingAt = Number.NEGATIVE_INFINITY;
+  /** Confirmed swing held back while the other wrist still has one in flight, so the stronger wins. */
+  private heldSwing?: { swing: SwingSignal; heldSince: number };
   private nextId = 1;
   /** True while the last emitted sprint event left the game moving. */
   private sprinting = false;
@@ -63,17 +65,30 @@ export class ActionPipeline {
       if (lane) events.push({ ...this.eventBase(snapshot, laneTracking.confidence), id: this.nextId++, type: 'lane', direction: lane });
     } else if (laneTracking.state === 'lost') this.lean.reset();
 
-    const candidates = this.swings.flatMap(({ wrist, gate, detector }) => {
+    const confirmed = this.swings.flatMap(({ wrist, gate, detector }) => {
       const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, wrist], 'world');
       if (tracking.state === 'lost') detector.reset();
       const swing = tracking.state === 'tracked' ? detector.update(current, calibration) : undefined;
       return swing ? [swing] : [];
     });
-    const [swing] = candidates.sort((a, b) => b.power01 - a.power01);
-    if (swing && snapshot.timestampMs - this.lastSwingAt >= 400) {
-      this.lastSwingAt = snapshot.timestampMs;
-      const { confidence, peakTimestampMs, ...action } = swing;
-      events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'swing', ...action, peakTimestampMs });
+    // The strongest swing wins, not the first to confirm: while a wrist still has a swing
+    // in flight, hold the rival's confirmation until it resolves — bounded by the rival's
+    // own max duration — so a weak early finisher can't lock out a stronger arc.
+    const pool = this.heldSwing ? [this.heldSwing.swing, ...confirmed] : confirmed;
+    const [swing] = pool.sort((a, b) => b.power01 - a.power01);
+    if (swing) {
+      const rivalInFlight = this.swings.some(({ detector }) => detector.hasPending());
+      const holdExpired = this.heldSwing !== undefined && snapshot.timestampMs - this.heldSwing.heldSince >= SWING_MAX_DURATION_MS;
+      if (rivalInFlight && !holdExpired) {
+        this.heldSwing = { swing, heldSince: this.heldSwing?.heldSince ?? snapshot.timestampMs };
+      } else {
+        this.heldSwing = undefined;
+        if (snapshot.timestampMs - this.lastSwingAt >= 400) {
+          this.lastSwingAt = snapshot.timestampMs;
+          const { confidence, peakTimestampMs, ...action } = swing;
+          events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'swing', ...action, peakTimestampMs });
+        }
+      }
     }
 
     return { snapshot: current, events, controls, kinematicsMs: performance.now() - start };
@@ -97,5 +112,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.lean.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; }
+  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.lean.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }
