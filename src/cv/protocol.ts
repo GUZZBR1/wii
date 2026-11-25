@@ -11,11 +11,7 @@ export interface Point3 {
 }
 
 export interface PoseSnapshot {
-  frameId: number;
   timestampMs: number;
-  receivedAtMs: number;
-  inferenceMs: number;
-  delegate: Delegate;
   landmarks: readonly Point3[];
   worldLandmarks: readonly Point3[];
   trackingState: TrackingState;
@@ -34,7 +30,6 @@ export interface CalibrationProfile {
     torsoLeanRad0: number;
   };
   world: { shoulderWidth: number; readyWristLocal: Point3 };
-  swing?: { softSpeed: number; strongSpeed: number };
   quality: { validFrameRatio: number; medianConfidence: number };
 }
 
@@ -47,7 +42,6 @@ export interface WorkerInit {
 
 export interface WorkerFrame {
   type: 'FRAME';
-  frameId: number;
   timestampMs: number;
   bitmap: ImageBitmap;
 }
@@ -58,10 +52,7 @@ export type WorkerReply =
   | { type: 'READY'; delegate: Delegate }
   | {
       type: 'POSE';
-      frameId: number;
       timestampMs: number;
-      inferenceMs: number;
-      delegate: Delegate;
       landmarks: Point3[];
       worldLandmarks: Point3[];
     }

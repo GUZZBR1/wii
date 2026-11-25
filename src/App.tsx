@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CalibrationProfile, Hand, SportActionEvent } from './cv/protocol';
 import { Calibrator } from './cv/calibrator';
-import { PoseClient } from './cv/poseClient';
+import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { ActionPipeline } from './kinematics/actionPipeline';
 import { ProceduralAudio } from './games/audio';
 import { CameraPip } from './ui/CameraPip';
@@ -34,6 +34,13 @@ export default function App() {
   handRef.current = hand;
 
   useEffect(() => {
+    void navigator.permissions?.query({ name: 'camera' as PermissionName }).then((permission) => {
+      if (permission.state === 'granted') PoseClient.warmVisionAssets();
+    }).catch(() => undefined);
+    return () => { clientRef.current?.dispose(); };
+  }, []);
+
+  useEffect(() => {
     const timer = window.setInterval(() => {
       if (!calibratingRef.current) return;
       const progress = Math.min(1, (performance.now() - calibrationStartedRef.current) / 3000);
@@ -61,8 +68,7 @@ export default function App() {
   }, []);
 
   const stopCamera = useCallback(() => {
-    clientRef.current?.stop();
-    clientRef.current = undefined;
+    clientRef.current?.pauseCapture();
     streamRef.current?.getTracks().forEach((track) => { track.stop(); });
     streamRef.current = undefined;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -77,8 +83,25 @@ export default function App() {
   }, []);
 
   const startCamera = useCallback(async () => {
+    const callbacks: PoseClientCallbacks = {
+      onStatus: (status, detail) => {
+        setCameraStatus(detail);
+        if (status === 'error') { setTracking('SEM POSE'); stopCamera(); setCameraStatus(detail); }
+      },
+      onPose: (raw) => {
+        const result = pipelineRef.current.update(raw, profileRef.current);
+        const current = result.snapshot;
+        setTracking(current.trackingState === 'tracked' ? 'TRACKING' : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
+        if (calibratingRef.current) calibratorRef.current.add(current);
+        drawPose(overlayRef.current, videoRef.current, current);
+        for (const event of result.events) dispatchEvent(event);
+      },
+    };
     try {
       await audioRef.current.unlock();
+      clientRef.current ??= new PoseClient();
+      const client = clientRef.current;
+      const visionReady = client.init(callbacks);
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } },
@@ -92,24 +115,10 @@ export default function App() {
         if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) resolve();
         else video.addEventListener('loadeddata', () => resolve(), { once: true });
       });
-      const client = new PoseClient();
-      clientRef.current = client;
       setCameraOn(true);
-      setCameraStatus('Carregando motor de visão…');
-      await client.start(video, {
-        onStatus: (status, detail) => {
-          setCameraStatus(detail);
-          if (status === 'error') { setTracking('SEM POSE'); stopCamera(); setCameraStatus(detail); }
-        },
-        onPose: (raw) => {
-          const result = pipelineRef.current.update(raw, profileRef.current);
-          const current = result.snapshot;
-          setTracking(current.trackingState === 'tracked' ? 'TRACKING' : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
-          if (calibratingRef.current) calibratorRef.current.add(current);
-          drawPose(overlayRef.current, videoRef.current, current);
-          for (const event of result.events) dispatchEvent(event);
-        },
-      });
+      await visionReady;
+      if (!client.isReady || streamRef.current !== stream) return;
+      client.beginCapture(video, callbacks);
     } catch (error) {
       stopCamera();
       setCameraStatus(error instanceof Error ? error.message : 'Não foi possível iniciar a câmera.');
