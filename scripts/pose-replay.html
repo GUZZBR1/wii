@@ -1,0 +1,17 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pose model regression harness</title>
+<h1>Pose model regression harness</h1>
+<p>Local engineering tool. Process a clip once to create a reference JSON; later runs compare against it. The selected video stays in this browser.</p>
+<label>Video clip <input id="video-file" type="file" accept="video/*"></label>
+<label>Optional reference recording <input id="reference-file" type="file" accept="application/json,.json"></label>
+<label>Delegate <select id="delegate"><option>CPU</option><option>GPU</option></select></label>
+<label>Image coordinate tolerance <input id="image-tolerance" type="number" value="0.01" min="0" step="0.001"></label>
+<label>World coordinate tolerance (m) <input id="world-tolerance" type="number" value="0.03" min="0" step="0.001"></label>
+<label>Confidence tolerance <input id="confidence-tolerance" type="number" value="0.05" min="0" step="0.001"></label>
+<button id="run" type="button">Run regression</button>
+<button id="download" type="button" disabled>Download current recording</button>
+<video id="video" muted playsinline hidden></video>
+<pre id="report">Choose a clip. A reference recording is optional when creating the first baseline.</pre>
+<script type="module" src="./pose-replay.ts"></script>
