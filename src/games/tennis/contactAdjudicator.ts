@@ -121,7 +121,7 @@ export function adjudicateContact(query: AdjudicationQuery): ContactOutcome {
   const timingErrorMs =
     query.timingErrorOverrideMs ??
     (ballAtPeak.velocity.z > 0.5 ? spatialTimingErrorMs(ballAtPeak, geo.contactPlaneZ) : undefined);
-  if (timingErrorMs === undefined) return { kind: 'ignore' };
+  if (timingErrorMs === undefined || !Number.isFinite(timingErrorMs)) return { kind: 'ignore' };
 
   if (ballAtPeak.bounces >= 2 || ballAtPeak.position.z > geo.playerZ + geo.passMarginZ) {
     return { kind: 'whiff', reason: 'dead-ball' };

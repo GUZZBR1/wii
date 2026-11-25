@@ -51,6 +51,12 @@ describe('adjudicateContact — whiffs', () => {
     expect(adjudicateContact(query({ ballAtPeak: incoming({ vz: -8 }) })).kind).toBe('ignore');
   });
 
+  it('ignores non-finite timing overrides instead of turning them into perfect hits', () => {
+    for (const timingErrorOverrideMs of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+      expect(adjudicateContact(query({ timingErrorOverrideMs }))).toEqual({ kind: 'ignore' });
+    }
+  });
+
   it('whiffs early and late outside the timing window', () => {
     // Slow ball (7 u/s) so the ±290 ms offsets stay inside the pass margin — isolating timing.
     expect(adjudicateContact(query({ ballAtPeak: incoming({ z: 7.2 - 7 * 0.29, vz: 7 }) }))).toMatchObject({

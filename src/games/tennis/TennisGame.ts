@@ -6,6 +6,7 @@ import type { GameHudState } from '../core/hud';
 import { advanceBall, createBall, solveOutgoing, timeAtPlane, type BallState } from './ballistics';
 import { adjudicateContact, type ContactOutcome } from './contactAdjudicator';
 import { adaptOpponentSkill, createOpponentAi, decideReturn, type OpponentAiState } from './opponentAi';
+import { ballAtPlannedContact, resolveScheduledOpponentReturn, type OpponentHitPlan } from './opponentReturn';
 import { awardPoint, createScore, pointLabels, type PlayerSide, type TennisScoreState } from './tennisScore';
 
 /**
@@ -68,7 +69,7 @@ export class TennisGame {
   private playerLateralSpeed = 0;
   private swingAnimT = 1;
   private opponentSwingT = 1;
-  private opponentHitPlan: { hitAtMs: number; fromBall: BallState } | null = null;
+  private opponentHitPlan: OpponentHitPlan | null = null;
   private opponentAi: OpponentAiState = createOpponentAi();
   private status = 'Espaço ou raquetada para sacar';
   private feedback: { id: number; text: string; tone: 'good' | 'bad' | 'neutral' } | undefined;
@@ -383,17 +384,25 @@ export class TennisGame {
     if (!this.opponentHitPlan) {
       const crossing = timeAtPlane(this.ball, OPPONENT_CONTACT_PLANE_Z);
       if (!crossing) return;
-      this.opponentHitPlan = { hitAtMs: now + crossing.timeSeconds * 1000, fromBall: this.ball };
+      this.opponentHitPlan = {
+        hitAtMs: now + crossing.timeSeconds * 1000,
+        contactAfterSeconds: crossing.timeSeconds,
+        fromBall: this.ball,
+      };
     }
 
     if (now >= this.opponentHitPlan.hitAtMs) {
-      const sinceScheduled = Math.max(0, (now - this.opponentHitPlan.hitAtMs) / 1000);
-      const contactBall = this.ball;
-      const decision = decideReturn(this.opponentAi, this.pressureOnOpponent(), Math.random);
+      const plan = this.opponentHitPlan;
+      const contactBall = ballAtPlannedContact(plan);
+      const decision = decideReturn(this.opponentAi, this.pressureOnOpponent(contactBall), Math.random);
       this.opponentHitPlan = null;
       if (decision.kind === 'no-return') return; // ball plays on — the bounce rules score the point
-      const velocity = solveOutgoing(contactBall.position, { x: decision.targetX, z: decision.targetZ }, decision.flightTimeSeconds);
-      this.ball = advanceBall(createBall(contactBall.position, velocity, 'opponent'), sinceScheduled);
+      this.ball = resolveScheduledOpponentReturn(
+        plan,
+        now,
+        { x: decision.targetX, z: decision.targetZ },
+        decision.flightTimeSeconds,
+      );
       this.tape = [{ tMs: now, ball: this.ball }];
       this.opponentSwingT = 0;
       this.audio?.hit(0.45);
@@ -401,10 +410,10 @@ export class TennisGame {
   }
 
   /** How much the player's last shot pressures the opponent — pace and width raise faults. */
-  private pressureOnOpponent(): number {
-    if (!this.ball) return 0;
-    const speed = Math.hypot(this.ball.velocity.x, this.ball.velocity.z);
-    const width = Math.abs(this.ball.position.x) / COURT_HALF_WIDTH;
+  private pressureOnOpponent(ball = this.ball): number {
+    if (!ball) return 0;
+    const speed = Math.hypot(ball.velocity.x, ball.velocity.z);
+    const width = Math.abs(ball.position.x) / COURT_HALF_WIDTH;
     return Math.min(1, Math.max(0, (speed - 10) / 12) * 0.7 + width * 0.3);
   }
 
