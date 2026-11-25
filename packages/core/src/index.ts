@@ -20,6 +20,7 @@ export { GestureRecorder } from './ml/gestureRecorder';
 export type { GestureRecorderOptions } from './ml/gestureRecorder';
 export { PosePrototypeClassifier } from './ml/posePrototype';
 export type { PosePrediction, PosePrototypeOptions } from './ml/posePrototype';
+export { GPU_PROBE_BUDGET_MS, shouldFallbackForLatency } from './providers/delegateProbe';
 export { PoseClient } from './providers/poseClient';
 export type { PoseClientAssets, PoseClientCallbacks } from './providers/poseClient';
 export { HandClient } from './providers/handClient';
