@@ -28,6 +28,7 @@ export class TrackGame {
   private readonly score = new TrackScore();
   private readonly hurdleFlow = new HurdleFlow();
   private jumpTime = 0;
+  private travelled = 0;
   private lastHud = '';
   private status = 'Ande ou corra no lugar com a câmera, ou use ↓';
 
@@ -125,7 +126,8 @@ export class TrackGame {
     } else this.runner.position.y = gait === 'run' ? Math.abs(Math.sin(this.stridePhase)) * 0.14 : 0;
     const advance = dt * speed * 22;
     const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
-    const flow = this.hurdleFlow.advance(this.hurdles, advance, this.lane, airborne);
+    this.travelled += advance;
+    const flow = this.hurdleFlow.advance(this.hurdles, advance, this.lane, airborne, this.travelled);
     for (const { hurdle, cleared } of flow.judged) {
       // Only a jump over the hurdle can be perfect; dodging it by lane just clears it.
       if (cleared) this.score.hurdleCleared(hurdle.lane === this.lane && isPerfectJump(this.jumpTime));
@@ -141,7 +143,7 @@ export class TrackGame {
       disposeObjectTree(old.group);
     }
     for (const hurdle of this.hurdles) hurdle.group.position.z = hurdle.z;
-    if (flow.spawn) this.addHurdle(Math.round(Math.random() * 2) - 1, -48 - Math.random() * 5);
+    if (flow.spawn) this.addHurdle(Math.round(Math.random() * 2) - 1, -48);
   }
 
   private publishHud(): void {

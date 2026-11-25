@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HurdleFlow, type HurdleBody, RUNNER_Z } from '../src/games/track/hurdleFlow';
+import { HurdleFlow, type HurdleBody, MAX_SPAWN_DISTANCE, MIN_SPAWN_DISTANCE, RAMP_DISTANCE, RUNNER_Z, spawnSpacing } from '../src/games/track/hurdleFlow';
 
 const hurdle = (lane: number, z: number): HurdleBody => ({ lane, z, passed: false });
 
@@ -33,6 +33,19 @@ describe('hurdle flow', () => {
     expect(flow.advance([], 7, 0, false).spawn).toBe(true);
     expect(flow.advance([], 26, 0, false).spawn).toBe(false);
     expect(flow.advance([], 0.5, 0, false).spawn).toBe(true);
+  });
+
+  it('tightens the spacing with distance, down to a floor', () => {
+    const spacings = [0, RAMP_DISTANCE / 4, RAMP_DISTANCE / 2, RAMP_DISTANCE].map(spawnSpacing);
+    expect(spacings[0]).toBe(MAX_SPAWN_DISTANCE);
+    expect(spacings).toEqual([...spacings].sort((a, b) => b - a));
+    expect(new Set(spacings).size).toBe(spacings.length);
+    expect(spawnSpacing(RAMP_DISTANCE * 10)).toBe(MIN_SPAWN_DISTANCE);
+  });
+
+  it('spawns sooner once the run is long', () => {
+    expect(new HurdleFlow().advance([], MIN_SPAWN_DISTANCE + 1, 0, false, 0).spawn).toBe(false);
+    expect(new HurdleFlow().advance([], MIN_SPAWN_DISTANCE + 1, 0, false, RAMP_DISTANCE).spawn).toBe(true);
   });
 
   it('recycles hurdles once they are well behind the runner', () => {
