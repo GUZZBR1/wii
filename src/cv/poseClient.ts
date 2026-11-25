@@ -165,7 +165,13 @@ export class PoseClient {
   }
 
   private confidence(points: PoseSnapshot['landmarks']): number {
-    const indices = [11, 12, 15, 16, 23, 24, 25, 26];
-    return Math.min(...indices.map((index) => points[index]?.visibility ?? 0));
+    const indices = [11, 12, 23, 24];
+    if (indices.some((index) => !points[index])) return 0;
+    return Math.min(...indices.map((index) => {
+      const point = points[index]!;
+      const visibility = point.visibility ?? point.presence ?? 0;
+      const presence = point.presence ?? point.visibility ?? 0;
+      return Math.min(visibility, presence);
+    }));
   }
 }

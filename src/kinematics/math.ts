@@ -13,5 +13,9 @@ export const median = (values: readonly number[]): number => {
 
 export function landmarkConfidence(...points: Point3[]): number {
   if (!points.length) return 0;
-  return Math.min(...points.map((point) => Math.min(point.visibility ?? 0, point.presence ?? point.visibility ?? 0)));
+  return Math.min(...points.map((point) => {
+    const visibility = point.visibility ?? point.presence ?? 0;
+    const presence = point.presence ?? point.visibility ?? 0;
+    return Math.min(visibility, presence);
+  }));
 }

@@ -5,13 +5,17 @@ import { clamp, median, midpoint } from './math';
 
 export interface CadenceResult { cadenceSpm: number; speed01: number; step?: 'left' | 'right' }
 
+const KNEE_ON_THRESHOLD = 0.1;
+const KNEE_OFF_THRESHOLD = 0.05;
+
 export class CadenceTracker {
-  private readonly left = new SchmittTrigger(0.1, 0.05, 220);
-  private readonly right = new SchmittTrigger(0.1, 0.05, 220);
+  private readonly left = new SchmittTrigger(KNEE_ON_THRESHOLD, KNEE_OFF_THRESHOLD, 220);
+  private readonly right = new SchmittTrigger(KNEE_ON_THRESHOLD, KNEE_OFF_THRESHOLD, 220);
   private readonly leftFilter = new OneEuroFilter({ minCutoff: 1, beta: 0.5, derivativeCutoff: 1 });
   private readonly rightFilter = new OneEuroFilter({ minCutoff: 1, beta: 0.5, derivativeCutoff: 1 });
   private lastSteps: number[] = [];
   private lastStepAt = Number.NEGATIVE_INFINITY;
+  private needsNeutral = true;
 
   update(snapshot: PoseSnapshot, calibration: CalibrationProfile): CadenceResult {
     const l = snapshot.landmarks;
@@ -19,11 +23,16 @@ export class CadenceTracker {
     const scale = calibration.image.torsoHeight;
     const leftLift = this.leftFilter.filter((hip.y - l[25]!.y) / scale - calibration.image.kneeToHipY0.left, snapshot.timestampMs);
     const rightLift = this.rightFilter.filter((hip.y - l[26]!.y) / scale - calibration.image.kneeToHipY0.right, snapshot.timestampMs);
+    if (this.needsNeutral) {
+      if (leftLift <= KNEE_OFF_THRESHOLD && rightLift <= KNEE_OFF_THRESHOLD) this.needsNeutral = false;
+      else return { cadenceSpm: 0, speed01: 0 };
+    }
     const leftStep = this.left.update(leftLift, snapshot.timestampMs);
     const rightStep = this.right.update(rightLift, snapshot.timestampMs);
     const step = leftStep ? 'left' : rightStep ? 'right' : undefined;
     if (step) {
       const interval = snapshot.timestampMs - this.lastStepAt;
+      if (Number.isFinite(interval) && interval > 1200) this.lastSteps = [];
       if (Number.isFinite(interval) && interval >= 220 && interval <= 1200) {
         this.lastSteps.push(interval);
         this.lastSteps = this.lastSteps.slice(-4);
@@ -38,6 +47,6 @@ export class CadenceTracker {
   }
 
   reset(): void {
-    this.left.reset(); this.right.reset(); this.leftFilter.reset(); this.rightFilter.reset(); this.lastSteps = []; this.lastStepAt = Number.NEGATIVE_INFINITY;
+    this.left.reset(); this.right.reset(); this.leftFilter.reset(); this.rightFilter.reset(); this.lastSteps = []; this.lastStepAt = Number.NEGATIVE_INFINITY; this.needsNeutral = true;
   }
 }

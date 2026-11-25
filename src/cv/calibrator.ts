@@ -1,5 +1,5 @@
 import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from './protocol';
-import { distance2, distance3, median, midpoint } from '../kinematics/math';
+import { distance2, distance3, landmarkConfidence, median, midpoint } from '../kinematics/math';
 
 const IDX = { leftShoulder: 11, rightShoulder: 12, leftWrist: 15, rightWrist: 16, leftHip: 23, rightHip: 24, leftKnee: 25, rightKnee: 26 } as const;
 
@@ -15,7 +15,7 @@ export class Calibrator {
   }
 
   add(snapshot: PoseSnapshot): void {
-    if (this.startedAt !== undefined && snapshot.trackingState === 'tracked') this.samples.push(snapshot);
+    if (this.startedAt !== undefined) this.samples.push(snapshot);
   }
 
   finish(hand: Hand): CalibrationProfile | null {
@@ -37,16 +37,22 @@ export class Calibrator {
       const shoulder = point(w, hand === 'right' ? IDX.rightShoulder : IDX.leftShoulder);
       const worldLeftShoulder = point(w, IDX.leftShoulder);
       const worldRightShoulder = point(w, IDX.rightShoulder);
-      if (!leftShoulder || !rightShoulder || !leftHip || !rightHip || !leftKnee || !rightKnee || !wrist || !shoulder || !worldLeftShoulder || !worldRightShoulder) return [];
+      const worldLeftHip = point(w, IDX.leftHip);
+      const worldRightHip = point(w, IDX.rightHip);
+      if (!leftShoulder || !rightShoulder || !leftHip || !rightHip || !leftKnee || !rightKnee || !wrist || !shoulder || !worldLeftShoulder || !worldRightShoulder || !worldLeftHip || !worldRightHip) return [];
+      const confidence = landmarkConfidence(leftShoulder, rightShoulder, leftHip, rightHip, leftKnee, rightKnee, wrist, shoulder, worldLeftShoulder, worldRightShoulder, worldLeftHip, worldRightHip);
+      if (confidence < 0.55) return [];
       const shoulderCenter = midpoint(leftShoulder, rightShoulder);
       const hipCenter = midpoint(leftHip, rightHip);
+      const worldShoulderCenter = midpoint(worldLeftShoulder, worldRightShoulder);
+      const worldHipCenter = midpoint(worldLeftHip, worldRightHip);
       const shoulderWidth = distance2(leftShoulder, rightShoulder);
       const torsoHeight = Math.abs(hipCenter.y - shoulderCenter.y);
       const worldShoulderWidth = distance3(worldLeftShoulder, worldRightShoulder);
       if (torsoHeight < 0.03 || shoulderWidth < 0.03 || worldShoulderWidth < 0.03) return [];
-      const lean = Math.atan2(shoulderCenter.x - hipCenter.x, hipCenter.y - shoulderCenter.y);
+      const worldLean = Math.atan2(worldShoulderCenter.x - worldHipCenter.x, worldShoulderCenter.y - worldHipCenter.y);
       const wristLocal = { x: (wrist.x - shoulder.x) / worldShoulderWidth, y: (wrist.y - shoulder.y) / worldShoulderWidth, z: (wrist.z - shoulder.z) / worldShoulderWidth };
-      return [{ hipY: hipCenter.y, torsoHeight, shoulderWidth, kneeLeft: (hipCenter.y - leftKnee.y) / torsoHeight, kneeRight: (hipCenter.y - rightKnee.y) / torsoHeight, lean, worldShoulderWidth, wristLocal, confidence: sample.bodyConfidence }];
+      return [{ hipY: hipCenter.y, torsoHeight, shoulderWidth, kneeLeft: (hipCenter.y - leftKnee.y) / torsoHeight, kneeRight: (hipCenter.y - rightKnee.y) / torsoHeight, worldLean, worldShoulderWidth, wristLocal, confidence }];
     });
     if (valid.length < this.samples.length * 0.65) return null;
     const values = <K extends keyof (typeof valid)[number]>(key: K): number[] => valid.map((item) => item[key] as number);
@@ -64,9 +70,8 @@ export class Calibrator {
         hipY0: median(values('hipY')),
         kneeToHipY0: { left: median(values('kneeLeft')), right: median(values('kneeRight')) },
         shoulderWidth: median(values('shoulderWidth')),
-        torsoLeanRad0: median(values('lean')),
       },
-      world: { shoulderWidth: median(values('worldShoulderWidth')), readyWristLocal: wristLocal },
+      world: { shoulderWidth: median(values('worldShoulderWidth')), torsoLeanRad0: median(values('worldLean')), readyWristLocal: wristLocal },
       quality: { validFrameRatio: valid.length / this.samples.length, medianConfidence: median(values('confidence')) },
     };
     this.startedAt = undefined;

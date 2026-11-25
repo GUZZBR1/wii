@@ -14,6 +14,7 @@ export interface PoseSnapshot {
   timestampMs: number;
   landmarks: readonly Point3[];
   worldLandmarks: readonly Point3[];
+  /** Core shoulders/hips status; each sport action carries confidence from its own landmark gate. */
   trackingState: TrackingState;
   bodyConfidence: number;
 }
@@ -27,9 +28,8 @@ export interface CalibrationProfile {
     hipY0: number;
     kneeToHipY0: { left: number; right: number };
     shoulderWidth: number;
-    torsoLeanRad0: number;
   };
-  world: { shoulderWidth: number; readyWristLocal: Point3 };
+  world: { shoulderWidth: number; torsoLeanRad0: number; readyWristLocal: Point3 };
   quality: { validFrameRatio: number; medianConfidence: number };
 }
 
@@ -65,11 +65,20 @@ export type SportActionEvent =
   | ActionBase & { type: 'step'; side: Hand }
   | ActionBase & { type: 'jump' }
   | ActionBase & { type: 'lane'; direction: 'left' | 'right' }
-  | ActionBase & { type: 'swing'; side: 'forehand' | 'backhand'; power01: number; aimZone: AimZone };
+  | ActionBase & { type: 'swing'; side: 'forehand' | 'backhand'; power01: number; aimZone: AimZone; peakTimestampMs?: number };
+
+export interface ContinuousControls {
+  /** Always neutral when cadence tracking is degraded or lost. */
+  sprintSpeed01: number;
+  cadenceSpm: number;
+  trackingState: TrackingState;
+}
 
 interface ActionBase {
   id: number;
+  /** Confirmation/dispatch time. CV swing events also include `peakTimestampMs` for estimated impact time. */
   timestampMs: number;
+  /** Confidence is the minimum visibility/presence for landmarks used by this action. */
   confidence: number;
   trackingState: 'tracked';
   source: 'cv' | 'keyboard';
