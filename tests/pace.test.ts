@@ -78,6 +78,12 @@ describe('pace from torso vertical oscillation', () => {
     for (const r of active) expect(Math.abs(r.cadenceSpm - 100) / 100).toBeLessThan(0.25);
   });
 
+  it('keeps counting at high-amplitude bounce (0.09 torso semi-amplitude, literature high tail)', () => {
+    const steady = bounce(170, 0.09).filter((r) => r.time > 3000 && r.time <= STOP);
+    expect(steady.filter((r) => r.speed01 === 0)).toHaveLength(0);
+    for (const r of steady) expect(Math.abs(r.cadenceSpm - 170) / 170).toBeLessThan(0.15);
+  });
+
   it('alternates step sides', () => {
     const steps = bounce(150).filter((r) => r.step);
     expect(steps.some((r) => r.step === 'left')).toBe(true);
