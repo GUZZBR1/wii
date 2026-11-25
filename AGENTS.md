@@ -39,7 +39,7 @@ Camera access needs HTTPS in production; `localhost` works in dev. Keyboard cont
 
 - `npm test` runs `tests/**/*.test.ts` under Vitest (node environment). Add a test for every new detector behavior or gameplay rule change.
 - While iterating, run only the tests that cover the touched module (`tests/trackScore.test.ts` for track scoring, etc.); the final gate stays the full suite plus `npm run lint && npm run build`.
-- The CV worker path has no automated coverage — `vite` serves a real browser worker; verify camera flow manually (`npm run dev` → ATIVAR CÂMERA → TRACKING) and measure inference with `scripts/pose-bench.html` (`npm run build` → copy into `dist/` → `npm run preview` → `/bench.html`).
+- The CV worker path has no automated coverage — `vite` serves a real browser worker; verify camera flow manually (`npm run dev` → ATIVAR CÂMERA → TRACKING) and measure per-frame latency with `scripts/pose-bench.html` (`npm run build && cp scripts/pose-bench.html dist/bench.html && npm run preview` → `/bench.html`).
 
 ## Change Philosophy
 
@@ -47,7 +47,7 @@ The guiding style draws on *The Tao of Programming*, KISS, and YAGNI: make behav
 
 - **No code golf.** A short diff is useful when it reduces concepts and makes the design easier to understand. Collapsing branches or hiding control flow does not help.
 - **Avoid routine docs-only and whitespace-only changes.** A requested update to repository instructions is a valid standalone change when it materially improves how the project is developed or reviewed.
-- **Benchmark performance claims.** Measure old and new behavior on a representative workload and report setup, baseline, and percentiles — `scripts/pose-bench.html` measures the real worker's ms/frame for CV claims. Profile before optimizing; weigh a marginal speedup against maintainability, memory, and latency cost.
+- **Benchmark performance claims.** Measure old and new behavior on a representative workload and report setup, baseline, and percentiles — `scripts/pose-bench.html` measures end-to-end per-frame latency in the real worker (frame post → POSE reply, inference plus worker comm) for CV claims. Profile before optimizing; weigh a marginal speedup against maintainability, memory, and latency cost.
 - **Keep changes reviewable and independently useful.** Give each PR one clear purpose, keep it based on `main`, green on `npm test && npm run lint && npm run build`, and independent of other open PRs. A prerequisite refactor is welcome when it is a clear improvement by itself.
 
 What's welcome:
