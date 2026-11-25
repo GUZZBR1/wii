@@ -4,6 +4,7 @@ import { disposeObjectTree, GameLoop } from '../core/GameLoop';
 import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type Pace, stumble } from './gait';
 import { HurdleFlow, RUNNER_Z } from './hurdleFlow';
 import { JUMP_DURATION_S, jumpHeight } from './jump';
+import { type Lane, nextLane } from './spawn';
 import { isPerfectJump, TrackScore } from './trackScore';
 
 export interface GameHudState { score: number; label: string; speed01: number; status: string }
@@ -29,6 +30,7 @@ export class TrackGame {
   private readonly hurdleFlow = new HurdleFlow();
   private jumpTime = 0;
   private travelled = 0;
+  private readonly laneHistory: Lane[] = [];
   private lastHud = '';
   private status = 'Ande ou corra no lugar com a câmera, ou use ↓';
 
@@ -78,7 +80,9 @@ export class TrackGame {
     this.addHurdle(1, -48);
   }
 
-  private addHurdle(lane: number, z: number): void {
+  private addHurdle(lane: Lane, z: number): void {
+    this.laneHistory.push(lane);
+    if (this.laneHistory.length > 2) this.laneHistory.shift();
     const group = new THREE.Group();
     const mat = new THREE.MeshStandardMaterial({ color: 0xf7a942, emissive: 0x65340b, emissiveIntensity: 0.45, flatShading: true });
     const bar = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.13, 0.18), mat); bar.position.y = 0.9; group.add(bar);
@@ -143,7 +147,7 @@ export class TrackGame {
       disposeObjectTree(old.group);
     }
     for (const hurdle of this.hurdles) hurdle.group.position.z = hurdle.z;
-    if (flow.spawn) this.addHurdle(Math.round(Math.random() * 2) - 1, -48);
+    if (flow.spawn) this.addHurdle(nextLane(this.laneHistory, Math.random), -48);
   }
 
   private publishHud(): void {
