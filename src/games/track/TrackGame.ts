@@ -1,11 +1,13 @@
 import * as THREE from 'three';
 import type { SportActionEvent } from '../../cv/protocol';
 import { disposeObjectTree, GameLoop } from '../core/GameLoop';
-import { type Gait, gaitFor } from './gait';
+import { type Gait, gaitFor, nextPace } from './gait';
+import { HurdleFlow, RUNNER_Z } from './hurdleFlow';
 import { TrackScore } from './trackScore';
 
 export interface GameHudState { score: number; label: string; speed01: number; status: string }
 type Hurdle = { group: THREE.Group; lane: number; z: number; passed: boolean };
+const GAIT_STATUS: Record<Gait, string> = { idle: 'Parado', walk: 'Andando', run: 'Correndo' };
 
 export class TrackGame {
   private readonly scene = new THREE.Scene();
@@ -24,8 +26,8 @@ export class TrackGame {
   private gait: Gait = 'idle';
   private stridePhase = 0;
   private readonly score = new TrackScore();
+  private readonly hurdleFlow = new HurdleFlow();
   private jumpTime = 0;
-  private sinceHurdle = 0;
   private lastHud = '';
   private status = 'Ande ou corra no lugar com a câmera, ou use ↓';
 
@@ -70,7 +72,7 @@ export class TrackGame {
       const upperArm = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.4, 3, 5), trousers); upperArm.position.y = -0.23; arm.add(upperArm);
       arm.rotation.z = side * -0.12; this.runner.add(arm); this.arms.push(arm);
     }
-    this.runner.position.set(0, 0, 1.4); this.scene.add(this.runner);
+    this.runner.position.set(0, 0, RUNNER_Z); this.scene.add(this.runner);
     this.addHurdle(-1, -30);
     this.addHurdle(1, -48);
   }
@@ -95,7 +97,7 @@ export class TrackGame {
     if (key === ' ' || key === 'ArrowUp' || key.toLowerCase() === 'w') this.jumpTime = 0.72;
     if (key === 'ArrowDown' || key.toLowerCase() === 's') {
       // Keyboard cycles stopped → walking → running.
-      this.speed01 = this.speed01 === 0 ? 0.3 : this.speed01 < 0.55 ? 0.8 : 0;
+      this.speed01 = nextPace(this.speed01);
       this.cadenceSpm = 0;
     }
   }
@@ -105,7 +107,7 @@ export class TrackGame {
     if (this.speed01 === 0 && this.shownSpeed < 0.02) this.shownSpeed = 0;
     const speed = this.shownSpeed;
     const gait = gaitFor(speed, this.gait);
-    if (gait !== this.gait) this.status = { idle: 'Parado', walk: 'Andando', run: 'Correndo' }[gait];
+    if (gait !== this.gait) this.status = GAIT_STATUS[gait];
     this.gait = gait;
 
     this.score.advance(dt, speed);
@@ -120,26 +122,22 @@ export class TrackGame {
     if (this.jumpTime > 0) {
       this.jumpTime = Math.max(0, this.jumpTime - dt);
       this.runner.position.y = Math.sin((1 - this.jumpTime / 0.72) * Math.PI) * 1.35;
+      if (this.jumpTime === 0) this.status = GAIT_STATUS[gait];
     } else this.runner.position.y = gait === 'run' ? Math.abs(Math.sin(this.stridePhase)) * 0.14 : 0;
     const advance = dt * speed * 22;
-    this.sinceHurdle += advance;
-    for (const hurdle of this.hurdles) {
-      hurdle.z += advance; hurdle.group.position.z = hurdle.z;
-      if (!hurdle.passed && hurdle.z > 0.2) {
-        hurdle.passed = true;
-        if (hurdle.lane !== this.lane || this.jumpTime > 0.15 || this.runner.position.y > 0.45) this.score.hurdleCleared();
-        else this.score.hurdleHit();
-      }
+    const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
+    const flow = this.hurdleFlow.advance(this.hurdles, advance, this.lane, airborne);
+    for (const { cleared } of flow.judged) {
+      if (cleared) this.score.hurdleCleared();
+      else this.score.hurdleHit();
     }
-    while (this.hurdles.length && this.hurdles[0]!.z > 8) {
-      const old = this.hurdles.shift()!;
+    for (const old of flow.despawned) {
+      this.hurdles.splice(this.hurdles.indexOf(old), 1);
       this.scene.remove(old.group);
       disposeObjectTree(old.group);
     }
-    if (this.sinceHurdle > 26) {
-      this.sinceHurdle = 0;
-      this.addHurdle(Math.round(Math.random() * 2) - 1, -48 - Math.random() * 5);
-    }
+    for (const hurdle of this.hurdles) hurdle.group.position.z = hurdle.z;
+    if (flow.spawn) this.addHurdle(Math.round(Math.random() * 2) - 1, -48 - Math.random() * 5);
   }
 
   private publishHud(): void {

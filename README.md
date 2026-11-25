@@ -50,7 +50,7 @@ Com o Vercel CLI autenticado, execute `npx vercel --prod`. O projeto usa `dist/`
 
 | Ação | Webcam | Teclado |
 | --- | --- | --- |
-| Correr | Corra no lugar | Seta para baixo acelera |
+| Correr | Ande ou corra no lugar | Seta para baixo alterna andar / correr / parar |
 | Pular | Salto vertical | Espaço ou seta para cima |
 | Trocar de raia | Incline o tronco | Setas esquerda/direita |
 | Bater no tênis | Raquetada dominante | Espaço |

@@ -8,7 +8,12 @@ export interface CadenceResult { cadenceSpm: number; speed01: number; step?: 'le
 const KNEE_ON_THRESHOLD = 0.1;
 const KNEE_OFF_THRESHOLD = 0.05;
 const MIN_STEP_INTERVAL_MS = 220;
-const MAX_STEP_INTERVAL_MS = 1500;
+/**
+ * Hard ceiling for one inter-step interval: ~33 steps/min plus margin for the frame-sampled
+ * observation of a step crossing. The adaptive stop rule below ends a stepping session well
+ * before this; the ceiling only keeps a very late step from reusing a stale timestamp.
+ */
+const MAX_STEP_INTERVAL_MS = 1800;
 /** The player has stopped once the next step is this many periods late. */
 const STOP_AFTER_PERIODS = 1.6;
 const MAX_STOP_DELAY_MS = 1600;
@@ -67,6 +72,12 @@ export class CadenceTracker {
     const period = median(this.lastSteps);
     const elapsed = snapshot.timestampMs - this.lastStepAt;
     const moving = period > 0 && elapsed <= Math.min(period * STOP_AFTER_PERIODS, MAX_STOP_DELAY_MS);
+    if (period > 0 && !moving) {
+      // The stepping session just ended: drop the interval history so a single late step cannot
+      // resurrect the old cadence. The next step starts a new sequence; the second moves again.
+      this.lastSteps = [];
+      this.lastStepAt = Number.NEGATIVE_INFINITY;
+    }
     const cadenceSpm = moving ? 60_000 / Math.max(period, elapsed) : 0;
     return { cadenceSpm, speed01: speedFromCadence(cadenceSpm), step };
   }

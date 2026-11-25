@@ -23,6 +23,8 @@ export function GameCanvas({ sport, onEngine, tracking }: Props) {
     let disposed = false;
     const keydown = (event: KeyboardEvent) => {
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(event.key)) event.preventDefault();
+      // One press cycles the pace once; holding the key must not keep cycling it.
+      if (event.repeat && (event.key === 'ArrowDown' || event.key.toLowerCase() === 's')) return;
       game?.onKey(event.key);
     };
     window.addEventListener('keydown', keydown);
