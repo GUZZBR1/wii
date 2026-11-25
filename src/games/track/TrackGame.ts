@@ -92,7 +92,7 @@ export class TrackGame {
 
   private update(dt: number): void {
     this.distance += dt * (4 + this.speed01 * 12);
-    this.score += Math.round(dt * (5 + this.speed01 * 45));
+    this.score += dt * (5 + this.speed01 * 45);
     this.runner.position.x += (this.lane * 1.5 - this.runner.position.x) * Math.min(1, dt * 10);
     if (this.jumpTime > 0) {
       this.jumpTime = Math.max(0, this.jumpTime - dt);
@@ -123,11 +123,12 @@ export class TrackGame {
   }
 
   private publishHud(): void {
-    const label = String(this.score).padStart(5, '0');
+    const score = Math.floor(this.score);
+    const label = String(score).padStart(5, '0');
     const key = `${label}-${this.speed01.toFixed(2)}-${this.status}`;
     if (key === this.lastHud) return;
     this.lastHud = key;
-    this.onHud({ score: this.score, label, speed01: this.speed01, status: this.status });
+    this.onHud({ score, label, speed01: this.speed01, status: this.status });
   }
 
   dispose(): void { window.clearInterval(this.hudTimer); this.loop.dispose(); }
