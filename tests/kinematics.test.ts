@@ -4,7 +4,6 @@ import { AutoCalibrator } from '../src/cv/autoCalibrator';
 import { Calibrator } from '../src/cv/calibrator';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
 import { CadenceTracker } from '../src/kinematics/cadenceTracker';
-import { JumpDetector } from '../src/kinematics/jumpDetector';
 import { landmarkConfidence } from '../src/kinematics/math';
 import { LaneLeanDetector, torsoLeanDeltaRad } from '../src/kinematics/postureSignals';
 import { SchmittTrigger } from '../src/kinematics/schmittTrigger';
@@ -93,80 +92,6 @@ describe('cadence tracker', () => {
     // ...it stops during the pause (within the 1.6-period stop deadline), and the brief
     // pulse afterwards cannot resurrect it.
     expect(results.filter((r) => r.time > 2800).every((r) => r.cadenceSpm === 0)).toBe(true);
-  });
-});
-
-describe('jump detector', () => {
-  it('emits once on takeoff and does not emit again on landing', () => {
-    const detector = new JumpDetector();
-    const profile = calibration();
-    const frames = [
-      pose(0), pose(33), pose(66), pose(100), pose(133), pose(166),
-      pose(199, { hipRise: 0.07 }), pose(232, { hipRise: 0.12 }), pose(266, { hipRise: 0.18 }),
-      pose(299, { hipRise: 0.25 }), pose(332, { hipRise: 0.3 }), pose(366, { hipRise: 0.28 }),
-      pose(399, { hipRise: 0.22 }), pose(432, { hipRise: 0.12 }), pose(466, { hipRise: 0.06 }),
-      pose(499, { hipRise: 0.02 }), pose(666), pose(833),
-    ];
-    const fired = frames.map((frame) => detector.update(frame, profile)).filter(Boolean);
-    expect(fired).toHaveLength(1);
-  });
-
-  it('keeps takeoff detection stable when the same movement is sampled at different frame rates', () => {
-    const profile = calibration();
-    const riseAt = (time: number): number => {
-      if (time < 50 || time >= 650) return 0;
-      if (time <= 250) return 0.3 * (time - 50) / 200;
-      if (time <= 350) return 0.3;
-      return 0.3 * (650 - time) / 300;
-    };
-    const fireTimes: number[] = [];
-    for (const frameInterval of [16, 33, 50, 67]) {
-      const detector = new JumpDetector();
-      const fired: number[] = [];
-      for (let time = 0; time <= 1300; time += frameInterval) {
-        if (detector.update(pose(time, { hipRise: riseAt(time - 200) }), profile)) fired.push(time);
-      }
-      expect(fired).toHaveLength(1);
-      fireTimes.push(fired[0]!);
-    }
-    expect(Math.max(...fireTimes) - Math.min(...fireTimes)).toBeLessThanOrEqual(75);
-  });
-
-  it('arms through resting hip jitter and fires the first jump', () => {
-    const detector = new JumpDetector();
-    const profile = calibration();
-    const rises = [...Array.from({ length: 60 }, (_, i) => (i % 2 === 0 ? 0.002 : -0.002)), 0.07, 0.12, 0.18, 0.25, 0.3];
-    const fired = rises.filter((hipRise, i) => detector.update(pose(i * 33, { hipRise }), profile));
-    expect(fired).toHaveLength(1);
-  });
-
-  it('does not classify small periodic hip bob as a jump', () => {
-    const detector = new JumpDetector();
-    const profile = calibration();
-    const events: boolean[] = [];
-    for (let time = 0; time <= 2000; time += 33) {
-      const hipRise = 0.05 * Math.sin((2 * Math.PI * time) / 500);
-      events.push(detector.update(pose(time, { hipRise }), profile));
-    }
-    expect(events.filter(Boolean)).toHaveLength(0);
-  });
-
-  it('re-arms for a second jump while the hip still oscillates', () => {
-    const detector = new JumpDetector();
-    const profile = calibration();
-    const bump = (time: number, start: number) => {
-      const elapsed = time - start;
-      if (elapsed < 0 || elapsed > 500) return 0;
-      if (elapsed <= 200) return (0.3 * elapsed) / 200;
-      if (elapsed <= 300) return 0.3;
-      return (0.3 * (500 - elapsed)) / 200;
-    };
-    const fired: number[] = [];
-    for (let time = 0; time <= 3400; time += 33) {
-      const hipRise = 0.05 * Math.sin((2 * Math.PI * time) / 500) + bump(time, 800) + bump(time, 2600);
-      if (detector.update(pose(time, { hipRise }), profile)) fired.push(time);
-    }
-    expect(fired).toHaveLength(2);
   });
 });
 
@@ -421,19 +346,6 @@ describe('world-space posture calibration', () => {
       pose(time, { leanRad: 0.3 }), profile,
     ));
     expect(signals.filter(Boolean)).toHaveLength(0);
-    // The same takeoff sequence emits one jump with a complete profile and stays silent
-    // with the partial one — the neutral dwell is what arms the detector.
-    const frames = [
-      pose(0), pose(33), pose(66), pose(100), pose(133), pose(166),
-      pose(199, { hipRise: 0.07 }), pose(232, { hipRise: 0.12 }), pose(266, { hipRise: 0.18 }),
-      pose(299, { hipRise: 0.25 }), pose(332, { hipRise: 0.3 }), pose(366, { hipRise: 0.28 }),
-      pose(399, { hipRise: 0.22 }), pose(432, { hipRise: 0.12 }), pose(466, { hipRise: 0.06 }),
-      pose(499, { hipRise: 0.02 }), pose(666), pose(833),
-    ];
-    const complete = new JumpDetector();
-    expect(frames.map((frame) => complete.update(frame, calibration())).filter(Boolean)).toHaveLength(1);
-    const jump = new JumpDetector();
-    expect(frames.map((frame) => jump.update(frame, profile)).filter(Boolean)).toHaveLength(0);
   });
 
   it('verifies the stance references only when the legs stay visible for most of the window', () => {

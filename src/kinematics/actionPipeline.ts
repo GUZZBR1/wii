@@ -3,15 +3,17 @@ import { CadenceTracker } from './cadenceTracker';
 import { JumpDetector } from './jumpDetector';
 import { LaneLeanDetector } from './postureSignals';
 import { SWING_MAX_DURATION_MS, SwingDetector, type SwingSignal } from './swingDetector';
+import { TorsoVerticalChannel } from './torsoVertical';
 import { TrackingGate } from './trackingGate';
 
 export class ActionPipeline {
   private readonly bodyGate = new TrackingGate();
   private readonly cadenceGate = new TrackingGate([11, 12, 23, 24]);
-  private readonly jumpGate = new TrackingGate([23, 24]);
+  private readonly jumpGate = new TrackingGate([11, 12, 23, 24]);
   private readonly laneGate = new TrackingGate([11, 12, 23, 24], 'world');
   private readonly cadence = new CadenceTracker();
   private readonly jump = new JumpDetector();
+  private readonly jumpChannel = new TorsoVerticalChannel();
   private readonly lean = new LaneLeanDetector();
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
@@ -56,8 +58,12 @@ export class ActionPipeline {
 
     const jumpTracking = this.jumpGate.evaluate(snapshot);
     if (jumpTracking.state === 'tracked') {
-      if (this.jump.update(current, calibration)) events.push({ ...this.eventBase(snapshot, jumpTracking.confidence), id: this.nextId++, type: 'jump' });
-    } else if (jumpTracking.state === 'lost') this.jump.reset();
+      const sample = this.jumpChannel.update(current);
+      if (sample && this.jump.update(sample)) events.push({ ...this.eventBase(snapshot, jumpTracking.confidence), id: this.nextId++, type: 'jump' });
+    } else if (jumpTracking.state === 'lost') {
+      this.jump.reset();
+      this.jumpChannel.reset();
+    }
 
     const laneTracking = this.laneGate.evaluate(snapshot);
     if (laneTracking.state === 'tracked') {
