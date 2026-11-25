@@ -17,7 +17,7 @@ export class TennisGame {
   private status = 'Dê uma raquetada para iniciar';
   private lastHud = '';
 
-  constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: GameHudState) => void, onRender?: (time: number) => void) {
+  constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: GameHudState) => void) {
     this.scene.background = new THREE.Color(0x17251d);
     this.scene.fog = new THREE.Fog(0x17251d, 22, 55);
     this.camera.position.set(0, 8, 15); this.camera.lookAt(0, 0, -1);
@@ -32,7 +32,7 @@ export class TennisGame {
     const player = new THREE.Mesh(new THREE.CapsuleGeometry(0.4, 1, 4, 8), new THREE.MeshStandardMaterial({ color: 0xf3a844, flatShading: true })); player.position.set(0, 0.8, 6); this.scene.add(player);
     this.opponent = new THREE.Mesh(new THREE.CapsuleGeometry(0.36, 0.9, 4, 8), new THREE.MeshStandardMaterial({ color: 0xe9eee5, flatShading: true })); this.opponent.position.set(0, 0.75, -10); this.scene.add(this.opponent);
     this.ball.position.set(0, 1.25, 5.1); this.scene.add(this.ball);
-    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt), onRender);
+    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt));
     this.hudTimer = window.setInterval(() => this.publishHud(), 200);
   }
 

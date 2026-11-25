@@ -30,7 +30,6 @@ export class GameLoop {
     readonly scene: THREE.Scene,
     readonly camera: THREE.PerspectiveCamera,
     private readonly update: (dt: number) => void,
-    private readonly afterRender?: (nowMs: number) => void,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
@@ -55,7 +54,6 @@ export class GameLoop {
     }
     if (steps === 5) this.accumulator = 0;
     this.renderer.render(this.scene, this.camera);
-    this.afterRender?.(time);
   }
 
   private resize(): void {

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import type { LatencyTelemetry, SportActionEvent } from '../cv/protocol';
+import type { SportActionEvent } from '../cv/protocol';
 import type { GameHudState } from '../games/track/TrackGame';
 
 export type Sport = 'track' | 'tennis';
@@ -8,12 +8,10 @@ export interface GameEngineHandle { onAction(event: SportActionEvent): void; onK
 interface Props {
   sport: Sport;
   onEngine: (engine: GameEngineHandle | null) => void;
-  onRender: (timeMs: number) => void;
-  telemetry: LatencyTelemetry;
   tracking: string;
 }
 
-export function GameCanvas({ sport, onEngine, onRender, telemetry, tracking }: Props) {
+export function GameCanvas({ sport, onEngine, tracking }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hud, setHud] = useState<GameHudState>({ score: 0, label: '00000', speed01: 0, status: 'Pronto para jogar' });
   const hudRef = useRef(setHud);
@@ -35,7 +33,7 @@ export function GameCanvas({ sport, onEngine, onRender, telemetry, tracking }: P
           : (await import('../games/tennis/TennisGame')).TennisGame;
         const canvas = canvasRef.current;
         if (disposed || !canvas) return;
-        const engine = new Game(canvas, (state) => hudRef.current(state), onRender);
+        const engine = new Game(canvas, (state) => hudRef.current(state));
         if (disposed) { engine.dispose(); return; }
         game = engine;
         onEngine(engine);
@@ -50,10 +48,10 @@ export function GameCanvas({ sport, onEngine, onRender, telemetry, tracking }: P
       game?.dispose();
       onEngine(null);
     };
-  }, [sport, onEngine, onRender]);
+  }, [sport, onEngine]);
 
   return <section className="game-panel">
-    <div className="game-panel-top"><div><span className="eyebrow">{sport === 'track' ? 'ESPORTE HERÓI · 01' : 'VERTICAL SLICE · 02'}</span><h2>{sport === 'track' ? 'Hurdle Rush' : 'Baseline Rally'}</h2></div><div className="fps-tag"><span>{telemetry.renderFps.toFixed(0)}</span><small>FPS</small></div></div>
+    <div className="game-panel-top"><div><span className="eyebrow">{sport === 'track' ? 'ESPORTE HERÓI · 01' : 'VERTICAL SLICE · 02'}</span><h2>{sport === 'track' ? 'Hurdle Rush' : 'Baseline Rally'}</h2></div></div>
     <div className={`game-viewport ${sport}`}><canvas ref={canvasRef} />
       <div className="game-hud"><div><span>{sport === 'track' ? 'SCORE' : 'PONTOS'}</span><strong>{hud.label}</strong></div><div className="game-speed"><span>{sport === 'track' ? 'RITMO' : 'MIRA'}</span><strong>{sport === 'track' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>
       <div className="game-ready"><i className={tracking === 'TRACKING' ? 'ready' : ''} />{hud.status}</div>

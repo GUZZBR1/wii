@@ -83,21 +83,3 @@ interface ActionBase {
   trackingState: 'tracked';
   source: 'cv' | 'keyboard';
 }
-
-export interface Percentiles {
-  p50Ms: number;
-  p95Ms: number;
-}
-
-export interface LatencyTelemetry {
-  captureToResult: Percentiles;
-  inference: Percentiles;
-  kinematics: Percentiles;
-  eventToRender: Percentiles;
-  cameraFps: number;
-  cvFps: number;
-  renderFps: number;
-  droppedFrames: number;
-  delegate: Delegate;
-  sampleCount: number;
-}

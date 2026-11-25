@@ -34,13 +34,13 @@ O build copia o WASM do MediaPipe fixado no lockfile para `public/mediapipe/wasm
 
 ## Arquitetura
 
-- `src/cv/`: Worker do Pose Landmarker, cliente de captura com um frame em trânsito, calibração e telemetria.
+- `src/cv/`: Worker do Pose Landmarker, cliente de captura com um frame em trânsito e calibração.
 - `src/kinematics/`: filtro 1-Euro, histerese, gating de confiança e detectores puros.
 - `src/games/`: loop fixo Three.js e cenas arcade desacopladas da câmera.
-- `src/ui/`: arena, bancada de CV, preview e telemetria.
+- `src/ui/`: arena, painel da câmera e canvas do jogo.
 - `tests/`: fixtures sintéticas e testes determinísticos dos detectores.
 
-O vídeo é processado no dispositivo e não é enviado ao servidor do jogo. O MediaPipe informa que pode enviar métricas de desempenho e utilização da API ao Google; o aviso aparece na bancada de CV. O modelo é a variante Lite do Pose Landmarker, hospedada localmente com o app. Consulte [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+O vídeo é processado no dispositivo e não é enviado ao servidor do jogo. O MediaPipe informa que pode enviar métricas de desempenho e utilização da API ao Google; o aviso aparece no painel da câmera. O modelo é a variante Lite do Pose Landmarker, hospedada localmente com o app. Consulte [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Deploy
 

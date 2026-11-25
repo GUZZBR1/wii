@@ -3,7 +3,6 @@ import type { Delegate, PoseSnapshot, WorkerReply, WorkerRequest } from './proto
 export interface PoseClientCallbacks {
   onPose(snapshot: PoseSnapshot, capturedAtMs: number): void;
   onStatus(status: 'loading' | 'ready' | 'fallback' | 'error', detail: string): void;
-  onDrop(): void;
 }
 
 export class PoseClient {
@@ -93,7 +92,7 @@ export class PoseClient {
   private onReady?: () => void;
 
   private async capture(video: HTMLVideoElement, now: number, callbacks: PoseClientCallbacks): Promise<void> {
-    if (this.busy || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) { this.busy && callbacks.onDrop(); return; }
+    if (this.busy || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
     this.busy = true;
     const timestampMs = Math.max(now, this.lastTimestamp + 0.01);
     this.lastTimestamp = timestampMs;

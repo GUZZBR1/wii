@@ -23,13 +23,13 @@ export class TrackGame {
   private lastHud = '';
   private status = 'Use setas + espaço ou ative a câmera';
 
-  constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: GameHudState) => void, onRender?: (time: number) => void) {
+  constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: GameHudState) => void) {
     this.scene.background = new THREE.Color(0x223038);
     this.scene.fog = new THREE.Fog(0x223038, 25, 75);
     this.camera.position.set(0, 3.4, 11);
     this.camera.lookAt(0, 1.5, -8);
     this.setupScene();
-    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt), onRender);
+    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt));
     this.hudTimer = window.setInterval(() => this.publishHud(), 200);
   }
 

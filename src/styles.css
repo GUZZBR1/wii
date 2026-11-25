@@ -11,7 +11,7 @@ button { cursor: pointer; }
 .brand-mark { width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; gap: 4px; border: 1px solid #a9aaa2; border-radius: 16px; }
 .brand-mark i { height: 11px; width: 3px; display: block; border-radius: 2px; background: var(--orange); transform: rotate(30deg); }
 .brand-mark i:last-child { height: 17px; background: var(--ink); transform: rotate(-30deg); }
-.topbar-center, .eyebrow, .hero-meta, .section-count, .sport-number, .fps-tag, .game-hud span, .game-controls, .footer, .metric span, .privacy-note, .telemetry-toggle, .camera-status, .calibration-button, .session-line, .live-pill { font-family: var(--mono); }
+.topbar-center, .eyebrow, .hero-meta, .section-count, .sport-number, .game-hud span, .game-controls, .footer, .privacy-note, .camera-status, .calibration-button, .session-line, .live-pill { font-family: var(--mono); }
 .topbar-center { font-size: 10px; letter-spacing: .6px; color: #676a64; display: flex; align-items: center; gap: 10px; }
 .topbar-center b { color: var(--orange); }
 .live-indicator, .status-dot, .live-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--orange); display: inline-block; }
@@ -55,9 +55,6 @@ h1 em { color: #d68b2f; font-style: normal; }
 .game-panel-top, .panel-heading { min-height: 66px; padding: 13px 18px; display: flex; align-items: center; justify-content: space-between; }
 .game-panel-top h2 { font-size: 21px; }
 .game-panel-top .eyebrow, .panel-heading .eyebrow { font-size: 8px; }
-.fps-tag { display: flex; align-items: baseline; gap: 4px; color: #787b74; }
-.fps-tag span { color: #3d7b4b; font-size: 19px; }
-.fps-tag small { font-size: 8px; }
 .game-viewport { height: clamp(340px, 43vw, 540px); position: relative; overflow: hidden; background: #10161b; }
 .game-viewport canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .game-hud { position: absolute; left: 18px; right: 18px; top: 15px; display: flex; justify-content: space-between; color: white; pointer-events: none; }
@@ -72,9 +69,6 @@ h1 em { color: #d68b2f; font-style: normal; }
 .game-controls { position: absolute; left: 15px; bottom: 12px; color: #d3d2c799; font-size: 8px; letter-spacing: .4px; }
 .below-game { display: flex; justify-content: space-between; gap: 14px; align-items: center; padding: 13px 15px; color: #747770; font-size: 10px; line-height: 1.5; }
 .below-game b { color: #343833; font: 9px var(--mono); margin-right: 8px; }
-.telemetry-toggle { background: transparent; border: 1px solid #d8d6ce; color: #757871; padding: 8px 10px; white-space: nowrap; font-size: 8px; letter-spacing: .4px; }
-.telemetry-toggle.active { color: #277942; border-color: #79b288; background: #f2fbf2; }
-.target-icon { color: #d28a30; margin-right: 4px; font-size: 13px; }
 .camera-panel { padding: 0 14px 12px; }
 .panel-heading { padding: 10px 2px; min-height: 61px; }
 .panel-heading h2 { font-size: 19px; }
@@ -103,31 +97,7 @@ h1 em { color: #d68b2f; font-style: normal; }
 .hand-select button.selected { color: #202321; background: #e8e6dd; }
 .calibration-button { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 9px 8px; border: 1px solid #e2c89e; background: #fcf7ed; color: #865b20; font-size: 8px; }
 .calibration-button:disabled { opacity: .55; cursor: not-allowed; }
-.stability-bench { margin-top: 8px; padding: 9px; border: 1px solid #e5e3dc; background: #f8f7f1; }
-.stability-heading { display: flex; justify-content: space-between; gap: 8px; color: #858780; font: 7px var(--mono); letter-spacing: .4px; }
-.stability-heading b { color: #5b725d; font-weight: 500; }
-.stability-bench p { margin: 6px 0; color: #7b7e76; font-size: 9px; line-height: 1.4; }
-.stability-counts { display: grid; grid-template-columns: repeat(5, 1fr); gap: 3px; margin-bottom: 7px; color: #979990; font: 6px var(--mono); }
-.stability-counts span { display: flex; justify-content: space-between; gap: 3px; }
-.stability-counts b { color: #454942; font-weight: 500; }
-.stability-button { width: 100%; padding: 7px 8px; border: 1px solid #d8d6ce; background: transparent; color: #444840; font: 7px var(--mono); text-align: left; }
-.stability-button:disabled { opacity: .5; cursor: not-allowed; }
-.cadence-chart { position: relative; height: 58px; margin-top: 9px; padding: 6px 7px 3px; background: #f8f7f1; border: 1px solid #e5e3dc; }
-.cadence-chart div { position: absolute; inset: 5px 7px auto; display: flex; justify-content: space-between; align-items: center; z-index: 1; color: #92948d; font: 6px var(--mono); }
-.cadence-chart strong { color: #4d7153; font: 600 11px var(--condensed); }
-.cadence-chart svg { width: 100%; height: 100%; overflow: visible; }
-.cadence-chart polyline { fill: none; stroke: #db963d; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
-.telemetry-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin-top: 10px; background: #e5e3dc; border: 1px solid #e5e3dc; }
-.metric { min-height: 48px; display: flex; flex-direction: column; justify-content: center; padding: 6px 8px; background: #f8f7f1; }
-.metric span { color: #92948d; font-size: 7px; letter-spacing: .6px; }
-.metric strong { margin-top: 3px; font: 600 13px var(--condensed); color: #383c37; }
-.latency-list { margin-top: 7px; }
-.latency-row { display: flex; justify-content: space-between; gap: 4px; padding: 5px 0; border-bottom: 1px solid #eeece5; color: #777a73; font: 7px var(--mono); }
-.latency-row span:last-child { color: #4f534c; text-align: right; }
 .privacy-note { margin: 9px 0 0; color: #969890; font-size: 7px; line-height: 1.45; }
-.cv-overlay-strip { display: flex; flex-wrap: wrap; gap: 14px; padding: 9px 13px; background: #202724; color: #eae9de; font: 8px var(--mono); }
-.cv-overlay-strip span { color: #f2a844; }
-.cv-overlay-strip b { font-weight: 400; }
 .footer { display: flex; justify-content: space-between; margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--line); color: #969890; font-size: 8px; letter-spacing: .5px; }
 .footer b { color: #d38a31; font-weight: 400; margin: 0 5px; }
 @media (min-width: 1500px) { .app-shell { padding-left: 76px; padding-right: 76px; } }
