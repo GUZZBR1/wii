@@ -11,6 +11,9 @@ export const median = (values: readonly number[]): number => {
   return sorted.length % 2 ? sorted[middle]! : (sorted[middle - 1]! + sorted[middle]!) / 2;
 };
 
+export const isFinitePoint = (point: Point3 | undefined): point is Point3 => point !== undefined
+  && Number.isFinite(point.x) && Number.isFinite(point.y) && Number.isFinite(point.z);
+
 export function landmarkConfidence(...points: Point3[]): number {
   if (!points.length) return 0;
   return Math.min(...points.map((point) => {
