@@ -1,6 +1,8 @@
 import { createPoseRecording, parsePoseRecording } from '@wii/spatial-core';
-import type { Point3, PoseRecording, PoseSnapshot, WorkerReply, WorkerRequest } from '@wii/spatial-core';
+import type { Point3, PoseRecording, PoseSnapshot, WorkerReply } from '@wii/spatial-core';
 import { MEDIAPIPE_WASM_VERSION, POSE_MODEL_SHA8 } from '../src/cv/mediapipeAssets';
+import { PoseWorkerSession } from './poseReplaySession';
+import { seekVideoTo, waitForVideoFrame } from './poseReplayVideo';
 
 const SAMPLE_STEP_MS = 100;
 const MAX_CLIP_BYTES = 256 * 1024 * 1024;
@@ -18,110 +20,6 @@ const report = document.querySelector<HTMLPreElement>('#report')!;
 let currentRecording: PoseRecording | undefined;
 let activeWorker: Worker | undefined;
 let currentUrl: string | undefined;
-
-interface PendingFrame {
-  resolve: (reply: Extract<WorkerReply, { type: 'POSE' }>) => void;
-  reject: (error: Error) => void;
-  timeout: number;
-}
-
-class PoseWorkerSession {
-  private readonly pending = new Map<number, PendingFrame>();
-  private readyResolve?: () => void;
-  private readyReject?: (error: Error) => void;
-  private readonly readyPromise: Promise<void>;
-  private requestId = 1;
-  private effectiveDelegate: 'CPU' | 'GPU';
-
-  constructor(private readonly worker: Worker, preferredDelegate: 'CPU' | 'GPU') {
-    this.effectiveDelegate = preferredDelegate;
-    this.readyPromise = new Promise((resolve, reject) => {
-      this.readyResolve = resolve;
-      this.readyReject = reject;
-    });
-    worker.onmessage = ({ data }: MessageEvent<WorkerReply>) => this.onMessage(data);
-    worker.onerror = (event) => this.failAll(new Error(event.message || 'Pose worker failed.'));
-  }
-
-  async initialize(wasmBaseUrl: string, modelUrl: string): Promise<'CPU' | 'GPU'> {
-    this.worker.postMessage({ type: 'INIT', delegate: this.effectiveDelegate, wasmBaseUrl, modelUrl } satisfies WorkerRequest);
-    let timeout: number | undefined;
-    try {
-      await Promise.race([
-        this.readyPromise,
-        new Promise<never>((_, reject) => { timeout = window.setTimeout(() => reject(new Error('Pose worker initialization timed out.')), 30_000); }),
-      ]);
-    } finally {
-      if (timeout !== undefined) window.clearTimeout(timeout);
-    }
-    return this.effectiveDelegate;
-  }
-
-  detect(bitmap: ImageBitmap, timestampMs: number): Promise<Extract<WorkerReply, { type: 'POSE' }>> {
-    const requestId = this.requestId++;
-    const captureEpoch = 1;
-    return new Promise((resolve, reject) => {
-      const timeout = window.setTimeout(() => {
-        this.pending.delete(requestId);
-        reject(new Error(`Pose inference timed out at ${timestampMs} ms.`));
-      }, 15_000);
-      this.pending.set(requestId, { resolve, reject, timeout });
-      try {
-        this.worker.postMessage({ type: 'FRAME', requestId, captureEpoch, timestampMs, bitmap } satisfies WorkerRequest, [bitmap]);
-      } catch (error) {
-        window.clearTimeout(timeout);
-        this.pending.delete(requestId);
-        bitmap.close();
-        reject(error instanceof Error ? error : new Error(String(error)));
-      }
-    });
-  }
-
-  dispose(): void {
-    this.worker.postMessage({ type: 'DISPOSE' } satisfies WorkerRequest);
-    this.worker.terminate();
-    this.failAll(new Error('Pose worker was disposed.'));
-  }
-
-  private onMessage(message: WorkerReply): void {
-    if (message.type === 'READY') {
-      this.effectiveDelegate = message.delegate;
-      this.readyResolve?.();
-      this.readyResolve = undefined;
-      this.readyReject = undefined;
-    } else if (message.type === 'FALLBACK') {
-      this.effectiveDelegate = message.to;
-    } else if (message.type === 'ERROR') {
-      const error = new Error(message.message);
-      if (message.stage === 'init') this.readyReject?.(error);
-      else {
-        const pending = this.pending.get(message.requestId);
-        if (pending) {
-          window.clearTimeout(pending.timeout);
-          this.pending.delete(message.requestId);
-          pending.reject(error);
-        }
-      }
-    } else if (message.type === 'POSE') {
-      const pending = this.pending.get(message.requestId);
-      if (pending) {
-        window.clearTimeout(pending.timeout);
-        this.pending.delete(message.requestId);
-        pending.resolve(message);
-      }
-    }
-  }
-
-  private failAll(error: Error): void {
-    this.readyReject?.(error);
-    this.readyReject = undefined;
-    for (const pending of this.pending.values()) {
-      window.clearTimeout(pending.timeout);
-      pending.reject(error);
-    }
-    this.pending.clear();
-  }
-}
 
 function confidence(points: readonly Point3[]): number {
   const indices = [11, 12, 23, 24];
@@ -170,22 +68,12 @@ function loadVideo(file: File): Promise<void> {
   if (currentUrl) URL.revokeObjectURL(currentUrl);
   currentUrl = URL.createObjectURL(file);
   video.src = currentUrl;
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     const timeout = window.setTimeout(() => reject(new Error('Video metadata did not load within 15 seconds.')), 15_000);
     video.onloadedmetadata = () => { window.clearTimeout(timeout); resolve(); };
     video.onerror = () => { window.clearTimeout(timeout); reject(new Error('Browser could not decode this video.')); };
     video.load();
-  });
-}
-
-async function seekTo(seconds: number): Promise<void> {
-  if (Math.abs(video.currentTime - seconds) < 0.001) return;
-  await new Promise<void>((resolve, reject) => {
-    const timeout = window.setTimeout(() => reject(new Error(`Video seek timed out at ${seconds.toFixed(3)} s.`)), 10_000);
-    video.onseeked = () => { window.clearTimeout(timeout); resolve(); };
-    video.onerror = () => { window.clearTimeout(timeout); reject(new Error('Video seek failed.')); };
-    video.currentTime = seconds;
-  });
+  }).then(() => waitForVideoFrame(video));
 }
 
 async function readReference(file: File): Promise<PoseRecording> {
@@ -281,15 +169,21 @@ async function run(): Promise<void> {
   activeWorker = worker;
   const requestedDelegate = delegateInput.value as 'CPU' | 'GPU';
   const session = new PoseWorkerSession(worker, requestedDelegate);
-  const effectiveDelegate = await session.initialize(model.wasmBaseUrl, model.modelUrl);
+  await session.initialize(model.wasmBaseUrl, model.modelUrl);
   const snapshots: PoseSnapshot[] = [];
+  let droppedFrameCount = 0;
   const frameCount = Math.floor((video.duration * 1000) / SAMPLE_STEP_MS) + 1;
 
   for (let sequence = 0; sequence < frameCount; sequence += 1) {
     const timestampMs = sequence * SAMPLE_STEP_MS;
-    await seekTo(timestampMs / 1000);
+    await seekVideoTo(video, timestampMs / 1000);
     const bitmap = await createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'low' });
     const reply = await session.detect(bitmap, timestampMs);
+    if (!reply) {
+      droppedFrameCount += 1;
+      report.textContent = `Processed ${sequence + 1}/${frameCount} sampled frames (${droppedFrameCount} dropped)…`;
+      continue;
+    }
     snapshots.push(snapshotFromReply(reply));
     report.textContent = `Processed ${sequence + 1}/${frameCount} sampled frames…`;
   }
@@ -300,9 +194,9 @@ async function run(): Promise<void> {
     kind: 'mediapipe',
     tasksVisionVersion: MEDIAPIPE_WASM_VERSION,
     modelSha256: model.modelSha256,
-    delegate: effectiveDelegate,
+    delegate: session.delegate,
     runningMode: 'VIDEO',
-    droppedFrameCount: 0,
+    droppedFrameCount,
     runtime: { userAgent: navigator.userAgent, platform: navigator.platform },
     input: {
       width: video.videoWidth,

@@ -90,6 +90,21 @@ describe('pose recording and replay', () => {
     expect(recording.timestampClock).toBe('performance');
   });
 
+  it('rejects string values for numeric input rotation metadata', () => {
+    const valid = createPoseRecording([pose(0)], {
+      kind: 'mediapipe',
+      tasksVisionVersion: '0.10.14',
+      modelSha256: 'a'.repeat(64),
+      delegate: 'CPU',
+      runningMode: 'VIDEO',
+      input: { width: 640, height: 480, rotationDegrees: 90, mirrored: false },
+    });
+    const malformed = structuredClone(valid);
+    (malformed.source.input as unknown as { rotationDegrees: unknown }).rotationDegrees = '90';
+
+    expect(() => parsePoseRecording(malformed)).toThrow(/rotation or mirrored flag is invalid/);
+  });
+
   it('rejects malformed JSON, unsupported schemas, incomplete manifests, and bad sequences', () => {
     expect(() => parsePoseRecording('{')).toThrow(/valid JSON/);
 

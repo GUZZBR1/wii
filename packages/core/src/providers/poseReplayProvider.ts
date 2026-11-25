@@ -146,7 +146,7 @@ function validateSource(value: unknown): asserts value is PoseRecordingSource {
     if (!isRecord(input) || !Number.isInteger(input.width) || Number(input.width) <= 0 || !Number.isInteger(input.height) || Number(input.height) <= 0) {
       throw new TypeError('Replay source input dimensions must be positive integers.');
     }
-    if (![0, 90, 180, 270].includes(Number(input.rotationDegrees)) || typeof input.mirrored !== 'boolean') {
+    if (typeof input.rotationDegrees !== 'number' || ![0, 90, 180, 270].includes(input.rotationDegrees) || typeof input.mirrored !== 'boolean') {
       throw new TypeError('Replay source input rotation or mirrored flag is invalid.');
     }
     if (input.sha256 !== undefined && (typeof input.sha256 !== 'string' || !/^[a-f0-9]{64}$/i.test(input.sha256))) {
