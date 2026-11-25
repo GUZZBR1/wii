@@ -732,6 +732,23 @@ describe('mão da raquete', () => {
       .filter((event) => event.type === 'swing');
     expect(swings).toHaveLength(1);
   });
+
+  it('desiste de esperar quando o rival fica degradado sem confirmar nem perder o rastreamento', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
+    pipeline.update(pose(99, { wristLateral: -0.15, leftWristLateral: 0.15 }), profile);
+    const held = pipeline.update(pose(132, { wristLateral: 0.05, leftWristLateral: 0.35 }), profile);
+    expect(held.events.filter((event) => event.type === 'swing')).toHaveLength(0);
+    // 3 bad + 1 good keeps the rival gate forever degraded: its pending arc is never updated,
+    // never confirmed and never reset — only the hold bound frees the waiting swing.
+    const flapping = (time: number) => (Math.floor((time - 165) / 33) % 4 === 3
+      ? pose(time, { wristLateral: 0.05 })
+      : withWorldConfidence(pose(time, { wristLateral: 0.05 }), 15, 0, 0));
+    const frames = Array.from({ length: 15 }, (_, i) => 165 + i * 33);
+    const swings = frames.flatMap((time) => pipeline.update(flapping(time), profile).events).filter((event) => event.type === 'swing');
+    expect(swings).toHaveLength(1);
+  });
 });
 
 describe('calibração automática', () => {
