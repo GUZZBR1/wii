@@ -729,6 +729,82 @@ describe('mão da raquete', () => {
   });
 });
 
+describe('action pipeline (upper-body only)', () => {
+  /** Full torso-core visibility, legs and wrists absent in BOTH spaces the whole time. */
+  const torsoOnly = (time: number, hipYOffset = 0) => {
+    const snapshot = poseWithHipBounce(time, hipYOffset);
+    return {
+      ...snapshot,
+      landmarks: snapshot.landmarks.map((point, index) => (index >= 25 || index === 15 || index === 16 ? { ...point, visibility: 0, presence: 0 } : point)),
+      worldLandmarks: snapshot.worldLandmarks.map((point, index) => (index >= 25 || index === 15 || index === 16 ? { ...point, visibility: 0, presence: 0 } : point)),
+    };
+  };
+
+  it('produces sprint and step events with legs and wrists absent the whole time', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const hz = 150 / 60;
+    const events = [];
+    for (let time = 0; time <= 3000; time += 33) {
+      const units = time >= 200 ? 0.04 * Math.sin((2 * Math.PI * hz * (time - 200)) / 1000) : 0;
+      events.push(...pipeline.update(torsoOnly(time, -units * 0.4), profile).events);
+    }
+    expect(events.filter((event) => event.type === 'step').length).toBeGreaterThan(3);
+    expect(events.some((event) => event.type === 'sprint' && event.speed01 > 0)).toBe(true);
+  });
+
+  it('does not emit jumps for running bounce but does emit a mid-run jump, torso-only', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const hz = 2.8;
+    // Same physics-coherent shape as the detector tests: crouch, quadratic powered rise
+    // (velocity peaks at liftoff), simplified hold and landing.
+    const jumpAt = (timeMs: number) => {
+      const t = timeMs - 3000;
+      if (t < 0) return 0;
+      if (t < 250) return -0.1 * Math.sin((Math.PI * t) / 250) * 0.5 - (0.1 * t) / 500;
+      if (t < 430) { const u = (t - 250) / 180; return -0.1 + 0.35 * u * u; }
+      if (t < 700) return 0.25;
+      if (t < 1000) return 0.25 * (1 - (t - 700) / 300);
+      return 0;
+    };
+    const events = [];
+    for (let time = 0; time <= 5000; time += 33) {
+      // Quiet standing first (arms the jump detector), then bounce, then bounce+jump.
+      const bouncing = time >= 1000;
+      const units = (bouncing ? 0.05 * Math.sin((2 * Math.PI * hz * (time - 1000)) / 1000) : 0) + jumpAt(time);
+      events.push(...pipeline.update(torsoOnly(time, -units * 0.4), profile).events);
+    }
+    const jumps = events.filter((event) => event.type === 'jump');
+    expect(jumps).toHaveLength(1);
+    expect(jumps[0]!.timestampMs).toBeGreaterThan(3000);
+    // No jump is emitted during the pure-bounce portion before 3000.
+    expect(events.filter((event) => event.type === 'jump' && event.timestampMs < 3000)).toHaveLength(0);
+  });
+
+  it('emits no swings without readyWristLocal, but lanes, cadence and jump still work', () => {
+    const pipeline = new ActionPipeline();
+    const noWristProfile = {
+      ...calibration(),
+      world: { ...calibration().world, readyWristLocal: undefined },
+    };
+    const events = [];
+    const hz = 150 / 60;
+    for (let time = 0; time <= 2500; time += 33) {
+      const units = time >= 200 && time <= 1500 ? 0.04 * Math.sin((2 * Math.PI * hz * (time - 200)) / 1000) : 0;
+      // Big wrist arcs on top — none of them may produce a swing without the reference.
+      const snapshot = torsoOnly(time, units * 0.4);
+      const withWrist = {
+        ...snapshot,
+        worldLandmarks: snapshot.worldLandmarks.map((point, index) => (index === 16 ? { ...point, x: -0.2 - (time % 2 === 0 ? -0.3 : 0.3), visibility: 0.95, presence: 0.95 } : point)),
+      };
+      events.push(...pipeline.update(withWrist, noWristProfile).events);
+    }
+    expect(events.filter((event) => event.type === 'swing')).toHaveLength(0);
+    expect(events.filter((event) => event.type === 'step').length).toBeGreaterThan(2);
+  });
+});
+
 describe('calibração automática', () => {
   const run = (frame: (time: number) => ReturnType<typeof pose>) => {
     const auto = new AutoCalibrator();
