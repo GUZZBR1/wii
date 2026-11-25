@@ -1,7 +1,9 @@
 import type { Point3, PoseSnapshot } from '../cv/protocol';
-import { midpoint } from './math';
+import { landmarkConfidence, midpoint } from './math';
 
 const EPSILON = 1e-6;
+const KNEE_CONFIDENCE_MIN = 0.55;
+const MIN_LEG_SPAN = 0.1;
 
 function subtract(a: Point3, b: Point3): Point3 {
   return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
@@ -70,10 +72,28 @@ export function torsoUpDirection(snapshot: PoseSnapshot): Point3 | undefined {
 }
 
 /**
- * Lateral trunk lean, positive toward the player's right, measured against `up` — the neutral
- * trunk direction captured at calibration — not the camera's horizontal plane, so camera tilt
- * and an upright body turn do not read as lean. The shoulder axis is projected onto the plane
- * perpendicular to `up` so that rolling it together with the torso does not cancel the lean.
+ * Standing vertical estimated from the legs: hip midpoint minus knee midpoint points up along
+ * gravity regardless of trunk posture, so it stays correct under a forward slouch, camera tilt
+ * and body yaw. Undefined when the knees are hidden or tucked.
+ */
+function legsVertical(snapshot: PoseSnapshot): Point3 | undefined {
+  const leftHip = snapshot.worldLandmarks[23];
+  const rightHip = snapshot.worldLandmarks[24];
+  const leftKnee = snapshot.worldLandmarks[25];
+  const rightKnee = snapshot.worldLandmarks[26];
+  if (!leftHip || !rightHip || !leftKnee || !rightKnee) return undefined;
+  if (landmarkConfidence(leftKnee, rightKnee) < KNEE_CONFIDENCE_MIN) return undefined;
+  const span = subtract(midpoint(leftHip, rightHip), midpoint(leftKnee, rightKnee));
+  if (Math.hypot(span.x, span.y, span.z) < MIN_LEG_SPAN) return undefined;
+  return normalize(span);
+}
+
+/**
+ * Lateral trunk lean, positive toward the player's right, measured against a standing-vertical
+ * estimated from the legs when the knees are visible — so trunk posture, camera tilt and an
+ * upright body turn do not read as lean — falling back to the calibrated trunk direction `up`
+ * otherwise. The shoulder axis is projected onto the plane perpendicular to that vertical so
+ * that rolling it together with the torso does not cancel the lean.
  */
 export function torsoLeanRad(snapshot: PoseSnapshot, up: Point3): number | undefined {
   const leftShoulder = snapshot.worldLandmarks[11];
@@ -81,7 +101,7 @@ export function torsoLeanRad(snapshot: PoseSnapshot, up: Point3): number | undef
   const leftHip = snapshot.worldLandmarks[23];
   const rightHip = snapshot.worldLandmarks[24];
   if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) return undefined;
-  const upDirection = normalize(up);
+  const upDirection = legsVertical(snapshot) ?? normalize(up);
   if (!upDirection) return undefined;
   const across = subtract(rightShoulder, leftShoulder);
   const acrossUp = dot(across, upDirection);

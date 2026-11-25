@@ -3,7 +3,9 @@ import { OneEuroFilter } from '../cv/oneEuroFilter';
 import { torsoLeanRad } from './bodyFrame';
 
 export function torsoLeanDeltaRad(snapshot: PoseSnapshot, calibration: CalibrationProfile): number {
-  return torsoLeanRad(snapshot, calibration.world.torsoUp0) ?? 0;
+  const angle = torsoLeanRad(snapshot, calibration.world.torsoUp0) ?? calibration.world.torsoLeanRad0;
+  const delta = angle - calibration.world.torsoLeanRad0;
+  return Math.atan2(Math.sin(delta), Math.cos(delta));
 }
 
 export class LaneLeanDetector {

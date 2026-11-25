@@ -41,6 +41,8 @@ export function pose(timestampMs: number, options: {
   };
   world[23] = { ...world[23]!, x: 0.1, y: 0 };
   world[24] = { ...world[24]!, x: -0.1, y: 0 };
+  world[25] = { ...world[25]!, x: 0.1, y: 0.45 };
+  world[26] = { ...world[26]!, x: -0.1, y: 0.45 };
   return { timestampMs, landmarks: points, worldLandmarks: world, trackingState: 'tracked', bodyConfidence: options.confidence ?? 0.95 };
 }
 
@@ -89,7 +91,7 @@ const crossed = (a: Point3, b: Point3): Point3 => ({ x: a.y * b.z - a.z * b.y, y
  */
 export function poseWithWorldTorso(
   timestampMs: number,
-  options: { up?: Point3; yawRad?: number; leanRad?: number } = {},
+  options: { up?: Point3; down?: Point3; yawRad?: number; leanRad?: number } = {},
 ): PoseSnapshot {
   const snapshot = pose(timestampMs);
   const up = unit(options.up ?? { x: 0, y: -1, z: 0 });
@@ -101,11 +103,16 @@ export function poseWithWorldTorso(
   const torsoDir = added(scaled(up, Math.cos(lean)), scaled(axis, Math.sin(lean)));
   const shoulderAxis = added(scaled(axis, Math.cos(lean)), scaled(up, -Math.sin(lean)));
   const shoulderMid = scaled(torsoDir, 0.4);
+  // Gravity direction for the legs; defaults to under the trunk (standing upright).
+  const down = options.down ? unit(options.down) : scaled(up, -1);
+  const kneeMid = scaled(down, 0.45);
   const world = snapshot.worldLandmarks.map((point, index) => {
     if (index === 11) return { ...point, ...added(shoulderMid, scaled(shoulderAxis, -0.2)) };
     if (index === 12) return { ...point, ...added(shoulderMid, scaled(shoulderAxis, 0.2)) };
     if (index === 23) return { ...point, ...scaled(axis, -0.1) };
     if (index === 24) return { ...point, ...scaled(axis, 0.1) };
+    if (index === 25) return { ...point, ...added(kneeMid, scaled(axis, -0.1)) };
+    if (index === 26) return { ...point, ...added(kneeMid, scaled(axis, 0.1)) };
     return point;
   });
   return { ...snapshot, worldLandmarks: world };
@@ -115,7 +122,7 @@ export function calibration(hand: Hand = 'right'): CalibrationProfile {
   return {
     version: 1, completedAtMs: 3000, dominantHand: hand,
     image: { torsoHeight: 0.4, hipY0: 0.55, kneeToHipY0: { left: -0.5, right: -0.5 }, shoulderWidth: 0.14 },
-    world: { shoulderWidth: 0.4, torsoUp0: { x: 0, y: -1, z: 0 }, readyWristLocal: { x: 0, y: -1.25, z: 0 } },
+    world: { shoulderWidth: 0.4, torsoUp0: { x: 0, y: -1, z: 0 }, torsoLeanRad0: 0, readyWristLocal: { x: 0, y: -1.25, z: 0 } },
     quality: { validFrameRatio: 1, medianConfidence: 0.95 },
   };
 }

@@ -258,14 +258,15 @@ describe('swing detector', () => {
 });
 
 describe('world-space posture calibration', () => {
-  it('stores the neutral trunk direction as the lean reference', () => {
+  it('stores the neutral trunk direction and lateral lean baseline', () => {
     const calibrator = new Calibrator();
     calibrator.start(0);
     for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { leanRad: 0.2 }));
-    const torsoUp0 = calibrator.finish('right')?.world.torsoUp0;
-    expect(torsoUp0?.x).toBeCloseTo(-Math.sin(0.2), 2);
-    expect(torsoUp0?.y).toBeCloseTo(-Math.cos(0.2), 2);
-    expect(torsoUp0?.z).toBeCloseTo(0, 2);
+    const world = calibrator.finish('right')?.world;
+    expect(world?.torsoUp0.x).toBeCloseTo(-Math.sin(0.2), 2);
+    expect(world?.torsoUp0.y).toBeCloseTo(-Math.cos(0.2), 2);
+    expect(world?.torsoUp0.z).toBeCloseTo(0, 2);
+    expect(world?.torsoLeanRad0).toBeCloseTo(0.2, 2);
   });
 
   it('rejects calibration when the full-body landmarks stay below the confidence gate', () => {
@@ -338,6 +339,25 @@ describe('world-space posture calibration', () => {
       poseWithWorldTorso(i * 33, { up, yawRad: Math.PI / 4, leanRad: i < 4 ? 0 : leanRad }), profile,
     ));
     expect(signals.filter(Boolean)).toEqual([direction]);
+  });
+
+  it('does not read a body turn as lean after calibrating with a forward-tilted trunk', () => {
+    // Level camera, trunk calibrated 20° forward: torsoUp0 is slanted, but the legs still
+    // point along gravity, so the lean reference stays the true vertical through the turn.
+    const tilt = (20 * Math.PI) / 180;
+    const up = { x: 0, y: -Math.cos(tilt), z: Math.sin(tilt) };
+    const down = { x: 0, y: 1, z: 0 };
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(poseWithWorldTorso(time, { up, down }));
+    const profile = calibrator.finish('right')!;
+    const turned = rotateWorldYaw(poseWithWorldTorso(0, { up, down }), Math.PI / 4);
+    expect(torsoLeanDeltaRad(turned, profile)).toBeCloseTo(0, 2);
+    const detector = new LaneLeanDetector();
+    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
+      rotateWorldYaw(poseWithWorldTorso(i * 33, { up, down }), (i * Math.PI) / 20), profile,
+    ));
+    expect(signals.filter(Boolean)).toHaveLength(0);
   });
 
   it('waits for neutral posture before emitting a lane change after tracking reset', () => {
