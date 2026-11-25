@@ -71,16 +71,16 @@ self.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
     return;
   }
 
-  const { bitmap, timestampMs } = data;
+  const { bitmap, timestampMs, requestId, captureEpoch } = data;
   if (!landmarker) {
     bitmap.close();
-    self.postMessage({ type: 'ERROR', stage: 'detect', fatal: true, message: 'PoseLandmarker is not initialized' } satisfies WorkerReply);
+    self.postMessage({ type: 'ERROR', stage: 'detect', fatal: true, requestId, captureEpoch, message: 'PoseLandmarker is not initialized' } satisfies WorkerReply);
     return;
   }
   try {
     const result = landmarker.detectForVideo(bitmap, timestampMs);
     self.postMessage({
-      type: 'POSE', timestampMs,
+      type: 'POSE', requestId, captureEpoch, timestampMs,
       landmarks: simplify(result.landmarks[0]),
       worldLandmarks: simplify(result.worldLandmarks[0]),
     } satisfies WorkerReply);
@@ -88,9 +88,9 @@ self.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
     const message = error instanceof Error ? error.message : String(error);
     const fallbackResult = await fallback(message);
     if (fallbackResult.ok) {
-      self.postMessage({ type: 'ERROR', stage: 'detect', fatal: false, message: 'GPU falhou; próxima captura será processada em CPU.' } satisfies WorkerReply);
+      self.postMessage({ type: 'ERROR', stage: 'detect', fatal: false, requestId, captureEpoch, message: 'GPU falhou; próxima captura será processada em CPU.' } satisfies WorkerReply);
     } else {
-      self.postMessage({ type: 'ERROR', stage: 'detect', fatal: true, message: fallbackResult.message } satisfies WorkerReply);
+      self.postMessage({ type: 'ERROR', stage: 'detect', fatal: true, requestId, captureEpoch, message: fallbackResult.message } satisfies WorkerReply);
     }
   } finally {
     bitmap.close();
