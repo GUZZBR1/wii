@@ -1,4 +1,5 @@
 import type { Delegate, PoseSnapshot, WorkerReply, WorkerRequest } from './protocol';
+import { MEDIAPIPE_WASM_VERSION, POSE_MODEL_SHA8 } from './mediapipeAssets';
 
 export interface PoseClientCallbacks {
   onPose(snapshot: PoseSnapshot): void;
@@ -6,14 +7,15 @@ export interface PoseClientCallbacks {
 }
 
 function mediapipeAssetUrls() {
-  const base = `${import.meta.env.BASE_URL}mediapipe/`;
+  const base = `${import.meta.env.BASE_URL}mediapipe`;
+  const wasmBaseUrl = new URL(`${base}/wasm-${MEDIAPIPE_WASM_VERSION}`, location.origin).href;
   return {
-    wasmBaseUrl: new URL(`${base}wasm/`, location.origin).href,
+    wasmBaseUrl,
     wasmModuleUrls: [
-      new URL(`${base}wasm/vision_wasm_module_internal.js`, location.origin).href,
-      new URL(`${base}wasm/vision_wasm_module_internal.wasm`, location.origin).href,
+      `${wasmBaseUrl}/vision_wasm_module_internal.js`,
+      `${wasmBaseUrl}/vision_wasm_module_internal.wasm`,
     ],
-    modelUrl: new URL(`${base}models/pose_landmarker_lite.task`, location.origin).href,
+    modelUrl: new URL(`${base}/models/pose_landmarker_lite.${POSE_MODEL_SHA8}.task`, location.origin).href,
   };
 }
 

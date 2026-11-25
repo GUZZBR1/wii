@@ -5,5 +5,5 @@ dist/
 *.tsbuildinfo
 .vite/
 .vercel/
-public/mediapipe/wasm/
+public/mediapipe/wasm*/
 .vercel
