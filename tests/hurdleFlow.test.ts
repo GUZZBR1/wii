@@ -12,18 +12,18 @@ describe('hurdle flow', () => {
     expect(hurdles[0]!.z).toBe(0);
     // On resume it is judged at the contact plane and never again.
     const resumed = flow.advance(hurdles, RUNNER_Z + 0.5, 0, false);
-    expect(resumed.judged).toEqual([{ hurdle: hurdles[0], cleared: false }]);
+    expect(resumed.judged).toEqual([{ hurdle: hurdles[0], outcome: 'hit' }]);
     expect(flow.advance(hurdles, 1, 0, false).judged).toHaveLength(0);
   });
 
   it('clears the hurdle when the runner is airborne or in another lane', () => {
     const flow = new HurdleFlow();
     const jumping = [hurdle(0, RUNNER_Z - 0.5)];
-    expect(flow.advance(jumping, 1, 0, true).judged[0]!.cleared).toBe(true);
+    expect(flow.advance(jumping, 1, 0, true).judged[0]!.outcome).toBe('cleared');
     const dodged = [hurdle(1, RUNNER_Z - 0.5)];
-    expect(flow.advance(dodged, 1, 0, false).judged[0]!.cleared).toBe(true);
+    expect(flow.advance(dodged, 1, 0, false).judged[0]!.outcome).toBe('cleared');
     const hit = [hurdle(-1, RUNNER_Z - 0.5)];
-    expect(flow.advance(hit, 1, -1, false).judged[0]!.cleared).toBe(false);
+    expect(flow.advance(hit, 1, -1, false).judged[0]!.outcome).toBe('hit');
   });
 
   it('spawns on travelled distance: a pause adds nothing and progress survives it', () => {
@@ -46,6 +46,15 @@ describe('hurdle flow', () => {
   it('spawns sooner once the run is long', () => {
     expect(new HurdleFlow().advance([], MIN_SPAWN_DISTANCE + 1, 0, false, 0).spawn).toBe(false);
     expect(new HurdleFlow().advance([], MIN_SPAWN_DISTANCE + 1, 0, false, RAMP_DISTANCE).spawn).toBe(true);
+  });
+
+  it('collects a coin by lane, jumping or not, and misses it from another lane', () => {
+    const coin = (lane: number): HurdleBody => ({ kind: 'coin', lane, z: RUNNER_Z - 0.5, passed: false });
+    const outcome = (lane: number, airborne: boolean) => new HurdleFlow().advance([coin(lane)], 1, 0, airborne).judged[0]!.outcome;
+    expect(outcome(0, false)).toBe('collected');
+    expect(outcome(0, true)).toBe('collected');
+    expect(outcome(1, false)).toBe('missed');
+    expect(outcome(1, true)).toBe('missed');
   });
 
   it('recycles hurdles once they are well behind the runner', () => {

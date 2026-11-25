@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Lane, LANES, nextLane } from '../src/games/track/spawn';
+import { type Lane, LANES, nextKind, nextLane } from '../src/games/track/spawn';
 
 describe('fair spawn', () => {
   it('maps the rng across all lanes when nothing repeats', () => {
@@ -19,5 +19,12 @@ describe('fair spawn', () => {
       for (let i = 0; i < 30; i += 1) history.push(nextLane(history, () => r));
       expect(history.some((lane, i) => lane === history[i + 1] && lane === history[i + 2])).toBe(false);
     }
+  });
+});
+
+describe('item kind', () => {
+  it('spawns mostly hurdles with some coins', () => {
+    expect(nextKind(() => 0.1)).toBe('coin');
+    expect(nextKind(() => 0.9)).toBe('hurdle');
   });
 });

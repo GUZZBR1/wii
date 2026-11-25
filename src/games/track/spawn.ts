@@ -1,3 +1,11 @@
+import type { ItemKind } from './hurdleFlow';
+
+const COIN_CHANCE = 0.3;
+
+export function nextKind(rng: () => number): ItemKind {
+  return rng() < COIN_CHANCE ? 'coin' : 'hurdle';
+}
+
 export const LANES = [-1, 0, 1] as const;
 export type Lane = (typeof LANES)[number];
 const MAX_SAME_LANE = 2;

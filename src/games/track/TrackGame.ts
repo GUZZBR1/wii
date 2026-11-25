@@ -1,14 +1,15 @@
 import * as THREE from 'three';
 import type { SportActionEvent } from '../../cv/protocol';
-import { disposeObjectTree, GameLoop } from '../core/GameLoop';
+import { GameLoop } from '../core/GameLoop';
 import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type Pace, stumble } from './gait';
-import { HurdleFlow, RUNNER_Z } from './hurdleFlow';
+import { HurdleFlow, type ItemKind, RUNNER_Z } from './hurdleFlow';
+import { ItemAssets } from './itemAssets';
 import { JUMP_DURATION_S, jumpHeight } from './jump';
-import { type Lane, nextLane } from './spawn';
+import { type Lane, nextKind, nextLane } from './spawn';
 import { isPerfectJump, TrackScore } from './trackScore';
 
 export interface GameHudState { score: number; label: string; speed01: number; status: string }
-type Hurdle = { group: THREE.Group; lane: number; z: number; passed: boolean };
+type Item = { group: THREE.Group; kind: ItemKind; lane: number; z: number; passed: boolean };
 const GAIT_STATUS: Record<Gait, string> = { idle: 'Parado', walk: 'Andando', run: 'Correndo' };
 
 export class TrackGame {
@@ -17,7 +18,8 @@ export class TrackGame {
   private readonly runner = new THREE.Group();
   private readonly legs: THREE.Group[] = [];
   private readonly arms: THREE.Group[] = [];
-  private readonly hurdles: Hurdle[] = [];
+  private readonly items: Item[] = [];
+  private readonly itemAssets = new ItemAssets();
   private readonly loop: GameLoop;
   private readonly hudTimer: number;
   private lane = 0;
@@ -76,18 +78,17 @@ export class TrackGame {
       arm.rotation.z = side * -0.12; this.runner.add(arm); this.arms.push(arm);
     }
     this.runner.position.set(0, 0, RUNNER_Z); this.scene.add(this.runner);
-    this.addHurdle(-1, -30);
-    this.addHurdle(1, -48);
+    this.addItem('hurdle', -1, -30);
+    this.addItem('hurdle', 1, -48);
   }
 
-  private addHurdle(lane: Lane, z: number): void {
-    this.laneHistory.push(lane);
-    if (this.laneHistory.length > 2) this.laneHistory.shift();
-    const group = new THREE.Group();
-    const mat = new THREE.MeshStandardMaterial({ color: 0xf7a942, emissive: 0x65340b, emissiveIntensity: 0.45, flatShading: true });
-    const bar = new THREE.Mesh(new THREE.BoxGeometry(2.15, 0.13, 0.18), mat); bar.position.y = 0.9; group.add(bar);
-    for (const side of [-1, 1]) { const leg = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.9, 0.12), mat); leg.position.set(side * 0.95, 0.43, 0); group.add(leg); }
-    group.position.set(lane * 1.5, 0, z); this.scene.add(group); this.hurdles.push({ group, lane, z, passed: false });
+  private addItem(kind: ItemKind, lane: Lane, z: number): void {
+    if (kind === 'hurdle') {
+      this.laneHistory.push(lane);
+      if (this.laneHistory.length > 2) this.laneHistory.shift();
+    }
+    const group = this.itemAssets.create(kind);
+    group.position.set(lane * 1.5, 0, z); this.scene.add(group); this.items.push({ group, kind, lane, z, passed: false });
   }
 
   onAction(event: SportActionEvent): void {
@@ -131,23 +132,29 @@ export class TrackGame {
     const advance = dt * speed * 22;
     const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
     this.travelled += advance;
-    const flow = this.hurdleFlow.advance(this.hurdles, advance, this.lane, airborne, this.travelled);
-    for (const { hurdle, cleared } of flow.judged) {
+    const flow = this.hurdleFlow.advance(this.items, advance, this.lane, airborne, this.travelled);
+    for (const { hurdle: item, outcome } of flow.judged) {
       // Only a jump over the hurdle can be perfect; dodging it by lane just clears it.
-      if (cleared) this.score.hurdleCleared(hurdle.lane === this.lane && isPerfectJump(this.jumpTime));
-      else {
+      if (outcome === 'cleared') this.score.hurdleCleared(item.lane === this.lane && isPerfectJump(this.jumpTime));
+      if (outcome === 'hit') {
         this.score.hurdleHit();
         this.shownSpeed = stumble(this.shownSpeed);
         this.status = 'Tropeçou!';
       }
+      if (outcome === 'collected') {
+        this.score.coinCollected();
+        item.group.visible = false;
+      }
     }
     for (const old of flow.despawned) {
-      this.hurdles.splice(this.hurdles.indexOf(old), 1);
+      this.items.splice(this.items.indexOf(old), 1);
       this.scene.remove(old.group);
-      disposeObjectTree(old.group);
     }
-    for (const hurdle of this.hurdles) hurdle.group.position.z = hurdle.z;
-    if (flow.spawn) this.addHurdle(nextLane(this.laneHistory, Math.random), -48);
+    for (const item of this.items) item.group.position.z = item.z;
+    if (flow.spawn) {
+      const kind = nextKind(Math.random);
+      this.addItem(kind, nextLane(this.laneHistory, Math.random), -48);
+    }
   }
 
   private publishHud(): void {
@@ -159,5 +166,12 @@ export class TrackGame {
     this.onHud({ score, label, speed01: this.shownSpeed, status: this.status });
   }
 
-  dispose(): void { window.clearInterval(this.hudTimer); this.loop.dispose(); }
+  dispose(): void {
+    window.clearInterval(this.hudTimer);
+    // Items leave the scene first so their shared resources are freed once, by their owner.
+    for (const item of this.items) this.scene.remove(item.group);
+    this.items.length = 0;
+    this.loop.dispose();
+    this.itemAssets.dispose();
+  }
 }

@@ -65,6 +65,14 @@ describe('track score', () => {
     expect(isPerfectJump(0)).toBe(false);
   });
 
+  it('adds coins without touching the combo', () => {
+    const score = new TrackScore();
+    score.hurdleCleared();
+    expect(score.coinCollected()).toBe(25);
+    expect(score.display).toBe(125);
+    expect(score.combo).toBe(1);
+  });
+
   it('ignores malformed speed values', () => {
     const score = new TrackScore();
     score.advance(1 / 60, Number.NaN);

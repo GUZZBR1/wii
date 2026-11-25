@@ -6,6 +6,7 @@ export const MAX_MULTIPLIER = 4;
 const CLEAR_POINTS = 100;
 const PERFECT_POINTS = 50;
 const HIT_PENALTY = 35;
+const COIN_POINTS = 25;
 
 /** `jumpRemaining` is the air time left when the hurdle crossed; 0 means the runner was grounded. */
 export function isPerfectJump(jumpRemaining: number): boolean {
@@ -34,6 +35,12 @@ export class TrackScore {
     const points = (CLEAR_POINTS + (perfect ? PERFECT_POINTS : 0)) * multiplier;
     this.value += points;
     return { points, multiplier, perfect };
+  }
+
+  /** Coins are a flat bonus: they neither build nor break the combo. */
+  coinCollected(): number {
+    this.value += COIN_POINTS;
+    return COIN_POINTS;
   }
 
   hurdleHit(): void {

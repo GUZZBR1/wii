@@ -1,5 +1,8 @@
-export interface HurdleBody { lane: number; z: number; passed: boolean }
-export interface HurdleStep<T extends HurdleBody> { judged: { hurdle: T; cleared: boolean }[]; despawned: T[]; spawn: boolean }
+export type ItemKind = 'hurdle' | 'coin';
+/** Hurdles end up `cleared` or `hit`; coins end up `collected` or `missed`. */
+export type Outcome = 'cleared' | 'hit' | 'collected' | 'missed';
+export interface HurdleBody { kind?: ItemKind; lane: number; z: number; passed: boolean }
+export interface HurdleStep<T extends HurdleBody> { judged: { hurdle: T; outcome: Outcome }[]; despawned: T[]; spawn: boolean }
 
 /** The runner holds this depth; a hurdle is judged only once it crosses this plane. */
 export const RUNNER_Z = 1.4;
@@ -13,6 +16,13 @@ export const RAMP_DISTANCE = 1200;
 export function spawnSpacing(travelled: number): number {
   const progress = Math.min(1, Math.max(0, travelled / RAMP_DISTANCE));
   return MAX_SPAWN_DISTANCE - (MAX_SPAWN_DISTANCE - MIN_SPAWN_DISTANCE) * progress;
+}
+
+/** A hurdle is cleared by jumping or by lane; a coin only needs the runner in its lane. */
+function judge(item: HurdleBody, runnerLane: number, airborne: boolean): Outcome {
+  const sameLane = item.lane === runnerLane;
+  if (item.kind === 'coin') return sameLane ? 'collected' : 'missed';
+  return !sameLane || airborne ? 'cleared' : 'hit';
 }
 
 /**
@@ -30,7 +40,7 @@ export class HurdleFlow {
       hurdle.z += distance;
       if (!hurdle.passed && hurdle.z > RUNNER_Z) {
         hurdle.passed = true;
-        judged.push({ hurdle, cleared: hurdle.lane !== runnerLane || airborne });
+        judged.push({ hurdle, outcome: judge(hurdle, runnerLane, airborne) });
       }
     }
     this.sinceSpawn += distance;
