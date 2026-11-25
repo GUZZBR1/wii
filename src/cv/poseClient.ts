@@ -24,7 +24,9 @@ export class PoseClient {
   private ready = false;
   private activeDelegate?: Delegate;
   private initPromise?: Promise<void>;
-  private busy = false;
+  private inFlight?: { requestId: number; captureEpoch: number };
+  private nextRequestId = 1;
+  private captureEpoch = 0;
   private capturing = false;
   private lastTimestamp = 0;
   private callbackId?: number;
@@ -57,6 +59,7 @@ export class PoseClient {
   beginCapture(video: HTMLVideoElement, callbacks: PoseClientCallbacks): void {
     this.callbacks = callbacks;
     if (!this.worker || !this.ready || this.capturing) return;
+    this.captureEpoch += 1;
     this.capturing = true;
     this.video = video;
     this.lastVideoTime = -1;
@@ -98,7 +101,7 @@ export class PoseClient {
     this.worker = undefined;
     this.ready = false;
     this.activeDelegate = undefined;
-    this.busy = false;
+    this.inFlight = undefined;
     this.initPromise = undefined;
     this.onReady?.();
     this.onReady = undefined;
@@ -112,6 +115,7 @@ export class PoseClient {
     this.worker = worker;
     const initialized = new Promise<void>((resolve) => { this.onReady = resolve; });
     worker.onmessage = (event: MessageEvent<WorkerReply>) => {
+      if (this.worker !== worker) return;
       const message = event.data;
       if (message.type === 'READY') {
         this.ready = true;
@@ -122,17 +126,28 @@ export class PoseClient {
         this.activeDelegate = message.to;
         this.callbacks?.onStatus('fallback', 'GPU indisponível; usando CPU.');
       } else if (message.type === 'ERROR') {
-        this.busy = false;
+        if (message.stage === 'detect') {
+          if (this.inFlight?.requestId !== message.requestId || this.inFlight.captureEpoch !== message.captureEpoch) return;
+          this.releaseFrame(message.requestId, message.captureEpoch);
+          if (!message.fatal && message.captureEpoch !== this.captureEpoch) return;
+        }
         this.callbacks?.onStatus(message.fatal ? 'error' : 'fallback', message.message);
         if (message.fatal) { this.onReady?.(); this.dispose(); }
       } else if (message.type === 'POSE') {
-        this.busy = false;
-        if (!this.capturing) return;
-        const { type: _type, ...data } = message;
-        this.callbacks?.onPose({ ...data, trackingState: 'degraded', bodyConfidence: this.confidence(data.landmarks) });
+        if (this.inFlight?.requestId !== message.requestId || this.inFlight.captureEpoch !== message.captureEpoch) return;
+        this.releaseFrame(message.requestId, message.captureEpoch);
+        if (!this.capturing || message.captureEpoch !== this.captureEpoch) return;
+        this.callbacks?.onPose({
+          timestampMs: message.timestampMs,
+          landmarks: message.landmarks,
+          worldLandmarks: message.worldLandmarks,
+          trackingState: 'degraded',
+          bodyConfidence: this.confidence(message.landmarks),
+        });
       }
     };
     worker.onerror = (event) => {
+      if (this.worker !== worker) return;
       this.callbacks?.onStatus('error', event.message || 'Falha no Worker de visão.');
       this.onReady?.();
       this.dispose();
@@ -150,18 +165,34 @@ export class PoseClient {
   }
 
   private async capture(video: HTMLVideoElement, now: number): Promise<void> {
-    if (this.busy || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
-    this.busy = true;
+    if (this.inFlight || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
+    const requestId = this.nextRequestId++;
+    const captureEpoch = this.captureEpoch;
+    const frameRequest = { requestId, captureEpoch };
+    this.inFlight = frameRequest;
     const timestampMs = Math.max(now, this.lastTimestamp + 0.01);
     this.lastTimestamp = timestampMs;
+    let bitmap: ImageBitmap | undefined;
     try {
-      const bitmap = await createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'low' });
-      if (!this.capturing || !this.worker) { bitmap.close(); this.busy = false; return; }
-      this.worker.postMessage({ type: 'FRAME', timestampMs, bitmap } satisfies WorkerRequest, [bitmap]);
+      bitmap = await createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'low' });
+      if (!this.capturing || captureEpoch !== this.captureEpoch || !this.worker) {
+        bitmap.close();
+        this.releaseFrame(requestId, captureEpoch);
+        return;
+      }
+      this.worker.postMessage({ type: 'FRAME', ...frameRequest, timestampMs, bitmap } satisfies WorkerRequest, [bitmap]);
+      bitmap = undefined;
     } catch (error) {
-      this.busy = false;
-      this.callbacks?.onStatus('error', error instanceof Error ? error.message : String(error));
+      bitmap?.close();
+      this.releaseFrame(requestId, captureEpoch);
+      if (this.capturing && captureEpoch === this.captureEpoch) {
+        this.callbacks?.onStatus('error', error instanceof Error ? error.message : String(error));
+      }
     }
+  }
+
+  private releaseFrame(requestId: number, captureEpoch: number): void {
+    if (this.inFlight?.requestId === requestId && this.inFlight.captureEpoch === captureEpoch) this.inFlight = undefined;
   }
 
   private confidence(points: PoseSnapshot['landmarks']): number {

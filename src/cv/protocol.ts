@@ -42,6 +42,10 @@ export interface WorkerInit {
 
 export interface WorkerFrame {
   type: 'FRAME';
+  /** Monotonic within a PoseClient; identifies this inference request. */
+  requestId: number;
+  /** Changes for each capture session; stale replies must not reach the active session. */
+  captureEpoch: number;
   timestampMs: number;
   bitmap: ImageBitmap;
 }
@@ -52,12 +56,15 @@ export type WorkerReply =
   | { type: 'READY'; delegate: Delegate }
   | {
       type: 'POSE';
+      requestId: number;
+      captureEpoch: number;
       timestampMs: number;
       landmarks: Point3[];
       worldLandmarks: Point3[];
     }
   | { type: 'FALLBACK'; from: 'GPU'; to: 'CPU'; reason: string }
-  | { type: 'ERROR'; stage: 'init' | 'detect'; fatal: boolean; message: string };
+  | { type: 'ERROR'; stage: 'init'; fatal: boolean; message: string }
+  | { type: 'ERROR'; stage: 'detect'; fatal: boolean; message: string; requestId: number; captureEpoch: number };
 
 export type AimZone = 'cross' | 'center' | 'line';
 export type SportActionEvent =
