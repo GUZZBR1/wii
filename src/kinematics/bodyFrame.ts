@@ -62,16 +62,6 @@ export function bodyLocalPoint(
   };
 }
 
-/** Unit direction from the hip midpoint to the shoulder midpoint in world space — the trunk's vertical axis. */
-export function torsoUpDirection(snapshot: PoseSnapshot): Point3 | undefined {
-  const leftShoulder = snapshot.worldLandmarks[11];
-  const rightShoulder = snapshot.worldLandmarks[12];
-  const leftHip = snapshot.worldLandmarks[23];
-  const rightHip = snapshot.worldLandmarks[24];
-  if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) return undefined;
-  return normalize(subtract(midpoint(leftShoulder, rightShoulder), midpoint(leftHip, rightHip)));
-}
-
 /**
  * Standing vertical estimated from the legs: hip midpoint minus knee midpoint points up along
  * gravity regardless of trunk posture — but only while the knees are extended, so the shin

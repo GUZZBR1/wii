@@ -1,6 +1,6 @@
 import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from './protocol';
 import { distance2, distance3, landmarkConfidence, median, midpoint } from '../kinematics/math';
-import { bodyLocalPoint, legsVertical, torsoLeanRad, torsoUpDirection } from '../kinematics/bodyFrame';
+import { bodyLocalPoint, legsVertical, torsoLeanRad } from '../kinematics/bodyFrame';
 
 const IDX = { leftShoulder: 11, rightShoulder: 12, leftWrist: 15, rightWrist: 16, leftHip: 23, rightHip: 24, leftKnee: 25, rightKnee: 26 } as const;
 
@@ -49,18 +49,20 @@ export class Calibrator {
       const torsoHeight = Math.abs(hipCenter.y - shoulderCenter.y);
       const worldShoulderWidth = distance3(worldLeftShoulder, worldRightShoulder);
       if (torsoHeight < 0.03 || shoulderWidth < 0.03 || worldShoulderWidth < 0.03) return [];
-      const torsoUp = torsoUpDirection(sample);
       const wristLocal = bodyLocalPoint(wrist, shoulder, worldLeftShoulder, worldRightShoulder, worldLeftHip, worldRightHip, 1);
-      if (!torsoUp || !wristLocal) return [];
-      const up = legsVertical(sample) ?? torsoUp;
-      return [{ hipY: hipCenter.y, torsoHeight, shoulderWidth, kneeLeft: (hipCenter.y - leftKnee.y) / torsoHeight, kneeRight: (hipCenter.y - rightKnee.y) / torsoHeight, up, worldShoulderWidth, wristLocal, confidence, sample }];
+      if (!wristLocal) return [];
+      return [{ hipY: hipCenter.y, torsoHeight, shoulderWidth, kneeLeft: (hipCenter.y - leftKnee.y) / torsoHeight, kneeRight: (hipCenter.y - rightKnee.y) / torsoHeight, up: legsVertical(sample), worldShoulderWidth, wristLocal, confidence, sample }];
     });
     if (valid.length < this.samples.length * 0.65) return null;
+    // The lean reference is only trusted when the leg geometry verified it — a trunk-direction
+    // fallback would store the player's habitual posture and turn a body rotation into ghost lean.
+    const legUps = valid.flatMap((v) => v.up ? [v.up] : []);
+    if (legUps.length < valid.length * 0.65) return null;
     const values = <K extends keyof (typeof valid)[number]>(key: K): number[] => valid.map((item) => item[key] as number);
     const upMedian = {
-      x: median(valid.map((v) => v.up.x)),
-      y: median(valid.map((v) => v.up.y)),
-      z: median(valid.map((v) => v.up.z)),
+      x: median(legUps.map((v) => v.x)),
+      y: median(legUps.map((v) => v.y)),
+      z: median(legUps.map((v) => v.z)),
     };
     const upMagnitude = Math.hypot(upMedian.x, upMedian.y, upMedian.z);
     if (upMagnitude < 1e-6) return null;

@@ -360,9 +360,21 @@ describe('world-space posture calibration', () => {
     expect(signals.filter(Boolean)).toHaveLength(0);
   });
 
-  it('falls back to the trunk direction when the legs are not extended at calibration', () => {
+  it('rejects calibration when the leg vertical cannot be verified', () => {
+    // Ankles hidden: the thigh direction cannot be checked against the shins, so no reference
+    // is approved — the player reframes and recalibrates instead of storing a tilted vertical.
+    const noAnkles = (time: number) => withWorldConfidence(
+      withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
+    );
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(noAnkles(time));
+    expect(calibrator.finish('right')).toBeNull();
+  });
+
+  it('rejects calibration when the knees are bent', () => {
     // Standing with knees bent 20°: shins stay vertical, thighs tilt forward — the thigh
-    // direction is rejected as the lean reference and the upright trunk takes over.
+    // direction is not a standing vertical and cannot back the lean reference.
     const bend = (20 * Math.PI) / 180;
     const thighDown = { x: 0, y: Math.cos(bend), z: Math.sin(bend) };
     const shinDown = { x: 0, y: 1, z: 0 };
@@ -371,13 +383,7 @@ describe('world-space posture calibration', () => {
     for (let time = 0; time <= 3000; time += 100) {
       calibrator.add(poseWithWorldTorso(time, { down: thighDown, shinDown }));
     }
-    const profile = calibrator.finish('right')!;
-    expect(profile.world.leanUp0.y).toBeCloseTo(-1, 2);
-    const detector = new LaneLeanDetector();
-    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
-      rotateWorldYaw(pose(i * 33), (i * Math.PI) / 20), profile,
-    ));
-    expect(signals.filter(Boolean)).toHaveLength(0);
+    expect(calibrator.finish('right')).toBeNull();
   });
 
   it('measures a whole-body lean where the thighs rotate with the trunk', () => {

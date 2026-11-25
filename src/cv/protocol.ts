@@ -32,9 +32,9 @@ export interface CalibrationProfile {
   world: {
     shoulderWidth: number;
     /**
-     * Standing vertical captured at calibration — the leg direction (≈ gravity) when knees are
-     * visible, else the neutral trunk direction. It is the fixed lean reference, absorbing camera
-     * roll/pitch without inheriting the player's habitual trunk posture or rotating with a lean.
+     * Standing vertical captured at calibration from the extended legs (≈ gravity) — the fixed
+     * lean reference, absorbing camera roll/pitch without inheriting the player's habitual trunk
+     * posture or rotating with a lean. Calibration is rejected when the legs cannot be verified.
      */
     leanUp0: Point3;
     /** Lateral trunk lean of the neutral calibration pose; runtime lean is reported as the delta from it. */
