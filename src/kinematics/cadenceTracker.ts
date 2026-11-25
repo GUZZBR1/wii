@@ -63,8 +63,12 @@ export class CadenceTracker {
     else if (rightStep) step = 'right';
     if (step) {
       const interval = snapshot.timestampMs - this.lastStepAt;
-      if (interval > MAX_STEP_INTERVAL_MS) this.lastSteps = [];
-      else if (interval >= MIN_STEP_INTERVAL_MS) this.lastSteps = [...this.lastSteps, interval].slice(-3);
+      // A step later than the session's stop deadline opens a fresh interval window: the old cadence
+      // is dropped, but the measured interval still estimates the new pace. A step beyond the
+      // acceptance ceiling is too old to pair with, so it only re-arms the tracker.
+      const deadline = Math.min(median(this.lastSteps) * STOP_AFTER_PERIODS, MAX_STOP_DELAY_MS);
+      if (interval > deadline) this.lastSteps = [];
+      if (interval >= MIN_STEP_INTERVAL_MS && interval <= MAX_STEP_INTERVAL_MS) this.lastSteps = [...this.lastSteps, interval].slice(-3);
       this.lastStepAt = snapshot.timestampMs;
       this.lastStepSide = step;
     }
@@ -72,12 +76,6 @@ export class CadenceTracker {
     const period = median(this.lastSteps);
     const elapsed = snapshot.timestampMs - this.lastStepAt;
     const moving = period > 0 && elapsed <= Math.min(period * STOP_AFTER_PERIODS, MAX_STOP_DELAY_MS);
-    if (period > 0 && !moving) {
-      // The stepping session just ended: drop the interval history so a single late step cannot
-      // resurrect the old cadence. The next step starts a new sequence; the second moves again.
-      this.lastSteps = [];
-      this.lastStepAt = Number.NEGATIVE_INFINITY;
-    }
     const cadenceSpm = moving ? 60_000 / Math.max(period, elapsed) : 0;
     return { cadenceSpm, speed01: speedFromCadence(cadenceSpm), step };
   }

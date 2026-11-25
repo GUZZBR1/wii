@@ -43,32 +43,80 @@ describe('pace from marching in place', () => {
     expect(Math.max(...speeds)).toBe(0);
   });
 
-  it('needs two fresh steps to move again after stopping', () => {
-    const tracker = new CadenceTracker();
-    const profile = calibration();
-    const results: { time: number; speed01: number; step?: string }[] = [];
+  /** Feeds a square-wave march: legs alternate lifts of `halfMs`, so step events land every `halfMs`. */
+  function drive(tracker: CadenceTracker, profile: ReturnType<typeof calibration>, schedule: { from: number; until: number; halfMs: number }[], results: { time: number; speed01: number; cadenceSpm: number; step?: string }[]) {
     const feed = (time: number, kneeLeft: number, kneeRight: number) =>
       results.push({ time, ...tracker.update(pose(time, { kneeLeft, kneeRight }), profile) });
-    const raiseLeft = (start: number) => { for (let t = start; t < start + 200; t += 33) feed(t, 0.25, 0); };
-    const raiseRight = (start: number) => { for (let t = start; t < start + 200; t += 33) feed(t, 0, 0.25); };
-    // Alternating square-wave steps every 400 ms (150 steps/min), then a long stop.
-    for (let time = 0; time <= 500; time += 33) feed(time, 0, 0);
-    for (let time = 533; time <= 4500; time += 33) {
-      const phase = (time - 533) % 800;
-      feed(time, phase < 400 ? 0.25 : 0, phase >= 400 ? 0.25 : 0);
+    let time = 0;
+    for (const { from, until, halfMs } of schedule) {
+      for (; time < from; time += 33) feed(time, 0, 0);
+      for (; time <= until; time += 33) {
+        const phase = (time - from) % (halfMs * 2);
+        feed(time, phase < halfMs ? 0.25 : 0, phase >= halfMs ? 0.25 : 0);
+      }
     }
+    return { results, feed: (t: number, kl: number, kr: number) => feed(t, kl, kr), time };
+  }
+
+  it('re-measures pace on a late step instead of resurrecting the old cadence', () => {
+    const tracker = new CadenceTracker();
+    const profile = calibration();
+    const results: { time: number; speed01: number; cadenceSpm: number; step?: string }[] = [];
+    const { feed } = drive(tracker, profile, [{ from: 500, until: 4500, halfMs: 400 }], results);
     expect(results.at(-1)!.speed01).toBeGreaterThan(0);
     for (let time = 4533; time <= 5267; time += 33) feed(time, 0, 0);
     expect(results.at(-1)!.speed01).toBe(0);
-    // One isolated step ~1.1 s after the last starts a new sequence: it fires but does not move.
-    raiseLeft(5300);
+    // One isolated step ~1.1 s after the last: within the interval ceiling but past the stop deadline.
+    for (let t = 5300; t < 5500; t += 33) feed(t, 0.25, 0);
     for (let time = 5500; time < 5700; time += 33) feed(time, 0, 0);
     const isolated = results.filter((r) => r.time >= 5300 && r.time < 5700);
     expect(isolated.some((r) => r.step === 'left')).toBe(true);
+    // The old ~150 spm is gone; the measured ~1.1 s interval only supports a slow walk speed.
+    expect(isolated.every((r) => r.speed01 < 0.3)).toBe(true);
+    expect(isolated.some((r) => r.cadenceSpm > 0 && r.cadenceSpm < 80)).toBe(true);
+  });
+
+  it('needs two fresh steps to move again after a real stop', () => {
+    const tracker = new CadenceTracker();
+    const profile = calibration();
+    const results: { time: number; speed01: number; cadenceSpm: number; step?: string }[] = [];
+    const { feed } = drive(tracker, profile, [{ from: 500, until: 4500, halfMs: 400 }], results);
+    for (let time = 4533; time <= 6467; time += 33) feed(time, 0, 0);
+    expect(results.at(-1)!.speed01).toBe(0);
+    // A step more than 1.8 s after the last is too old to pair with: it only re-arms the tracker.
+    for (let t = 6500; t < 6700; t += 33) feed(t, 0.25, 0);
+    for (let time = 6700; time < 6900; time += 33) feed(time, 0, 0);
+    const isolated = results.filter((r) => r.time >= 6500 && r.time < 6900);
+    expect(isolated.some((r) => r.step === 'left')).toBe(true);
     expect(isolated.every((r) => r.speed01 === 0)).toBe(true);
     // The second step completes one interval and movement resumes.
-    raiseRight(5700);
+    for (let t = 6900; t < 7100; t += 33) feed(t, 0, 0.25);
     expect(results.at(-1)!.speed01).toBeGreaterThan(0);
+  });
+
+  it('keeps moving while marching slowly near the low cadence limit', () => {
+    const tracker = new CadenceTracker();
+    const results: { time: number; speed01: number; cadenceSpm: number; step?: string }[] = [];
+    // Steps every 1.65 s (~36 spm): each one arrives past the 1.6 s stop deadline.
+    drive(tracker, calibration(), [{ from: 500, until: 12000, halfMs: 1650 }], results);
+    const steady = results.filter((r) => r.time > 4000);
+    const moving = steady.filter((r) => r.speed01 > 0).length / steady.length;
+    expect(moving).toBeGreaterThan(0.9);
+  });
+
+  it('keeps moving through a direct run-to-walk transition', () => {
+    const tracker = new CadenceTracker();
+    const results: { time: number; speed01: number; cadenceSpm: number; step?: string }[] = [];
+    // ~182 spm run, then straight into a ~91 spm walk without standing still.
+    drive(tracker, calibration(), [{ from: 500, until: 3000, halfMs: 330 }, { from: 3033, until: 12000, halfMs: 660 }], results);
+    const walkSteps = results.filter((r) => r.time > 3200 && r.step);
+    expect(walkSteps.length).toBeGreaterThan(4);
+    for (const s of walkSteps) expect(s.speed01).toBeGreaterThan(0);
+    const settled = results.filter((r) => r.time > 5000);
+    expect(settled.every((r) => r.speed01 > 0)).toBe(true);
+    const cadence = results.at(-1)!.cadenceSpm;
+    expect(cadence).toBeGreaterThan(60);
+    expect(cadence).toBeLessThan(120);
   });
 
   it.each([[0, 'idle'], [90, 'walk'], [120, 'walk'], [160, 'run'], [190, 'run']] as const)('reads %i steps per minute as %s', (spm, gait) => {

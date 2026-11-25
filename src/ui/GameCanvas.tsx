@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SportActionEvent } from '../cv/protocol';
 import type { GameHudState } from '../games/track/TrackGame';
+import { forwardKeyDown } from './keys';
 
 export type Sport = 'track' | 'tennis';
 export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; dispose(): void }
@@ -23,8 +24,7 @@ export function GameCanvas({ sport, onEngine, tracking }: Props) {
     let disposed = false;
     const keydown = (event: KeyboardEvent) => {
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(event.key)) event.preventDefault();
-      // One press cycles the pace once; holding the key must not keep cycling it.
-      if (event.repeat && (event.key === 'ArrowDown' || event.key.toLowerCase() === 's')) return;
+      if (!forwardKeyDown(event.key, event.repeat)) return;
       game?.onKey(event.key);
     };
     window.addEventListener('keydown', keydown);
