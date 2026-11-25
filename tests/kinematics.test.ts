@@ -1018,3 +1018,86 @@ it('ignora a estabilidade dos punhos ao calibrar corrida e deixa a referência a
 
   expect(steps.find((step) => step.profile)?.profile?.world.readyWristLocal).toBeUndefined();
 });
+
+it('reinicia o assentamento do tênis quando os punhos se movem sem mover o torso', () => {
+  const auto = new AutoCalibrator();
+  const snapshots = Array.from({ length: 42 }, (_, index) => {
+    const snapshot = pose(index * 100);
+    if (index < 11) return snapshot;
+    const landmarks = [...snapshot.landmarks];
+    landmarks[15] = { ...landmarks[15]!, x: landmarks[15]!.x + 0.08 };
+    const worldLandmarks = [...snapshot.worldLandmarks];
+    worldLandmarks[15] = { ...worldLandmarks[15]!, x: worldLandmarks[15]!.x + 0.2 };
+    return { ...snapshot, landmarks, worldLandmarks };
+  });
+  const steps = snapshots.map((snapshot) => auto.update(snapshot, { needsWrists: true }));
+
+  expect(steps[11]?.phase).toBe('settling');
+  expect(steps[20]?.phase).toBe('settling');
+  const completed = steps.find((step) => step.phase === 'done');
+  expect(completed?.profile?.world.readyWristLocal?.left).toBeDefined();
+
+  const expected = new Calibrator();
+  expected.start(1100, 1000);
+  for (const snapshot of snapshots.slice(11, 32)) expected.add(snapshot);
+  expect(completed?.profile?.world.readyWristLocal?.left.x).toBeCloseTo(
+    expected.finish()!.world.readyWristLocal!.left.x,
+  );
+});
+
+it('reinicia o assentamento quando a abertura dos ombros muda sem mover o centro', () => {
+  const auto = new AutoCalibrator();
+  const steps = Array.from({ length: 42 }, (_, index) => {
+    const snapshot = pose(index * 100);
+    if (index < 11) return auto.update(snapshot);
+    const landmarks = [...snapshot.landmarks];
+    landmarks[11] = { ...landmarks[11]!, x: landmarks[11]!.x - 0.08 };
+    landmarks[12] = { ...landmarks[12]!, x: landmarks[12]!.x + 0.08 };
+    const worldLandmarks = [...snapshot.worldLandmarks];
+    worldLandmarks[11] = { ...worldLandmarks[11]!, x: worldLandmarks[11]!.x + 0.1 };
+    worldLandmarks[12] = { ...worldLandmarks[12]!, x: worldLandmarks[12]!.x - 0.1 };
+    return auto.update({ ...snapshot, landmarks, worldLandmarks });
+  });
+
+  expect(steps[11]?.phase).toBe('settling');
+  expect(steps[20]?.phase).toBe('settling');
+  expect(steps.find((step) => step.phase === 'done')?.profile).toBeDefined();
+});
+
+it('reinicia o assentamento do tênis quando a profundidade do punho muda sem mudar sua projeção', () => {
+  const auto = new AutoCalibrator();
+  const snapshots = Array.from({ length: 42 }, (_, index) => {
+    const snapshot = pose(index * 100);
+    if (index < 11) return snapshot;
+    const worldLandmarks = [...snapshot.worldLandmarks];
+    worldLandmarks[16] = { ...worldLandmarks[16]!, z: worldLandmarks[16]!.z + 0.2 };
+    return { ...snapshot, worldLandmarks };
+  });
+  const steps = snapshots.map((snapshot) => auto.update(snapshot, { needsWrists: true }));
+
+  expect(steps[11]?.phase).toBe('settling');
+  expect(steps[20]?.phase).toBe('settling');
+  const completed = steps.find((step) => step.phase === 'done');
+  expect(completed?.profile?.world.readyWristLocal?.right).toBeDefined();
+
+  const expected = new Calibrator();
+  expected.start(1100, 1000);
+  for (const snapshot of snapshots.slice(11, 32)) expected.add(snapshot);
+  expect(completed?.profile?.world.readyWristLocal?.right.z).toBeCloseTo(
+    expected.finish()!.world.readyWristLocal!.right.z,
+  );
+});
+
+it('reinicia o assentamento quando os tornozelos aparecem e passam a definir a vertical', () => {
+  const auto = new AutoCalibrator();
+  const steps = Array.from({ length: 61 }, (_, index) => {
+    const snapshot = pose(index * 100, { leanRad: 0.2 });
+    const withoutAnkles = withWorldConfidence(withWorldConfidence(snapshot, 27, 0, 0), 28, 0, 0);
+    return auto.update(index < 15 ? withoutAnkles : snapshot);
+  });
+
+  expect(steps[20]?.phase).toBe('settling');
+  const profile = steps.find((step) => step.phase === 'done')?.profile;
+  expect(profile).toBeDefined();
+  expect(Math.abs(profile!.world.leanUp0.x)).toBeLessThan(0.02);
+});
