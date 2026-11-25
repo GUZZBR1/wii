@@ -813,6 +813,16 @@ it('aceita perfil parcial quando o esporte não precisa da vertical das pernas',
   expect(done?.profile?.world.leanUp0).toBeUndefined();
 });
 
+it('encerra a tentativa no prazo mesmo quando os tornozelos não voltam', () => {
+  const auto = new AutoCalibrator();
+  // Ankles leave the frame right after the collection starts and never come back: the
+  // deadline still applies, the buffer is dropped and framing resumes — no stuck 100%.
+  const steps = Array.from({ length: 45 }, (_, i) => auto.update(pose(i * 100, { hiddenLandmarks: i <= 10 ? [] : [27, 28] }), true));
+  expect(steps.some((step) => step.phase === 'collecting')).toBe(true);
+  expect(steps.some((step) => step.phase === 'collecting' && step.progress >= 1)).toBe(false);
+  expect(steps.at(-1)?.phase).toBe('framing');
+});
+
 it('tolera um quadro ruim isolado no meio da coleta', () => {
   const auto = new AutoCalibrator();
   const steps = Array.from({ length: 61 }, (_, i) => auto.update(pose(i * 100, { confidence: i === 25 ? 0.1 : 0.95 })));

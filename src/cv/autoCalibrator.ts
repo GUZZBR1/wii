@@ -28,12 +28,13 @@ export class AutoCalibrator {
       return { phase: 'framing', progress: 0 };
     }
     // Um quadro ruim isolado não reinicia a contagem — mas durante a coleta ele conta no
-    // denominador de cobertura: o Calibrator ignora quadros inválidos nas medianas, não no total.
+    // denominador de cobertura e no prazo: o Calibrator ignora quadros inválidos nas medianas,
+    // não no total, e atingido o prazo a tentativa se encerra mesmo sem voltar a enxergar.
     if (snapshot.trackingState !== 'tracked' || !visible) {
       if (this.collecting) {
         this.calibrator.add(snapshot);
-        const progress = Math.min(1, (snapshot.timestampMs - this.anchor!.since - SETTLE_MS) / COLLECT_MS);
-        return { phase: 'collecting', progress: Math.max(0, progress) };
+        const progress = Math.max(0, Math.min(1, (snapshot.timestampMs - this.anchor!.since - SETTLE_MS) / COLLECT_MS));
+        return progress < 1 ? { phase: 'collecting', progress } : this.conclude(needsStance);
       }
       return { phase: this.anchor ? 'settling' : 'framing', progress: 0 };
     }
@@ -54,6 +55,10 @@ export class AutoCalibrator {
     this.calibrator.add(snapshot);
     const progress = Math.min(1, (stillMs - SETTLE_MS) / COLLECT_MS);
     if (progress < 1) return { phase: 'collecting', progress };
+    return this.conclude(needsStance);
+  }
+
+  private conclude(needsStance: boolean): CalibrationStep {
     const profile = this.calibrator.finish();
     this.reset();
     // Sem a vertical das pernas não há salto nem raia: na corrida isso é calibração incompleta,
