@@ -381,9 +381,19 @@ describe('world-space posture calibration', () => {
       pose(time, { leanRad: 0.3 }), profile,
     ));
     expect(signals.filter(Boolean)).toHaveLength(0);
+    // The same takeoff sequence emits one jump with a complete profile and stays silent
+    // with the partial one — the neutral dwell is what arms the detector.
+    const frames = [
+      pose(0), pose(33), pose(66), pose(100), pose(133), pose(166),
+      pose(199, { hipRise: 0.07 }), pose(232, { hipRise: 0.12 }), pose(266, { hipRise: 0.18 }),
+      pose(299, { hipRise: 0.25 }), pose(332, { hipRise: 0.3 }), pose(366, { hipRise: 0.28 }),
+      pose(399, { hipRise: 0.22 }), pose(432, { hipRise: 0.12 }), pose(466, { hipRise: 0.06 }),
+      pose(499, { hipRise: 0.02 }), pose(666), pose(833),
+    ];
+    const complete = new JumpDetector();
+    expect(frames.map((frame) => complete.update(frame, calibration())).filter(Boolean)).toHaveLength(1);
     const jump = new JumpDetector();
-    const rises = [0, 0.07, 0.12, 0.18, 0.25, 0.3, 0.28, 0.22, 0.12, 0.06, 0.02, 0];
-    expect(rises.map((hipRise, i) => jump.update(pose(i * 33, { hipRise }), profile)).filter(Boolean)).toHaveLength(0);
+    expect(frames.map((frame) => jump.update(frame, profile)).filter(Boolean)).toHaveLength(0);
   });
 
   it('verifies the stance references only when most samples show straight legs', () => {
@@ -401,6 +411,62 @@ describe('world-space posture calibration', () => {
     expect(calibrateWithGaps((frame) => frame % 4 === 0).leanUp0).toBeDefined();
     const unverified = calibrateWithGaps((frame) => frame % 2 === 0);
     expect(unverified.leanUp0).toBeUndefined();
+  });
+
+  it('counts the leg-verification threshold over all captured frames, not just the valid ones', () => {
+    // 9 pose-less frames leave 22 valid (still ≥65% of the window); the legs verify in 17
+    // of them — over half the valid set, but under 65% of everything captured.
+    const noAnkles = (time: number) => withWorldConfidence(
+      withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
+    );
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
+      calibrator.add(frame < 9 ? pose(time, { confidence: 0.1 }) : frame < 14 ? noAnkles(time) : pose(time));
+    }
+    const profile = calibrator.finish('right')!;
+    expect(profile).not.toBeNull();
+    expect(profile.world.leanUp0).toBeUndefined();
+  });
+
+  it('verifies the stance separately from the racket reference', () => {
+    // Wrist and ankle confidence drop on different frames: each gate sees enough samples
+    // on its own, so the profile keeps both the racket and the stance references.
+    const noWrist = (time: number) => withWorldConfidence(pose(time), 16, 0, 0);
+    const noAnkles = (time: number) => withWorldConfidence(
+      withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
+    );
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
+      calibrator.add(frame < 8 ? noWrist(time) : frame < 15 ? noAnkles(time) : pose(time));
+    }
+    const profile = calibrator.finish('right')!;
+    expect(profile.world.leanUp0).toBeDefined();
+    expect(profile.image.hipY0).toBeDefined();
+  });
+
+  it('measures the jump baseline only over verified-stance frames', () => {
+    // A third of the window crouches on bent knees: those frames still feed the swing and
+    // cadence baselines, but the hip height comes only from the verified standing frames.
+    const bend = (20 * Math.PI) / 180;
+    const thighDown = { x: 0, y: Math.cos(bend), z: Math.sin(bend) };
+    const shinDown = { x: 0, y: 1, z: 0 };
+    const crouched = (time: number) => {
+      const snapshot = poseWithWorldTorso(time, { down: thighDown, shinDown });
+      return {
+        ...snapshot,
+        landmarks: snapshot.landmarks.map((p, i) => ((i === 23 || i === 24) ? { ...p, y: 0.59 } : p)),
+      };
+    };
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
+      calibrator.add(frame < 10 ? crouched(time) : pose(time));
+    }
+    const profile = calibrator.finish('right')!;
+    expect(profile.world.leanUp0).toBeDefined();
+    expect(profile.image.hipY0).toBeCloseTo(0.55, 5);
   });
 
   it('leaves the lean reference unset when the knees are bent at calibration', () => {

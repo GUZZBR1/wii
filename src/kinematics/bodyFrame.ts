@@ -77,6 +77,7 @@ export function legsVertical(snapshot: PoseSnapshot): Point3 | undefined {
   const leftAnkle = snapshot.worldLandmarks[27];
   const rightAnkle = snapshot.worldLandmarks[28];
   if (!leftHip || !rightHip || !leftKnee || !rightKnee || !leftAnkle || !rightAnkle) return undefined;
+  if (landmarkConfidence(leftHip, rightHip) < KNEE_CONFIDENCE_MIN) return undefined;
   if (landmarkConfidence(leftKnee, rightKnee) < KNEE_CONFIDENCE_MIN) return undefined;
   if (landmarkConfidence(leftAnkle, rightAnkle) < KNEE_CONFIDENCE_MIN) return undefined;
   const straight = (hip: Point3, knee: Point3, ankle: Point3) => {
