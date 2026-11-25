@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { SportActionEvent } from '../../cv/protocol';
 import { disposeObjectTree, GameLoop } from '../core/GameLoop';
-import { applySprint, applyStep, type Gait, gaitFor, nextPace, type Pace } from './gait';
+import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type Pace, stumble } from './gait';
 import { HurdleFlow, RUNNER_Z } from './hurdleFlow';
 import { TrackScore } from './trackScore';
 
@@ -102,8 +102,7 @@ export class TrackGame {
   }
 
   private update(dt: number): void {
-    this.shownSpeed += (this.pace.speed01 - this.shownSpeed) * Math.min(1, dt * 6);
-    if (this.pace.speed01 === 0 && this.shownSpeed < 0.02) this.shownSpeed = 0;
+    this.shownSpeed = easeSpeed(this.shownSpeed, this.pace.speed01, dt);
     const speed = this.shownSpeed;
     const gait = gaitFor(speed, this.gait);
     if (gait !== this.gait) this.status = GAIT_STATUS[gait];
@@ -128,7 +127,11 @@ export class TrackGame {
     const flow = this.hurdleFlow.advance(this.hurdles, advance, this.lane, airborne);
     for (const { cleared } of flow.judged) {
       if (cleared) this.score.hurdleCleared();
-      else this.score.hurdleHit();
+      else {
+        this.score.hurdleHit();
+        this.shownSpeed = stumble(this.shownSpeed);
+        this.status = 'Tropeçou!';
+      }
     }
     for (const old of flow.despawned) {
       this.hurdles.splice(this.hurdles.indexOf(old), 1);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applySprint, applyStep, gaitFor, type Gait, nextPace, type Pace } from '../src/games/track/gait';
+import { applySprint, applyStep, easeSpeed, gaitFor, type Gait, nextPace, type Pace, stumble } from '../src/games/track/gait';
 import type { CadenceResult } from '../src/kinematics/cadenceTracker';
 import { poseWithHipBounce } from './fixtures/syntheticPose';
 import { cadenceHarness } from './fixtures/torsoHarness';
@@ -216,5 +216,21 @@ describe('pace ownership between camera and keyboard', () => {
     pace = press(pace);
     pace = applySprint(pace, still);
     expect(pace.speed01).toBe(0);
+  });
+});
+
+describe('stumble', () => {
+  it('halves the shown speed and eases back to a keyboard pick without touching it', () => {
+    const pace: Pace = { owner: 'keyboard', speed01: 0.8, cadenceSpm: 0 };
+    let shown = stumble(0.8);
+    expect(shown).toBeCloseTo(0.4);
+    for (let i = 0; i < 60; i += 1) shown = easeSpeed(shown, pace.speed01, 1 / 60);
+    expect(shown).toBeCloseTo(pace.speed01, 2);
+  });
+
+  it('still settles to a full stop after tripping while braking', () => {
+    let shown = stumble(0.8);
+    for (let i = 0; i < 60; i += 1) shown = easeSpeed(shown, 0, 1 / 60);
+    expect(shown).toBe(0);
   });
 });

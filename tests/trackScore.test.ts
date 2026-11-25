@@ -31,6 +31,15 @@ describe('track score', () => {
     expect(score.display).toBe(0);
   });
 
+  it('resets the combo on a hit', () => {
+    const score = new TrackScore();
+    score.hurdleCleared();
+    score.hurdleCleared();
+    expect(score.combo).toBe(2);
+    score.hurdleHit();
+    expect(score.combo).toBe(0);
+  });
+
   it('ignores malformed speed values', () => {
     const score = new TrackScore();
     score.advance(1 / 60, Number.NaN);

@@ -30,3 +30,17 @@ export function applyStep(pace: Pace): Pace {
 export function applySprint(pace: Pace, event: { speed01: number; cadenceSpm: number }): Pace {
   return pace.owner === 'camera' ? { ...pace, speed01: event.speed01, cadenceSpm: event.cadenceSpm } : pace;
 }
+
+const EASE_RATE = 6;
+const STUMBLE_SPEED_FACTOR = 0.5;
+
+/** Shown speed chases the requested pace, snapping to a full stop once it is imperceptible. */
+export function easeSpeed(shown: number, target: number, dt: number): number {
+  const next = shown + (target - shown) * Math.min(1, dt * EASE_RATE);
+  return target === 0 && next < 0.02 ? 0 : next;
+}
+
+/** A trip costs shown speed only: the requested pace is untouched, so easing wins it back by itself. */
+export function stumble(shown: number): number {
+  return shown * STUMBLE_SPEED_FACTOR;
+}
