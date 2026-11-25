@@ -32,10 +32,11 @@ export interface CalibrationProfile {
   world: {
     shoulderWidth: number;
     /**
-     * Neutral trunk-up direction (hip midpoint → shoulder midpoint) in world space — the fallback
-     * vertical reference for lateral lean when the legs are not visible, absorbing camera roll/pitch.
+     * Standing vertical captured at calibration — the leg direction (≈ gravity) when knees are
+     * visible, else the neutral trunk direction. It is the fixed lean reference, absorbing camera
+     * roll/pitch without inheriting the player's habitual trunk posture or rotating with a lean.
      */
-    torsoUp0: Point3;
+    leanUp0: Point3;
     /** Lateral trunk lean of the neutral calibration pose; runtime lean is reported as the delta from it. */
     torsoLeanRad0: number;
     /** Dominant wrist relative to its shoulder in a body-local frame, normalized by calibrated shoulder width. */

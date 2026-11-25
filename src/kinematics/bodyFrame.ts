@@ -73,10 +73,11 @@ export function torsoUpDirection(snapshot: PoseSnapshot): Point3 | undefined {
 
 /**
  * Standing vertical estimated from the legs: hip midpoint minus knee midpoint points up along
- * gravity regardless of trunk posture, so it stays correct under a forward slouch, camera tilt
- * and body yaw. Undefined when the knees are hidden or tucked.
+ * gravity regardless of trunk posture. The calibrator uses it to capture the fixed lean reference
+ * at neutral — a per-frame estimate would co-rotate with a whole-body lean and hide it. Undefined
+ * when the knees are hidden or tucked.
  */
-function legsVertical(snapshot: PoseSnapshot): Point3 | undefined {
+export function legsVertical(snapshot: PoseSnapshot): Point3 | undefined {
   const leftHip = snapshot.worldLandmarks[23];
   const rightHip = snapshot.worldLandmarks[24];
   const leftKnee = snapshot.worldLandmarks[25];
@@ -89,11 +90,11 @@ function legsVertical(snapshot: PoseSnapshot): Point3 | undefined {
 }
 
 /**
- * Lateral trunk lean, positive toward the player's right, measured against a standing-vertical
- * estimated from the legs when the knees are visible — so trunk posture, camera tilt and an
- * upright body turn do not read as lean — falling back to the calibrated trunk direction `up`
- * otherwise. The shoulder axis is projected onto the plane perpendicular to that vertical so
- * that rolling it together with the torso does not cancel the lean.
+ * Lateral trunk lean, positive toward the player's right, measured against `up` — the fixed
+ * standing vertical captured at calibration — not the camera's horizontal plane or a per-frame
+ * body direction, so camera tilt, habitual posture and whole-body leans all read correctly.
+ * The shoulder axis is projected onto the plane perpendicular to `up` so that rolling it
+ * together with the torso does not cancel the lean.
  */
 export function torsoLeanRad(snapshot: PoseSnapshot, up: Point3): number | undefined {
   const leftShoulder = snapshot.worldLandmarks[11];
@@ -101,7 +102,7 @@ export function torsoLeanRad(snapshot: PoseSnapshot, up: Point3): number | undef
   const leftHip = snapshot.worldLandmarks[23];
   const rightHip = snapshot.worldLandmarks[24];
   if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) return undefined;
-  const upDirection = legsVertical(snapshot) ?? normalize(up);
+  const upDirection = normalize(up);
   if (!upDirection) return undefined;
   const across = subtract(rightShoulder, leftShoulder);
   const acrossUp = dot(across, upDirection);
