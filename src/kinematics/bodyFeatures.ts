@@ -1,6 +1,6 @@
 import type { CalibrationProfile, Point3, PoseSnapshot } from '../cv/protocol';
 import { type BodyBasis, bodyBasis } from './bodyFrame';
-import { OneEuroFilter } from '../cv/oneEuroFilter';
+import { OneEuroFilter } from '@wii/spatial-core';
 import { distance3, landmarkConfidence, midpoint } from './math';
 
 export interface Vec3 {
