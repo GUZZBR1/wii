@@ -1,5 +1,5 @@
 import type { CalibrationProfile, PoseSnapshot } from '../cv/protocol';
-import { OneEuroFilter } from '../cv/oneEuroFilter';
+import { OneEuroFilter } from '@wii/spatial-core';
 import { midpoint } from './math';
 
 const MIN_TAKEOFF_RISE = 0.08;

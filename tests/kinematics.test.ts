@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OneEuroFilter } from '../src/cv/oneEuroFilter';
+import { OneEuroFilter } from '@wii/spatial-core';
 import { AutoCalibrator } from '../src/cv/autoCalibrator';
 import { Calibrator } from '../src/cv/calibrator';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';

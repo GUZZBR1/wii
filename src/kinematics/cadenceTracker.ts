@@ -1,5 +1,5 @@
 import type { CalibrationProfile, PoseSnapshot } from '../cv/protocol';
-import { OneEuroFilter } from '../cv/oneEuroFilter';
+import { OneEuroFilter } from '@wii/spatial-core';
 import { SchmittTrigger } from './schmittTrigger';
 import { clamp, median, midpoint } from './math';
 

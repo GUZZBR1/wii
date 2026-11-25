@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 import { FilesetResolver, PoseLandmarker } from '@mediapipe/tasks-vision';
-import type { Delegate, Point3, WorkerReply, WorkerRequest } from './protocol';
+import type { Delegate, Point3, WorkerReply, WorkerRequest } from './poseProtocol';
 
 let landmarker: PoseLandmarker | undefined;
 let wasmBaseUrl = '';
