@@ -50,12 +50,10 @@ export function GameCanvas({ sport, onEngine, tracking }: Props) {
     };
   }, [sport, onEngine]);
 
-  return <section className="game-panel">
-    <div className="game-panel-top"><div><span className="eyebrow">{sport === 'track' ? 'ESPORTE HERÓI · 01' : 'VERTICAL SLICE · 02'}</span><h2>{sport === 'track' ? 'Hurdle Rush' : 'Baseline Rally'}</h2></div></div>
-    <div className={`game-viewport ${sport}`}><canvas ref={canvasRef} />
-      <div className="game-hud"><div><span>{sport === 'track' ? 'SCORE' : 'PONTOS'}</span><strong>{hud.label}</strong></div><div className="game-speed"><span>{sport === 'track' ? 'RITMO' : 'MIRA'}</span><strong>{sport === 'track' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>
-      <div className="game-ready"><i className={tracking === 'TRACKING' ? 'ready' : ''} />{hud.status}</div>
-      <div className="game-controls">{sport === 'track' ? '← → trocar raia  ·  ↑ / espaço saltar' : 'espaço bater  ·  ← → escolher direção'}</div>
-    </div>
-  </section>;
+  return <div className="game-viewport">
+    <canvas ref={canvasRef} />
+    <div className="game-hud"><div><span>{sport === 'track' ? 'SCORE' : 'PONTOS'}</span><strong>{hud.label}</strong></div><div className="game-speed"><span>{sport === 'track' ? 'RITMO' : 'MIRA'}</span><strong>{sport === 'track' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>
+    <div className="game-ready"><i className={tracking === 'TRACKING' ? 'ready' : ''} />{hud.status}</div>
+    <div className="game-controls">{sport === 'track' ? '← → trocar raia  ·  ↑ / espaço saltar' : 'espaço bater  ·  ← → escolher direção'}</div>
+  </div>;
 }

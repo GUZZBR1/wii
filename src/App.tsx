@@ -4,8 +4,7 @@ import { Calibrator } from './cv/calibrator';
 import { PoseClient } from './cv/poseClient';
 import { ActionPipeline } from './kinematics/actionPipeline';
 import { ProceduralAudio } from './games/audio';
-import { ArenaHub } from './ui/ArenaHub';
-import { CameraPanel } from './ui/CameraPanel';
+import { CameraPip } from './ui/CameraPip';
 import { GameCanvas, type GameEngineHandle, type Sport } from './ui/GameCanvas';
 import { drawPose } from './ui/PoseOverlay';
 import './styles.css';
@@ -137,43 +136,21 @@ export default function App() {
     setMuted((value) => { audioRef.current.setMuted(!value); return !value; });
   }, []);
 
-  return <main className="app-shell">
-    <header className="topbar">
-      <a className="brand" href="#top" aria-label="Wii Web Sports início"><span className="brand-mark"><i /><i /></span><span>WII<span className="brand-light">WEB</span><small>SPORTS ARENA</small></span></a>
-      <div className="topbar-center"><span className="live-indicator" />HACK BRASIL 2026 <b>/</b> PROTÓTIPO INTERATIVO</div>
-      <button type="button" className="button button-outline sound-button" onClick={toggleMute}>{muted ? 'ÁUDIO OFF' : 'ÁUDIO ON'} <span>{muted ? '×' : '♫'}</span></button>
-    </header>
+  return <main className="stage">
+    <GameCanvas key={sport} sport={sport} onEngine={onEngine} tracking={tracking} />
 
-    <section className="hero-row">
-      <div className="hero-copy">
-        <span className="eyebrow"><span className="orange-square" /> MOVIMENTO REAL. JOGO DE VERDADE.</span>
-        <h1>Seu corpo<br />é o <em>controle.</em></h1>
-        <p>Uma arena arcade que transforma movimento em jogo — direto no navegador, sem controles e sem instalação.</p>
-        <div className="hero-meta"><span>01 CÂMERA</span><span>02 MODALIDADES</span><span>100% LOCAL</span></div>
-      </div>
-      <div className="hero-aside">
-        <div className="session-card"><span className="eyebrow">SESSÃO ATUAL</span><strong>{profile ? 'PLAYER CALIBRADO' : 'PRONTO PARA COMEÇAR'}</strong><small>{profile ? `MÃO ${profile.dominantHand === 'right' ? 'DIREITA' : 'ESQUERDA'} · BASELINE SALVO` : 'Ative a câmera e faça a calibração inicial.'}</small><div className="session-line"><span>ESTADO DA VISÃO</span><b className={tracking === 'TRACKING' ? 'text-green' : ''}>{tracking}</b></div></div>
-        <div className="corner-stamp">NO<br />DOWNLOAD<br /><b>NEEDED</b></div>
-      </div>
-    </section>
+    <div className="hud-dock">
+      <nav className="sport-dock" aria-label="Modalidades">
+        <button type="button" className={sport === 'track' ? 'active' : ''} onClick={() => setSport('track')}>01 · CORRIDA</button>
+        <button type="button" className={sport === 'tennis' ? 'active' : ''} onClick={() => setSport('tennis')}>02 · TÊNIS</button>
+      </nav>
+      <button type="button" className="mute-fab" onClick={toggleMute} title={muted ? 'Áudio desligado' : 'Áudio ligado'}>{muted ? '×' : '♫'}</button>
+    </div>
 
-    <div className="section-title"><div><span className="eyebrow">ESCOLHA SUA ARENA</span><h2>Qual vai ser?</h2></div><span className="section-count">02 MODOS DISPONÍVEIS <i>↘</i></span></div>
-    <ArenaHub sport={sport} onSport={setSport} />
-
-    <section className="arena-layout">
-      <div className="arena-main">
-        <GameCanvas key={sport} sport={sport} onEngine={onEngine} tracking={tracking} />
-        <div className="below-game"><span><b>COMO JOGAR</b> {sport === 'track' ? 'Corra no lugar para ganhar velocidade. Pule e troque de raia para vencer.' : 'Faça o movimento de raquete. A força e a direção do braço definem a jogada.'}</span></div>
-      </div>
-      <aside className="arena-side">
-        <CameraPanel
-          videoRef={videoRef} canvasRef={overlayRef} cameraOn={cameraOn} status={cameraStatus} tracking={tracking}
-          calibration={profile} hand={hand} calibrating={calibrating} calibrationProgress={calibrationProgress}
-          onStart={() => void startCamera()} onStop={stopCamera} onHand={changeHand} onCalibrate={startCalibration}
-        />
-      </aside>
-    </section>
-
-    <footer className="footer"><span>WII WEB SPORTS <b>·</b> HACK BRASIL 2026</span><span>SEU CORPO <b>·</b> SEU CONTROLE</span></footer>
+    <CameraPip
+      videoRef={videoRef} canvasRef={overlayRef} cameraOn={cameraOn} status={cameraStatus} tracking={tracking}
+      calibration={profile} hand={hand} calibrating={calibrating} calibrationProgress={calibrationProgress}
+      onStart={() => void startCamera()} onStop={stopCamera} onHand={changeHand} onCalibrate={startCalibration}
+    />
   </main>;
 }
