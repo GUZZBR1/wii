@@ -205,12 +205,36 @@ Impacto = fração estimada do round-trip câmera→pose-usável; confiança ref
 | 7 | **Contenção GPU**: o `OffscreenCanvas` WebGL2 do worker e o renderer Three.js da main disputam o mesmo subsistema GL em iGPUs fracas | transversal | não medido — suspeita, não fato | Baixa |
 | 8 | Detectores/GameLoop/dispatch | `src/kinematics/*` | microssegundos — desprezível por design | Alta |
 
+## 7.5 Benchmark local medido (Chromium 159 headless, 25/nov/2026)
+
+Metodologia: `scripts/pose-bench.html` spawna o **worker real do `dist/`** (`pose.worker-*.js` pós-build), faz `INIT` GPU e CPU e envia 60 frames após 8 de warmup, medindo o round-trip `postMessage(FRAME) → POSE` (inclui transfer e clone — o número "inferência" da linha 1 do ranking + transporte). Inputs: foto real de pessoa redimensionada a 640 px (`mediapipe-assets/pose.jpg` — `detected` = POSE com landmarks não-vazios) e figura sintética 640×480 (nunca detectada → detector de pessoa roda todo frame = caminho mais caro). Browser: Chromium headless 159 **sem GPU dedicada** — WebGL via SwiftShader (GL de software). `npm run build && cp scripts/pose-bench.html dist/bench.html && npm run preview`.
+
+| Input | Delegate | Init (ms) | p50 (ms/frame) | p90 | Detectado | Poses/s (≈1000/p50) |
+|---|---|---|---|---|---|---|
+| foto com pessoa | GPU (SwiftShader) | 351–467 | **96,2–133,4** | 111–148 | 60/60 | ~7–10 |
+| foto com pessoa | **CPU (XNNPACK+SIMD)** | 251–301 | **16,0–20,3** | 16,8–23,9 | 60/60 | **~49–62** |
+| figura sintética | CPU | 238–322 | **13,3–17,7** | 14,0–19,7 | 0/60 | ~57–75 |
+| figura sintética | GPU (SwiftShader) | 252 | **168,9–196,7** | 242,7 | 0/60 | ~5–6 |
+
+**Leituras:**
+
+1. **CPU nesta máquina entrega ~16–21 ms/frame (≈48–62 poses/s) mesmo no caminho mais caro** — folga ampla sobre a câmera de 30 fps. Coerente com o model card (~44 fps num Pixel 3 de 2018) escalado para um core de desktop moderno (o WASM é single-thread; `hwc=16` não importa).
+2. **"GPU" em GL de software é 6–12× pior que CPU** (~96–243 ms/frame ≈ 5–10 fps). O delegate GPU só é rápido com aceleração real — em SwiftShader/llvmpipe/VMs/RDP ele é *dramaticamente* pior, e **o app nunca cai para CPU nesse caso**: `fallback()` só dispara em exceção, não em lentidão. Ação derivada: detectar renderer de software via `WEBGL_debug_renderer_info` (`gl.getParameter` — strings tipo "WebKit WebGL"/"SwiftShader"/"llvmpipe") e preferir CPU, ou medir o primeiro `detectForVideo` e fazer fallback por latência. Hoje um usuário com GPU blocklistada recebe ~7 fps em vez de ~50.
+3. **Warmup real**: a primeira pose não-vazia apareceu ~8 frames após READY (detecção + aquisição de tracking) — o jargão "primeiro gesto perdido" existe; um frame dummy no init esconderia isso.
+4. **`createImageBitmap` custa ~0,05 ms** a partir de canvas (de `<video>` será um pouco mais) — confirma que a etapa não é gargalo; a inferência responde ~95%+ do round-trip medido.
+5. Detector-todo-frame (stick, 0/60) é *mais barato* que tracked (foto): ~13–18 vs ~16–20 ms no CPU — a detecção não domina no modelo Lite a 640 px.
+
+**Caveats**: número "GPU" mede SwiftShader, não uma GPU real — a faixa GPU-real fica entre o CPU medido e o model card; latência fóton→pose ponta a ponta ainda não medida (precisa de `metadata.captureTime` + câmera real).
+
+---
+
 **Direções de melhoria ordenadas por ROI:**
-1. `new VideoFrame(video)` no rVFC (corta o estágio 3; exige `frame.close()` no worker — §2.2). Se `videoWidth > 640`, manter `createImageBitmap` com resize (o upload 1080p custaria mais que o bitmap).
-2. Ler `metadata.captureTime`/`presentedFrames` para telemetria de latência real e contagem de drops (§6.1).
-3. Em fallback CPU, reduzir `resizeWidth` para ~320 (o landmarker consome 256² — a resolução extra só paga upload+readback).
-4. Features gratuitas: `outputSegmentationMasks` para silhueta no PiP; `GestureRecognizer` para gestos de menu (§6.3–6.4).
-5. Não perseguir: build threaded (não existe), WebGPU na task de visão (dormente em 1.2.3), OpenCV.js (veredicto §4), troca de modelo de pose (tabela §5).
+1. **Detectar GL de software (SwiftShader/llvmpipe/"Software") e preferir CPU ou fallback por latência** — achado novo do benchmark §7.5: GPU-delegate em GL não acelerado entrega ~7 fps vs ~50 do CPU, sem nunca cair no fallback por exceção.
+2. `new VideoFrame(video)` no rVFC (corta o estágio 3; exige `frame.close()` no worker — §2.2). Se `videoWidth > 640`, manter `createImageBitmap` com resize (o upload 1080p custaria mais que o bitmap).
+3. Ler `metadata.captureTime`/`presentedFrames` para telemetria de latência real e contagem de drops (§6.1).
+4. Em fallback CPU, reduzir `resizeWidth` para ~320 (o landmarker consome 256² — a resolução extra só paga upload+readback).
+5. Features gratuitas: `outputSegmentationMasks` para silhueta no PiP; `GestureRecognizer` para gestos de menu (§6.3–6.4).
+6. Não perseguir: build threaded (não existe), WebGPU na task de visão (dormente em 1.2.3), OpenCV.js (veredicto §4), troca de modelo de pose (tabela §5).
 
 ---
 
