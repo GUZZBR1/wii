@@ -1,7 +1,14 @@
 # @wii/spatial-core
 
-Headless MediaPipe Pose provider, pose contracts, and a pure 1€ filter for browser applications.
-The package has no React or Three.js dependency.
+A headless browser package for MediaPipe Pose and Hand perception, hand geometry, input intents, and
+typed spatial events. It has no React or Three.js dependency.
 
-The host supplies wasmBaseUrl and modelUrl to PoseClient; the package owns its module worker and
-frame processing. Use the root app's versioned model and WASM URLs when embedding it in this repo.
+The host owns the video element and camera stream. Supply versioned WASM and model URLs when creating
+a runtime. The runtime owns worker lifetimes and runs one perception provider at a time:
+
+- Pose uses the fixed Pose Landmarker pipeline.
+- Hand uses the Hand Landmarker provider and emits normalized hand snapshots.
+- SpatialInputBus fans typed pointer, button, axis, and gesture events to subscribers.
+
+In this repository, the hand model is tracked under public/mediapipe/models/ and checked against
+SHA256SUMS before dev or build.
