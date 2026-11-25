@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applySprint, gaitFor, type Gait, nextPace, type Pace } from '../src/games/track/gait';
+import { applySprint, applyStep, gaitFor, type Gait, nextPace, type Pace } from '../src/games/track/gait';
 import { CadenceTracker, type CadenceResult } from '../src/kinematics/cadenceTracker';
 import { calibration, pose } from './fixtures/syntheticPose';
 
@@ -153,9 +153,22 @@ describe('pace ownership between camera and keyboard', () => {
     expect(pace).toEqual({ owner: 'keyboard', speed01: 0.8, cadenceSpm: 0 });
   });
 
-  it.each(['camera', 'keyboard'] as const)('hands the pace to the camera on measured steps from %s', (owner) => {
-    const pace = applySprint({ owner, speed01: owner === 'keyboard' ? 0.8 : 0.2, cadenceSpm: 0 }, { speed01: 0.6, cadenceSpm: 150 });
-    expect(pace).toEqual({ owner: 'camera', speed01: 0.6, cadenceSpm: 150 });
+  it('hands the pace to the camera on a measured step, then follows its cadence', () => {
+    const pace = applyStep({ owner: 'keyboard', speed01: 0.8, cadenceSpm: 0 });
+    expect(pace.owner).toBe('camera');
+    expect(applySprint(pace, { speed01: 0.6, cadenceSpm: 150 })).toEqual({ owner: 'camera', speed01: 0.6, cadenceSpm: 150 });
+  });
+
+  it('keeps the keyboard pick while the cadence decays without new steps', () => {
+    let pace: Pace = { owner: 'keyboard', speed01: 0.3, cadenceSpm: 0 };
+    // Residual positive cadence between the last step and the stop deadline.
+    for (const cadenceSpm of [120, 90, 60, 30]) pace = applySprint(pace, { speed01: 0.4, cadenceSpm });
+    expect(pace).toEqual({ owner: 'keyboard', speed01: 0.3, cadenceSpm: 0 });
+  });
+
+  it('keeps camera pace when measured cadence decays while the camera owns it', () => {
+    const pace = applySprint({ owner: 'camera', speed01: 0.6, cadenceSpm: 150 }, { speed01: 0.4, cadenceSpm: 120 });
+    expect(pace).toEqual({ owner: 'camera', speed01: 0.4, cadenceSpm: 120 });
   });
 
   it('reaches running on two presses separated by still frames', () => {

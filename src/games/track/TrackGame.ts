@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import type { SportActionEvent } from '../../cv/protocol';
 import { disposeObjectTree, GameLoop } from '../core/GameLoop';
-import { applySprint, type Gait, gaitFor, nextPace, type Pace } from './gait';
+import { applySprint, applyStep, type Gait, gaitFor, nextPace, type Pace } from './gait';
 import { HurdleFlow, RUNNER_Z } from './hurdleFlow';
 import { TrackScore } from './trackScore';
 
@@ -85,6 +85,7 @@ export class TrackGame {
   }
 
   onAction(event: SportActionEvent): void {
+    if (event.type === 'step') this.pace = applyStep(this.pace);
     if (event.type === 'sprint') this.pace = applySprint(this.pace, event);
     if (event.type === 'jump') { this.jumpTime = 0.72; this.status = 'Salto!'; }
     if (event.type === 'lane') { this.lane = Math.max(-1, Math.min(1, this.lane + (event.direction === 'left' ? -1 : 1))); }
