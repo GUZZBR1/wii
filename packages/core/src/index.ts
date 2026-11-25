@@ -15,6 +15,7 @@ export {
 export { PoseClient } from './providers/poseClient';
 export type { PoseClientAssets, PoseClientCallbacks } from './providers/poseClient';
 export { HandClient } from './providers/handClient';
+export { MockReplayProvider } from './providers/mockReplayProvider';
 export type { HandClientAssets, HandClientCallbacks } from './providers/handClient';
 export type { HandObservation, HandSnapshot, HandWorkerReply, HandWorkerRequest } from './providers/handProtocol';
 export * from './providers/poseProtocol';
