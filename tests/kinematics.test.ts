@@ -874,6 +874,17 @@ it('exige tornozelos no enquadramento quando o esporte precisa de postura em pé
   expect(steps.every((step) => step.phase === 'framing')).toBe(true);
 });
 
+it('descarta a coleta quando o torso se move enquanto os tornozelos exigidos estão ocultos', () => {
+  const auto = new AutoCalibrator();
+  auto.update(pose(0), true);
+  expect(auto.update(pose(1000), true).phase).toBe('collecting');
+
+  // O gate da postura pede tornozelos, mas os outros pontos usados pelo perfil continuam
+  // visíveis. Movimento do torso durante essa perda não pode contaminar as medianas.
+  const movedWithoutAnkles = pose(1100, { hipRise: 0.2, hiddenLandmarks: [27, 28] });
+  expect(auto.update(movedWithoutAnkles, true).phase).toBe('framing');
+});
+
 it('rejeita perfil sem vertical das pernas quando o esporte precisa dela', () => {
   const auto = new AutoCalibrator();
   const noWorldAnkles = (time: number) => withWorldConfidence(withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0);

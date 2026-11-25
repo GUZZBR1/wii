@@ -37,13 +37,13 @@ export class AutoCalibrator {
       return { phase: 'framing', progress: 0 };
     }
     // Ancorado, todo quadro ruim conta no denominador de cobertura e no prazo — inclusive no
-    // repouso, porque com a fusão o investimento começa na âncora, não na coleta. Um frame
-    // visível prova onde o corpo está mesmo sem o gate ter voltado a 'tracked': antes de entrar
-    // na cobertura ele re-verifica a imobilidade — flapping após um blecaute não pode esconder
-    // um deslocamento que contaminaria as medianas. Só um frame 'tracked' prova estabilidade
-    // para re-ancorar; aqui, mover derruba a tentativa.
+    // repouso, porque com a fusão o investimento começa na âncora, não na coleta. Mesmo quando
+    // um joint exigido some, os outros pontos ancorados ainda podem provar movimento; ignorar
+    // essa evidência deixaria o usuário mover o torso enquanto tornozelos ou punhos estão fora
+    // do quadro e voltar antes de contaminar as medianas. Pontos ausentes são ignorados por
+    // moved(); qualquer movimento observável invalida a tentativa.
     if (snapshot.trackingState !== 'tracked' || !visible) {
-      if (visible && this.moved(snapshot)) {
+      if (this.moved(snapshot)) {
         this.reset();
         return { phase: 'framing', progress: 0 };
       }
