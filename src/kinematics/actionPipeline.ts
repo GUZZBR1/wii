@@ -1,4 +1,4 @@
-import type { CalibrationProfile, ContinuousControls, PoseSnapshot, SportActionEvent } from '../cv/protocol';
+import type { CalibrationProfile, ContinuousControls, PoseSnapshot, SportActionEvent, TrackingState } from '../cv/protocol';
 import { CadenceTracker } from './cadenceTracker';
 import { JumpDetector } from './jumpDetector';
 import { LaneLeanDetector } from './postureSignals';
@@ -24,7 +24,7 @@ export class ActionPipeline {
     const body = this.bodyGate.evaluate(snapshot);
     const current = { ...snapshot, trackingState: body.state, bodyConfidence: body.confidence };
     if (!calibration) {
-      const stopped = this.stopSprint(snapshot.timestampMs, body.confidence);
+      const stopped = this.stopSprint(snapshot.timestampMs, body.confidence, 'lost');
       this.resetDetectors();
       return {
         snapshot: current, events: stopped,
@@ -45,7 +45,7 @@ export class ActionPipeline {
       this.sprinting = cadence.speed01 > 0;
       if (cadence.step) events.push({ ...base, id: this.nextId++, type: 'step', side: cadence.step });
     } else {
-      events.push(...this.stopSprint(snapshot.timestampMs, cadenceTracking.confidence));
+      events.push(...this.stopSprint(snapshot.timestampMs, cadenceTracking.confidence, cadenceTracking.state));
       if (cadenceTracking.state === 'lost') this.cadence.reset();
     }
 
@@ -78,16 +78,16 @@ export class ActionPipeline {
 
   /** Returns the events the game still needs, such as stopping a sprint in progress. */
   reset(): SportActionEvent[] {
-    const stopped = this.stopSprint(performance.now(), 0);
+    const stopped = this.stopSprint(performance.now(), 0, 'lost');
     this.bodyGate.reset(); this.cadenceGate.reset(); this.jumpGate.reset(); this.laneGate.reset(); this.swingGate.reset();
     this.resetDetectors();
     return stopped;
   }
 
-  private stopSprint(timestampMs: number, confidence: number): SportActionEvent[] {
+  private stopSprint(timestampMs: number, confidence: number, trackingState: TrackingState): SportActionEvent[] {
     if (!this.sprinting) return [];
     this.sprinting = false;
-    return [{ timestampMs, confidence, trackingState: 'tracked', source: 'cv', id: this.nextId++, type: 'sprint', speed01: 0, cadenceSpm: 0 }];
+    return [{ timestampMs, confidence, trackingState, source: 'cv', id: this.nextId++, type: 'sprint', speed01: 0, cadenceSpm: 0 }];
   }
 
   private eventBase(snapshot: PoseSnapshot, confidence: number) {

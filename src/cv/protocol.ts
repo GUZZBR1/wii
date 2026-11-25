@@ -81,10 +81,15 @@ export interface ContinuousControls {
 
 interface ActionBase {
   id: number;
-  /** Video-frame timestamp that confirmed this event; swing also carries its estimated peak-frame timestamp. */
+  /**
+   * 'tracked' events carry the video-frame timestamp that confirmed the action; swing also carries its estimated
+   * peak-frame timestamp. Control events — emitted because the action's landmarks could not be confirmed — are
+   * stamped with the frame that revealed the loss, or the capture-stop time when no frame exists.
+   */
   timestampMs: number;
-  /** Confidence is the minimum visibility/presence for landmarks used by this action. */
+  /** Confidence is the minimum visibility/presence for landmarks used by this action; 0 when no frame contributed. */
   confidence: number;
-  trackingState: 'tracked';
+  /** 'tracked' marks an action measured on a tracked pose; any other state marks an unconfirmed control event. */
+  trackingState: TrackingState;
   source: 'cv' | 'keyboard';
 }

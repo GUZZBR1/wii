@@ -365,7 +365,11 @@ describe('action pipeline tracking gate', () => {
     expect(lost.controls).toMatchObject({ sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'lost' });
   });
 
-  it.each(['hidden knees', 'removed calibration', 'reset'])('stops the sprint exactly once on %s', (cause) => {
+  it.each([
+    ['hidden knees', 'degraded'],
+    ['removed calibration', 'lost'],
+    ['reset', 'lost'],
+  ] as const)('stops the sprint exactly once on %s', (cause, state) => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
     const frames = [
@@ -380,7 +384,24 @@ describe('action pipeline tracking gate', () => {
       if (cause === 'removed calibration') return pipeline.update(pose(time)).events;
       return pipeline.update(pose(time, { hiddenLandmarks: [25, 26] }), profile).events;
     });
-    expect(after.filter((event) => event.type === 'sprint')).toMatchObject([{ speed01: 0, cadenceSpm: 0 }]);
+    expect(after.filter((event) => event.type === 'sprint')).toMatchObject([{ speed01: 0, cadenceSpm: 0, trackingState: state }]);
+  });
+
+  it('keeps a standstill measured on a tracked pose stamped as tracked', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const frames = [
+      [0, 0, 0], [33, 0, 0], [66, 0, 0],
+      [166, 0.16, 0], [246, 0.16, 0], [306, 0, 0],
+      [566, 0, 0.16], [646, 0, 0.16], [706, 0, 0],
+      [966, 0.16, 0], [1046, 0.16, 0],
+    ] as const;
+    frames.forEach(([time, left, right]) => { pipeline.update(pose(time, { kneeLeft: left, kneeRight: right }), profile); });
+    const still = [1600, 1633].flatMap((time) => pipeline.update(pose(time), profile).events);
+    expect(still.filter((event) => event.type === 'sprint')).toMatchObject([
+      { speed01: 0, cadenceSpm: 0, trackingState: 'tracked' },
+      { speed01: 0, cadenceSpm: 0, trackingState: 'tracked' },
+    ]);
   });
 
   it('keeps the swing arc across a brief wrist occlusion and reports the gate confidence', () => {
