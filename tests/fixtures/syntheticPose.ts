@@ -133,3 +133,11 @@ export function calibration(): CalibrationProfile {
     quality: { validFrameRatio: 1, medianConfidence: 0.95 },
   };
 }
+
+/** Translates the torso core (shoulders + hips) vertically in image space, torso height unchanged. */
+export function poseWithHipBounce(timestampMs: number, hipYOffset: number, confidence?: number) {
+  const snapshot = pose(timestampMs, { confidence });
+  const landmarks = snapshot.landmarks.map((point, index) =>
+    [11, 12, 23, 24].includes(index) ? { ...point, y: point.y + hipYOffset } : point);
+  return { ...snapshot, landmarks };
+}
