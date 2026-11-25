@@ -22,6 +22,7 @@ function mediapipeAssetUrls() {
 export class PoseClient {
   private worker?: Worker;
   private ready = false;
+  private activeDelegate?: Delegate;
   private initPromise?: Promise<void>;
   private busy = false;
   private capturing = false;
@@ -42,6 +43,10 @@ export class PoseClient {
     return this.ready;
   }
 
+  get delegate(): Delegate | undefined {
+    return this.activeDelegate;
+  }
+
   async init(callbacks: PoseClientCallbacks, preferred: Delegate = 'GPU'): Promise<void> {
     this.callbacks = callbacks;
     if (this.ready) return;
@@ -55,6 +60,7 @@ export class PoseClient {
     this.capturing = true;
     this.video = video;
     this.lastVideoTime = -1;
+    this.callbacks?.onStatus('ready', `MediaPipe pronto · ${this.activeDelegate} · capturando`);
     const schedule = () => {
       if (!this.capturing) return;
       const supportsVideoFrameCallback = typeof (video as HTMLVideoElement & { requestVideoFrameCallback?: unknown }).requestVideoFrameCallback === 'function';
@@ -83,7 +89,6 @@ export class PoseClient {
     if (this.rafId !== undefined) cancelAnimationFrame(this.rafId);
     this.rafId = undefined;
     this.video = undefined;
-    this.busy = false;
   }
 
   dispose(): void {
@@ -92,6 +97,8 @@ export class PoseClient {
     this.worker?.terminate();
     this.worker = undefined;
     this.ready = false;
+    this.activeDelegate = undefined;
+    this.busy = false;
     this.initPromise = undefined;
     this.onReady?.();
     this.onReady = undefined;
@@ -108,6 +115,7 @@ export class PoseClient {
       const message = event.data;
       if (message.type === 'READY') {
         this.ready = true;
+        this.activeDelegate = message.delegate;
         this.onReady?.();
         this.callbacks?.onStatus('ready', `MediaPipe pronto · ${message.delegate}`);
       } else if (message.type === 'FALLBACK') {
@@ -118,6 +126,7 @@ export class PoseClient {
         if (message.fatal) { this.onReady?.(); this.dispose(); }
       } else if (message.type === 'POSE') {
         this.busy = false;
+        if (!this.capturing) return;
         const { type: _type, ...data } = message;
         this.callbacks?.onPose({ ...data, trackingState: 'degraded', bodyConfidence: this.confidence(data.landmarks) });
       }

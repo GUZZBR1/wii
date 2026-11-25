@@ -32,12 +32,18 @@ export default function App() {
   const audioRef = useRef(new ProceduralAudio());
   const handRef = useRef(hand);
   handRef.current = hand;
+  const cameraAttemptRef = useRef(0);
 
   useEffect(() => {
     void navigator.permissions?.query({ name: 'camera' as PermissionName }).then((permission) => {
       if (permission.state === 'granted') PoseClient.warmVisionAssets();
     }).catch(() => undefined);
-    return () => { clientRef.current?.dispose(); };
+    return () => {
+      cameraAttemptRef.current += 1;
+      clientRef.current?.dispose();
+      streamRef.current?.getTracks().forEach((track) => { track.stop(); });
+      streamRef.current = undefined;
+    };
   }, []);
 
   useEffect(() => {
@@ -68,6 +74,7 @@ export default function App() {
   }, []);
 
   const stopCamera = useCallback(() => {
+    cameraAttemptRef.current += 1;
     clientRef.current?.pauseCapture();
     streamRef.current?.getTracks().forEach((track) => { track.stop(); });
     streamRef.current = undefined;
@@ -83,12 +90,17 @@ export default function App() {
   }, []);
 
   const startCamera = useCallback(async () => {
+    stopCamera();
+    const attempt = ++cameraAttemptRef.current;
+    const stale = () => cameraAttemptRef.current !== attempt;
     const callbacks: PoseClientCallbacks = {
       onStatus: (status, detail) => {
+        if (stale()) return;
         setCameraStatus(detail);
         if (status === 'error') { setTracking('SEM POSE'); stopCamera(); setCameraStatus(detail); }
       },
       onPose: (raw) => {
+        if (stale()) return;
         const result = pipelineRef.current.update(raw, profileRef.current);
         const current = result.snapshot;
         setTracking(current.trackingState === 'tracked' ? 'TRACKING' : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
@@ -99,6 +111,7 @@ export default function App() {
     };
     try {
       await audioRef.current.unlock();
+      if (stale()) return;
       clientRef.current ??= new PoseClient();
       const client = clientRef.current;
       const visionReady = client.init(callbacks);
@@ -106,20 +119,27 @@ export default function App() {
         audio: false,
         video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } },
       });
+      if (stale()) { stream.getTracks().forEach((track) => { track.stop(); }); return; }
       streamRef.current = stream;
       const video = videoRef.current;
       if (!video) throw new Error('Prévia da câmera não está disponível.');
       video.srcObject = stream;
       await video.play();
+      if (stale()) return;
       await new Promise<void>((resolve) => {
         if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) resolve();
-        else video.addEventListener('loadeddata', () => resolve(), { once: true });
+        else {
+          video.addEventListener('loadeddata', () => resolve(), { once: true });
+          video.addEventListener('emptied', () => resolve(), { once: true });
+        }
       });
+      if (stale()) return;
       setCameraOn(true);
       await visionReady;
-      if (!client.isReady || streamRef.current !== stream) return;
+      if (stale() || !client.isReady || streamRef.current !== stream) return;
       client.beginCapture(video, callbacks);
     } catch (error) {
+      if (stale()) return;
       stopCamera();
       setCameraStatus(error instanceof Error ? error.message : 'Não foi possível iniciar a câmera.');
     }
