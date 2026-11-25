@@ -9,7 +9,7 @@ let delegate: Delegate = 'GPU';
 let attemptedFallback = false;
 
 async function createTask(nextDelegate: Delegate): Promise<void> {
-  const vision = await FilesetResolver.forVisionTasks(wasmBaseUrl);
+  const vision = await FilesetResolver.forVisionTasks(wasmBaseUrl, true);
   const response = await fetch(modelUrl);
   if (!response.ok) throw new Error(`Pose model request failed (${response.status})`);
   const modelBytes = new Uint8Array(await response.arrayBuffer());
@@ -71,18 +71,16 @@ self.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
     return;
   }
 
-  const { bitmap, frameId, timestampMs } = data;
+  const { bitmap, timestampMs } = data;
   if (!landmarker) {
     bitmap.close();
     self.postMessage({ type: 'ERROR', stage: 'detect', fatal: true, message: 'PoseLandmarker is not initialized' } satisfies WorkerReply);
     return;
   }
-  const start = performance.now();
   try {
     const result = landmarker.detectForVideo(bitmap, timestampMs);
-    const inferenceMs = performance.now() - start;
     self.postMessage({
-      type: 'POSE', frameId, timestampMs, inferenceMs, delegate,
+      type: 'POSE', timestampMs,
       landmarks: simplify(result.landmarks[0]),
       worldLandmarks: simplify(result.worldLandmarks[0]),
     } satisfies WorkerReply);

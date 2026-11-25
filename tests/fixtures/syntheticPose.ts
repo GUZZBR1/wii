@@ -21,7 +21,7 @@ export function pose(timestampMs: number, options: { kneeLeft?: number; kneeRigh
   world[16] = { ...world[16]!, x: 0.2 + (options.wristLateral ?? 0), y: -0.1 };
   world[23] = { ...world[23]!, x: -0.1, y: 0 };
   world[24] = { ...world[24]!, x: 0.1, y: 0 };
-  return { frameId: timestampMs, timestampMs, receivedAtMs: timestampMs, inferenceMs: 4, delegate: 'GPU', landmarks: points, worldLandmarks: world, trackingState: 'tracked', bodyConfidence: options.confidence ?? 0.95 };
+  return { timestampMs, landmarks: points, worldLandmarks: world, trackingState: 'tracked', bodyConfidence: options.confidence ?? 0.95 };
 }
 
 export function calibration(hand: Hand = 'right'): CalibrationProfile {

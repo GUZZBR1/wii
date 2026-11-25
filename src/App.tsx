@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { CalibrationProfile, Hand, SportActionEvent } from './cv/protocol';
 import { Calibrator } from './cv/calibrator';
-import { PoseClient } from './cv/poseClient';
+import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { ActionPipeline } from './kinematics/actionPipeline';
 import { ProceduralAudio } from './games/audio';
 import { CameraPip } from './ui/CameraPip';
@@ -32,6 +32,19 @@ export default function App() {
   const audioRef = useRef(new ProceduralAudio());
   const handRef = useRef(hand);
   handRef.current = hand;
+  const cameraAttemptRef = useRef(0);
+
+  useEffect(() => {
+    void navigator.permissions?.query({ name: 'camera' as PermissionName }).then((permission) => {
+      if (permission.state === 'granted') PoseClient.warmVisionAssets();
+    }).catch(() => undefined);
+    return () => {
+      cameraAttemptRef.current += 1;
+      clientRef.current?.dispose();
+      streamRef.current?.getTracks().forEach((track) => { track.stop(); });
+      streamRef.current = undefined;
+    };
+  }, []);
 
   useEffect(() => {
     const timer = window.setInterval(() => {
@@ -61,8 +74,8 @@ export default function App() {
   }, []);
 
   const stopCamera = useCallback(() => {
-    clientRef.current?.stop();
-    clientRef.current = undefined;
+    cameraAttemptRef.current += 1;
+    clientRef.current?.pauseCapture();
     streamRef.current?.getTracks().forEach((track) => { track.stop(); });
     streamRef.current = undefined;
     if (videoRef.current) videoRef.current.srcObject = null;
@@ -77,40 +90,56 @@ export default function App() {
   }, []);
 
   const startCamera = useCallback(async () => {
+    stopCamera();
+    const attempt = ++cameraAttemptRef.current;
+    const stale = () => cameraAttemptRef.current !== attempt;
+    const callbacks: PoseClientCallbacks = {
+      onStatus: (status, detail) => {
+        if (stale()) return;
+        setCameraStatus(detail);
+        if (status === 'error') { setTracking('SEM POSE'); stopCamera(); setCameraStatus(detail); }
+      },
+      onPose: (raw) => {
+        if (stale()) return;
+        const result = pipelineRef.current.update(raw, profileRef.current);
+        const current = result.snapshot;
+        setTracking(current.trackingState === 'tracked' ? 'TRACKING' : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
+        if (calibratingRef.current) calibratorRef.current.add(current);
+        drawPose(overlayRef.current, videoRef.current, current);
+        for (const event of result.events) dispatchEvent(event);
+      },
+    };
     try {
       await audioRef.current.unlock();
+      if (stale()) return;
+      clientRef.current ??= new PoseClient();
+      const client = clientRef.current;
+      const visionReady = client.init(callbacks);
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
         video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } },
       });
+      if (stale()) { stream.getTracks().forEach((track) => { track.stop(); }); return; }
       streamRef.current = stream;
       const video = videoRef.current;
       if (!video) throw new Error('Prévia da câmera não está disponível.');
       video.srcObject = stream;
       await video.play();
+      if (stale()) return;
       await new Promise<void>((resolve) => {
         if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) resolve();
-        else video.addEventListener('loadeddata', () => resolve(), { once: true });
+        else {
+          video.addEventListener('loadeddata', () => resolve(), { once: true });
+          video.addEventListener('emptied', () => resolve(), { once: true });
+        }
       });
-      const client = new PoseClient();
-      clientRef.current = client;
+      if (stale()) return;
       setCameraOn(true);
-      setCameraStatus('Carregando motor de visão…');
-      await client.start(video, {
-        onStatus: (status, detail) => {
-          setCameraStatus(detail);
-          if (status === 'error') { setTracking('SEM POSE'); stopCamera(); setCameraStatus(detail); }
-        },
-        onPose: (raw) => {
-          const result = pipelineRef.current.update(raw, profileRef.current);
-          const current = result.snapshot;
-          setTracking(current.trackingState === 'tracked' ? 'TRACKING' : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
-          if (calibratingRef.current) calibratorRef.current.add(current);
-          drawPose(overlayRef.current, videoRef.current, current);
-          for (const event of result.events) dispatchEvent(event);
-        },
-      });
+      await visionReady;
+      if (stale() || !client.isReady || streamRef.current !== stream) return;
+      client.beginCapture(video, callbacks);
     } catch (error) {
+      if (stale()) return;
       stopCamera();
       setCameraStatus(error instanceof Error ? error.message : 'Não foi possível iniciar a câmera.');
     }

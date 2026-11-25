@@ -14,14 +14,13 @@ export class ActionPipeline {
   private readonly swing = new SwingDetector();
   private nextId = 1;
 
-  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; kinematicsMs: number } {
-    const start = performance.now();
+  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[] } {
     const trackingState = this.gate.update(snapshot);
     const required = [11, 12, 15, 16, 23, 24, 25, 26].map((i) => snapshot.landmarks[i]!).filter(Boolean);
     const current = { ...snapshot, trackingState, bodyConfidence: Math.min(snapshot.bodyConfidence, landmarkConfidence(...required)) };
     if (trackingState !== 'tracked' || !calibration) {
       this.resetDetectors();
-      return { snapshot: current, events: [], kinematicsMs: performance.now() - start };
+      return { snapshot: current, events: [] };
     }
     const base = { timestampMs: snapshot.timestampMs, confidence: current.bodyConfidence, trackingState: 'tracked' as const, source: 'cv' as const };
     const events: SportActionEvent[] = [];
@@ -33,7 +32,7 @@ export class ActionPipeline {
     if (lane) events.push({ ...base, id: this.nextId++, type: 'lane', direction: lane });
     const swing = this.swing.update(current, calibration);
     if (swing) events.push({ ...base, id: this.nextId++, type: 'swing', ...swing });
-    return { snapshot: current, events, kinematicsMs: performance.now() - start };
+    return { snapshot: current, events };
   }
 
   reset(): void { this.gate.reset(); this.resetDetectors(); }
