@@ -88,12 +88,18 @@ interface ActionBase {
   /**
    * 'tracked' events carry the video-frame timestamp that confirmed the action; swing also carries its estimated
    * peak-frame timestamp. Control events — emitted because the action's landmarks could not be confirmed — are
-   * stamped with the frame that revealed the loss, or the capture-stop time when no frame exists.
+   * stamped with the frame that revealed the loss, or the capture-stop time when no frame exists. Injected
+   * 'keyboard' events carry their injection time.
    */
   timestampMs: number;
   /** Confidence is the minimum visibility/presence for landmarks used by this action; 0 when no frame contributed. */
   confidence: number;
-  /** 'tracked' marks an action measured on a tracked pose; any other state marks an unconfirmed control event. */
+  /**
+   * 'tracked' marks an action measured on a tracked pose; any other state marks a control event emitted because
+   * the action's landmarks could not be confirmed — the sprint stop is 'degraded'/'lost' when tracking decays,
+   * and 'lost' when calibration is absent (e.g. after a dominant-hand change) or capture stops.
+   */
   trackingState: TrackingState;
+  /** 'cv' events come from the pose pipeline; 'keyboard' events are injected controls, not pose measurements. */
   source: 'cv' | 'keyboard';
 }
