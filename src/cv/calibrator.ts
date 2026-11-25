@@ -1,22 +1,24 @@
 import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from './protocol';
-import { distance2, distance3, landmarkConfidence, median, midpoint } from '../kinematics/math';
+import { distance2, distance3, isFinitePoint, landmarkConfidence, median, midpoint } from '../kinematics/math';
 import { bodyLocalPoint, legsVertical, torsoLeanRad } from '../kinematics/bodyFrame';
 
 const IDX = { leftShoulder: 11, rightShoulder: 12, leftWrist: 15, rightWrist: 16, leftHip: 23, rightHip: 24, leftKnee: 25, rightKnee: 26 } as const;
 
-function point(points: readonly Point3[], index: number): Point3 | undefined { return points[index]; }
+function point(points: readonly Point3[], index: number): Point3 | undefined {
+  const value = points[index];
+  return isFinitePoint(value) ? value : undefined;
+}
 
-// O piso de qualidade é tempo de sinal válido, não contagem de frames: a oscilação
-// postural dominante tem período de 2–5 s, então uma janela mais curta amostra a postura
-// num extremo do balanço — erro sistemático que a mediana não remove. O pior caso que o
-// design anterior aprovava (65% × 2800 ms ≈ 1,8 s válidos) vira aqui a invariante
-// explícita; ver docs/pesquisa-exposicao-minima-calibracao.md.
+// O piso é tempo de sinal válido, não contagem de frames. Os 1,8 s são uma hipótese de
+// engenharia derivada do pior caso do gate anterior (65% × 2800 ms ≈ 1,82 s), não um mínimo
+// comprovado para landmarks de webcam. A literatura de sway motiva janelas de vários
+// segundos, mas ainda falta validar este piso com câmera real; ver a pesquisa citada abaixo.
 const MIN_SPAN_MS = 2000;
 const VALID_SIGNAL_MS = 1800;
 const MIN_COVERAGE = 0.65;
 // A gap larger than this is unobserved time, not evidence that the pose remained valid.
-// 250 ms still covers the documented degraded camera cadence (~7 fps) with room for one missed frame.
-const MAX_SIGNAL_GAP_MS = 250;
+// 350 ms covers a ~7 fps stream even with one missed callback; longer gaps count as unobserved.
+const MAX_SIGNAL_GAP_MS = 350;
 
 interface CoverageSample {
   timestampMs: number;
@@ -35,7 +37,7 @@ function coveredDurationMs(
     const previous = samples[index - 1]!;
     const current = samples[index]!;
     const gapMs = current.timestampMs - previous.timestampMs;
-    if (gapMs <= 0 || gapMs > MAX_SIGNAL_GAP_MS || !previous[field]) continue;
+    if (gapMs <= 0 || gapMs > MAX_SIGNAL_GAP_MS || !previous[field] || !current[field]) continue;
     const overlapStart = Math.max(startMs, previous.timestampMs);
     const overlapEnd = Math.min(endMs, current.timestampMs);
     if (overlapEnd > overlapStart) coveredMs += overlapEnd - overlapStart;
@@ -108,7 +110,8 @@ export class Calibrator {
       const torsoHeight = Math.abs(hipCenter.y - shoulderCenter.y);
       const worldShoulderWidth = distance3(worldLeftShoulder, worldRightShoulder);
       if (torsoHeight < 0.03 || shoulderWidth < 0.03 || worldShoulderWidth < 0.03) continue;
-      const up = legsVertical(sample);
+      const stancePoints = [23, 24, 25, 26, 27, 28].map((index) => point(w, index));
+      const up = stancePoints.every(isFinitePoint) ? legsVertical(sample) : undefined;
       if (up) {
         stance.push({ up, hipY: hipCenter.y, sample });
         coverageSample.stanceValid = true;
@@ -121,8 +124,8 @@ export class Calibrator {
       valid.push({ torsoHeight, shoulderWidth, kneeLeft: (hipCenter.y - leftKnee.y) / torsoHeight, kneeRight: (hipCenter.y - rightKnee.y) / torsoHeight, worldShoulderWidth, left, right, confidence });
       coverageSample.valid = true;
     }
-    // Count elapsed milliseconds only between nearby, consecutive observations that are both
-    // valid. A sparse callback stream cannot turn a long blackout into valid exposure time.
+    // Count only bounded intervals whose two endpoint observations are valid. A sparse callback
+    // stream cannot turn a long blackout into valid exposure time.
     const validSignalMs = coveredDurationMs(coverageSamples, first, last, 'valid');
     if (validSignalMs < VALID_SIGNAL_MS) return null;
     const collectionStart = Math.max(first, this.collectionAt ?? first);

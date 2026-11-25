@@ -16,18 +16,18 @@ documentação primária de fabricante · **[A]** acadêmico · **[C]** comunida
 
 O projeto atual pede **1s de settle + 3s de coleta ≈ 4s parado**. A análise mostra:
 
-1. **O design atual já está perto do piso de tempo.** O requisito real não são "3 segundos
-   de relógio" — são **~2 segundos de sinal válido** com folga para blecautes (cobertura
-   65% × janela 3s = 1,95s válidos no mínimo). Coincidência exata: o piso estatístico
-   calculado abaixo é ~2s de sinal válido. A janela de 3s é a versão tolerante-a-falhas
-   desse piso.
-2. **Abaixo de ~1,5-2s o erro para de ser ruído e vira época de sway**: a oscilação
-   postural dominante tem período de 2-5s; uma janela menor que meio-período amostra a
-   postura num extremo do balanço em vez do centro — erro sistemático que nenhuma mediana
-   remove.
-3. **O tempo pode baixar de forma adaptativa**: se a cobertura está alta e o drift baixo,
-   2s bastam; o ganho real não é encolher a janela fixa, é **sair cedo quando convergiu**
-   (potencial de 4s → ~2,5-3s totais no caso típico) e alongar quando degradado.
+1. **O código usa 1,8 segundos de sinal válido como hipótese de engenharia.** Esse valor
+   arredonda para baixo o pior caso anteriormente aceito (65% × 2800 ms = 1,82 s); não é
+   um mínimo estatístico demonstrado para este app. A janela anterior de 3 s era uma
+   política tolerante a falhas, não evidência de que 1,8 s baste.
+2. **O sway justifica medir janelas de vários segundos, mas não determina sozinho o piso.**
+   Soames & Atha encontraram uma frequência modal primária de 0,30–0,45 Hz em posturografia
+   de adultos jovens (períodos equivalentes de ~2,2–3,3 s), além de picos secundários e
+   terciários. Isso não prova o erro de uma mediana de landmarks do BlazePose Lite nem que
+   uma janela menor que meio-período cause erro sistemático no nosso produto.
+3. **O código pode baixar o tempo de forma adaptativa** quando os gates implementados
+   fecham. O benefício observado nos testes é de fixtures sintéticas estáticas; a economia
+   e a qualidade em webcam real ainda precisam de validação.
 4. **O que não é redutível**: calibração por sessão não pode ser eliminada para detectores
    de referência neutra (baseline de salto, referência de raia, posição de prontidão),
    porque esses parâmetros dependem de **postura habitual da pessoa naquele dia, naquela
@@ -73,20 +73,20 @@ Literature de posturografia **[I]**:
 - Quadril parado: RMS **~4-5mm**; ombros **~5-6mm** (Wiesmeier 2015, PMC4477145)
 - CoP olhos abertos, 30s: excursão max-min **22mm AP / 12mm ML** (Kenny 2019, PMC6449971)
 - Movimento ponto-a-ponto em ~1s: **~4mm RMS** olhos abertos (Doyle 2008, análise de difusão)
-- Espectro: 90-95% da energia posicional **abaixo de 2Hz**; componente corporal dominante
-  **abaixo de 0.5Hz**; deriva significativa abaixo de 0.1Hz (Soames & Atha 1982; Błaszczyk)
+- Espectro do centro de pressão: Soames & Atha observaram 90–95% da energia abaixo de 2 Hz,
+  com moda primária em 0,30–0,45 Hz e picos secundários/terciários mais altos. Centro de
+  pressão em plataforma não é o mesmo sinal que landmarks estimados por webcam.
 - Pés juntos **dobram** o sway lateral; olhos fechados aumentam tudo
 
 Consequência para janela de calibração [Inf]:
 
-- Período dominante 2-5s ⇒ janela de 2-4s captura **~1 ciclo ou menos**.
-- A média/mediana da janela tem erro de época de alguns mm dependendo de onde cai no ciclo.
-- Envelope realista de variação em 2-4s: **5-15mm típico**, ocasionalmente 15-30mm em
-  transferências de peso. Um gate de imobilidade que exija "parado de verdade" em escala
-  de pixel é fisicamente irrealista — o `STILL_TOLERANCE = 0.04` atual (≈4% da imagem,
-  ~3-8cm em escala corporal típica) é grosseiro mas do lado certo da realidade.
-- **Janela < 1,5s arrisca amostrar a postura num extremo do sway** — erro sistemático de
-  cm que contamina exatamente os parâmetros mais sensíveis (hipY0, ver §4).
+- A moda primária medida corresponde a períodos de ~2,2–3,3 s; uma captura de 2–4 s pode
+  conter aproximadamente um ciclo, dependendo do sujeito e da condição.
+- As fontes consultadas não medem o erro de uma mediana de landmarks nessa janela. Os
+  envelopes em milímetros acima descrevem CoP e não são limites de erro deste app.
+- Portanto, o limiar de 1,8 s é uma hipótese a validar com sinais reais antes de tratá-lo
+  como piso de qualidade do produto. O teste sintético verifica contagem temporal, não
+  precisão da postura estimada.
 
 ### 2.4 Erro sistemático não averageia — mas cancela por consistência
 
@@ -117,7 +117,8 @@ Consenso multi-fonte:
 
 | Âncora | Valor | Fonte |
 |---|---|---|
-| Envelope validado Google | pessoa a **2-4m**; >4m fora de escopo | [G] model card |
+| Envelope da avaliação legada MediaPipe | imagens avaliadas com pessoa a **2-4m**; não é garantia para este app | [G] avaliação Pose |
+| Limite de escopo do model card BlazePose GHUM | pessoas a mais de **4m** fora de escopo; sem distância mínima validada | [G] model card |
 | Tamanho mínimo do sujeito | **256×256px** "para melhores resultados" (heurístico, ambíguo) | [G] ML Kit |
 | Altura do sujeito | idealmente **≥1/3 da altura do frame** | [P] Apple Vision |
 | Entrada mínima | 480×360px | [G] ML Kit |
@@ -127,7 +128,7 @@ Geometria para nossa câmera típica (78° diag, HFOV ~70°, VFOV ~43°, classe 
 a 2m, pessoa de 1,7m ≈ **771px em 720p** — não cabe na vertical (107% do frame);
 a 2,5m ≈ 617px (86%, cabe com margem); a 1,5m **não cabe** em nenhuma hipótese.
 Em 640×480 o corpo inteiro exige ~2,3-3m dependendo da altura da pessoa — consistente
-com o envelope 2-4m do model card e com a prática da indústria (Kinect 1,8-2,5m,
+com a faixa usada na avaliação legada do MediaPipe e com a prática da indústria (Kinect 1,8-2,5m,
 PS Eye/PSVR 1,5-2m, Peloton/Tempo ~1,8-2,4m, OpenCap 2-3m) **[P/A]**.
 
 Largura de ombro de 40cm a 2-2,5m ≈ **145-181px em 720p** (~90-113px em 480p escalado)
@@ -216,43 +217,45 @@ de pernas estendidas importam mais que a contagem de amostras.
 
 ---
 
-## 5. Piso de tempo: a conta final
+## 5. Hipótese de implementação para o piso de tempo
 
-Derivação do mínimo de **sinal válido**:
+As fontes não permitem derivar um mínimo de **sinal válido** para esta aplicação:
 
 1. **Independência de ruído**: ~10 realizações independentes para mediana comprimir ruído
    branco residual. Com ruído correlacionado em τ~0,3-1s (pós-dupla-filtragem, ordem de
    grandeza [Inf]), isso pede 1-3s de janela. Não é o constraint dominante.
-2. **Época de sway**: cobrir ≥~meio-período da oscilação dominante (período 2-5s) para a
-   mediana cair perto do centro de massa da postura → **≥1,5-2s**. Constraint dominante.
-3. **Robustez a outliers**: mediana tolera até <50% contaminados; com cobertura 65% e
-   frames ruins concentrados, margem real exige a janela ser ~1,5× o sinal necessário.
+2. **Exposição a sway**: a literatura sugere componentes de baixa frequência em CoP, mas não
+   converte isso em duração mínima para landmarks de pose. O limite de **1,8 s** é uma
+   hipótese de implementação pendente de medir duração e erro com webcam real.
+3. **Robustez a outliers**: a mediana tolera até <50% de amostras contaminadas; o antigo
+   gate de 65% permitia até 35% de quadros inválidos, mas isso não mede erro residual nem
+   garante qualidade em uma janela mais curta.
 4. **Verificação de postura** (pernas estendidas, imobilidade): instantânea por frame,
    mas precisa coexistir com os frames válidos — na prática já coberta pelos itens acima.
 
-Resultado [Inf]: **piso ≈ 2s de sinal válido**, que com tolerância a blecaute (65%)
-vira **janela de relógio ≈ 3s** — exatamente o design atual. O piso absoluto com
-condições perfeitas (sem blecaute, drift baixo verificado) seria ~2s de relógio.
+Política do código: **1,8 s de sinal válido e pelo menos 2 s de span**, com cobertura de
+65% na coleta após o assentamento. Em fixtures estáticas, a tentativa completa em 2 s;
+nenhum desses números foi validado como limite de precisão com uma pessoa e webcam reais.
 
 ### 5.1 Onde dá para ganhar tempo sem perder qualidade
 
-1. **Saída adaptativa antecipada**: terminar aos ~2-2,2s se cobertura ≥90% E drift de
-   centroides baixo E confiança mediana alta. Caso típico economiza ~1s; caso ruim
-   continua 3s+. É a otimização real — não encolher a janela fixa.
-2. **Fundir settle com coleta**: o settle de 1s hoje é pré-condição pura; os frames do
-   settle que já estão bons poderiam entrar na janela (a verificação de imobilidade é
-   contínua de qualquer forma). Potencial: 4s → ~2,5-3s totais no caso bom.
-3. **Calibração por esporte com escopo mínimo**: tênis só precisa de ombros+pulsos
-   (parâmetros folgados — convergem em ~1-1,5s); corrida é quem puxa o piso de 2s
-   (hipY0/joelhos). Split já existe no rastreamento de cobertura; daria para ter
-   duração mínima distinta por trilha.
+1. **Saída adaptativa antecipada**: o código atual sonda os gates de cobertura por frame e
+   termina após ≥1,8 s de sinal válido (2 s no fixture perfeito). Ele não mede drift
+   independente nem exige 90% de cobertura; esses critérios só devem ser adicionados após
+   definir uma medida e validar com webcam real.
+2. **Fundir settle com coleta**: a implementação atual inclui os frames desde a âncora no
+   piso de sinal válido, mas avalia cobertura de falhas só depois do assentamento. O teste
+   sintético converge em 2 s; o ganho e a estabilidade da âncora precisam de avaliação real.
+3. **Calibração por esporte com escopo mínimo**: ainda é uma possibilidade de desenho.
+   Hoje ambos os esportes pedem ombros, punhos, quadris e joelhos; a trilha de tênis ainda
+   não tem um perfil reduzido nem um piso próprio validado.
 4. **Não ganha nada**: subir fps (ruído correlacionado), subir resolução (crop interno
    256²), aumentar contagem mínima de amostras além do span temporal.
 
 ### 5.2 O que não se deve fazer
 
-- **Janela < 1,5s fixa**: amostra sway em extremo; contamina hipY0/joelhos com cm de
-  erro sistemático — invisível nos testes porque fixtures sintéticas não têm sway.
+- **Reduzir o piso sem medir erro com webcam real**: os fixtures sintéticos não têm sway e
+  não mostram se uma calibração mais curta contamina hipY0, joelhos ou a posição de prontidão.
 - **Eliminar calibração por sessão**: os parâmetros apertados são posturais e de sessão.
   O que dá para eliminar é *re-calibração desnecessária* (cache de perfil por pessoa?
   — mas câmera/cômodo mudam; e coordenadas câmera-alinhadas não detectam mudança de
@@ -268,7 +271,7 @@ condições perfeitas (sem blecaute, drift baixo verificado) seria ~2s de relóg
 
 ### Condições (pré-requisitos de qualidade)
 
-| Dimensão | Piso | Alvo | Evidência |
+| Dimensão | Referência de engenharia | Alvo exploratório | Evidência |
 |---|---|---|---|
 | Distância (corpo inteiro) | ~2m (e cabeça visível) | 2-2,5m | [G][P][Calc] |
 | Altura do sujeito no frame | ≥1/3 | ≥1/2 com margem de movimento | [P Apple][Inf] |
@@ -285,11 +288,11 @@ condições perfeitas (sem blecaute, drift baixo verificado) seria ~2s de relóg
 
 | Componente | Mínimo teórico | Design atual | Caminho de melhoria |
 |---|---|---|---|
-| Sinal válido acumulado | **~2s** | ≥1,95s (65% de 3s) | — já no piso |
-| Janela de relógio | ~2s (condições perfeitas) | 3s | saída adaptativa antecipada |
-| Settle | 0 (fundível na coleta) | 1s | fusão com coleta + verificação contínua |
-| Total por tentativa (caso bom) | **~2-2,5s** | ~4s | ~2,5-3s com as duas melhorias |
-| Tênis apenas (trilha de pulsos) | ~1-1,5s | idem | duração distinta por trilha |
+| Sinal válido acumulado | **1,8s no código** | Não medido em webcam real | Hipótese derivada do gate anterior (65% × 2800 ms) |
+| Janela de relógio | ≥2s de span no código | Não medida em webcam real | Teste sintético estático |
+| Settle | Fundido à exposição desde a âncora | Verificar estabilidade de cada referência | Regra atual + teste sintético |
+| Total por tentativa (caso bom) | 2s nos fixtures | Não medido em webcam real | Testes não medem sway nem erro do perfil |
+| Tênis apenas (escopo reduzido) | Ainda não implementado | Medir antes de definir piso | Proposta exploratória |
 
 ### Falhas de ambiente a instruir (consenso de indústria, [P]×7 fabricantes)
 
@@ -309,28 +312,28 @@ falha repetida (padrão dos produtos comerciais).
 2. **Acurácia vs. iluminação real de webcam** (não simulação digital) — não existe.
 3. **Compressão MJPEG de USB vs. acurácia de pose** — não medido; 720p/1080p em USB2
    implicam MJPEG (442-995 Mbit/s não comprimidos vs. 480 teóricos) [Calc][P].
-4. **Distribuição populacional de excursão de quadril/ombros em janelas de 2-4s** —
-   posturografia mede 20-120s; os números de §2.3 são interpolação fundamentada [Inf].
+4. **Distribuição populacional do erro de landmarks em janelas de 2-4s** — posturografia
+   mede CoP por outras durações; não fornece erro de BlazePose Lite para este uso.
 5. **Validação com pessoa e câmera reais** — zero no projeto até aqui (issue #20);
    todas as amplitudes de sinal humano são estimativas de literatura.
 
 ## 8. Resposta em uma frase
 
-> **Mínimo real: ~2 segundos de sinal de pose válido, com corpo enquadrado (≥1/3 do
-> frame, cabeça visível, 2-3m), luz frontal de escritório (~300+ lux) e câmera imóvel —
-> ou seja, a janela de 3s com cobertura 65% já é esse piso com a tolerância a falhas
-> embutida; o ganho disponível não é encolher a exigência, é convergir adaptativamente
-> (~2,5s no caso bom em vez de 4s fixos) e cobrar menos do tênis, que não precisa da
-> trilha de pernas.**
+> **Hipótese atual do código: 1,8 segundos de sinal válido**, com corpo enquadrado e câmera
+> imóvel. A literatura de sway motiva medir exposições de vários segundos, mas não valida
+> esse limiar para landmarks do BlazePose Lite; a validação com webcam real ainda falta. A
+> implementação mantém tolerância a falhas via cobertura temporal e deve ser ajustada com
+> medições reais de erro e duração.
 
 ---
 
 ### Fontes principais
 
-- Physio2.2M — acurácia BlazePose vs. mocap em C920 [I]: nature.com/articles/s41598-025-22626-7
-- BlazePose paper/model card [G]: arxiv.org/abs/2006.10204 · developers.google.com/static/ml-kit/images/vision/pose-detection/pose_model_card.pdf
+- Physio2.2M — acurácia BlazePose vs. mocap em C920 [I]: https://www.nature.com/articles/s41598-025-22626-7
+- BlazePose paper/model card [G]: https://arxiv.org/abs/2006.10204 · https://developers.google.com/ml-kit/images/vision/pose-detection/pose_model_card.pdf
+- Avaliação legada MediaPipe Pose [G]: https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/pose.md (datasets com pessoas a 2–4 m; não valida este app)
 - ML Kit Pose guidance [G]: developers.google.com/ml-kit/vision/pose-detection/android
-- Posturografia: Kenny 2019 (PMC6449971), Wiesmeier 2015 (PMC4477145), Gatev (PMC2269093), Doyle 2008 SDA, Soames & Atha 1982
+- Posturografia: Kenny 2019 (PMC6449971), Wiesmeier 2015 (PMC4477145), Gatev (PMC2269093), Doyle 2008 SDA, [Soames & Atha 1982](https://pubmed.ncbi.nlm.nih.gov/6981506/) (frequência espectral de CoP, não janela de precisão de landmarks)
 - Multi-view webcam/Vicon [I]: PMC13766164 · stereo vs. monocular: PMC11644880
 - Degradação controlada Pose Landmarker [I]: PMC13747219 · PoseBench: arxiv.org/abs/2505.23760
 - Logitech C922 lux [P]: support.logi.com/hc/en-us/articles/360023345533

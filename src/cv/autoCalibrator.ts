@@ -1,15 +1,20 @@
 import type { CalibrationProfile, Point3, PoseSnapshot } from './protocol';
 import { Calibrator } from './calibrator';
-import { distance2, landmarkConfidence, midpoint } from '../kinematics/math';
+import { distance2, distance3, isFinitePoint, landmarkConfidence } from '../kinematics/math';
 
 const SETTLE_MS = 1000;
 const COLLECT_MS = 3000;
-/** Quanto ombros ou quadris podem andar na imagem (0–1) e ainda contar como parado. */
+/** Movimento máximo em coordenadas normalizadas da imagem para os joints usados no perfil. */
 const STILL_TOLERANCE = 0.04;
+/** Movimento 3D máximo relativo à largura do ombro; piso para não amplificar escalas degeneradas. */
+const WORLD_STILL_FRACTION = 0.2;
+const MIN_WORLD_STILL_METERS = 0.08;
 /** Ombros, punhos, quadris e joelhos: o que o Calibrator precisa enxergar. */
 const REQUIRED = [11, 12, 15, 16, 23, 24, 25, 26] as const;
 /** A postura em pé (salto e raia) só se verifica com os tornozelos: a corrida não abre mão dela. */
 const REQUIRED_STANCE = [...REQUIRED, 27, 28] as const;
+/** Todas as articulações que podem entrar nos valores de referência do perfil. */
+const CALIBRATION_LANDMARKS = [11, 12, 15, 16, 23, 24, 25, 26, 27, 28] as const;
 
 export type CalibrationPhase = 'framing' | 'settling' | 'collecting' | 'done';
 export interface CalibrationStep { phase: CalibrationPhase; progress: number; profile?: CalibrationProfile }
@@ -17,7 +22,12 @@ export interface CalibrationStep { phase: CalibrationPhase; progress: number; pr
 /** Calibra sozinho: espera o corpo enquadrado e parado, coleta e tenta de novo se falhar. */
 export class AutoCalibrator {
   private readonly calibrator = new Calibrator();
-  private anchor?: { shoulders: Point3; hips: Point3; since: number };
+  private anchor?: {
+    imageLandmarks: Map<number, Point3>;
+    worldLandmarks: Map<number, Point3>;
+    worldMovementTolerance: number;
+    since: number;
+  };
 
   update(snapshot: PoseSnapshot, needsStance = false): CalibrationStep {
     const required = needsStance ? REQUIRED_STANCE : REQUIRED;
@@ -41,12 +51,9 @@ export class AutoCalibrator {
       return this.advance(snapshot, needsStance);
     }
 
-    const l = snapshot.landmarks;
-    const shoulders = midpoint(l[11]!, l[12]!);
-    const hips = midpoint(l[23]!, l[24]!);
     if (!this.anchor || this.moved(snapshot)) {
       this.reset();
-      this.anchor = { shoulders, hips, since: snapshot.timestampMs };
+      this.anchor = this.createAnchor(snapshot);
       // A coleta começa na âncora, não no fim do repouso: os frames do settling já são
       // verificados como parados, então contam como sinal válido — a invariante de
       // qualidade é tempo de sinal válido, e o repouso é o trecho mais estável da janela.
@@ -70,11 +77,45 @@ export class AutoCalibrator {
     return this.conclude(needsStance);
   }
 
-  /** Ombros ou quadris se afastaram da âncora além da tolerância de parado. Requer âncora viva. */
+  /** Alguma articulação usada no perfil mudou em imagem ou em espaço mundial. */
   private moved(snapshot: PoseSnapshot): boolean {
-    const l = snapshot.landmarks;
-    return distance2(midpoint(l[11]!, l[12]!), this.anchor!.shoulders) > STILL_TOLERANCE
-      || distance2(midpoint(l[23]!, l[24]!), this.anchor!.hips) > STILL_TOLERANCE;
+    for (const index of CALIBRATION_LANDMARKS) {
+      const imagePoint = this.confidentPoint(snapshot.landmarks, index);
+      const anchoredImagePoint = this.anchor!.imageLandmarks.get(index);
+      if (!anchoredImagePoint && imagePoint) return true;
+      if (anchoredImagePoint && imagePoint && distance2(imagePoint, anchoredImagePoint) > STILL_TOLERANCE) return true;
+
+      const worldPoint = this.confidentPoint(snapshot.worldLandmarks, index);
+      const anchoredWorldPoint = this.anchor!.worldLandmarks.get(index);
+      if (!anchoredWorldPoint && worldPoint) return true;
+      if (anchoredWorldPoint && worldPoint && distance3(worldPoint, anchoredWorldPoint) > this.anchor!.worldMovementTolerance) return true;
+    }
+    return false;
+  }
+
+  private createAnchor(snapshot: PoseSnapshot) {
+    const imageLandmarks = new Map<number, Point3>();
+    const worldLandmarks = new Map<number, Point3>();
+    for (const index of CALIBRATION_LANDMARKS) {
+      const imagePoint = this.confidentPoint(snapshot.landmarks, index);
+      if (imagePoint) imageLandmarks.set(index, imagePoint);
+      const worldPoint = this.confidentPoint(snapshot.worldLandmarks, index);
+      if (worldPoint) worldLandmarks.set(index, worldPoint);
+    }
+    const leftShoulder = worldLandmarks.get(11);
+    const rightShoulder = worldLandmarks.get(12);
+    const shoulderWidth = leftShoulder && rightShoulder ? distance3(leftShoulder, rightShoulder) : 0;
+    return {
+      imageLandmarks,
+      worldLandmarks,
+      worldMovementTolerance: Math.max(MIN_WORLD_STILL_METERS, shoulderWidth * WORLD_STILL_FRACTION),
+      since: snapshot.timestampMs,
+    };
+  }
+
+  private confidentPoint(points: readonly (Point3 | undefined)[], index: number): Point3 | undefined {
+    const point = points[index];
+    return isFinitePoint(point) && landmarkConfidence(point) >= 0.55 ? point : undefined;
   }
 
   private conclude(needsStance: boolean): CalibrationStep {
