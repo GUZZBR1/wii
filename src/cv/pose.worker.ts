@@ -9,7 +9,7 @@ let delegate: Delegate = 'GPU';
 let attemptedFallback = false;
 
 async function createTask(nextDelegate: Delegate): Promise<void> {
-  const vision = await FilesetResolver.forVisionTasks(wasmBaseUrl);
+  const vision = await FilesetResolver.forVisionTasks(wasmBaseUrl, true);
   const response = await fetch(modelUrl);
   if (!response.ok) throw new Error(`Pose model request failed (${response.status})`);
   const modelBytes = new Uint8Array(await response.arrayBuffer());
