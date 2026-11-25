@@ -184,7 +184,6 @@ export class TrackGame {
       if (outcome === 'hit') {
         this.score.hurdleHit();
         this.shownSpeed = stumble(this.shownSpeed);
-        this.status = 'Tropeçou!';
         this.shakeTime = SHAKE_DURATION_S;
         this.showFeedback('hit', 'TROPEÇOU!');
       }
