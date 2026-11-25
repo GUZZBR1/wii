@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { OneEuroFilter } from '../src/cv/oneEuroFilter';
+import { AutoCalibrator } from '../src/cv/autoCalibrator';
 import { Calibrator } from '../src/cv/calibrator';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
 import { CadenceTracker } from '../src/kinematics/cadenceTracker';
@@ -152,8 +153,8 @@ describe('swing detector', () => {
   });
 
   it('emits one swing and ignores the fast return until the ready pose is held', () => {
-    const detector = new SwingDetector();
-    const profile = calibration('right');
+    const detector = new SwingDetector('right');
+    const profile = calibration();
     expect(detector.update(pose(0), profile)).toBeUndefined();
     expect(detector.update(pose(100, { wristLateral: -0.3 }), profile)).toBeUndefined();
     expect(detector.update(pose(150, { wristLateral: 0.2 }), profile)).toMatchObject({ side: 'forehand' });
@@ -162,8 +163,8 @@ describe('swing detector', () => {
   });
 
   it.each(['wristVertical', 'wristDepth'] as const)('does not confirm a swing from %s motion', (axis) => {
-    const detector = new SwingDetector();
-    const profile = calibration('right');
+    const detector = new SwingDetector('right');
+    const profile = calibration();
     const signals = [detector.update(pose(0), profile)];
     for (let time = 100; time <= 500; time += 40) {
       signals.push(detector.update(pose(time, { [axis]: 0.3, wristLateral: 0.02 }), profile));
@@ -172,8 +173,8 @@ describe('swing detector', () => {
   });
 
   it('keeps a lateral peak when the wrist finishes upward', () => {
-    const detector = new SwingDetector();
-    const profile = calibration('right');
+    const detector = new SwingDetector('right');
+    const profile = calibration();
     const frames = [pose(0), pose(33), pose(66, { wristLateral: -0.11 })];
     for (let time = 99; time <= 495; time += 33) frames.push(pose(time, { wristLateral: -0.12, wristVertical: 0.3 }));
     const signals = frames.map((frame) => detector.update(frame, profile)).filter(Boolean);
@@ -181,8 +182,8 @@ describe('swing detector', () => {
   });
 
   it('requires a new neutral dwell after each swing', () => {
-    const detector = new SwingDetector();
-    const profile = calibration('right');
+    const detector = new SwingDetector('right');
+    const profile = calibration();
     detector.reset();
     for (let time = 0; time <= 240; time += 40) detector.update(pose(time), profile);
     detector.update(pose(270, { wristLateral: -0.2 }), profile);
@@ -193,8 +194,8 @@ describe('swing detector', () => {
   });
 
   it('drops a pending swing after a tracking gap', () => {
-    const detector = new SwingDetector();
-    const profile = calibration('right');
+    const detector = new SwingDetector('right');
+    const profile = calibration();
     detector.update(pose(0), profile);
     detector.update(pose(99, { wristLateral: -0.3 }), profile);
     expect(detector.update(pose(3099, { wristLateral: -0.3 }), profile)).toBeUndefined();
@@ -202,12 +203,12 @@ describe('swing detector', () => {
 
   it('classifies the peak stroke direction and maps the peak wrist position into three aim zones', () => {
     const classify = (hand: 'left' | 'right', displacement: number, rotate = false) => {
-      const detector = new SwingDetector();
-      const profile = calibration(hand);
+      const detector = new SwingDetector(hand);
+      const profile = calibration();
       let signal: ReturnType<SwingDetector['update']>;
       for (const time of [0, 20, 40, 60, 80, 110]) {
         const progress = time <= 80 ? time / 80 : 1 - (time - 80) / 30;
-        const snapshot = pose(time, { wristLateral: displacement * progress });
+        const snapshot = pose(time, { [hand === 'right' ? 'wristLateral' : 'leftWristLateral']: displacement * progress });
         const current = detector.update(rotate ? rotateWorldYaw(snapshot, 0.9) : snapshot, profile);
         if (current) signal = current;
       }
@@ -222,16 +223,16 @@ describe('swing detector', () => {
   });
 
   it('does not infer a swing from frame-to-frame shoulder-width variation', () => {
-    const detector = new SwingDetector();
-    const profile = calibration('right');
+    const detector = new SwingDetector('right');
+    const profile = calibration();
     const frames = [0.4, 0.6, 0.4, 0.6, 0.4].map((width, index) => poseWithWorldShoulderWidth(index * 33, width));
     const signals = frames.map((frame) => detector.update(frame, profile)).filter(Boolean);
     expect(signals).toHaveLength(0);
   });
 
   it('waits for a neutral ready pose before rearming after a confirmed tracking loss', () => {
-    const detector = new SwingDetector();
-    const profile = calibration('right');
+    const detector = new SwingDetector('right');
+    const profile = calibration();
     detector.reset();
     for (let time = 0; time <= 240; time += 40) expect(detector.update(pose(time), profile)).toBeUndefined();
     expect(detector.update(pose(270, { wristLateral: -0.2 }), profile)).toBeUndefined();
@@ -244,14 +245,14 @@ describe('world-space posture calibration', () => {
     const calibrator = new Calibrator();
     calibrator.start(0);
     for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { leanRad: 0.2 }));
-    expect(calibrator.finish('right')?.world.torsoLeanRad0).toBeCloseTo(0.2, 2);
+    expect(calibrator.finish()?.world.torsoLeanRad0).toBeCloseTo(0.2, 2);
   });
 
   it('rejects calibration when the full-body landmarks stay below the confidence gate', () => {
     const calibrator = new Calibrator();
     calibrator.start(0);
     for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { hiddenLandmarks: [25, 26] }));
-    expect(calibrator.finish('right')).toBeNull();
+    expect(calibrator.finish()).toBeNull();
   });
 
   it('counts degraded frames in calibration coverage instead of hiding them from the ratio', () => {
@@ -263,7 +264,7 @@ describe('world-space posture calibration', () => {
       if (invalid) snapshot.trackingState = 'degraded';
       calibrator.add(snapshot);
     }
-    expect(calibrator.finish('right')).toBeNull();
+    expect(calibrator.finish()).toBeNull();
   });
 
   it('uses world torso geometry for lane lean and emits one direction while the pose is held', () => {
@@ -285,7 +286,7 @@ describe('world-space posture calibration', () => {
     const calibrator = new Calibrator();
     calibrator.start(0);
     for (let time = 0; time <= 3000; time += 100) calibrator.add(frame(time, time % 200 === 0 ? 0.01 : -0.01));
-    const profile = calibrator.finish('right')!;
+    const profile = calibrator.finish()!;
     expect(torsoLeanDeltaRad(frame(0, roll), profile)).toBeCloseTo(roll, 1);
     const detector = new LaneLeanDetector();
     const signals = Array.from({ length: 12 }, (_, i) => detector.update(frame(i * 33, i < 4 ? 0 : roll), profile));
@@ -325,7 +326,7 @@ describe('action pipeline tracking gate', () => {
 
   it('keeps upper-body swings available when knees are outside the camera frame', () => {
     const pipeline = new ActionPipeline();
-    const profile = calibration('right');
+    const profile = calibration();
     const hiddenKnees = { hiddenLandmarks: [25, 26] } as const;
     [0, 33, 66].forEach((time) => { pipeline.update(pose(time, hiddenKnees), profile); });
     pipeline.update(pose(100, { ...hiddenKnees, wristLateral: -0.3 }), profile);
@@ -385,7 +386,7 @@ describe('action pipeline tracking gate', () => {
 
   it('keeps the swing arc across a brief wrist occlusion and reports the gate confidence', () => {
     const pipeline = new ActionPipeline();
-    const profile = calibration('right');
+    const profile = calibration();
     [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
     pipeline.update(withWorldConfidence(pose(99, { wristLateral: -0.3 }), 11, 0.6, 0.6), profile);
     pipeline.update(withWorldConfidence(pose(132, { wristLateral: -0.3 }), 16, 0.1, 0.1), profile);
@@ -420,7 +421,7 @@ describe('action pipeline tracking gate', () => {
 
   it('uses peak-frame confidence even when confidence is lower at confirmation time', () => {
     const pipeline = new ActionPipeline();
-    const profile = calibration('right');
+    const profile = calibration();
     [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
     pipeline.update(pose(99, { wristLateral: -0.3 }), profile);
     pipeline.update(withWorldConfidence(pose(132, { wristLateral: -0.3 }), 16, 0.1, 0.1), profile);
@@ -433,7 +434,7 @@ describe('action pipeline tracking gate', () => {
 
   it('uses landmark presence as well as visibility to gate a swing', () => {
     const pipeline = new ActionPipeline();
-    const profile = calibration('right');
+    const profile = calibration();
     const lowPresence = (time: number, wristLateral = 0) => withWorldConfidence(pose(time, { wristLateral }), 11, 0.95, 0.4);
     [0, 33, 66].forEach((time) => { pipeline.update(lowPresence(time), profile); });
     pipeline.update(lowPresence(99, -0.3), profile);
@@ -443,7 +444,7 @@ describe('action pipeline tracking gate', () => {
 
   it('allows a swing when only its feature landmarks are tracked, and labels that local gate', () => {
     const pipeline = new ActionPipeline();
-    const profile = calibration('right');
+    const profile = calibration();
     const missingHips = (time: number, wristLateral = 0) => {
       const snapshot = pose(time, { wristLateral });
       snapshot.landmarks = snapshot.landmarks.map((point, index) => [23, 24].includes(index) ? { ...point, visibility: 0.1, presence: 0.1 } : point);
@@ -456,4 +457,46 @@ describe('action pipeline tracking gate', () => {
     expect(recovery.snapshot.trackingState).toBe('lost');
     expect(swing).toMatchObject({ type: 'swing', trackingState: 'tracked' });
   });
+});
+
+describe('mão da raquete', () => {
+  it.each(['wristLateral', 'leftWristLateral'] as const)('reconhece o golpe sem escolher a mão (%s)', (wrist) => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const frames = [pose(0), pose(33), pose(66), pose(99), pose(132, { [wrist]: -0.3 }), pose(165, { [wrist]: 0.2 }), pose(198, { [wrist]: 0.2 })];
+    const swings = frames.flatMap((frame) => pipeline.update(frame, profile).events).filter((event) => event.type === 'swing');
+    expect(swings).toHaveLength(1);
+  });
+});
+
+describe('calibração automática', () => {
+  const run = (frame: (time: number) => ReturnType<typeof pose>) => {
+    const auto = new AutoCalibrator();
+    return Array.from({ length: 61 }, (_, i) => auto.update(frame(i * 100)));
+  };
+
+  it('calibra sozinha com o corpo parado, com repouso para as duas mãos', () => {
+    const profile = run((time) => pose(time)).find((step) => step.profile)?.profile;
+    expect(profile?.world.readyWristLocal.left).toBeDefined();
+    expect(profile?.world.readyWristLocal.right).toBeDefined();
+  });
+
+  it('não calibra enquanto a pessoa se mexe', () => {
+    expect(run((time) => pose(time, { hipRise: time % 1000 < 500 ? 0 : 0.3 })).some((step) => step.profile)).toBe(false);
+  });
+
+  it('pede enquadramento sem rastreamento', () => {
+    expect(run((time) => ({ ...pose(time), trackingState: 'lost' })).every((step) => step.phase === 'framing')).toBe(true);
+  });
+});
+
+it('pede enquadramento enquanto os joelhos não aparecem', () => {
+  const auto = new AutoCalibrator();
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(pose(i * 100, { hiddenLandmarks: [25, 26] })));
+  expect(steps.every((step) => step.phase === 'framing')).toBe(true);
+});
+
+it('pede enquadramento quando não há ninguém no quadro', () => {
+  const empty = { ...pose(0), landmarks: [], worldLandmarks: [], trackingState: 'lost' as const };
+  expect(new AutoCalibrator().update(empty)).toEqual({ phase: 'framing', progress: 0 });
 });

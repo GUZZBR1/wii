@@ -10,11 +10,14 @@ export class ActionPipeline {
   private readonly cadenceGate = new TrackingGate([23, 24, 25, 26]);
   private readonly jumpGate = new TrackingGate([23, 24]);
   private readonly laneGate = new TrackingGate([11, 12, 23, 24], 'world');
-  private readonly swingGate = new TrackingGate([], 'world');
   private readonly cadence = new CadenceTracker();
   private readonly jump = new JumpDetector();
   private readonly lean = new LaneLeanDetector();
-  private readonly swing = new SwingDetector();
+  /** One detector per wrist: whichever arm swings is the racket hand. */
+  private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
+    { wrist, gate: new TrackingGate([], 'world'), detector: new SwingDetector(hand) }
+  ));
+  private lastSwingAt = Number.NEGATIVE_INFINITY;
   private nextId = 1;
   /** True while the last emitted sprint event left the game moving. */
   private sprinting = false;
@@ -60,18 +63,18 @@ export class ActionPipeline {
       if (lane) events.push({ ...this.eventBase(snapshot, laneTracking.confidence), id: this.nextId++, type: 'lane', direction: lane });
     } else if (laneTracking.state === 'lost') this.lean.reset();
 
-    const hand = calibration.dominantHand;
-    const wristIndex = hand === 'right' ? 16 : 15;
-    const swingTracking = this.swingGate.evaluate(snapshot, [11, 12, 23, 24, wristIndex], 'world');
-    if (swingTracking.state === 'tracked') {
-      const swing = this.swing.update(current, calibration);
-      if (swing) {
-        const { confidence, peakTimestampMs, ...action } = swing;
-        events.push({
-          ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'swing', ...action, peakTimestampMs,
-        });
-      }
-    } else if (swingTracking.state === 'lost') this.swing.reset();
+    const candidates = this.swings.flatMap(({ wrist, gate, detector }) => {
+      const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, wrist], 'world');
+      if (tracking.state === 'lost') detector.reset();
+      const swing = tracking.state === 'tracked' ? detector.update(current, calibration) : undefined;
+      return swing ? [swing] : [];
+    });
+    const [swing] = candidates.sort((a, b) => b.power01 - a.power01);
+    if (swing && snapshot.timestampMs - this.lastSwingAt >= 400) {
+      this.lastSwingAt = snapshot.timestampMs;
+      const { confidence, peakTimestampMs, ...action } = swing;
+      events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'swing', ...action, peakTimestampMs });
+    }
 
     return { snapshot: current, events, controls, kinematicsMs: performance.now() - start };
   }
@@ -79,7 +82,7 @@ export class ActionPipeline {
   /** Returns the events the game still needs, such as stopping a sprint in progress. */
   reset(): SportActionEvent[] {
     const stopped = this.stopSprint(performance.now(), 0);
-    this.bodyGate.reset(); this.cadenceGate.reset(); this.jumpGate.reset(); this.laneGate.reset(); this.swingGate.reset();
+    this.bodyGate.reset(); this.cadenceGate.reset(); this.jumpGate.reset(); this.laneGate.reset(); this.swings.forEach(({ gate }) => { gate.reset(); });
     this.resetDetectors();
     return stopped;
   }
@@ -94,5 +97,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.lean.reset(); this.swing.reset(); }
+  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.lean.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; }
 }

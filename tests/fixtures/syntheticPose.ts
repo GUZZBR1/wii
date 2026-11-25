@@ -1,10 +1,11 @@
-import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from '../../src/cv/protocol';
+import type { CalibrationProfile, Point3, PoseSnapshot } from '../../src/cv/protocol';
 
 export function pose(timestampMs: number, options: {
   kneeLeft?: number;
   kneeRight?: number;
   hipRise?: number;
   wristLateral?: number;
+  leftWristLateral?: number;
   wristVertical?: number;
   wristDepth?: number;
   leanRad?: number;
@@ -32,7 +33,7 @@ export function pose(timestampMs: number, options: {
   const leanOffset = Math.tan(options.leanRad ?? 0) * 0.4;
   world[11] = { ...world[11]!, x: 0.2 - leanOffset, y: -0.4 };
   world[12] = { ...world[12]!, x: -0.2 - leanOffset, y: -0.4 };
-  world[15] = { ...world[15]!, x: 0.2 - (options.wristLateral ?? 0), y: 0.1 };
+  world[15] = { ...world[15]!, x: 0.2 - (options.leftWristLateral ?? 0), y: 0.1 };
   world[16] = {
     ...world[16]!,
     x: -0.2 - (options.wristLateral ?? 0),
@@ -78,11 +79,11 @@ export function poseWithWorldShoulderWidth(timestampMs: number, width: number, w
   return { ...snapshot, worldLandmarks: world };
 }
 
-export function calibration(hand: Hand = 'right'): CalibrationProfile {
+export function calibration(): CalibrationProfile {
   return {
-    version: 1, completedAtMs: 3000, dominantHand: hand,
+    version: 1, completedAtMs: 3000,
     image: { torsoHeight: 0.4, hipY0: 0.55, kneeToHipY0: { left: -0.5, right: -0.5 }, shoulderWidth: 0.14 },
-    world: { shoulderWidth: 0.4, torsoLeanRad0: 0, readyWristLocal: { x: 0, y: -1.25, z: 0 } },
+    world: { shoulderWidth: 0.4, torsoLeanRad0: 0, readyWristLocal: { left: { x: 0, y: -1.25, z: 0 }, right: { x: 0, y: -1.25, z: 0 } } },
     quality: { validFrameRatio: 1, medianConfidence: 0.95 },
   };
 }

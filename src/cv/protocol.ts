@@ -22,7 +22,6 @@ export interface PoseSnapshot {
 export interface CalibrationProfile {
   version: 1;
   completedAtMs: number;
-  dominantHand: Hand;
   image: {
     torsoHeight: number;
     hipY0: number;
@@ -32,8 +31,8 @@ export interface CalibrationProfile {
   world: {
     shoulderWidth: number;
     torsoLeanRad0: number;
-    /** Dominant wrist relative to its shoulder in a body-local frame, normalized by calibrated shoulder width. */
-    readyWristLocal: Point3;
+    /** Each wrist relative to its shoulder in a body-local frame, normalized by calibrated shoulder width. */
+    readyWristLocal: Record<Hand, Point3>;
   };
   quality: { validFrameRatio: number; medianConfidence: number };
 }
