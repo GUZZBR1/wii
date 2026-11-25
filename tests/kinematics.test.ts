@@ -44,6 +44,13 @@ describe('landmark confidence', () => {
     expect(landmarkConfidence()).toBe(0);
     expect(landmarkConfidence({ x: 0, y: 0, z: 0, presence: 0.8 })).toBe(0.8);
   });
+
+  it('returns zero for non-finite confidence instead of propagating it', () => {
+    expect(landmarkConfidence({ x: 0, y: 0, z: 0, visibility: Number.NaN })).toBe(0);
+    // NaN masks a finite presence through Math.min; positive infinity masks it only when both are infinite.
+    expect(landmarkConfidence({ x: 0, y: 0, z: 0, visibility: Number.NaN, presence: 0.9 })).toBe(0);
+    expect(landmarkConfidence({ x: 0, y: 0, z: 0, visibility: Number.POSITIVE_INFINITY, presence: 0.9 })).toBe(0.9);
+  });
 });
 
 describe('cadence tracker', () => {
@@ -274,6 +281,25 @@ describe('world-space posture calibration', () => {
     const calibrator = new Calibrator();
     calibrator.start(0);
     for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { hiddenLandmarks: [25, 26] }));
+    expect(calibrator.finish()).toBeNull();
+  });
+
+  it('rejects frames that would fail the body tracking gate — lost frames never count as valid', () => {
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    // The body gate marks a frame degraded/lost when image landmarks [11,12,23,24] drop
+    // below 0.55. Finish() must agree — its confidence set has to stay a superset of the
+    // gate's, otherwise tolerated bad frames would enter the medians as valid samples.
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { hiddenLandmarks: [11, 12, 23, 24] }));
+    expect(calibrator.finish()).toBeNull();
+  });
+
+  it('rejects calibration when confidence is NaN instead of counting those frames as valid', () => {
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    // `< 0.55` rejection gates never fire on NaN — without the non-finite floor these frames
+    // passed every gate and poisoned the medians (medianConfidence came out NaN, ratio 1).
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { confidence: Number.NaN }));
     expect(calibrator.finish()).toBeNull();
   });
 
@@ -897,4 +923,35 @@ it('reinicia o repouso quando o rastreamento se perde antes de coletar', () => {
   const firstCollect = steps.findIndex((step) => step.phase === 'collecting');
   expect(firstCollect).toBeGreaterThanOrEqual(19);
   expect(steps.some((step) => step.profile)).toBe(true);
+});
+
+it('tolera um lost transitório no meio da coleta', () => {
+  const auto = new AutoCalibrator();
+  // A ~130 ms tracking blackout inside the collection (the gate flips to 'lost' after 4
+  // bad core frames) must not throw the attempt away: the lost frames count toward the
+  // coverage denominator like any other bad frame and the profile still comes out.
+  const lost = (time: number) => ({ ...pose(time, { hiddenLandmarks: [11, 12, 23, 24] }), trackingState: 'lost' as const });
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 25 && i <= 28 ? lost(i * 100) : pose(i * 100)));
+  expect(steps[25]?.phase).toBe('collecting');
+  expect(steps[28]?.phase).toBe('collecting');
+  expect(steps.some((step) => step.profile)).toBe(true);
+});
+
+it('derruba a tentativa quando a pessoa se move durante um blecaute que o gate não recupera', () => {
+  const auto = new AutoCalibrator();
+  // Blackout at i=20-23 during which the player steps aside (hipRise shifts hips/shoulders
+  // by 0.08 > STILL_TOLERANCE). Afterwards the gate flaps — a bad frame every third keeps
+  // 'tracked' unreachable — yet ~71% of samples are individually valid. A visible frame
+  // outside 'tracked' still proves where the body is: it must re-verify stillness instead
+  // of feeding post-move positions into the same medians as the pre-move ones.
+  const frame = (i: number) => {
+    const time = i * 100;
+    if (i <= 19) return pose(time);
+    if (i <= 23) return { ...pose(time, { hiddenLandmarks: [11, 12, 23, 24] }), trackingState: 'lost' as const };
+    const moved = { hipRise: 0.2 };
+    const bad = (i - 24) % 3 === 2;
+    return { ...pose(time, bad ? { ...moved, hiddenLandmarks: [11, 12, 23, 24] } : moved), trackingState: 'degraded' as const };
+  };
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(frame(i)));
+  expect(steps.some((step) => step.profile)).toBe(false);
 });
