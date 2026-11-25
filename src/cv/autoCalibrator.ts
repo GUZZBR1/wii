@@ -18,36 +18,27 @@ export interface CalibrationStep { phase: CalibrationPhase; progress: number; pr
 export class AutoCalibrator {
   private readonly calibrator = new Calibrator();
   private anchor?: { shoulders: Point3; hips: Point3; since: number };
-  private collecting = false;
 
   update(snapshot: PoseSnapshot, needsStance = false): CalibrationStep {
     const required = needsStance ? REQUIRED_STANCE : REQUIRED;
     const visible = required.every((index) => snapshot.landmarks[index]) && landmarkConfidence(...required.map((index) => snapshot.landmarks[index]!)) >= 0.55;
-    // Antes da coleta não há investimento a proteger: qualquer estado ruim reinicia do framing.
-    if (!this.collecting && (snapshot.trackingState === 'lost' || !visible)) {
-      this.reset();
+    // Sem âncora não há investimento a proteger: quadro ruim é só enquadramento.
+    if (!this.anchor && (snapshot.trackingState !== 'tracked' || !visible)) {
       return { phase: 'framing', progress: 0 };
     }
-    // Durante a coleta todo quadro ruim conta no denominador de cobertura e no prazo —
-    // degradado, fora de enquadramento ou rastreamento perdido: o Calibrator ignora quadros
-    // inválidos nas medianas, não no total, e atingido o prazo a tentativa se encerra mesmo
-    // sem voltar a enxergar. Uma perda de ~130 ms no meio de uma janela de 3 s não deve
-    // descartar os ~2,9 s de amostras válidas que a cercam.
+    // Ancorado, todo quadro ruim conta no denominador de cobertura e no prazo — inclusive no
+    // repouso, porque com a fusão o investimento começa na âncora, não na coleta. Um frame
+    // visível prova onde o corpo está mesmo sem o gate ter voltado a 'tracked': antes de entrar
+    // na cobertura ele re-verifica a imobilidade — flapping após um blecaute não pode esconder
+    // um deslocamento que contaminaria as medianas. Só um frame 'tracked' prova estabilidade
+    // para re-ancorar; aqui, mover derruba a tentativa.
     if (snapshot.trackingState !== 'tracked' || !visible) {
-      if (this.collecting) {
-        // Um frame visível prova onde o corpo está mesmo sem o gate ter voltado a 'tracked':
-        // antes de entrar na cobertura ele re-verifica a imobilidade — flapping após um
-        // blecaute não pode esconder um deslocamento que contaminaria as medianas. Só um
-        // frame 'tracked' prova estabilidade para re-ancorar; aqui, mover derruba a tentativa.
-        if (visible && this.moved(snapshot)) {
-          this.reset();
-          return { phase: 'framing', progress: 0 };
-        }
-        this.calibrator.add(snapshot);
-        const progress = Math.max(0, Math.min(1, (snapshot.timestampMs - this.anchor!.since - SETTLE_MS) / COLLECT_MS));
-        return progress < 1 ? { phase: 'collecting', progress } : this.conclude(needsStance);
+      if (visible && this.moved(snapshot)) {
+        this.reset();
+        return { phase: 'framing', progress: 0 };
       }
-      return { phase: this.anchor ? 'settling' : 'framing', progress: 0 };
+      this.calibrator.add(snapshot);
+      return this.advance(snapshot, needsStance);
     }
 
     const l = snapshot.landmarks;
@@ -56,14 +47,24 @@ export class AutoCalibrator {
     if (!this.anchor || this.moved(snapshot)) {
       this.reset();
       this.anchor = { shoulders, hips, since: snapshot.timestampMs };
-    }
-    const stillMs = snapshot.timestampMs - this.anchor.since;
-    if (stillMs < SETTLE_MS) return { phase: 'settling', progress: 0 };
-    if (!this.collecting) {
-      this.calibrator.start(snapshot.timestampMs);
-      this.collecting = true;
+      // A coleta começa na âncora, não no fim do repouso: os frames do settling já são
+      // verificados como parados, então contam como sinal válido — a invariante de
+      // qualidade é tempo de sinal válido, e o repouso é o trecho mais estável da janela.
+      this.calibrator.start(snapshot.timestampMs, SETTLE_MS);
     }
     this.calibrator.add(snapshot);
+    return this.advance(snapshot, needsStance);
+  }
+
+  /** Fase pelo tempo desde a âncora e sonda a convergência a cada frame: o finish() decide sozinho quando a qualidade fecha — condições boas terminam cedo, degradadas esticam até o prazo. */
+  private advance(snapshot: PoseSnapshot, needsStance: boolean): CalibrationStep {
+    const stillMs = snapshot.timestampMs - this.anchor!.since;
+    if (stillMs < SETTLE_MS) return { phase: 'settling', progress: 0 };
+    const probe = this.calibrator.finish();
+    if (probe && (!needsStance || probe.world.leanUp0)) {
+      this.reset();
+      return { phase: 'done', progress: 1, profile: probe };
+    }
     const progress = Math.min(1, (stillMs - SETTLE_MS) / COLLECT_MS);
     if (progress < 1) return { phase: 'collecting', progress };
     return this.conclude(needsStance);
@@ -85,5 +86,5 @@ export class AutoCalibrator {
     return { phase: 'framing', progress: 0 };
   }
 
-  reset(): void { this.calibrator.reset(); this.anchor = undefined; this.collecting = false; }
+  reset(): void { this.calibrator.reset(); this.anchor = undefined; }
 }

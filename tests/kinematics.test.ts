@@ -892,9 +892,12 @@ const lostPose = (time: number) => ({ ...pose(time), landmarks: [], worldLandmar
 
 it('absorve uma perda curta de rastreamento na cobertura da coleta', () => {
   const auto = new AutoCalibrator();
-  // ~600 ms sem pose no meio da janela: ~20% dos quadros — a cobertura de 65% ainda aprova.
-  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 20 && i < 26 ? lostPose(i * 100) : pose(i * 100)));
-  expect(steps.some((step) => step.profile)).toBe(true);
+  // ~600 ms sem pose no início da coleta, antes da convergência: a saída adaptativa estica
+  // além dos 2 s do caso perfeito mas ainda termina muito antes do prazo de 4 s.
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 13 && i < 19 ? lostPose(i * 100) : pose(i * 100)));
+  const doneIndex = steps.findIndex((step) => step.profile);
+  expect(doneIndex).toBeGreaterThan(20);
+  expect(doneIndex).toBeLessThan(40);
 });
 
 it('encerra a tentativa no prazo mesmo quando o rastreamento não volta', () => {
@@ -909,19 +912,21 @@ it('encerra a tentativa no prazo mesmo quando o rastreamento não volta', () => 
 
 it('rejeita pela cobertura e retenta quando a perda cobre boa parte da janela', () => {
   const auto = new AutoCalibrator();
-  // 1,2 s sem pose numa janela de 3 s: ~60% de válidos, abaixo dos 65% — a tentativa morre
-  // na cobertura, não no reset, e a coleta recomeça com o corpo de volta.
-  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 20 && i < 32 ? lostPose(i * 100) : pose(i * 100)));
+  // 1,2 s sem pose cobrindo o meio da coleta: válidos na janela de coleta ficam abaixo dos
+  // 65% — a tentativa morre na cobertura, não no reset, e a coleta recomeça com o corpo de volta.
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 13 && i < 25 ? lostPose(i * 100) : pose(i * 100)));
   expect(steps.some((step) => step.profile)).toBe(false);
   expect(steps.at(-1)?.phase).toBe('collecting');
 });
 
-it('reinicia o repouso quando o rastreamento se perde antes de coletar', () => {
+it('absorve na cobertura uma perda durante o repouso em vez de recomeçar do zero', () => {
   const auto = new AutoCalibrator();
-  // Perda durante o settling não tem coleta a proteger: o repouso recomeça do zero.
+  // Com a fusão o investimento começa na âncora: perda no settling não joga fora os frames
+  // bons já colhidos — conta no denominador como qualquer quadro ruim. A convergência atrasa
+  // um pouco (sinal válido menor) mas a tentativa não reinicia: nada de framing depois da âncora.
   const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 5 && i < 9 ? lostPose(i * 100) : pose(i * 100)));
-  const firstCollect = steps.findIndex((step) => step.phase === 'collecting');
-  expect(firstCollect).toBeGreaterThanOrEqual(19);
+  const anchored = steps.slice(9);
+  expect(anchored.some((step) => step.phase === 'framing')).toBe(false);
   expect(steps.some((step) => step.profile)).toBe(true);
 });
 
@@ -931,27 +936,88 @@ it('tolera um lost transitório no meio da coleta', () => {
   // bad core frames) must not throw the attempt away: the lost frames count toward the
   // coverage denominator like any other bad frame and the profile still comes out.
   const lost = (time: number) => ({ ...pose(time, { hiddenLandmarks: [11, 12, 23, 24] }), trackingState: 'lost' as const });
-  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 25 && i <= 28 ? lost(i * 100) : pose(i * 100)));
-  expect(steps[25]?.phase).toBe('collecting');
-  expect(steps[28]?.phase).toBe('collecting');
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 13 && i <= 16 ? lost(i * 100) : pose(i * 100)));
+  expect(steps[13]?.phase).toBe('collecting');
+  expect(steps[16]?.phase).toBe('collecting');
   expect(steps.some((step) => step.profile)).toBe(true);
 });
 
 it('derruba a tentativa quando a pessoa se move durante um blecaute que o gate não recupera', () => {
   const auto = new AutoCalibrator();
-  // Blackout at i=20-23 during which the player steps aside (hipRise shifts hips/shoulders
+  // Blackout at i=13-16 during which the player steps aside (hipRise shifts hips/shoulders
   // by 0.08 > STILL_TOLERANCE). Afterwards the gate flaps — a bad frame every third keeps
   // 'tracked' unreachable — yet ~71% of samples are individually valid. A visible frame
   // outside 'tracked' still proves where the body is: it must re-verify stillness instead
   // of feeding post-move positions into the same medians as the pre-move ones.
   const frame = (i: number) => {
     const time = i * 100;
-    if (i <= 19) return pose(time);
-    if (i <= 23) return { ...pose(time, { hiddenLandmarks: [11, 12, 23, 24] }), trackingState: 'lost' as const };
+    if (i <= 12) return pose(time);
+    if (i <= 16) return { ...pose(time, { hiddenLandmarks: [11, 12, 23, 24] }), trackingState: 'lost' as const };
     const moved = { hipRise: 0.2 };
-    const bad = (i - 24) % 3 === 2;
+    const bad = (i - 17) % 3 === 2;
     return { ...pose(time, bad ? { ...moved, hiddenLandmarks: [11, 12, 23, 24] } : moved), trackingState: 'degraded' as const };
   };
   const steps = Array.from({ length: 61 }, (_, i) => auto.update(frame(i)));
   expect(steps.some((step) => step.profile)).toBe(false);
+});
+
+it('converge cedo em condições boas: 2 s de sinal válido bastam, não 4 s de relógio', () => {
+  const auto = new AutoCalibrator();
+  // Piso da pesquisa de exposição mínima: ~2 s de sinal válido. Com cobertura perfeita o
+  // repouso fundido já conta como sinal, então a convergência fecha no span de 2000 ms —
+  // metade da exposição do design de janela fixa (1 s settle + 3 s coleta).
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(pose(i * 100)));
+  expect(steps.findIndex((step) => step.phase === 'done')).toBe(20);
+  expect(steps[19]?.phase).toBe('collecting');
+});
+
+it('estica a coleta quando a cobertura degrada em vez de encerrar no tempo fixo', () => {
+  const auto = new AutoCalibrator();
+  // Blecaute de 500 ms logo no início da coleta: em 2 s ainda não há sinal válido suficiente,
+  // então a convergência desliza para quando a invariante fecha — antes do prazo de 4 s.
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 10 && i < 15 ? lostPose(i * 100) : pose(i * 100)));
+  expect(steps[20]?.phase).toBe('collecting');
+  expect(steps.findIndex((step) => step.phase === 'done')).toBe(24);
+});
+
+it('continua coletando quando a postura em pé ainda não verificou em vez de abortar a sonda', () => {
+  const auto = new AutoCalibrator();
+  // Tornozelos (world) só aparecem em i=15: nas sondas de i=20–23 a cobertura já fecha mas
+  // a vertical das pernas ainda não — abortar aqui jogaria fora uma calibração que verifica
+  // pouco depois. O perfil final tem que sair com leanUp0, sem resetar para o framing.
+  const frame = (i: number) => {
+    const snapshot = pose(i * 100);
+    return i < 15 ? withWorldConfidence(withWorldConfidence(snapshot, 27, 0, 0), 28, 0, 0) : snapshot;
+  };
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(frame(i), true));
+  expect(steps[20]?.phase).toBe('collecting');
+  expect(steps[23]?.phase).toBe('collecting');
+  const done = steps.find((step) => step.phase === 'done');
+  expect(done?.profile?.world.leanUp0).toBeDefined();
+});
+
+it('mede o piso por tempo de sinal válido: span curto com cobertura cheia aprova, cobertura rala não', () => {
+  // Antes da invariante o span fixo de 2800 ms rejeitaria os dois casos; agora o que manda
+  // é cobertura × span ≥ 1800 ms de sinal válido.
+  const full = new Calibrator();
+  full.start(0);
+  for (let time = 0; time <= 2000; time += 100) full.add(pose(time));
+  expect(full.finish()).not.toBeNull();
+
+  const sparse = new Calibrator();
+  sparse.start(0);
+  // 6 quadros ruins espalhados: cobertura 71% — acima dos 65% — mas 0,71 × 2000 = 1428 ms
+  // de sinal válido, abaixo do piso de 1800 ms. Razão de cobertura sozinha aprovaria.
+  for (let time = 0; time <= 2000; time += 100) sparse.add(pose(time, { confidence: time % 300 === 0 && time > 0 ? 0.1 : 0.95 }));
+  expect(sparse.finish()).toBeNull();
+});
+
+it('não consome as amostras ao sondar: finish() pode ser chamado de novo sobre o mesmo acumulado', () => {
+  const calibrator = new Calibrator();
+  calibrator.start(0);
+  for (let time = 0; time <= 2000; time += 100) calibrator.add(pose(time));
+  const first = calibrator.finish();
+  expect(first).not.toBeNull();
+  // A sonda adaptativa depende disto: avaliar cedo não pode destruir a coleta em andamento.
+  expect(calibrator.finish()).not.toBeNull();
 });
