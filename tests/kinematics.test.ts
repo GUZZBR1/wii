@@ -8,7 +8,7 @@ import { landmarkConfidence } from '../src/kinematics/math';
 import { LaneLeanDetector, torsoLeanDeltaRad } from '../src/kinematics/postureSignals';
 import { SchmittTrigger } from '../src/kinematics/schmittTrigger';
 import { hasMeaningfulLateralComponent, SwingDetector } from '../src/kinematics/swingDetector';
-import { calibration, pose } from './fixtures/syntheticPose';
+import { calibration, pose, poseWithWorldShoulderWidth, rotateWorldYaw } from './fixtures/syntheticPose';
 
 function withWorldConfidence(snapshot: ReturnType<typeof pose>, index: number, visibility: number, presence: number) {
   return {
@@ -75,6 +75,17 @@ describe('cadence tracker', () => {
     expect(result.at(-3)!.step).toBe('left');
     expect(result.at(-3)!.cadenceSpm).toBe(0);
   });
+
+  it('counts synchronized knee crossings once and alternates exact ties', () => {
+    const tracker = new CadenceTracker();
+    const profile = calibration();
+    const frames = [pose(0), pose(33), pose(66)];
+    for (let time = 100; time <= 199; time += 33) frames.push(pose(time, { kneeLeft: 0.16, kneeRight: 0.16 }));
+    for (let time = 232; time <= 532; time += 33) frames.push(pose(time));
+    for (let time = 600; time <= 699; time += 33) frames.push(pose(time, { kneeLeft: 0.16, kneeRight: 0.16 }));
+    const steps = frames.map((frame) => tracker.update(frame, profile).step).filter(Boolean);
+    expect(steps).toEqual(['left', 'right']);
+  });
 });
 
 describe('jump detector', () => {
@@ -112,6 +123,17 @@ describe('jump detector', () => {
     }
     expect(Math.max(...fireTimes) - Math.min(...fireTimes)).toBeLessThanOrEqual(75);
   });
+
+  it('does not classify small periodic hip bob as a jump', () => {
+    const detector = new JumpDetector();
+    const profile = calibration();
+    const events: boolean[] = [];
+    for (let time = 0; time <= 2000; time += 33) {
+      const hipRise = 0.05 * Math.sin((2 * Math.PI * time) / 500);
+      events.push(detector.update(pose(time, { hipRise }), profile));
+    }
+    expect(events.filter(Boolean)).toHaveLength(0);
+  });
 });
 
 describe('swing detector', () => {
@@ -140,13 +162,14 @@ describe('swing detector', () => {
   });
 
   it('classifies the peak stroke direction and maps the peak wrist position into three aim zones', () => {
-    const classify = (hand: 'left' | 'right', displacement: number) => {
+    const classify = (hand: 'left' | 'right', displacement: number, rotate = false) => {
       const detector = new SwingDetector();
       const profile = calibration(hand);
       let signal: ReturnType<SwingDetector['update']>;
       for (const time of [0, 20, 40, 60, 80, 110]) {
         const progress = time <= 80 ? time / 80 : 1 - (time - 80) / 30;
-        const current = detector.update(pose(time, { wristLateral: displacement * progress }), profile);
+        const snapshot = pose(time, { wristLateral: displacement * progress });
+        const current = detector.update(rotate ? rotateWorldYaw(snapshot, 0.9) : snapshot, profile);
         if (current) signal = current;
       }
       return signal;
@@ -155,6 +178,16 @@ describe('swing detector', () => {
     expect(classify('right', 0.1)).toMatchObject({ aimZone: 'center' });
     expect(classify('right', -0.2)).toMatchObject({ side: 'forehand', aimZone: 'line' });
     expect(classify('left', 0.2)).toMatchObject({ side: 'forehand' });
+    expect(classify('right', -0.2, true)).toMatchObject({ side: 'forehand', aimZone: 'line' });
+    expect(classify('left', 0.2, true)).toMatchObject({ side: 'forehand', aimZone: 'line' });
+  });
+
+  it('does not infer a swing from frame-to-frame shoulder-width variation', () => {
+    const detector = new SwingDetector();
+    const profile = calibration('right');
+    const frames = [0.4, 0.6, 0.4, 0.6, 0.4].map((width, index) => poseWithWorldShoulderWidth(index * 33, width));
+    const signals = frames.map((frame) => detector.update(frame, profile)).filter(Boolean);
+    expect(signals).toHaveLength(0);
   });
 
   it('waits for a neutral ready pose before rearming after a confirmed tracking loss', () => {
@@ -199,6 +232,7 @@ describe('world-space posture calibration', () => {
     const profile = calibration();
     const leanPose = pose(99, { leanRad: 0.24 });
     expect(torsoLeanDeltaRad(leanPose, profile)).toBeCloseTo(0.24, 2);
+    expect(torsoLeanDeltaRad(rotateWorldYaw(leanPose, 0.9), profile)).toBeCloseTo(0.24, 2);
     const signals = [0, 33, 66, 99, 132, 165, 198].map((time) => detector.update(
       pose(time, { leanRad: time < 99 ? 0 : 0.24 }), profile,
     )).filter(Boolean);
@@ -291,6 +325,26 @@ describe('action pipeline tracking gate', () => {
     expect(swing).toMatchObject({ type: 'swing', confidence: 0.6 });
     expect(swing?.timestampMs).toBe(231);
     expect(swing?.type === 'swing' ? swing.peakTimestampMs : undefined).toBe(99);
+  });
+
+  it('keeps cadence events while filtering a small periodic hip bounce out of jump events', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const events = [];
+    for (let time = 0; time <= 2100; time += 33) {
+      const elapsed = Math.max(0, time - 200);
+      const cycle = Math.floor(elapsed / 400);
+      const withinStep = elapsed % 400;
+      const lift = time >= 200 && withinStep < 200 ? 0.16 : 0;
+      const snapshot = pose(time, {
+        kneeLeft: cycle % 2 === 0 ? lift : 0,
+        kneeRight: cycle % 2 === 1 ? lift : 0,
+        hipRise: 0.05 * Math.sin((2 * Math.PI * time) / 500),
+      });
+      events.push(...pipeline.update(snapshot, profile).events);
+    }
+    expect(events.filter((event) => event.type === 'step').length).toBeGreaterThan(3);
+    expect(events.filter((event) => event.type === 'jump')).toHaveLength(0);
   });
 
   it('uses peak-frame confidence even when confidence is lower at confirmation time', () => {

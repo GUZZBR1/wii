@@ -43,6 +43,28 @@ export function pose(timestampMs: number, options: {
   return { timestampMs, landmarks: points, worldLandmarks: world, trackingState: 'tracked', bodyConfidence: options.confidence ?? 0.95 };
 }
 
+export function rotateWorldYaw(snapshot: ReturnType<typeof pose>, radians: number) {
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return {
+    ...snapshot,
+    worldLandmarks: snapshot.worldLandmarks.map((point) => ({
+      ...point,
+      x: point.x * cosine + point.z * sine,
+      z: -point.x * sine + point.z * cosine,
+    })),
+  };
+}
+
+export function poseWithWorldShoulderWidth(timestampMs: number, width: number, wristOffset = 0.1) {
+  const snapshot = pose(timestampMs);
+  const world = [...snapshot.worldLandmarks];
+  world[11] = { ...world[11]!, x: -width / 2 };
+  world[12] = { ...world[12]!, x: width / 2 };
+  world[16] = { ...world[16]!, x: width / 2 + wristOffset };
+  return { ...snapshot, worldLandmarks: world };
+}
+
 export function calibration(hand: Hand = 'right'): CalibrationProfile {
   return {
     version: 1, completedAtMs: 3000, dominantHand: hand,

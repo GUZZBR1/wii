@@ -1,5 +1,6 @@
 import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from './protocol';
 import { distance2, distance3, landmarkConfidence, median, midpoint } from '../kinematics/math';
+import { bodyLocalPoint, torsoLeanRad } from '../kinematics/bodyFrame';
 
 const IDX = { leftShoulder: 11, rightShoulder: 12, leftWrist: 15, rightWrist: 16, leftHip: 23, rightHip: 24, leftKnee: 25, rightKnee: 26 } as const;
 
@@ -44,22 +45,22 @@ export class Calibrator {
       if (confidence < 0.55) return [];
       const shoulderCenter = midpoint(leftShoulder, rightShoulder);
       const hipCenter = midpoint(leftHip, rightHip);
-      const worldShoulderCenter = midpoint(worldLeftShoulder, worldRightShoulder);
-      const worldHipCenter = midpoint(worldLeftHip, worldRightHip);
       const shoulderWidth = distance2(leftShoulder, rightShoulder);
       const torsoHeight = Math.abs(hipCenter.y - shoulderCenter.y);
       const worldShoulderWidth = distance3(worldLeftShoulder, worldRightShoulder);
       if (torsoHeight < 0.03 || shoulderWidth < 0.03 || worldShoulderWidth < 0.03) return [];
-      const worldLean = Math.atan2(worldShoulderCenter.x - worldHipCenter.x, worldShoulderCenter.y - worldHipCenter.y);
-      const wristLocal = { x: (wrist.x - shoulder.x) / worldShoulderWidth, y: (wrist.y - shoulder.y) / worldShoulderWidth, z: (wrist.z - shoulder.z) / worldShoulderWidth };
+      const worldLean = torsoLeanRad(sample);
+      const wristLocal = bodyLocalPoint(wrist, shoulder, worldLeftShoulder, worldRightShoulder, worldLeftHip, worldRightHip, 1);
+      if (worldLean === undefined || !wristLocal) return [];
       return [{ hipY: hipCenter.y, torsoHeight, shoulderWidth, kneeLeft: (hipCenter.y - leftKnee.y) / torsoHeight, kneeRight: (hipCenter.y - rightKnee.y) / torsoHeight, worldLean, worldShoulderWidth, wristLocal, confidence }];
     });
     if (valid.length < this.samples.length * 0.65) return null;
     const values = <K extends keyof (typeof valid)[number]>(key: K): number[] => valid.map((item) => item[key] as number);
+    const worldShoulderWidth = median(values('worldShoulderWidth'));
     const wristLocal = {
-      x: median(valid.map((v) => v.wristLocal.x)),
-      y: median(valid.map((v) => v.wristLocal.y)),
-      z: median(valid.map((v) => v.wristLocal.z)),
+      x: median(valid.map((v) => v.wristLocal.x)) / worldShoulderWidth,
+      y: median(valid.map((v) => v.wristLocal.y)) / worldShoulderWidth,
+      z: median(valid.map((v) => v.wristLocal.z)) / worldShoulderWidth,
     };
     const profile: CalibrationProfile = {
       version: 1,
@@ -71,7 +72,7 @@ export class Calibrator {
         kneeToHipY0: { left: median(values('kneeLeft')), right: median(values('kneeRight')) },
         shoulderWidth: median(values('shoulderWidth')),
       },
-      world: { shoulderWidth: median(values('worldShoulderWidth')), torsoLeanRad0: median(values('worldLean')), readyWristLocal: wristLocal },
+      world: { shoulderWidth: worldShoulderWidth, torsoLeanRad0: median(values('worldLean')), readyWristLocal: wristLocal },
       quality: { validFrameRatio: valid.length / this.samples.length, medianConfidence: median(values('confidence')) },
     };
     this.startedAt = undefined;

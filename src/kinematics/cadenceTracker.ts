@@ -15,6 +15,7 @@ export class CadenceTracker {
   private readonly rightFilter = new OneEuroFilter({ minCutoff: 1, beta: 0.5, derivativeCutoff: 1 });
   private lastSteps: number[] = [];
   private lastStepAt = Number.NEGATIVE_INFINITY;
+  private lastStepSide?: 'left' | 'right';
   private needsNeutral = true;
 
   update(snapshot: PoseSnapshot, calibration: CalibrationProfile): CadenceResult {
@@ -29,7 +30,12 @@ export class CadenceTracker {
     }
     const leftStep = this.left.update(leftLift, snapshot.timestampMs);
     const rightStep = this.right.update(rightLift, snapshot.timestampMs);
-    const step = leftStep ? 'left' : rightStep ? 'right' : undefined;
+    let step: 'left' | 'right' | undefined;
+    if (leftStep && rightStep) {
+      if (leftLift === rightLift) step = this.lastStepSide === 'left' ? 'right' : 'left';
+      else step = leftLift > rightLift ? 'left' : 'right';
+    } else if (leftStep) step = 'left';
+    else if (rightStep) step = 'right';
     if (step) {
       const interval = snapshot.timestampMs - this.lastStepAt;
       if (Number.isFinite(interval) && interval > 1200) this.lastSteps = [];
@@ -38,6 +44,7 @@ export class CadenceTracker {
         this.lastSteps = this.lastSteps.slice(-4);
       }
       this.lastStepAt = snapshot.timestampMs;
+      this.lastStepSide = step;
     }
     const cadenceSpm = this.lastSteps.length >= 2 ? 60_000 / median(this.lastSteps) : 0;
     const fresh = snapshot.timestampMs - this.lastStepAt < 450;
@@ -47,6 +54,6 @@ export class CadenceTracker {
   }
 
   reset(): void {
-    this.left.reset(); this.right.reset(); this.leftFilter.reset(); this.rightFilter.reset(); this.lastSteps = []; this.lastStepAt = Number.NEGATIVE_INFINITY; this.needsNeutral = true;
+    this.left.reset(); this.right.reset(); this.leftFilter.reset(); this.rightFilter.reset(); this.lastSteps = []; this.lastStepAt = Number.NEGATIVE_INFINITY; this.lastStepSide = undefined; this.needsNeutral = true;
   }
 }

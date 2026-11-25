@@ -29,7 +29,12 @@ export interface CalibrationProfile {
     kneeToHipY0: { left: number; right: number };
     shoulderWidth: number;
   };
-  world: { shoulderWidth: number; torsoLeanRad0: number; readyWristLocal: Point3 };
+  world: {
+    shoulderWidth: number;
+    torsoLeanRad0: number;
+    /** Dominant wrist relative to its shoulder in a body-local frame, normalized by calibrated shoulder width. */
+    readyWristLocal: Point3;
+  };
   quality: { validFrameRatio: number; medianConfidence: number };
 }
 
@@ -76,7 +81,7 @@ export interface ContinuousControls {
 
 interface ActionBase {
   id: number;
-  /** Confirmation/dispatch time. CV swing events also include `peakTimestampMs` for estimated impact time. */
+  /** Video-frame timestamp that confirmed this event; swing also carries its estimated peak-frame timestamp. */
   timestampMs: number;
   /** Confidence is the minimum visibility/presence for landmarks used by this action. */
   confidence: number;

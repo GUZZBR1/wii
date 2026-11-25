@@ -1,6 +1,7 @@
 import type { AimZone, CalibrationProfile, PoseSnapshot } from '../cv/protocol';
 import { OneEuroFilter } from '../cv/oneEuroFilter';
 import { clamp, distance3, landmarkConfidence } from './math';
+import { bodyLocalPoint } from './bodyFrame';
 
 export interface SwingSignal {
   side: 'forehand' | 'backhand';
@@ -53,13 +54,15 @@ export class SwingDetector {
     const shoulder = snapshot.worldLandmarks[hand === 'right' ? 12 : 11];
     const leftShoulder = snapshot.worldLandmarks[11];
     const rightShoulder = snapshot.worldLandmarks[12];
-    if (!wrist || !shoulder || !leftShoulder || !rightShoulder) { this.reset(); return undefined; }
-    const lateral = { x: rightShoulder.x - leftShoulder.x, y: rightShoulder.y - leftShoulder.y, z: rightShoulder.z - leftShoulder.z };
-    const width = Math.hypot(lateral.x, lateral.y, lateral.z) || calibration.world.shoulderWidth;
+    const leftHip = snapshot.worldLandmarks[23];
+    const rightHip = snapshot.worldLandmarks[24];
+    if (!wrist || !shoulder || !leftShoulder || !rightShoulder || !leftHip || !rightHip) { this.reset(); return undefined; }
+    const localWrist = bodyLocalPoint(wrist, shoulder, leftShoulder, rightShoulder, leftHip, rightHip, calibration.world.shoulderWidth);
+    if (!localWrist) { this.reset(); return undefined; }
     const current = {
-      x: this.xFilter.filter((wrist.x - shoulder.x) / width, snapshot.timestampMs),
-      y: this.yFilter.filter((wrist.y - shoulder.y) / width, snapshot.timestampMs),
-      z: this.zFilter.filter((wrist.z - shoulder.z) / width, snapshot.timestampMs),
+      x: this.xFilter.filter(localWrist.x, snapshot.timestampMs),
+      y: this.yFilter.filter(localWrist.y, snapshot.timestampMs),
+      z: this.zFilter.filter(localWrist.z, snapshot.timestampMs),
       time: snapshot.timestampMs,
     };
     if (!this.previous) { this.previous = current; return undefined; }
@@ -68,9 +71,9 @@ export class SwingDetector {
     const vy = (current.y - this.previous.y) / dt;
     const vz = (current.z - this.previous.z) / dt;
     const speedBodyWidthsPerSecond = Math.hypot(vx, vy, vz);
-    const lateralSpeedBodyWidthsPerSecond = (vx * lateral.x + vy * lateral.y + vz * lateral.z) / width;
+    const lateralSpeedBodyWidthsPerSecond = vx;
     const readyDistance = distance3(current, calibration.world.readyWristLocal);
-    const confidence = landmarkConfidence(leftShoulder, rightShoulder, wrist);
+    const confidence = landmarkConfidence(leftShoulder, rightShoulder, leftHip, rightHip, wrist);
     this.previous = current;
 
     if (this.mode === 'ready') {

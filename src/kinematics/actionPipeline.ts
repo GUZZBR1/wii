@@ -55,7 +55,7 @@ export class ActionPipeline {
 
     const hand = calibration.dominantHand;
     const wristIndex = hand === 'right' ? 16 : 15;
-    const swingTracking = this.swingGate.evaluate(snapshot, [11, 12, wristIndex], 'world');
+    const swingTracking = this.swingGate.evaluate(snapshot, [11, 12, 23, 24, wristIndex], 'world');
     if (swingTracking.state === 'tracked') {
       const swing = this.swing.update(current, calibration);
       if (swing) {

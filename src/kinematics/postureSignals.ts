@@ -1,11 +1,9 @@
 import type { CalibrationProfile, PoseSnapshot } from '../cv/protocol';
 import { OneEuroFilter } from '../cv/oneEuroFilter';
-import { midpoint } from './math';
+import { torsoLeanRad } from './bodyFrame';
 
 export function torsoLeanDeltaRad(snapshot: PoseSnapshot, calibration: CalibrationProfile): number {
-  const shoulders = midpoint(snapshot.worldLandmarks[11]!, snapshot.worldLandmarks[12]!);
-  const hips = midpoint(snapshot.worldLandmarks[23]!, snapshot.worldLandmarks[24]!);
-  const angle = Math.atan2(shoulders.x - hips.x, shoulders.y - hips.y);
+  const angle = torsoLeanRad(snapshot) ?? calibration.world.torsoLeanRad0;
   const delta = angle - calibration.world.torsoLeanRad0;
   return Math.atan2(Math.sin(delta), Math.cos(delta));
 }
