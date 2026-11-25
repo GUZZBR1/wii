@@ -12,6 +12,14 @@ export {
   PinchClutch,
   pinchDistanceRatio,
 } from './intent/pinchClutch';
+export { DtwGestureRecognizer, bandedDtwDistance, NULL_GESTURE_LABEL } from './ml/dtwRecognizer';
+export type { DtwRecognizerOptions, FeatureSequence, GesturePrediction } from './ml/dtwRecognizer';
+export { handGestureVector } from './ml/handGestureFeatures';
+export type { HandGestureVectorOptions } from './ml/handGestureFeatures';
+export { GestureRecorder } from './ml/gestureRecorder';
+export type { GestureRecorderOptions } from './ml/gestureRecorder';
+export { PosePrototypeClassifier } from './ml/posePrototype';
+export type { PosePrediction, PosePrototypeOptions } from './ml/posePrototype';
 export { PoseClient } from './providers/poseClient';
 export type { PoseClientAssets, PoseClientCallbacks } from './providers/poseClient';
 export { HandClient } from './providers/handClient';
