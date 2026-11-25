@@ -749,6 +749,39 @@ describe('mão da raquete', () => {
     const swings = frames.flatMap((time) => pipeline.update(flapping(time), profile).events).filter((event) => event.type === 'swing');
     expect(swings).toHaveLength(1);
   });
+
+  it('descarta a confirmação dentro do bloqueio em vez de deixá-la disputar depois', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
+    pipeline.update(pose(99, { wristLateral: -0.3 }), profile);
+    const first = pipeline.update(pose(132, { wristLateral: 0.2 }), profile);
+    expect(first.events.filter((event) => event.type === 'swing')).toHaveLength(1);
+    // Back near the ready pose (|wristLateral| < 0.14 keeps the wrist within reach) the
+    // right detector re-readies before its second arc.
+    for (let time = 165; time <= 495; time += 33) pipeline.update(pose(time, { wristLateral: -0.05 }), profile);
+    pipeline.update(pose(495, { wristLateral: -0.05, leftWristLateral: 0.5 }), profile);
+    // Block runs to 532 ms: the dominant left arc confirms inside it and is discarded;
+    // only the right's post-block confirmation may reach the game.
+    const blocked = pipeline.update(pose(528, { wristLateral: 0.35, leftWristLateral: 0.15 }), profile);
+    const released = pipeline.update(pose(561, { wristLateral: -0.05, leftWristLateral: 0.15 }), profile);
+    const swings = [blocked, released].flatMap((result) => result.events).filter((event) => event.type === 'swing');
+    expect(swings).toHaveLength(1);
+    expect(swings[0]).toMatchObject({ type: 'swing', side: 'backhand', timestampMs: 561, peakTimestampMs: 528 });
+  });
+
+  it('descarta o golpe segurado quando o próprio pulso perde o rastreamento', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
+    pipeline.update(pose(99, { wristLateral: -0.15, leftWristLateral: 0.15 }), profile);
+    const held = pipeline.update(pose(132, { wristLateral: 0.05, leftWristLateral: 0.35 }), profile);
+    expect(held.events.filter((event) => event.type === 'swing')).toHaveLength(0);
+    // Both wrists vanish: the held swing's own basis is gone — it must be dropped, not released.
+    const lost = (time: number) => withWorldConfidence(withWorldConfidence(pose(time, { wristLateral: 0.05 }), 15, 0, 0), 16, 0, 0);
+    const swings = [165, 198, 231, 264].flatMap((time) => pipeline.update(lost(time), profile).events).filter((event) => event.type === 'swing');
+    expect(swings).toHaveLength(0);
+  });
 });
 
 describe('calibração automática', () => {

@@ -1,4 +1,4 @@
-import type { CalibrationProfile, ContinuousControls, PoseSnapshot, SportActionEvent, TrackingState } from '../cv/protocol';
+import type { CalibrationProfile, ContinuousControls, Hand, PoseSnapshot, SportActionEvent, TrackingState } from '../cv/protocol';
 import { CadenceTracker } from './cadenceTracker';
 import { JumpDetector } from './jumpDetector';
 import { LaneLeanDetector } from './postureSignals';
@@ -15,11 +15,11 @@ export class ActionPipeline {
   private readonly lean = new LaneLeanDetector();
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
-    { wrist, gate: new TrackingGate([], 'world'), detector: new SwingDetector(hand) }
+    { hand, wrist, gate: new TrackingGate([], 'world'), detector: new SwingDetector(hand) }
   ));
   private lastSwingAt = Number.NEGATIVE_INFINITY;
   /** Confirmed swing held back while the other wrist still has one in flight, so the stronger wins. */
-  private heldSwing?: { swing: SwingSignal; heldSince: number };
+  private heldSwing?: { swing: SwingSignal; hand: Hand; heldSince: number };
   private nextId = 1;
   /** True while the last emitted sprint event left the game moving. */
   private sprinting = false;
@@ -65,29 +65,36 @@ export class ActionPipeline {
       if (lane) events.push({ ...this.eventBase(snapshot, laneTracking.confidence), id: this.nextId++, type: 'lane', direction: lane });
     } else if (laneTracking.state === 'lost') this.lean.reset();
 
-    const confirmed = this.swings.flatMap(({ wrist, gate, detector }) => {
+    const results = this.swings.map(({ wrist, gate, detector, hand }) => {
       const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, wrist], 'world');
       if (tracking.state === 'lost') detector.reset();
       const swing = tracking.state === 'tracked' ? detector.update(current, calibration) : undefined;
-      return swing ? [swing] : [];
+      return { hand, lost: tracking.state === 'lost', swing };
     });
-    // The strongest swing wins, not the first to confirm: while a wrist still has a swing
-    // in flight, hold the rival's confirmation until it resolves — bounded by the rival's
-    // own max duration — so a weak early finisher can't lock out a stronger arc.
-    const pool = this.heldSwing ? [this.heldSwing.swing, ...confirmed] : confirmed;
-    const [swing] = pool.sort((a, b) => b.power01 - a.power01);
-    if (swing) {
+    // A held swing whose own wrist went lost is stale: discard it rather than release a
+    // "tracked" hit into a dead pose. Losing only the rival is different — it resolves the
+    // arbitration and the held swing goes out.
+    const held = this.heldSwing;
+    if (held && results.some((result) => result.hand === held.hand && result.lost)) this.heldSwing = undefined;
+    // The strongest swing wins, not the first to confirm: confirmations inside the 400 ms
+    // refractory are discarded at admission, and while a wrist still has a swing in flight
+    // the rival's confirmation waits for it — bounded by the rival's own max duration.
+    const eligible = snapshot.timestampMs - this.lastSwingAt >= 400;
+    const pool = [
+      ...(this.heldSwing ? [{ swing: this.heldSwing.swing, hand: this.heldSwing.hand }] : []),
+      ...results.flatMap((result) => (result.swing && eligible ? [{ swing: result.swing, hand: result.hand }] : [])),
+    ];
+    const [best] = pool.sort((a, b) => b.swing.power01 - a.swing.power01);
+    if (best) {
       const rivalInFlight = this.swings.some(({ detector }) => detector.hasPending());
       const holdExpired = this.heldSwing !== undefined && snapshot.timestampMs - this.heldSwing.heldSince >= SWING_MAX_DURATION_MS;
       if (rivalInFlight && !holdExpired) {
-        this.heldSwing = { swing, heldSince: this.heldSwing?.heldSince ?? snapshot.timestampMs };
+        this.heldSwing = { swing: best.swing, hand: best.hand, heldSince: this.heldSwing?.heldSince ?? snapshot.timestampMs };
       } else {
         this.heldSwing = undefined;
-        if (snapshot.timestampMs - this.lastSwingAt >= 400) {
-          this.lastSwingAt = snapshot.timestampMs;
-          const { confidence, peakTimestampMs, ...action } = swing;
-          events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'swing', ...action, peakTimestampMs });
-        }
+        this.lastSwingAt = snapshot.timestampMs;
+        const { confidence, peakTimestampMs, ...action } = best.swing;
+        events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'swing', ...action, peakTimestampMs });
       }
     }
 
