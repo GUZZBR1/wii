@@ -25,7 +25,8 @@ export class PoseClient {
   private lastVideoTime = -1;
   private video?: HTMLVideoElement;
   private callbacks?: PoseClientCallbacks;
-  private onReady?: () => void;
+  private resolveInitialization?: () => void;
+  private rejectInitialization?: (error: Error) => void;
 
   constructor(private readonly assets: PoseClientAssets) {}
 
@@ -40,8 +41,17 @@ export class PoseClient {
   async init(callbacks: PoseClientCallbacks, preferred: Delegate = 'GPU'): Promise<void> {
     this.callbacks = callbacks;
     if (this.ready) return;
-    this.initPromise ??= this.spawn(preferred);
-    await this.initPromise;
+    let initialization = this.initPromise;
+    if (!initialization) {
+      initialization = this.spawn(preferred);
+      this.initPromise = initialization;
+    }
+    try {
+      await initialization;
+    } catch (error) {
+      if (this.initPromise === initialization) this.initPromise = undefined;
+      throw error;
+    }
   }
 
   beginCapture(video: HTMLVideoElement, callbacks: PoseClientCallbacks): void {
@@ -91,8 +101,7 @@ export class PoseClient {
     this.activeDelegate = undefined;
     this.inFlight = undefined;
     this.initPromise = undefined;
-    this.onReady?.();
-    this.onReady = undefined;
+    this.completeInitialization(new Error('PoseClient was disposed before initialization completed.'));
     this.callbacks = undefined;
   }
 
@@ -100,14 +109,17 @@ export class PoseClient {
     this.callbacks?.onStatus('loading', 'Carregando MediaPipe e modelo local…');
     const worker = new Worker(new URL('./pose.worker.ts', import.meta.url), { type: 'module' });
     this.worker = worker;
-    const initialized = new Promise<void>((resolve) => { this.onReady = resolve; });
+    const initialized = new Promise<void>((resolve, reject) => {
+      this.resolveInitialization = resolve;
+      this.rejectInitialization = reject;
+    });
     worker.onmessage = (event: MessageEvent<WorkerReply>) => {
       if (this.worker !== worker) return;
       const message = event.data;
       if (message.type === 'READY') {
         this.ready = true;
         this.activeDelegate = message.delegate;
-        this.onReady?.();
+        this.completeInitialization();
         this.callbacks?.onStatus('ready', `MediaPipe pronto · ${message.delegate}`);
       } else if (message.type === 'FALLBACK') {
         this.activeDelegate = message.to;
@@ -119,7 +131,10 @@ export class PoseClient {
           if (!message.fatal && message.captureEpoch !== this.captureEpoch) return;
         }
         this.callbacks?.onStatus(message.fatal ? 'error' : 'fallback', message.message);
-        if (message.fatal) { this.onReady?.(); this.dispose(); }
+        if (message.fatal) {
+          this.completeInitialization(new Error(message.message));
+          this.dispose();
+        }
       } else if (message.type === 'POSE') {
         if (this.inFlight?.requestId !== message.requestId || this.inFlight.captureEpoch !== message.captureEpoch) return;
         this.releaseFrame(message.requestId, message.captureEpoch);
@@ -135,20 +150,43 @@ export class PoseClient {
     };
     worker.onerror = (event) => {
       if (this.worker !== worker) return;
-      this.callbacks?.onStatus('error', event.message || 'Falha no Worker de visão.');
-      this.onReady?.();
+      const error = new Error(event.message || 'Falha no Worker de visão.');
+      this.callbacks?.onStatus('error', error.message);
+      this.completeInitialization(error);
       this.dispose();
     };
     worker.postMessage({ type: 'INIT', delegate: preferred, ...this.assets } satisfies WorkerRequest);
     let initializationTimeout: number | undefined;
-    await Promise.race([
-      initialized,
-      new Promise<void>((resolve) => { initializationTimeout = window.setTimeout(resolve, 30_000); }),
-    ]);
-    if (initializationTimeout !== undefined) window.clearTimeout(initializationTimeout);
-    this.onReady = undefined;
-    if (this.worker !== worker) return;
-    if (!this.ready) { this.callbacks?.onStatus('error', 'Inicialização do MediaPipe excedeu 30 segundos.'); this.dispose(); }
+    try {
+      await Promise.race([
+        initialized,
+        new Promise<never>((_resolve, reject) => {
+          initializationTimeout = window.setTimeout(() => {
+            const error = new Error('Inicialização do MediaPipe excedeu 30 segundos.');
+            if (this.worker === worker) {
+              this.callbacks?.onStatus('error', error.message);
+              this.completeInitialization(error);
+              this.dispose();
+            }
+            reject(error);
+          }, 30_000);
+        }),
+      ]);
+    } catch (error) {
+      if (this.worker === worker) this.dispose();
+      throw error;
+    } finally {
+      if (initializationTimeout !== undefined) window.clearTimeout(initializationTimeout);
+    }
+  }
+
+  private completeInitialization(error?: Error): void {
+    const resolve = this.resolveInitialization;
+    const reject = this.rejectInitialization;
+    this.resolveInitialization = undefined;
+    this.rejectInitialization = undefined;
+    if (error) reject?.(error);
+    else resolve?.();
   }
 
   private async capture(video: HTMLVideoElement, now: number): Promise<void> {
