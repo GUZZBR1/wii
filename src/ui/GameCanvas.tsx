@@ -4,7 +4,7 @@ import type { GameHudState } from '../games/track/TrackGame';
 import { forwardKeyDown } from './keys';
 
 export type Sport = 'track' | 'tennis';
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; dispose(): void }
 
 interface Props {
   sport: Sport;
@@ -17,6 +17,11 @@ export function GameCanvas({ sport, onEngine, tracking }: Props) {
   const [hud, setHud] = useState<GameHudState>({ score: 0, label: '00000', speed01: 0, status: 'Pronto para jogar' });
   const hudRef = useRef(setHud);
   hudRef.current = setHud;
+  const engineRef = useRef<GameEngineHandle | null>(null);
+  const trackingRef = useRef(tracking);
+  trackingRef.current = tracking;
+
+  useEffect(() => { engineRef.current?.setTracking?.(tracking); }, [tracking]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -35,9 +40,11 @@ export function GameCanvas({ sport, onEngine, tracking }: Props) {
           : (await import('../games/tennis/TennisGame')).TennisGame;
         const canvas = canvasRef.current;
         if (disposed || !canvas) return;
-        const engine = new Game(canvas, (state) => hudRef.current(state));
+        const engine: GameEngineHandle = new Game(canvas, (state) => hudRef.current(state));
         if (disposed) { engine.dispose(); return; }
         game = engine;
+        engineRef.current = engine;
+        engine.setTracking?.(trackingRef.current);
         onEngine(engine);
       } catch (error) {
         if (!disposed) hudRef.current({ score: 0, label: '—', speed01: 0, status: error instanceof Error ? error.message : 'WebGL indisponível' });
@@ -48,16 +55,18 @@ export function GameCanvas({ sport, onEngine, tracking }: Props) {
       disposed = true;
       window.removeEventListener('keydown', keydown);
       game?.dispose();
+      engineRef.current = null;
       onEngine(null);
     };
   }, [sport, onEngine]);
 
   return <div className="game-viewport">
     <canvas ref={canvasRef} />
-    <div className="game-hud"><div><span>{sport === 'track' ? 'SCORE' : 'PONTOS'}</span><strong>{hud.label}</strong></div><div className="game-speed"><span>{sport === 'track' ? 'RITMO' : 'MIRA'}</span><strong>{sport === 'track' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>
+    <div className="game-hud"><div><span>{sport === 'track' ? 'SCORE' : 'PONTOS'}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{sport === 'track' ? 'RITMO' : 'MIRA'}</span><strong>{sport === 'track' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>
     {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${hud.feedback.kind}`}>
       <span>{hud.feedback.text}</span>
     </div>}
+    {hud.banner && <div className="game-banner" role="status"><strong>{hud.banner.title}</strong>{hud.banner.detail && <span>{hud.banner.detail}</span>}</div>}
     <div className="game-ready"><i className={tracking.startsWith('TRACKING') ? 'ready' : ''} />{hud.status}</div>
     <div className="game-controls">{sport === 'track' ? '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' : 'espaço bater  ·  ← → escolher direção'}</div>
   </div>;

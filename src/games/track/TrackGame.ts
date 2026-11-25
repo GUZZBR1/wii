@@ -6,11 +6,12 @@ import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type P
 import { HurdleFlow, type ItemKind, RUNNER_Z } from './hurdleFlow';
 import { ItemAssets } from './itemAssets';
 import { JUMP_DURATION_S, jumpHeight } from './jump';
+import { RunGate } from './runGate';
 import { fovFor, scrollZ } from './scroll';
 import { type Lane, nextKind, nextLane } from './spawn';
 import { isPerfectJump, TrackScore } from './trackScore';
 
-export interface GameHudState { score: number; label: string; speed01: number; status: string; feedback?: Feedback }
+export interface GameHudState { score: number; label: string; speed01: number; status: string; feedback?: Feedback; combo?: number; banner?: { title: string; detail?: string } }
 type Item = { group: THREE.Group; kind: ItemKind; lane: number; z: number; passed: boolean };
 // Scenery loops between the fog and a point behind the camera, so recycling is never visible.
 const SCENERY_MIN_Z = -66;
@@ -43,6 +44,7 @@ export class TrackGame {
   private lastHud = '';
   private feedback?: Feedback;
   private shakeTime = 0;
+  private readonly gate = new RunGate();
   private status = 'Ande ou corra no lugar com a câmera, ou use ↓';
 
   constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: GameHudState) => void) {
@@ -52,7 +54,7 @@ export class TrackGame {
     this.camera.lookAt(0, 1.5, -8);
     this.setupScene();
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt));
-    this.hudTimer = window.setInterval(() => this.publishHud(), 200);
+    this.hudTimer = window.setInterval(() => this.publishHud(), 80);
   }
 
   private setupScene(): void {
@@ -107,14 +109,24 @@ export class TrackGame {
     group.position.set(lane * 1.5, 0, z); this.scene.add(group); this.items.push({ group, kind, lane, z, passed: false });
   }
 
+  setTracking(tracking: string): void {
+    this.gate.setTracking(tracking);
+    this.publishHud();
+  }
+
   onAction(event: SportActionEvent): void {
     if (event.type === 'step') this.pace = applyStep(this.pace);
     if (event.type === 'sprint') this.pace = applySprint(this.pace, event);
+    if (this.gate.phase !== 'running') return;
     if (event.type === 'jump') { this.jumpTime = JUMP_DURATION_S; this.status = 'Salto!'; }
     if (event.type === 'lane') { this.lane = Math.max(-1, Math.min(1, this.lane + (event.direction === 'left' ? -1 : 1))); }
   }
 
   onKey(key: string): void {
+    const pressed = key.toLowerCase();
+    if (!['arrowleft', 'arrowright', 'arrowup', 'arrowdown', ' ', 'a', 'd', 'w', 's'].includes(pressed)) return;
+    if (this.gate.resumeByKey()) return;
+    if (this.gate.phase !== 'running' && pressed !== 'arrowdown' && pressed !== 's') return;
     if (key === 'ArrowLeft' || key.toLowerCase() === 'a') this.lane = Math.max(-1, this.lane - 1);
     if (key === 'ArrowRight' || key.toLowerCase() === 'd') this.lane = Math.min(1, this.lane + 1);
     if (key === ' ' || key === 'ArrowUp' || key.toLowerCase() === 'w') this.jumpTime = JUMP_DURATION_S;
@@ -130,6 +142,9 @@ export class TrackGame {
   }
 
   private update(dt: number): void {
+    // Everything below is frozen until the gate opens: no travel, score, jump or judging.
+    this.gate.advance(dt);
+    if (this.gate.phase !== 'running') return;
     this.shakeTime = Math.max(0, this.shakeTime - dt);
     const shake = shakeOffset(this.shakeTime);
     this.camera.position.set(shake.x, 3.4 + shake.y, 11);
@@ -191,11 +206,18 @@ export class TrackGame {
 
   private publishHud(): void {
     const score = this.score.display;
+    const speed = Math.round(this.shownSpeed * 100) / 100;
+    const { combo } = this.score;
+    const banner = this.gate.phase === 'countdown'
+      ? { title: String(this.gate.count) }
+      : this.gate.phase === 'paused'
+        ? { title: 'PAUSADO', detail: 'Tracking perdido · volte ao quadro ou aperte uma tecla para seguir no teclado' }
+        : undefined;
     const label = String(score).padStart(5, '0');
-    const key = `${label}-${this.shownSpeed.toFixed(2)}-${this.status}-${this.feedback?.id}`;
+    const key = `${label}-${speed}-${this.status}-${this.feedback?.id}-${combo}-${banner?.title}`;
     if (key === this.lastHud) return;
     this.lastHud = key;
-    this.onHud({ score, label, speed01: this.shownSpeed, status: this.status, feedback: this.feedback });
+    this.onHud({ score, label, speed01: speed, status: this.status, feedback: this.feedback, combo, banner });
   }
 
   dispose(): void {
