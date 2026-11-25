@@ -11,7 +11,7 @@
 ## Requisitos
 
 - Node.js 24 LTS e npm 11 ou compatível.
-- Navegador moderno com câmera e WebGL 2; publicação e uso da câmera exigem HTTPS (localhost funciona em desenvolvimento).
+- Navegador desktop moderno (Chrome, Edge ou Firefox) com câmera e WebGL 2; publicação e uso da câmera exigem HTTPS (localhost funciona em desenvolvimento).
 - Câmera enquadrando o corpo inteiro para corrida e salto. O Tênis funciona com enquadramento mais próximo.
 
 ## Desenvolvimento
@@ -30,11 +30,11 @@ npm run preview
 npm run lint
 ```
 
-O build copia o WASM do MediaPipe fixado no lockfile para `public/mediapipe/wasm/` e verifica o SHA-256 do modelo Lite local antes de compilar.
+O build copia a variante module do WASM do MediaPipe fixado no lockfile para `public/mediapipe/wasm/` e verifica o SHA-256 do modelo Lite local antes de compilar. Os ativos de `mediapipe/` e `assets/` são servidos com `Cache-Control: immutable` (ver `vercel.json`).
 
 ## Arquitetura
 
-- `src/cv/`: Worker do Pose Landmarker, cliente de captura com um frame em trânsito e calibração.
+- `src/cv/`: Worker do Pose Landmarker (variante WASM module, `useModule`), cliente de captura com um frame em trânsito que mantém o worker quente entre liga/desliga e carrega os ativos em paralelo à permissão de câmera; calibração.
 - `src/kinematics/`: filtro 1-Euro, histerese, gating de confiança e detectores puros.
 - `src/games/`: loop fixo Three.js e cenas arcade desacopladas da câmera.
 - `src/ui/`: canvas do jogo em tela cheia, seletor de modalidade e PiP da câmera.
