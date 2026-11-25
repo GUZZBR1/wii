@@ -1,10 +1,13 @@
 import * as THREE from 'three';
 import type { SportActionEvent } from '../../cv/protocol';
 import { disposeObjectTree, GameLoop } from '../core/GameLoop';
+import { type Gait, gaitFor, nextPace } from './gait';
+import { HurdleFlow, RUNNER_Z } from './hurdleFlow';
 import { TrackScore } from './trackScore';
 
 export interface GameHudState { score: number; label: string; speed01: number; status: string }
 type Hurdle = { group: THREE.Group; lane: number; z: number; passed: boolean };
+const GAIT_STATUS: Record<Gait, string> = { idle: 'Parado', walk: 'Andando', run: 'Correndo' };
 
 export class TrackGame {
   private readonly scene = new THREE.Scene();
@@ -16,13 +19,17 @@ export class TrackGame {
   private readonly loop: GameLoop;
   private readonly hudTimer: number;
   private lane = 0;
-  private speed01 = 0.32;
-  private distance = 0;
+  /** Speed asked for by the player; `shownSpeed` eases toward it. */
+  private speed01 = 0;
+  private shownSpeed = 0;
+  private cadenceSpm = 0;
+  private gait: Gait = 'idle';
+  private stridePhase = 0;
   private readonly score = new TrackScore();
+  private readonly hurdleFlow = new HurdleFlow();
   private jumpTime = 0;
-  private hurdleClock = 0;
   private lastHud = '';
-  private status = 'Use setas + espaço ou ative a câmera';
+  private status = 'Ande ou corra no lugar com a câmera, ou use ↓';
 
   constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: GameHudState) => void) {
     this.scene.background = new THREE.Color(0x223038);
@@ -65,7 +72,7 @@ export class TrackGame {
       const upperArm = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.4, 3, 5), trousers); upperArm.position.y = -0.23; arm.add(upperArm);
       arm.rotation.z = side * -0.12; this.runner.add(arm); this.arms.push(arm);
     }
-    this.runner.position.set(0, 0, 1.4); this.scene.add(this.runner);
+    this.runner.position.set(0, 0, RUNNER_Z); this.scene.add(this.runner);
     this.addHurdle(-1, -30);
     this.addHurdle(1, -48);
   }
@@ -79,7 +86,7 @@ export class TrackGame {
   }
 
   onAction(event: SportActionEvent): void {
-    if (event.type === 'sprint') { this.speed01 = event.speed01; this.status = 'Correndo'; }
+    if (event.type === 'sprint') { this.speed01 = event.speed01; this.cadenceSpm = event.cadenceSpm; }
     if (event.type === 'jump') { this.jumpTime = 0.72; this.status = 'Salto!'; }
     if (event.type === 'lane') { this.lane = Math.max(-1, Math.min(1, this.lane + (event.direction === 'left' ? -1 : 1))); }
   }
@@ -88,48 +95,58 @@ export class TrackGame {
     if (key === 'ArrowLeft' || key.toLowerCase() === 'a') this.lane = Math.max(-1, this.lane - 1);
     if (key === 'ArrowRight' || key.toLowerCase() === 'd') this.lane = Math.min(1, this.lane + 1);
     if (key === ' ' || key === 'ArrowUp' || key.toLowerCase() === 'w') this.jumpTime = 0.72;
-    if (key === 'ArrowDown' || key.toLowerCase() === 's') this.speed01 = Math.min(1, this.speed01 + 0.15);
+    if (key === 'ArrowDown' || key.toLowerCase() === 's') {
+      // Keyboard cycles stopped → walking → running.
+      this.speed01 = nextPace(this.speed01);
+      this.cadenceSpm = 0;
+    }
   }
 
   private update(dt: number): void {
-    this.distance += dt * (4 + this.speed01 * 12);
-    this.score.advance(dt, this.speed01);
+    this.shownSpeed += (this.speed01 - this.shownSpeed) * Math.min(1, dt * 6);
+    if (this.speed01 === 0 && this.shownSpeed < 0.02) this.shownSpeed = 0;
+    const speed = this.shownSpeed;
+    const gait = gaitFor(speed, this.gait);
+    if (gait !== this.gait) this.status = GAIT_STATUS[gait];
+    this.gait = gait;
+
+    this.score.advance(dt, speed);
     this.runner.position.x += (this.lane * 1.5 - this.runner.position.x) * Math.min(1, dt * 10);
+    // One leg swing per step: follow the player's cadence, or estimate it from speed for the keyboard.
+    if (gait !== 'idle') this.stridePhase += dt * Math.PI * (this.cadenceSpm || 70 + speed * 130) / 60;
+    const swing = gait === 'idle' ? 0 : gait === 'walk' ? 0.4 : 0.95;
+    const stride = Math.sin(this.stridePhase) * swing;
+    this.legs[0]!.rotation.x = stride; this.legs[1]!.rotation.x = -stride;
+    this.arms[0]!.rotation.x = -stride * (gait === 'run' ? 1.1 : 0.65); this.arms[1]!.rotation.x = -this.arms[0]!.rotation.x;
+    this.runner.rotation.x = gait === 'run' ? -0.16 : 0;
     if (this.jumpTime > 0) {
       this.jumpTime = Math.max(0, this.jumpTime - dt);
       this.runner.position.y = Math.sin((1 - this.jumpTime / 0.72) * Math.PI) * 1.35;
-    } else this.runner.position.y = 0;
-    const stride = Math.sin(this.distance * 2.4) * (0.18 + this.speed01 * 0.5);
-    this.legs[0]!.rotation.x = stride; this.legs[1]!.rotation.x = -stride;
-    this.arms[0]!.rotation.x = -stride * 0.65; this.arms[1]!.rotation.x = stride * 0.65;
-    const advance = dt * (7 + this.speed01 * 17);
-    this.hurdleClock += dt;
-    for (const hurdle of this.hurdles) {
-      hurdle.z += advance; hurdle.group.position.z = hurdle.z;
-      if (!hurdle.passed && hurdle.z > 0.2) {
-        hurdle.passed = true;
-        if (hurdle.lane !== this.lane || this.jumpTime > 0.15 || this.runner.position.y > 0.45) this.score.hurdleCleared();
-        else this.score.hurdleHit();
-      }
+      if (this.jumpTime === 0) this.status = GAIT_STATUS[gait];
+    } else this.runner.position.y = gait === 'run' ? Math.abs(Math.sin(this.stridePhase)) * 0.14 : 0;
+    const advance = dt * speed * 22;
+    const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
+    const flow = this.hurdleFlow.advance(this.hurdles, advance, this.lane, airborne);
+    for (const { cleared } of flow.judged) {
+      if (cleared) this.score.hurdleCleared();
+      else this.score.hurdleHit();
     }
-    while (this.hurdles.length && this.hurdles[0]!.z > 8) {
-      const old = this.hurdles.shift()!;
+    for (const old of flow.despawned) {
+      this.hurdles.splice(this.hurdles.indexOf(old), 1);
       this.scene.remove(old.group);
       disposeObjectTree(old.group);
     }
-    if (this.hurdleClock > Math.max(1.5, 3.4 - this.speed01 * 1.4)) {
-      this.hurdleClock = 0;
-      this.addHurdle(Math.round(Math.random() * 2) - 1, -48 - Math.random() * 5);
-    }
+    for (const hurdle of this.hurdles) hurdle.group.position.z = hurdle.z;
+    if (flow.spawn) this.addHurdle(Math.round(Math.random() * 2) - 1, -48 - Math.random() * 5);
   }
 
   private publishHud(): void {
     const score = this.score.display;
     const label = String(score).padStart(5, '0');
-    const key = `${label}-${this.speed01.toFixed(2)}-${this.status}`;
+    const key = `${label}-${this.shownSpeed.toFixed(2)}-${this.status}`;
     if (key === this.lastHud) return;
     this.lastHud = key;
-    this.onHud({ score, label, speed01: this.speed01, status: this.status });
+    this.onHud({ score, label, speed01: this.shownSpeed, status: this.status });
   }
 
   dispose(): void { window.clearInterval(this.hudTimer); this.loop.dispose(); }

@@ -70,7 +70,7 @@ describe('cadence tracker', () => {
       [0, 0, 0], [100, 0.16, 0], [180, 0.16, 0], [220, 0, 0],
       [400, 0, 0.16], [480, 0, 0.16], [520, 0, 0],
       [700, 0.16, 0], [780, 0.16, 0], [820, 0, 0], [2100, 0, 0],
-      [2400, 0.16, 0], [2480, 0.16, 0], [2520, 0, 0],
+      [2600, 0.16, 0], [2680, 0.16, 0], [2720, 0, 0],
     ] as const;
     const result = frames.map(([time, left, right]) => tracker.update(pose(time, { kneeLeft: left, kneeRight: right }), profile));
     expect(result.at(-3)!.step).toBe('left');
