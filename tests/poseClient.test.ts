@@ -128,6 +128,76 @@ describe('PoseClient capture sessions', () => {
     worker.reply(poseReply);
     worker.reply(poseReply);
     expect(newOnPose).toHaveBeenCalledOnce();
+    expect(newOnPose).toHaveBeenCalledWith({
+      timestampMs: 20,
+      landmarks: visibleLandmarks(),
+      worldLandmarks: visibleLandmarks(),
+      trackingState: 'degraded',
+      bodyConfidence: 1,
+    });
+
+    client.dispose();
+  });
+
+  it('releases the pending frame on a non-fatal error from the old session without notifying the new one', async () => {
+    const bitmap = { close: vi.fn() } as unknown as ImageBitmap;
+    vi.stubGlobal('Worker', FakeWorker);
+    vi.stubGlobal('location', { origin: 'http://localhost' });
+    vi.stubGlobal('window', { setTimeout, clearTimeout });
+    vi.stubGlobal('HTMLMediaElement', { HAVE_CURRENT_DATA: 2 });
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmap));
+
+    const client = new PoseClient();
+    const onStatus = vi.fn();
+    await client.init({ onPose: vi.fn(), onStatus });
+    const worker = FakeWorker.instance!;
+    const video = makeVideo();
+
+    client.beginCapture(video, { onPose: vi.fn(), onStatus });
+    video.fireFrame(10);
+    await flushCapture();
+    const oldFrame = worker.sent.find((message) => message.type === 'FRAME');
+    if (oldFrame?.type !== 'FRAME') throw new Error('Expected an old-session frame');
+
+    client.pauseCapture();
+    client.beginCapture(video, { onPose: vi.fn(), onStatus });
+    onStatus.mockClear();
+    video.fireFrame(15);
+    await flushCapture();
+    expect(worker.sent.filter((message) => message.type === 'FRAME')).toHaveLength(1);
+
+    worker.reply({
+      type: 'ERROR', stage: 'detect', fatal: false,
+      requestId: oldFrame.requestId, captureEpoch: oldFrame.captureEpoch,
+      message: 'GPU falhou; próxima captura será processada em CPU.',
+    });
+    expect(onStatus).not.toHaveBeenCalled();
+
+    video.fireFrame(20);
+    await flushCapture();
+    const newFrame = worker.sent.filter((message) => message.type === 'FRAME').at(-1);
+    if (newFrame?.type !== 'FRAME') throw new Error('Expected a new-session frame');
+    expect(newFrame.captureEpoch).toBeGreaterThan(oldFrame.captureEpoch);
+
+    worker.reply({
+      type: 'ERROR', stage: 'detect', fatal: false,
+      requestId: newFrame.requestId + 1, captureEpoch: newFrame.captureEpoch,
+      message: 'Erro de outro quadro.',
+    });
+    video.fireFrame(25);
+    await flushCapture();
+    expect(onStatus).not.toHaveBeenCalled();
+    expect(worker.sent.filter((message) => message.type === 'FRAME')).toHaveLength(2);
+
+    worker.reply({
+      type: 'ERROR', stage: 'detect', fatal: false,
+      requestId: newFrame.requestId, captureEpoch: newFrame.captureEpoch,
+      message: 'GPU falhou; próxima captura será processada em CPU.',
+    });
+    expect(onStatus).toHaveBeenCalledWith('fallback', 'GPU falhou; próxima captura será processada em CPU.');
+    video.fireFrame(30);
+    await flushCapture();
+    expect(worker.sent.filter((message) => message.type === 'FRAME')).toHaveLength(3);
 
     client.dispose();
   });

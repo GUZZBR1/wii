@@ -137,8 +137,13 @@ export class PoseClient {
         if (this.inFlight?.requestId !== message.requestId || this.inFlight.captureEpoch !== message.captureEpoch) return;
         this.releaseFrame(message.requestId, message.captureEpoch);
         if (!this.capturing || message.captureEpoch !== this.captureEpoch) return;
-        const { type: _type, ...data } = message;
-        this.callbacks?.onPose({ ...data, trackingState: 'degraded', bodyConfidence: this.confidence(data.landmarks) });
+        this.callbacks?.onPose({
+          timestampMs: message.timestampMs,
+          landmarks: message.landmarks,
+          worldLandmarks: message.worldLandmarks,
+          trackingState: 'degraded',
+          bodyConfidence: this.confidence(message.landmarks),
+        });
       }
     };
     worker.onerror = (event) => {
