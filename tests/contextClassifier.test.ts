@@ -266,7 +266,10 @@ describe('ContextClassifier regression pinning', () => {
     // ±7.5 mm uniform jitter per axis per frame — unfiltered finite differences would amplify
     // it into phantom wrist speed of the same order as real gestures.
     let seed = 42;
-    const rand = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648 - 0.5;
+    const rand = () => {
+      seed = (seed * 1103515245 + 12345) % 2147483648;
+      return seed / 2147483648 - 0.5;
+    };
     const frames = Array.from({ length: 90 }, (_, i) => {
       const base = pose(T0 + i * FRAME_MS);
       return {
