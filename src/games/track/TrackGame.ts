@@ -6,11 +6,15 @@ import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type P
 import { HurdleFlow, type ItemKind, RUNNER_Z } from './hurdleFlow';
 import { ItemAssets } from './itemAssets';
 import { JUMP_DURATION_S, jumpHeight } from './jump';
+import { fovFor, scrollZ } from './scroll';
 import { type Lane, nextKind, nextLane } from './spawn';
 import { isPerfectJump, TrackScore } from './trackScore';
 
 export interface GameHudState { score: number; label: string; speed01: number; status: string; feedback?: Feedback }
 type Item = { group: THREE.Group; kind: ItemKind; lane: number; z: number; passed: boolean };
+// Scenery loops between the fog and a point behind the camera, so recycling is never visible.
+const SCENERY_MIN_Z = -66;
+const SCENERY_MAX_Z = 14;
 const GAIT_STATUS: Record<Gait, string> = { idle: 'Parado', walk: 'Andando', run: 'Correndo' };
 
 export class TrackGame {
@@ -19,6 +23,8 @@ export class TrackGame {
   private readonly runner = new THREE.Group();
   private readonly legs: THREE.Group[] = [];
   private readonly arms: THREE.Group[] = [];
+  private readonly scenery: THREE.Mesh[] = [];
+  private readonly shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }));
   private readonly items: Item[] = [];
   private readonly itemAssets = new ItemAssets();
   private readonly loop: GameLoop;
@@ -57,14 +63,17 @@ export class TrackGame {
     ground.rotation.x = -Math.PI / 2; ground.position.z = -30; this.scene.add(ground);
     const track = new THREE.Mesh(new THREE.PlaneGeometry(9, 90), new THREE.MeshBasicMaterial({ color: 0x454e50 }));
     track.rotation.x = -Math.PI / 2; track.position.set(0, 0.02, -32); this.scene.add(track);
-    const stripeGeo = new THREE.BoxGeometry(0.035, 0.01, 90);
+    const stripeGeo = new THREE.BoxGeometry(0.06, 0.01, 2.2);
     const stripeMat = new THREE.MeshBasicMaterial({ color: 0xf4b544 });
-    for (const x of [-3, 0, 3]) { const line = new THREE.Mesh(stripeGeo, stripeMat); line.position.set(x, 0.035, -32); this.scene.add(line); }
-    for (let i = 0; i < 12; i += 1) {
+    for (const x of [-3, 0, 3]) {
+      for (let z = SCENERY_MIN_Z; z < SCENERY_MAX_Z; z += 4) this.addScenery(new THREE.Mesh(stripeGeo, stripeMat), x, 0.035, z);
+    }
+    for (let i = 0; i < (SCENERY_MAX_Z - SCENERY_MIN_Z) / 5; i += 1) {
       const h = 2 + (i % 3) * 1.2;
       const building = new THREE.Mesh(new THREE.BoxGeometry(2 + (i % 2), h, 2), new THREE.MeshStandardMaterial({ color: i % 2 ? 0x27373b : 0x202c30, flatShading: true }));
-      building.position.set(i % 2 ? -7 : 7, h / 2, -6 - i * 5); this.scene.add(building);
+      this.addScenery(building, i % 2 ? -7 : 7, h / 2, SCENERY_MIN_Z + i * 5);
     }
+    this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.set(0, 0.045, RUNNER_Z); this.scene.add(this.shadow);
     const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 0.85, 4, 8), new THREE.MeshStandardMaterial({ color: 0xeff0e9, roughness: 0.72, flatShading: true }));
     torso.position.y = 1.22; this.runner.add(torso);
     const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 1), new THREE.MeshStandardMaterial({ color: 0xe8b896, flatShading: true }));
@@ -83,6 +92,10 @@ export class TrackGame {
     this.runner.position.set(0, 0, RUNNER_Z); this.scene.add(this.runner);
     this.addItem('hurdle', -1, -30);
     this.addItem('hurdle', 1, -48);
+  }
+
+  private addScenery(mesh: THREE.Mesh, x: number, y: number, z: number): void {
+    mesh.position.set(x, y, z); this.scene.add(mesh); this.scenery.push(mesh);
   }
 
   private addItem(kind: ItemKind, lane: Lane, z: number): void {
@@ -143,6 +156,12 @@ export class TrackGame {
     const advance = dt * speed * 22;
     const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
     this.travelled += advance;
+    for (const piece of this.scenery) piece.position.z = scrollZ(piece.position.z, advance, SCENERY_MIN_Z, SCENERY_MAX_Z);
+    this.shadow.position.x = this.runner.position.x;
+    // The shadow shrinks as the runner rises, which is what reads as height.
+    this.shadow.scale.setScalar(1 / (1 + this.runner.position.y * 0.6));
+    const fov = this.camera.fov + (fovFor(speed) - this.camera.fov) * Math.min(1, dt * 3);
+    if (Math.abs(fov - this.camera.fov) > 0.01) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     const flow = this.hurdleFlow.advance(this.items, advance, this.lane, airborne, this.travelled);
     for (const { hurdle: item, outcome } of flow.judged) {
       // Only a jump over the hurdle can be perfect; dodging it by lane just clears it.
