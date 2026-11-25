@@ -66,6 +66,9 @@ export class SwingDetector {
       time: snapshot.timestampMs,
     };
     if (!this.previous) { this.previous = current; return undefined; }
+    if (this.pendingSwing && current.time - this.previous.time > SWING_MAX_DURATION_MS) {
+      this.enterReturn();
+    }
     const dt = Math.max((current.time - this.previous.time) / 1000, 1 / 120);
     const vx = (current.x - this.previous.x) / dt;
     const vy = (current.y - this.previous.y) / dt;
@@ -92,11 +95,12 @@ export class SwingDetector {
 
     if (this.mode === 'swing') {
       const pending = this.pendingSwing;
-      if (!pending) { this.mode = 'return'; return undefined; }
+      if (!pending) { this.enterReturn(); return undefined; }
       const ageMs = snapshot.timestampMs - pending.startedAt;
       const sameDirection = Math.sign(lateralSpeedBodyWidthsPerSecond) === pending.direction;
       const lowLateralSpeed = Math.abs(lateralSpeedBodyWidthsPerSecond) < SWING_DIRECTION_EPSILON_BODY_WIDTHS_PER_SEC;
-      if (sameDirection && speedBodyWidthsPerSecond > pending.peak.speedBodyWidthsPerSecond) {
+      if (sameDirection && speedBodyWidthsPerSecond > pending.peak.speedBodyWidthsPerSecond
+        && hasMeaningfulLateralComponent(speedBodyWidthsPerSecond, lateralSpeedBodyWidthsPerSecond)) {
         pending.peak = { x: current.x, speedBodyWidthsPerSecond, lateralSpeedBodyWidthsPerSecond, confidence, timestampMs: snapshot.timestampMs };
       }
       const reversed = !sameDirection && !lowLateralSpeed;
@@ -105,9 +109,7 @@ export class SwingDetector {
       const timedOut = ageMs >= SWING_MAX_DURATION_MS;
       if (!reversed && !decelerated && !timedOut) return undefined;
 
-      this.pendingSwing = undefined;
-      this.mode = 'return';
-      if (!hasMeaningfulLateralComponent(pending.peak.speedBodyWidthsPerSecond, pending.peak.lateralSpeedBodyWidthsPerSecond)) return undefined;
+      this.enterReturn();
       const forehandDirection = hand === 'right' ? pending.direction < 0 : pending.direction > 0;
       const aimValue = (pending.peak.x - calibration.world.readyWristLocal.x) * (hand === 'right' ? -1 : 1);
       const aimZone: AimZone = aimValue < -0.2 ? 'cross' : aimValue > 0.2 ? 'line' : 'center';
@@ -128,6 +130,12 @@ export class SwingDetector {
       } else this.readySince = undefined;
     }
     return undefined;
+  }
+
+  private enterReturn(): void {
+    this.pendingSwing = undefined;
+    this.readySince = undefined;
+    this.mode = 'return';
   }
 
   reset(): void { this.xFilter.reset(); this.yFilter.reset(); this.zFilter.reset(); this.previous = undefined; this.mode = 'return'; this.pendingSwing = undefined; this.lastSwingAt = Number.NEGATIVE_INFINITY; this.readySince = undefined; }

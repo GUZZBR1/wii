@@ -8,7 +8,7 @@ import { landmarkConfidence } from '../src/kinematics/math';
 import { LaneLeanDetector, torsoLeanDeltaRad } from '../src/kinematics/postureSignals';
 import { SchmittTrigger } from '../src/kinematics/schmittTrigger';
 import { hasMeaningfulLateralComponent, SwingDetector } from '../src/kinematics/swingDetector';
-import { calibration, pose, poseWithWorldShoulderWidth, rotateWorldYaw } from './fixtures/syntheticPose';
+import { calibration, pose, poseWithWorldShoulderWidth, rollUpperBody, rotateWorldYaw } from './fixtures/syntheticPose';
 
 function withWorldConfidence(snapshot: ReturnType<typeof pose>, index: number, visibility: number, presence: number) {
   return {
@@ -124,6 +124,14 @@ describe('jump detector', () => {
     expect(Math.max(...fireTimes) - Math.min(...fireTimes)).toBeLessThanOrEqual(75);
   });
 
+  it('arms through resting hip jitter and fires the first jump', () => {
+    const detector = new JumpDetector();
+    const profile = calibration();
+    const rises = [...Array.from({ length: 60 }, (_, i) => (i % 2 === 0 ? 0.002 : -0.002)), 0.07, 0.12, 0.18, 0.25, 0.3];
+    const fired = rises.filter((hipRise, i) => detector.update(pose(i * 33, { hipRise }), profile));
+    expect(fired).toHaveLength(1);
+  });
+
   it('does not classify small periodic hip bob as a jump', () => {
     const detector = new JumpDetector();
     const profile = calibration();
@@ -153,12 +161,43 @@ describe('swing detector', () => {
     expect(detector.update(pose(400, { wristLateral: 0 }), profile)).toBeUndefined();
   });
 
-  it('does not classify a vertical or depth-only wrist motion as a forehand or backhand', () => {
+  it.each(['wristVertical', 'wristDepth'] as const)('does not confirm a swing from %s motion', (axis) => {
     const detector = new SwingDetector();
     const profile = calibration('right');
-    expect(detector.update(pose(0), profile)).toBeUndefined();
-    expect(detector.update(pose(100, { wristVertical: 0.4 }), profile)).toBeUndefined();
-    expect(detector.update(pose(200, { wristDepth: 0.4 }), profile)).toBeUndefined();
+    const signals = [detector.update(pose(0), profile)];
+    for (let time = 100; time <= 500; time += 40) {
+      signals.push(detector.update(pose(time, { [axis]: 0.3, wristLateral: 0.02 }), profile));
+    }
+    expect(signals.filter(Boolean)).toHaveLength(0);
+  });
+
+  it('keeps a lateral peak when the wrist finishes upward', () => {
+    const detector = new SwingDetector();
+    const profile = calibration('right');
+    const frames = [pose(0), pose(33), pose(66, { wristLateral: -0.11 })];
+    for (let time = 99; time <= 495; time += 33) frames.push(pose(time, { wristLateral: -0.12, wristVertical: 0.3 }));
+    const signals = frames.map((frame) => detector.update(frame, profile)).filter(Boolean);
+    expect(signals).toMatchObject([{ side: 'forehand' }]);
+  });
+
+  it('requires a new neutral dwell after each swing', () => {
+    const detector = new SwingDetector();
+    const profile = calibration('right');
+    detector.reset();
+    for (let time = 0; time <= 240; time += 40) detector.update(pose(time), profile);
+    detector.update(pose(270, { wristLateral: -0.2 }), profile);
+    expect(detector.update(pose(310, { wristLateral: 0.2 }), profile)).toBeDefined();
+    detector.update(pose(1500), profile); // a single neutral frame
+    detector.update(pose(1540, { wristLateral: -0.2 }), profile);
+    expect(detector.update(pose(1580, { wristLateral: 0.2 }), profile)).toBeUndefined();
+  });
+
+  it('drops a pending swing after a tracking gap', () => {
+    const detector = new SwingDetector();
+    const profile = calibration('right');
+    detector.update(pose(0), profile);
+    detector.update(pose(99, { wristLateral: -0.3 }), profile);
+    expect(detector.update(pose(3099, { wristLateral: -0.3 }), profile)).toBeUndefined();
   });
 
   it('classifies the peak stroke direction and maps the peak wrist position into three aim zones', () => {
@@ -239,6 +278,20 @@ describe('world-space posture calibration', () => {
     expect(signals).toEqual(['right']);
   });
 
+  it.each([
+    [0.3, 0, 'right'], [-0.3, 0, 'left'], [0.3, 0.9, 'right'], [-0.3, 0.9, 'left'],
+  ] as const)('measures a rigid trunk roll of %s rad at yaw %s', (roll, yaw, direction) => {
+    const frame = (time: number, radians: number) => rotateWorldYaw(rollUpperBody(pose(time), radians), yaw);
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(frame(time, time % 200 === 0 ? 0.01 : -0.01));
+    const profile = calibrator.finish('right')!;
+    expect(torsoLeanDeltaRad(frame(0, roll), profile)).toBeCloseTo(roll, 1);
+    const detector = new LaneLeanDetector();
+    const signals = Array.from({ length: 12 }, (_, i) => detector.update(frame(i * 33, i < 4 ? 0 : roll), profile));
+    expect(signals.filter(Boolean)).toEqual([direction]);
+  });
+
   it('waits for neutral posture before emitting a lane change after tracking reset', () => {
     const detector = new LaneLeanDetector();
     const profile = calibration();
@@ -310,6 +363,24 @@ describe('action pipeline tracking gate', () => {
     expect(active.controls.sprintSpeed01).toBeGreaterThan(0);
     const lost = [1110, 1143, 1176, 1209].map((time) => pipeline.update(pose(time, { hiddenLandmarks: [25, 26] }), profile)).at(-1)!;
     expect(lost.controls).toMatchObject({ sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'lost' });
+  });
+
+  it.each(['hidden knees', 'removed calibration', 'reset'])('stops the sprint exactly once on %s', (cause) => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const frames = [
+      [0, 0, 0], [33, 0, 0], [66, 0, 0],
+      [166, 0.16, 0], [246, 0.16, 0], [306, 0, 0],
+      [566, 0, 0.16], [646, 0, 0.16], [706, 0, 0],
+      [966, 0.16, 0], [1046, 0.16, 0],
+    ] as const;
+    frames.forEach(([time, left, right]) => { pipeline.update(pose(time, { kneeLeft: left, kneeRight: right }), profile); });
+    const after = [1079, 1112].flatMap((time) => {
+      if (cause === 'reset') return pipeline.reset();
+      if (cause === 'removed calibration') return pipeline.update(pose(time)).events;
+      return pipeline.update(pose(time, { hiddenLandmarks: [25, 26] }), profile).events;
+    });
+    expect(after.filter((event) => event.type === 'sprint')).toMatchObject([{ speed01: 0, cadenceSpm: 0 }]);
   });
 
   it('keeps the swing arc across a brief wrist occlusion and reports the gate confidence', () => {

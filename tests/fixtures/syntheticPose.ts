@@ -27,19 +27,20 @@ export function pose(timestampMs: number, options: {
     if (points[index]) points[index] = { ...points[index]!, visibility: 0, presence: 0 };
   });
 
+  // MediaPipe world axes: +x image right (the player's left), +y down.
   const world: Point3[] = Array.from({ length: 33 }, () => ({ x: 0, y: 0, z: 0, visibility: options.confidence ?? 0.95, presence: options.confidence ?? 0.95 }));
   const leanOffset = Math.tan(options.leanRad ?? 0) * 0.4;
-  world[11] = { ...world[11]!, x: -0.2 + leanOffset, y: 0.4 };
-  world[12] = { ...world[12]!, x: 0.2 + leanOffset, y: 0.4 };
-  world[15] = { ...world[15]!, x: -0.2 + (options.wristLateral ?? 0), y: -0.1 };
+  world[11] = { ...world[11]!, x: 0.2 - leanOffset, y: -0.4 };
+  world[12] = { ...world[12]!, x: -0.2 - leanOffset, y: -0.4 };
+  world[15] = { ...world[15]!, x: 0.2 - (options.wristLateral ?? 0), y: 0.1 };
   world[16] = {
     ...world[16]!,
-    x: 0.2 + (options.wristLateral ?? 0),
-    y: -0.1 + (options.wristVertical ?? 0),
+    x: -0.2 - (options.wristLateral ?? 0),
+    y: 0.1 - (options.wristVertical ?? 0),
     z: options.wristDepth ?? 0,
   };
-  world[23] = { ...world[23]!, x: -0.1, y: 0 };
-  world[24] = { ...world[24]!, x: 0.1, y: 0 };
+  world[23] = { ...world[23]!, x: 0.1, y: 0 };
+  world[24] = { ...world[24]!, x: -0.1, y: 0 };
   return { timestampMs, landmarks: points, worldLandmarks: world, trackingState: 'tracked', bodyConfidence: options.confidence ?? 0.95 };
 }
 
@@ -56,12 +57,24 @@ export function rotateWorldYaw(snapshot: ReturnType<typeof pose>, radians: numbe
   };
 }
 
+/** Rolls shoulders and wrists rigidly around the hip centre; positive is toward the player's right. */
+export function rollUpperBody(snapshot: ReturnType<typeof pose>, radians: number) {
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  return {
+    ...snapshot,
+    worldLandmarks: snapshot.worldLandmarks.map((point, index) => [11, 12, 15, 16].includes(index)
+      ? { ...point, x: point.x * cosine + point.y * sine, y: -point.x * sine + point.y * cosine }
+      : point),
+  };
+}
+
 export function poseWithWorldShoulderWidth(timestampMs: number, width: number, wristOffset = 0.1) {
   const snapshot = pose(timestampMs);
   const world = [...snapshot.worldLandmarks];
-  world[11] = { ...world[11]!, x: -width / 2 };
-  world[12] = { ...world[12]!, x: width / 2 };
-  world[16] = { ...world[16]!, x: width / 2 + wristOffset };
+  world[11] = { ...world[11]!, x: width / 2 };
+  world[12] = { ...world[12]!, x: -width / 2 };
+  world[16] = { ...world[16]!, x: -width / 2 - wristOffset };
   return { ...snapshot, worldLandmarks: world };
 }
 

@@ -22,7 +22,7 @@ export class JumpDetector {
     const dtSeconds = this.previousTimeMs === undefined ? undefined : Math.max((snapshot.timestampMs - this.previousTimeMs) / 1000, 1 / 120);
     const velocityUp = this.previousRise === undefined || dtSeconds === undefined ? 0 : (rise - this.previousRise) / dtSeconds;
     if (!this.armed) {
-      if (rise <= 0.03 && velocityUp <= 0) {
+      if (rise <= 0.03) {
         this.neutralSince ??= snapshot.timestampMs;
         if (snapshot.timestampMs - this.neutralSince >= 160) {
           this.armed = true;
@@ -46,7 +46,7 @@ export class JumpDetector {
       fired = true;
     }
     if (this.airborne) {
-      if (rise <= 0.03 && velocityUp <= 0) {
+      if (rise <= 0.03) {
         this.neutralSince ??= snapshot.timestampMs;
         if (snapshot.timestampMs - this.neutralSince >= 160) {
           this.airborne = false;

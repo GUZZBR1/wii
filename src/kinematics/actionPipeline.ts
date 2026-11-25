@@ -16,15 +16,18 @@ export class ActionPipeline {
   private readonly lean = new LaneLeanDetector();
   private readonly swing = new SwingDetector();
   private nextId = 1;
+  /** True while the last emitted sprint event left the game moving. */
+  private sprinting = false;
 
   update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number } {
     const start = performance.now();
     const body = this.bodyGate.evaluate(snapshot);
     const current = { ...snapshot, trackingState: body.state, bodyConfidence: body.confidence };
     if (!calibration) {
+      const stopped = this.stopSprint(snapshot.timestampMs, body.confidence);
       this.resetDetectors();
       return {
-        snapshot: current, events: [],
+        snapshot: current, events: stopped,
         controls: { sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'lost' },
         kinematicsMs: performance.now() - start,
       };
@@ -39,8 +42,12 @@ export class ActionPipeline {
       controls = { sprintSpeed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm, trackingState: 'tracked' };
       const base = this.eventBase(snapshot, cadenceTracking.confidence);
       events.push({ ...base, id: this.nextId++, type: 'sprint', speed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm });
+      this.sprinting = cadence.speed01 > 0;
       if (cadence.step) events.push({ ...base, id: this.nextId++, type: 'step', side: cadence.step });
-    } else if (cadenceTracking.state === 'lost') this.cadence.reset();
+    } else {
+      events.push(...this.stopSprint(snapshot.timestampMs, cadenceTracking.confidence));
+      if (cadenceTracking.state === 'lost') this.cadence.reset();
+    }
 
     const jumpTracking = this.jumpGate.evaluate(snapshot);
     if (jumpTracking.state === 'tracked') {
@@ -69,9 +76,18 @@ export class ActionPipeline {
     return { snapshot: current, events, controls, kinematicsMs: performance.now() - start };
   }
 
-  reset(): void {
+  /** Returns the events the game still needs, such as stopping a sprint in progress. */
+  reset(): SportActionEvent[] {
+    const stopped = this.stopSprint(performance.now(), 0);
     this.bodyGate.reset(); this.cadenceGate.reset(); this.jumpGate.reset(); this.laneGate.reset(); this.swingGate.reset();
     this.resetDetectors();
+    return stopped;
+  }
+
+  private stopSprint(timestampMs: number, confidence: number): SportActionEvent[] {
+    if (!this.sprinting) return [];
+    this.sprinting = false;
+    return [{ timestampMs, confidence, trackingState: 'tracked', source: 'cv', id: this.nextId++, type: 'sprint', speed01: 0, cadenceSpm: 0 }];
   }
 
   private eventBase(snapshot: PoseSnapshot, confidence: number) {

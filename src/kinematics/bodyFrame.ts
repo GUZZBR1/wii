@@ -59,15 +59,20 @@ export function bodyLocalPoint(
   };
 }
 
+/**
+ * Lateral trunk lean, positive toward the player's right. MediaPipe world y points down.
+ * The shoulder line is flattened so that rolling it together with the torso does not cancel the lean.
+ */
 export function torsoLeanRad(snapshot: PoseSnapshot): number | undefined {
   const leftShoulder = snapshot.worldLandmarks[11];
   const rightShoulder = snapshot.worldLandmarks[12];
   const leftHip = snapshot.worldLandmarks[23];
   const rightHip = snapshot.worldLandmarks[24];
   if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) return undefined;
-  const side = normalize(subtract(rightShoulder, leftShoulder));
+  const across = subtract(rightShoulder, leftShoulder);
+  const side = normalize({ x: across.x, y: 0, z: across.z });
   if (!side) return undefined;
 
   const torso = subtract(midpoint(leftShoulder, rightShoulder), midpoint(leftHip, rightHip));
-  return Math.atan2(dot(torso, side), torso.y);
+  return Math.atan2(dot(torso, side), -torso.y);
 }

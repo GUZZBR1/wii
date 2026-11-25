@@ -82,12 +82,12 @@ export default function App() {
     setCameraOn(false);
     setTracking('SEM POSE');
     setCameraStatus('Câmera desligada');
-    pipelineRef.current.reset();
+    for (const event of pipelineRef.current.reset()) dispatchEvent(event);
     calibratorRef.current.reset();
     calibratingRef.current = false;
     setCalibrating(false);
     drawPose(overlayRef.current, videoRef.current);
-  }, []);
+  }, [dispatchEvent]);
 
   const startCamera = useCallback(async () => {
     stopCamera();
