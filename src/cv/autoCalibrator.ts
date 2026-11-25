@@ -8,6 +8,8 @@ const COLLECT_MS = 3000;
 const STILL_TOLERANCE = 0.04;
 /** Ombros, punhos, quadris e joelhos: o que o Calibrator precisa enxergar. */
 const REQUIRED = [11, 12, 15, 16, 23, 24, 25, 26] as const;
+/** A postura em pé (salto e raia) só se verifica com os tornozelos: a corrida não abre mão dela. */
+const REQUIRED_STANCE = [...REQUIRED, 27, 28] as const;
 
 export type CalibrationPhase = 'framing' | 'settling' | 'collecting' | 'done';
 export interface CalibrationStep { phase: CalibrationPhase; progress: number; profile?: CalibrationProfile }
@@ -18,8 +20,9 @@ export class AutoCalibrator {
   private anchor?: { shoulders: Point3; hips: Point3; since: number };
   private collecting = false;
 
-  update(snapshot: PoseSnapshot): CalibrationStep {
-    const visible = REQUIRED.every((index) => snapshot.landmarks[index]) && landmarkConfidence(...REQUIRED.map((index) => snapshot.landmarks[index]!)) >= 0.55;
+  update(snapshot: PoseSnapshot, needsStance = false): CalibrationStep {
+    const required = needsStance ? REQUIRED_STANCE : REQUIRED;
+    const visible = required.every((index) => snapshot.landmarks[index]) && landmarkConfidence(...required.map((index) => snapshot.landmarks[index]!)) >= 0.55;
     if (snapshot.trackingState === 'lost' || (!visible && !this.collecting)) {
       this.reset();
       return { phase: 'framing', progress: 0 };
@@ -53,7 +56,10 @@ export class AutoCalibrator {
     if (progress < 1) return { phase: 'collecting', progress };
     const profile = this.calibrator.finish();
     this.reset();
-    return profile ? { phase: 'done', progress: 1, profile } : { phase: 'framing', progress: 0 };
+    // Sem a vertical das pernas não há salto nem raia: na corrida isso é calibração incompleta,
+    // não parcial — volta ao enquadramento. No tênis o perfil sem stance segue útil.
+    if (profile && (!needsStance || profile.world.leanUp0)) return { phase: 'done', progress: 1, profile };
+    return { phase: 'framing', progress: 0 };
   }
 
   reset(): void { this.calibrator.reset(); this.anchor = undefined; this.collecting = false; }

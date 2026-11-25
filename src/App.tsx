@@ -24,6 +24,8 @@ export default function App() {
   const engineRef = useRef<GameEngineHandle | null>(null);
   const pipelineRef = useRef(new ActionPipeline());
   const calibratorRef = useRef(new AutoCalibrator());
+  const sportRef = useRef(sport);
+  sportRef.current = sport;
   const profileRef = useRef<CalibrationProfile | undefined>(undefined);
   const audioRef = useRef(new ProceduralAudio());
   const cameraAttemptRef = useRef(0);
@@ -85,7 +87,7 @@ export default function App() {
         const current = result.snapshot;
         setTracking(current.trackingState === 'tracked' ? 'TRACKING' : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
         if (!profileRef.current) {
-          const step = calibratorRef.current.update(current);
+          const step = calibratorRef.current.update(current, sportRef.current === 'track');
           profileRef.current = step.profile;
           setCalibrationPhase(step.phase);
           setCalibrationProgress(step.progress);
@@ -152,6 +154,7 @@ export default function App() {
     </div>
 
     <CameraPip
+      sport={sport}
       videoRef={videoRef} canvasRef={overlayRef} cameraOn={cameraOn} status={cameraStatus} tracking={tracking}
       calibrationPhase={calibrationPhase} calibrationProgress={calibrationProgress}
       onStart={() => void startCamera()} onStop={stopCamera} onRecalibrate={recalibrate}

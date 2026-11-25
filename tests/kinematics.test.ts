@@ -742,6 +742,28 @@ it('conta quadros sem enquadramento na cobertura em vez de escondê-los da razã
   expect(steps.some((step) => step.profile)).toBe(false);
 });
 
+it('exige tornozelos no enquadramento quando o esporte precisa de postura em pé', () => {
+  const auto = new AutoCalibrator();
+  const steps = Array.from({ length: 45 }, (_, i) => auto.update(pose(i * 100, { hiddenLandmarks: [27, 28] }), true));
+  expect(steps.every((step) => step.phase === 'framing')).toBe(true);
+});
+
+it('rejeita perfil sem vertical das pernas quando o esporte precisa dela', () => {
+  const auto = new AutoCalibrator();
+  const noWorldAnkles = (time: number) => withWorldConfidence(withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0);
+  const steps = Array.from({ length: 45 }, (_, i) => auto.update(noWorldAnkles(i * 100), true));
+  expect(steps.some((step) => step.profile)).toBe(false);
+});
+
+it('aceita perfil parcial quando o esporte não precisa da vertical das pernas', () => {
+  const auto = new AutoCalibrator();
+  const noWorldAnkles = (time: number) => withWorldConfidence(withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0);
+  const steps = Array.from({ length: 45 }, (_, i) => auto.update(noWorldAnkles(i * 100)));
+  const done = steps.find((step) => step.profile);
+  expect(done?.profile).toBeDefined();
+  expect(done?.profile?.world.leanUp0).toBeUndefined();
+});
+
 it('tolera um quadro ruim isolado no meio da coleta', () => {
   const auto = new AutoCalibrator();
   const steps = Array.from({ length: 61 }, (_, i) => auto.update(pose(i * 100, { confidence: i === 25 ? 0.1 : 0.95 })));

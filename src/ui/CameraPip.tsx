@@ -1,6 +1,8 @@
 import { type RefObject, useEffect, useState } from 'react';
+import type { Sport } from './GameCanvas';
 
 interface Props {
+  sport: Sport;
   videoRef: RefObject<HTMLVideoElement | null>;
   canvasRef: RefObject<HTMLCanvasElement | null>;
   cameraOn: boolean;
@@ -13,8 +15,12 @@ interface Props {
   onRecalibrate: () => void;
 }
 
-function guidance(phase: Props['calibrationPhase'], progress: number): string {
-  if (phase === 'framing') return 'Afaste-se até aparecer dos ombros aos joelhos, com as mãos visíveis';
+function guidance(sport: Sport, phase: Props['calibrationPhase'], progress: number): string {
+  if (phase === 'framing') {
+    return sport === 'track'
+      ? 'Afaste-se até aparecer o corpo inteiro, com os pés visíveis'
+      : 'Afaste-se até aparecer dos ombros aos joelhos, com as mãos visíveis';
+  }
   if (phase === 'settling') return 'Isso! Fique parado, em pé';
   if (phase === 'collecting') return `Calibrando… ${Math.round(progress * 100)}%`;
   return 'Calibrado ✓';
@@ -38,7 +44,7 @@ export function CameraPip(props: Props) {
       <canvas ref={props.canvasRef} />
       {!props.cameraOn && <div className="cam-empty"><strong>SEM SINAL</strong><small>processado neste dispositivo</small></div>}
       {props.cameraOn && <span className="tracking-chip">{props.tracking}</span>}
-      {props.cameraOn && <output className={calibrated ? 'cam-guide ok' : 'cam-guide'}>{guidance(props.calibrationPhase, props.calibrationProgress)}</output>}
+      {props.cameraOn && <output className={calibrated ? 'cam-guide ok' : 'cam-guide'}>{guidance(props.sport, props.calibrationPhase, props.calibrationProgress)}</output>}
     </div>
     <div className="cam-bar">
       {!props.cameraOn ? <button type="button" className="pip-btn primary" onClick={props.onStart}>ATIVAR CÂMERA</button> : <>
