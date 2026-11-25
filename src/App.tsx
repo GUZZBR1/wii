@@ -147,7 +147,11 @@ export default function App() {
 
     <div className="hud-dock">
       <nav className="sport-dock" aria-label="Modalidades">
-        <button type="button" className={sport === 'track' ? 'active' : ''} onClick={() => setSport('track')}>01 · CORRIDA</button>
+        <button type="button" className={sport === 'track' ? 'active' : ''} onClick={() => {
+          setSport('track');
+          // Um perfil parcial vindo do tênis não tem referência de salto/raia: a corrida refaz a calibração.
+          if (profileRef.current && !profileRef.current.world.leanUp0) recalibrate();
+        }}>01 · CORRIDA</button>
         <button type="button" className={sport === 'tennis' ? 'active' : ''} onClick={() => setSport('tennis')}>02 · TÊNIS</button>
       </nav>
       <button type="button" className="mute-fab" onClick={toggleMute} title={muted ? 'Áudio desligado' : 'Áudio ligado'}>{muted ? '×' : '♫'}</button>
