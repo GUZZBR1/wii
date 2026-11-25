@@ -119,6 +119,7 @@ export class PoseClient {
         this.onReady?.();
         this.callbacks?.onStatus('ready', `MediaPipe pronto · ${message.delegate}`);
       } else if (message.type === 'FALLBACK') {
+        this.activeDelegate = message.to;
         this.callbacks?.onStatus('fallback', 'GPU indisponível; usando CPU.');
       } else if (message.type === 'ERROR') {
         this.busy = false;
