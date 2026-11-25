@@ -25,7 +25,12 @@ export interface CalibrationProfile {
   dominantHand: Hand;
   image: {
     torsoHeight: number;
-    hipY0: number;
+    /**
+     * Standing hip height — the jump baseline. Absent when the legs could not be verified as
+     * extended, because a bent-knee stance stores a low baseline that never re-arms the jump
+     * detector once the player lands upright; jumps then stay disabled instead.
+     */
+    hipY0?: number;
     kneeToHipY0: { left: number; right: number };
     shoulderWidth: number;
   };

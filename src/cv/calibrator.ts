@@ -54,13 +54,15 @@ export class Calibrator {
       return [{ hipY: hipCenter.y, torsoHeight, shoulderWidth, kneeLeft: (hipCenter.y - leftKnee.y) / torsoHeight, kneeRight: (hipCenter.y - rightKnee.y) / torsoHeight, up: legsVertical(sample), worldShoulderWidth, wristLocal, confidence, sample }];
     });
     if (valid.length < this.samples.length * 0.65) return null;
-    // The lean reference is only trusted when the leg geometry verified it — a trunk-direction
-    // fallback would store the player's habitual posture and turn a body rotation into ghost lean,
-    // so the lane detector simply stays disabled when the legs could not be verified.
+    // The lean and jump references are only trusted when the leg geometry verified an extended,
+    // fully visible stance — a trunk-direction or bent-stance fallback would store the player's
+    // posture and replay it as ghost lean or a jump baseline that never re-arms, so those
+    // detectors simply stay disabled instead.
     const legUps = valid.flatMap((v) => v.up ? [v.up] : []);
+    const stanceVerified = legUps.length >= this.samples.length * 0.65;
     let leanUp0: Point3 | undefined;
     let torsoLeanRad0 = 0;
-    if (legUps.length >= valid.length * 0.65) {
+    if (stanceVerified) {
       const upMedian = {
         x: median(legUps.map((v) => v.x)),
         y: median(legUps.map((v) => v.y)),
@@ -85,7 +87,7 @@ export class Calibrator {
       dominantHand: hand,
       image: {
         torsoHeight: median(values('torsoHeight')),
-        hipY0: median(values('hipY')),
+        hipY0: stanceVerified ? median(values('hipY')) : undefined,
         kneeToHipY0: { left: median(values('kneeLeft')), right: median(values('kneeRight')) },
         shoulderWidth: median(values('shoulderWidth')),
       },

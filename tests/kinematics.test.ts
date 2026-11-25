@@ -371,6 +371,7 @@ describe('world-space posture calibration', () => {
     for (let time = 0; time <= 3000; time += 100) calibrator.add(noAnkles(time));
     const profile = calibrator.finish('right')!;
     expect(profile.world.leanUp0).toBeUndefined();
+    expect(profile.image.hipY0).toBeUndefined();
     const swing = new SwingDetector();
     for (let time = 0; time <= 240; time += 40) expect(swing.update(noAnkles(time), profile)).toBeUndefined();
     swing.update(noAnkles(270, { wristLateral: -0.2 }), profile);
@@ -380,6 +381,26 @@ describe('world-space posture calibration', () => {
       pose(time, { leanRad: 0.3 }), profile,
     ));
     expect(signals.filter(Boolean)).toHaveLength(0);
+    const jump = new JumpDetector();
+    const rises = [0, 0.07, 0.12, 0.18, 0.25, 0.3, 0.28, 0.22, 0.12, 0.06, 0.02, 0];
+    expect(rises.map((hipRise, i) => jump.update(pose(i * 33, { hipRise }), profile)).filter(Boolean)).toHaveLength(0);
+  });
+
+  it('verifies the stance references only when most samples show straight legs', () => {
+    const noAnkles = (time: number) => withWorldConfidence(
+      withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
+    );
+    const calibrateWithGaps = (hideAnkles: (frame: number) => boolean) => {
+      const calibrator = new Calibrator();
+      calibrator.start(0);
+      for (let time = 0, frame = 0; time <= 3000; time += 100, frame += 1) {
+        calibrator.add(hideAnkles(frame) ? noAnkles(time) : pose(time));
+      }
+      return calibrator.finish('right')!.world;
+    };
+    expect(calibrateWithGaps((frame) => frame % 4 === 0).leanUp0).toBeDefined();
+    const unverified = calibrateWithGaps((frame) => frame % 2 === 0);
+    expect(unverified.leanUp0).toBeUndefined();
   });
 
   it('leaves the lean reference unset when the knees are bent at calibration', () => {

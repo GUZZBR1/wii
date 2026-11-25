@@ -58,7 +58,9 @@ export default function App() {
         if (nextProfile) {
           profileRef.current = nextProfile;
           setProfile(nextProfile);
-          setCameraStatus('Calibração aprovada · postura neutra salva');
+          setCameraStatus(nextProfile.world.leanUp0
+            ? 'Calibração aprovada · postura neutra salva'
+            : 'Calibração parcial · troca de raia e salto desativados · estenda as pernas e enquadre os tornozelos');
         } else setCameraStatus('Calibração incompleta · enquadre o corpo inteiro e tente de novo');
       }
     }, 200);
