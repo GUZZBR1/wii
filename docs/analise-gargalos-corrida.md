@@ -2,6 +2,8 @@
 
 Data: 25 de novembro de 2026 · Commit analisado: `17b6fed` ("resolve merge: main worker protocol + kinematics profile shape") — **merge de rascunho** no branch local `analysis/merged-prs`, representando `main` como se três mudanças já estivessem mergeadas: PR #5 `cv/kinematics-engine`, `feat/camera-auto-calibration` (`eedb6c0`) e PR #6 `feat/running-pace` (`266e042`). Conflitos resolvidos em direção ao formato do PR #5.
 
+> **Nota histórica (2026-11-25):** as descrições de mecanismo ao longo desta nota — cadência por Schmitt de subida de joelho, salto contra `hipY0` calibrado, calibração exigindo joelhos/tornozelos — documentam a implementação **anterior**, analisada no commit citado. Na branch `feat/torso-detection` todos esses mecanismos foram substituídos: cadência pela oscilação vertical do torso, salto contra baseline adaptativa sem calibração, calibração só-de-torso. O valor desta nota hoje é a análise física dos gargalos (que motivou o redesign) e o histórico das alternativas — não como referência do sistema atual. Para o sistema atual ver `docs/pesquisa-deteccao-pelo-torso.md` e o código em `src/kinematics/`.
+
 Esta nota analisa **apenas o jogo da corrida** (Hurdle Rush) de ponta a ponta. Gargalos do pipeline CV genérico — WASM, cadeia de init, cache, teto de throughput de um frame em trânsito, Safari — já foram auditados em `docs/analise-de-gargalos.md` e `docs/pesquisa-pipeline-cv.md`; aqui eles aparecem só no que significam para a corrida. Testes no estado mergeado: **79 passando** (`npm test`, 4 arquivos).
 
 ---
