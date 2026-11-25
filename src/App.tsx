@@ -58,7 +58,9 @@ export default function App() {
         if (nextProfile) {
           profileRef.current = nextProfile;
           setProfile(nextProfile);
-          setCameraStatus('Calibração aprovada · postura neutra salva');
+          setCameraStatus(nextProfile.world.leanUp0
+            ? 'Calibração aprovada · postura neutra salva'
+            : 'Calibração parcial · troca de raia e salto desativados · estenda as pernas e enquadre os tornozelos');
         } else setCameraStatus('Calibração incompleta · enquadre o corpo inteiro e tente de novo');
       }
     }, 200);
@@ -82,12 +84,12 @@ export default function App() {
     setCameraOn(false);
     setTracking('SEM POSE');
     setCameraStatus('Câmera desligada');
-    pipelineRef.current.reset();
+    for (const event of pipelineRef.current.reset()) dispatchEvent(event);
     calibratorRef.current.reset();
     calibratingRef.current = false;
     setCalibrating(false);
     drawPose(overlayRef.current, videoRef.current);
-  }, []);
+  }, [dispatchEvent]);
 
   const startCamera = useCallback(async () => {
     stopCamera();
