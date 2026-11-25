@@ -9,7 +9,16 @@ import { landmarkConfidence } from '../src/kinematics/math';
 import { LaneLeanDetector, torsoLeanDeltaRad } from '../src/kinematics/postureSignals';
 import { SchmittTrigger } from '../src/kinematics/schmittTrigger';
 import { hasMeaningfulLateralComponent, SwingDetector } from '../src/kinematics/swingDetector';
-import { calibration, pose, poseWithWorldShoulderWidth, poseWithWorldTorso, rollUpperBody, rotateWorldYaw } from './fixtures/syntheticPose';
+import { calibration, pose, poseWithHipBounce, poseWithWorldShoulderWidth, poseWithWorldTorso, rollUpperBody, rotateWorldYaw } from './fixtures/syntheticPose';
+
+/** Feeds the pipeline with torso bounce at 150 spm between `from` and `until` — the run-in-place signal. */
+function driveBounce(pipeline: ActionPipeline, profile: ReturnType<typeof calibration>, from: number, until: number, startAt = 0) {
+  const hz = 150 / 60;
+  for (let time = startAt; time <= until; time += 33) {
+    const units = time >= from ? 0.04 * Math.sin((2 * Math.PI * hz * (time - from)) / 1000) : 0;
+    pipeline.update(poseWithHipBounce(time, units * 0.4), profile);
+  }
+}
 
 function withWorldConfidence(snapshot: ReturnType<typeof pose>, index: number, visibility: number, presence: number) {
   return {
@@ -54,45 +63,36 @@ describe('landmark confidence', () => {
 });
 
 describe('cadence tracker', () => {
-  it('counts alternating knee lifts and reports a bounded arcade speed', () => {
+  it('counts steps from torso bounce and reports a bounded arcade speed', () => {
     const tracker = new CadenceTracker();
-    const profile = calibration();
-    const samples = [
-      [0, 0, 0], [100, 0.16, 0], [180, 0.16, 0], [240, 0, 0],
-      [500, 0, 0.16], [580, 0, 0.16], [640, 0, 0],
-      [900, 0.16, 0], [980, 0.16, 0], [1040, 0, 0],
-    ] as const;
-    const result = samples.map(([time, left, right]) => tracker.update(pose(time, { kneeLeft: left, kneeRight: right }), profile));
-    expect(result.filter((item) => item.step)).toHaveLength(3);
-    expect(result.at(-1)!.cadenceSpm).toBeGreaterThan(0);
-    expect(result.at(-1)!.speed01).toBeGreaterThan(0);
-    expect(result.at(-1)!.speed01).toBeLessThanOrEqual(1);
-    expect(tracker.update(pose(1600), profile).cadenceSpm).toBe(0);
+    const results = [];
+    for (let time = 0; time <= 4000; time += 33) {
+      const active = time >= 200 && time <= 3000;
+      const units = active ? 0.04 * Math.sin((2 * Math.PI * 2.5 * (time - 200)) / 1000) : 0;
+      results.push({ time, ...tracker.update(poseWithHipBounce(time, units * 0.4)) });
+    }
+    const steps = results.filter((r) => r.step);
+    expect(steps.length).toBeGreaterThan(3);
+    const active = results.filter((r) => r.time > 1500 && r.time <= 3000);
+    expect(active.every((r) => r.speed01 > 0)).toBe(true);
+    expect(Math.max(...results.map((r) => r.speed01))).toBeLessThanOrEqual(1);
+    expect(results.at(-1)!.cadenceSpm).toBe(0);
   });
 
   it('drops the previous cadence window after a long pause', () => {
     const tracker = new CadenceTracker();
-    const profile = calibration();
-    const frames = [
-      [0, 0, 0], [100, 0.16, 0], [180, 0.16, 0], [220, 0, 0],
-      [400, 0, 0.16], [480, 0, 0.16], [520, 0, 0],
-      [700, 0.16, 0], [780, 0.16, 0], [820, 0, 0], [2100, 0, 0],
-      [2600, 0.16, 0], [2680, 0.16, 0], [2720, 0, 0],
-    ] as const;
-    const result = frames.map(([time, left, right]) => tracker.update(pose(time, { kneeLeft: left, kneeRight: right }), profile));
-    expect(result.at(-3)!.step).toBe('left');
-    expect(result.at(-3)!.cadenceSpm).toBe(0);
-  });
-
-  it('counts synchronized knee crossings once and alternates exact ties', () => {
-    const tracker = new CadenceTracker();
-    const profile = calibration();
-    const frames = [pose(0), pose(33), pose(66)];
-    for (let time = 100; time <= 199; time += 33) frames.push(pose(time, { kneeLeft: 0.16, kneeRight: 0.16 }));
-    for (let time = 232; time <= 532; time += 33) frames.push(pose(time));
-    for (let time = 600; time <= 699; time += 33) frames.push(pose(time, { kneeLeft: 0.16, kneeRight: 0.16 }));
-    const steps = frames.map((frame) => tracker.update(frame, profile).step).filter(Boolean);
-    expect(steps).toEqual(['left', 'right']);
+    const hz = 2.5;
+    const results = [];
+    for (let time = 0; time <= 6000; time += 33) {
+      const bouncing = (time >= 200 && time <= 2000) || (time >= 4600 && time <= 4700);
+      const units = bouncing ? 0.04 * Math.sin((2 * Math.PI * hz * time) / 1000) : 0;
+      results.push({ time, ...tracker.update(poseWithHipBounce(time, units * 0.4)) });
+    }
+    // Steady bouncing establishes a cadence...
+    expect(results.filter((r) => r.time > 1200 && r.time <= 2000).every((r) => r.speed01 > 0)).toBe(true);
+    // ...it stops during the pause (within the 1.6-period stop deadline), and the brief
+    // pulse afterwards cannot resurrect it.
+    expect(results.filter((r) => r.time > 2800).every((r) => r.cadenceSpm === 0)).toBe(true);
   });
 });
 
@@ -589,71 +589,78 @@ describe('action pipeline tracking gate', () => {
     const result = pipeline.update(pose(133, { ...hiddenKnees, wristLateral: 0.2 }), profile);
     expect(result.snapshot.trackingState).toBe('tracked');
     expect(result.events.filter((event) => event.type === 'swing')).toHaveLength(1);
-    expect(result.events.filter((event) => event.type === 'sprint')).toHaveLength(0);
+    expect(result.events.filter((event) => event.type === 'sprint').every((event) => event.speed01 === 0)).toBe(true);
   });
 
-  it('preserves a raised-knee latch through a one-frame confidence dip', () => {
+  it('preserves the step stream through a one-frame confidence dip', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
-    [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
-    pipeline.update(pose(99, { kneeLeft: 0.16 }), profile);
-    pipeline.update(pose(132, { kneeLeft: 0.16 }), profile);
-    pipeline.update(pose(165, { kneeLeft: 0.16 }), profile);
-    const firstStep = pipeline.update(pose(198, { kneeLeft: 0.16 }), profile);
-    expect(firstStep.events.filter((event) => event.type === 'step')).toHaveLength(1);
-    const degraded = pipeline.update(pose(231, { kneeLeft: 0.16, confidence: 0.1 }), profile);
+    const hz = 150 / 60;
+    const bounceAt = (time: number) => poseWithHipBounce(time, 0.04 * Math.sin((2 * Math.PI * hz * time) / 1000) * 0.4);
+    for (let time = 0; time <= 1500; time += 33) pipeline.update(bounceAt(time), profile);
+    const before = pipeline.update(bounceAt(1533), profile);
+    expect(before.controls.trackingState).toBe('tracked');
+    const degraded = pipeline.update(pose(1566, { confidence: 0.1 }), profile);
     expect(degraded.controls).toMatchObject({ sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'degraded' });
-    const recovery = [264, 297, 330].map((time) => pipeline.update(pose(time, { kneeLeft: 0.16 }), profile));
-    expect(recovery.flatMap((result) => result.events).filter((event) => event.type === 'step')).toHaveLength(0);
+    expect(degraded.events.filter((event) => event.type === 'step')).toHaveLength(0);
+    // The gate needs three consecutive good frames to leave 'degraded' — and no spurious
+    // step fires out of the dip itself.
+    const recovery = [1599, 1632, 1665].map((time) => pipeline.update(bounceAt(time), profile));
+    expect(recovery.at(-1)!.controls.trackingState).toBe('tracked');
   });
 
   it('exposes neutral continuous sprint control as cadence tracking is lost', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
-    const frames = [
-      [0, 0, 0], [33, 0, 0], [66, 0, 0],
-      [166, 0.16, 0], [246, 0.16, 0], [306, 0, 0],
-      [566, 0, 0.16], [646, 0, 0.16], [706, 0, 0],
-      [966, 0.16, 0], [1046, 0.16, 0],
-    ] as const;
-    const active = frames.map(([time, left, right]) => pipeline.update(pose(time, { kneeLeft: left, kneeRight: right }), profile)).at(-1)!;
+    driveBounce(pipeline, profile, 66, 1046);
+    const active = pipeline.update(poseWithHipBounce(1079, 0), profile);
     expect(active.controls.sprintSpeed01).toBeGreaterThan(0);
-    const lost = [1110, 1143, 1176, 1209].map((time) => pipeline.update(pose(time, { hiddenLandmarks: [25, 26] }), profile)).at(-1)!;
+    const lost = [1110, 1143, 1176, 1209].map((time) => pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile)).at(-1)!;
     expect(lost.controls).toMatchObject({ sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'lost' });
   });
 
   it.each([
-    ['hidden knees', 'degraded'],
+    ['hidden hips', 'degraded'],
     ['removed calibration', 'lost'],
     ['reset', 'lost'],
   ] as const)('stops the sprint exactly once on %s', (cause, state) => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
-    const frames = [
-      [0, 0, 0], [33, 0, 0], [66, 0, 0],
-      [166, 0.16, 0], [246, 0.16, 0], [306, 0, 0],
-      [566, 0, 0.16], [646, 0, 0.16], [706, 0, 0],
-      [966, 0.16, 0], [1046, 0.16, 0],
-    ] as const;
-    frames.forEach(([time, left, right]) => { pipeline.update(pose(time, { kneeLeft: left, kneeRight: right }), profile); });
-    const after = [1079, 1112].flatMap((time) => {
+    driveBounce(pipeline, profile, 66, 1046);
+    pipeline.update(poseWithHipBounce(1079, 0), profile);
+    const after = [1112, 1145].flatMap((time) => {
       if (cause === 'reset') return pipeline.reset();
       if (cause === 'removed calibration') return pipeline.update(pose(time)).events;
-      return pipeline.update(pose(time, { hiddenLandmarks: [25, 26] }), profile).events;
+      return pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile).events;
     });
     expect(after.filter((event) => event.type === 'sprint')).toMatchObject([{ speed01: 0, cadenceSpm: 0, trackingState: state }]);
+  });
+
+  it('keeps the sprint going when the knees leave the camera frame', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const hz = 150 / 60;
+    const events = [];
+    for (let time = 0; time <= 2500; time += 33) {
+      const units = time >= 66 ? 0.04 * Math.sin((2 * Math.PI * hz * (time - 66)) / 1000) : 0;
+      const snapshot = poseWithHipBounce(time, units * 0.4);
+      // Knees and ankles are out of frame the whole time — irrelevant for torso-driven cadence.
+      const hiddenLegs = {
+        ...snapshot,
+        landmarks: snapshot.landmarks.map((point, index) => (index >= 25 ? { ...point, visibility: 0, presence: 0 } : point)),
+      };
+      events.push(...pipeline.update(hiddenLegs, profile).events);
+    }
+    const steps = events.filter((event) => event.type === 'step');
+    expect(steps.length).toBeGreaterThan(3);
+    expect(events.filter((event) => event.type === 'sprint').every((event) => event.trackingState === 'tracked')).toBe(true);
   });
 
   it('keeps a standstill measured on a tracked pose stamped as tracked', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
-    const frames = [
-      [0, 0, 0], [33, 0, 0], [66, 0, 0],
-      [166, 0.16, 0], [246, 0.16, 0], [306, 0, 0],
-      [566, 0, 0.16], [646, 0, 0.16], [706, 0, 0],
-      [966, 0.16, 0], [1046, 0.16, 0],
-    ] as const;
-    frames.forEach(([time, left, right]) => { pipeline.update(pose(time, { kneeLeft: left, kneeRight: right }), profile); });
+    driveBounce(pipeline, profile, 66, 1046);
+    pipeline.update(poseWithHipBounce(1079, 0), profile);
     const still = [1600, 1633].flatMap((time) => pipeline.update(pose(time), profile).events);
     expect(still.filter((event) => event.type === 'sprint')).toMatchObject([
       { speed01: 0, cadenceSpm: 0, trackingState: 'tracked' },
@@ -680,18 +687,12 @@ describe('action pipeline tracking gate', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
     const events = [];
-    for (let time = 0; time <= 2100; time += 33) {
-      const elapsed = Math.max(0, time - 200);
-      const cycle = Math.floor(elapsed / 400);
-      const withinStep = elapsed % 400;
-      const lift = time >= 200 && withinStep < 200 ? 0.16 : 0;
-      const snapshot = pose(time, {
-        kneeLeft: cycle % 2 === 0 ? lift : 0,
-        kneeRight: cycle % 2 === 1 ? lift : 0,
-        hipRise: 0.05 * Math.sin((2 * Math.PI * time) / 500),
-      });
-      events.push(...pipeline.update(snapshot, profile).events);
+    for (let time = 0; time <= 3000; time += 33) {
+      const units = time >= 200 ? 0.05 * Math.sin((2 * Math.PI * time) / 500) : 0;
+      events.push(...pipeline.update(poseWithHipBounce(time, units * 0.4), profile).events);
     }
+    // The hip bounce IS the running signal now — cadence comes from the same channel that
+    // the jump detector must reject as a jump.
     expect(events.filter((event) => event.type === 'step').length).toBeGreaterThan(3);
     expect(events.filter((event) => event.type === 'jump')).toHaveLength(0);
   });

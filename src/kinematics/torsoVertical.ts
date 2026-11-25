@@ -14,8 +14,13 @@ export interface TorsoVerticalSample {
 
 const MIN_TORSO_HEIGHT = 0.03;
 const CORE_MIN_CONFIDENCE = 0.55;
-/** Mean |sin| over a cycle is 2A/π ≈ 0.64A — the amplitude estimate undoes that ratio. */
-const MEAN_ABS_SINE_RATIO = 0.64;
+/**
+ * The amplitude envelope attacks fast and releases slowly, like a compressor envelope: real
+ * bouncing should open the cadence gate within the first cycle (a slow EMA would add a second
+ * of startup latency), while noise must not keep the gate open after the motion stops.
+ */
+const ATTACK_TAU_MS = 150;
+const RELEASE_TAU_MS = 1000;
 
 /**
  * Shared vertical channel for the torso: image-space hip-midpoint height normalized by the
@@ -28,14 +33,15 @@ const MEAN_ABS_SINE_RATIO = 0.64;
  */
 export class TorsoVerticalChannel {
   private readonly baselineTauMs: number;
-  private readonly positionFilter = new OneEuroFilter({ minCutoff: 3, beta: 1, derivativeCutoff: 3 });
+  private readonly positionFilter = new OneEuroFilter({ minCutoff: 3.5, beta: 1.5, derivativeCutoff: 3 });
   private baseline?: number;
   private baselineTimeMs?: number;
   private amplitudeMeanAbs?: number;
+  private previousEnvTimeMs?: number;
   private previous?: { position: number; timeMs: number };
 
   constructor(options: { baselineTauMs?: number } = {}) {
-    this.baselineTauMs = options.baselineTauMs ?? 2000;
+    this.baselineTauMs = options.baselineTauMs ?? 1000;
   }
 
   update(snapshot: PoseSnapshot): TorsoVerticalSample | undefined {
@@ -73,15 +79,18 @@ export class TorsoVerticalChannel {
     this.previous = { position, timeMs: snapshot.timestampMs };
 
     const absRise = Math.abs(rise);
-    const dtAmp = 1 / 30;
-    const alphaAmp = 1 - Math.exp(-dtAmp / 1);
-    this.amplitudeMeanAbs = (this.amplitudeMeanAbs ?? absRise) + alphaAmp * (absRise - (this.amplitudeMeanAbs ?? absRise));
+    const env = this.amplitudeMeanAbs ?? 0;
+    const dtMs = this.previousEnvTimeMs === undefined ? 33 : Math.max(snapshot.timestampMs - this.previousEnvTimeMs, 1);
+    const tauMs = absRise > env ? ATTACK_TAU_MS : RELEASE_TAU_MS;
+    const alphaAmp = 1 - Math.exp(-dtMs / tauMs);
+    this.amplitudeMeanAbs = env + alphaAmp * (absRise - env);
+    this.previousEnvTimeMs = snapshot.timestampMs;
 
     return {
       timestampMs: snapshot.timestampMs,
       rise,
       velocityUp,
-      oscillationAmplitude: this.amplitudeMeanAbs / MEAN_ABS_SINE_RATIO,
+      oscillationAmplitude: this.amplitudeMeanAbs,
     };
   }
 
@@ -90,6 +99,7 @@ export class TorsoVerticalChannel {
     this.baseline = undefined;
     this.baselineTimeMs = undefined;
     this.amplitudeMeanAbs = undefined;
+    this.previousEnvTimeMs = undefined;
     this.previous = undefined;
   }
 }

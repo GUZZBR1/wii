@@ -7,7 +7,7 @@ import { TrackingGate } from './trackingGate';
 
 export class ActionPipeline {
   private readonly bodyGate = new TrackingGate();
-  private readonly cadenceGate = new TrackingGate([23, 24, 25, 26]);
+  private readonly cadenceGate = new TrackingGate([11, 12, 23, 24]);
   private readonly jumpGate = new TrackingGate([23, 24]);
   private readonly laneGate = new TrackingGate([11, 12, 23, 24], 'world');
   private readonly cadence = new CadenceTracker();
@@ -43,7 +43,7 @@ export class ActionPipeline {
     const cadenceTracking = this.cadenceGate.evaluate(snapshot);
     controls = { ...controls, trackingState: cadenceTracking.state };
     if (cadenceTracking.state === 'tracked') {
-      const cadence = this.cadence.update(current, calibration);
+      const cadence = this.cadence.update(current);
       controls = { sprintSpeed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm, trackingState: 'tracked' };
       const base = this.eventBase(snapshot, cadenceTracking.confidence);
       events.push({ ...base, id: this.nextId++, type: 'sprint', speed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm });
