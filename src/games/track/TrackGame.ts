@@ -3,7 +3,8 @@ import type { SportActionEvent } from '../../cv/protocol';
 import { disposeObjectTree, GameLoop } from '../core/GameLoop';
 import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type Pace, stumble } from './gait';
 import { HurdleFlow, RUNNER_Z } from './hurdleFlow';
-import { TrackScore } from './trackScore';
+import { JUMP_DURATION_S, jumpHeight } from './jump';
+import { isPerfectJump, TrackScore } from './trackScore';
 
 export interface GameHudState { score: number; label: string; speed01: number; status: string }
 type Hurdle = { group: THREE.Group; lane: number; z: number; passed: boolean };
@@ -87,14 +88,14 @@ export class TrackGame {
   onAction(event: SportActionEvent): void {
     if (event.type === 'step') this.pace = applyStep(this.pace);
     if (event.type === 'sprint') this.pace = applySprint(this.pace, event);
-    if (event.type === 'jump') { this.jumpTime = 0.72; this.status = 'Salto!'; }
+    if (event.type === 'jump') { this.jumpTime = JUMP_DURATION_S; this.status = 'Salto!'; }
     if (event.type === 'lane') { this.lane = Math.max(-1, Math.min(1, this.lane + (event.direction === 'left' ? -1 : 1))); }
   }
 
   onKey(key: string): void {
     if (key === 'ArrowLeft' || key.toLowerCase() === 'a') this.lane = Math.max(-1, this.lane - 1);
     if (key === 'ArrowRight' || key.toLowerCase() === 'd') this.lane = Math.min(1, this.lane + 1);
-    if (key === ' ' || key === 'ArrowUp' || key.toLowerCase() === 'w') this.jumpTime = 0.72;
+    if (key === ' ' || key === 'ArrowUp' || key.toLowerCase() === 'w') this.jumpTime = JUMP_DURATION_S;
     if (key === 'ArrowDown' || key.toLowerCase() === 's') {
       // Keyboard cycles stopped → walking → running and keeps the pick until the player steps on camera.
       this.pace = { owner: 'keyboard', speed01: nextPace(this.pace.speed01), cadenceSpm: 0 };
@@ -119,14 +120,15 @@ export class TrackGame {
     this.runner.rotation.x = gait === 'run' ? -0.16 : 0;
     if (this.jumpTime > 0) {
       this.jumpTime = Math.max(0, this.jumpTime - dt);
-      this.runner.position.y = Math.sin((1 - this.jumpTime / 0.72) * Math.PI) * 1.35;
+      this.runner.position.y = jumpHeight(this.jumpTime);
       if (this.jumpTime === 0) this.status = GAIT_STATUS[gait];
     } else this.runner.position.y = gait === 'run' ? Math.abs(Math.sin(this.stridePhase)) * 0.14 : 0;
     const advance = dt * speed * 22;
     const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
     const flow = this.hurdleFlow.advance(this.hurdles, advance, this.lane, airborne);
-    for (const { cleared } of flow.judged) {
-      if (cleared) this.score.hurdleCleared();
+    for (const { hurdle, cleared } of flow.judged) {
+      // Only a jump over the hurdle can be perfect; dodging it by lane just clears it.
+      if (cleared) this.score.hurdleCleared(hurdle.lane === this.lane && isPerfectJump(this.jumpTime));
       else {
         this.score.hurdleHit();
         this.shownSpeed = stumble(this.shownSpeed);
