@@ -55,19 +55,24 @@ export class Calibrator {
     });
     if (valid.length < this.samples.length * 0.65) return null;
     // The lean reference is only trusted when the leg geometry verified it — a trunk-direction
-    // fallback would store the player's habitual posture and turn a body rotation into ghost lean.
+    // fallback would store the player's habitual posture and turn a body rotation into ghost lean,
+    // so the lane detector simply stays disabled when the legs could not be verified.
     const legUps = valid.flatMap((v) => v.up ? [v.up] : []);
-    if (legUps.length < valid.length * 0.65) return null;
+    let leanUp0: Point3 | undefined;
+    let torsoLeanRad0 = 0;
+    if (legUps.length >= valid.length * 0.65) {
+      const upMedian = {
+        x: median(legUps.map((v) => v.x)),
+        y: median(legUps.map((v) => v.y)),
+        z: median(legUps.map((v) => v.z)),
+      };
+      const upMagnitude = Math.hypot(upMedian.x, upMedian.y, upMedian.z);
+      if (upMagnitude >= 1e-6) {
+        leanUp0 = { x: upMedian.x / upMagnitude, y: upMedian.y / upMagnitude, z: upMedian.z / upMagnitude };
+        torsoLeanRad0 = median(valid.map((v) => torsoLeanRad(v.sample, leanUp0!) ?? 0));
+      }
+    }
     const values = <K extends keyof (typeof valid)[number]>(key: K): number[] => valid.map((item) => item[key] as number);
-    const upMedian = {
-      x: median(legUps.map((v) => v.x)),
-      y: median(legUps.map((v) => v.y)),
-      z: median(legUps.map((v) => v.z)),
-    };
-    const upMagnitude = Math.hypot(upMedian.x, upMedian.y, upMedian.z);
-    if (upMagnitude < 1e-6) return null;
-    const leanUp0 = { x: upMedian.x / upMagnitude, y: upMedian.y / upMagnitude, z: upMedian.z / upMagnitude };
-    const torsoLeanRad0 = median(valid.map((v) => torsoLeanRad(v.sample, leanUp0) ?? 0));
     const worldShoulderWidth = median(values('worldShoulderWidth'));
     const wristLocal = {
       x: median(valid.map((v) => v.wristLocal.x)) / worldShoulderWidth,

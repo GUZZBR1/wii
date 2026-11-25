@@ -79,15 +79,16 @@ export function legsVertical(snapshot: PoseSnapshot): Point3 | undefined {
   if (!leftHip || !rightHip || !leftKnee || !rightKnee || !leftAnkle || !rightAnkle) return undefined;
   if (landmarkConfidence(leftKnee, rightKnee) < KNEE_CONFIDENCE_MIN) return undefined;
   if (landmarkConfidence(leftAnkle, rightAnkle) < KNEE_CONFIDENCE_MIN) return undefined;
-  const kneeMid = midpoint(leftKnee, rightKnee);
-  const thigh = subtract(midpoint(leftHip, rightHip), kneeMid);
-  const shin = subtract(kneeMid, midpoint(leftAnkle, rightAnkle));
-  const thighLength = Math.hypot(thigh.x, thigh.y, thigh.z);
-  const shinLength = Math.hypot(shin.x, shin.y, shin.z);
-  if (thighLength < MIN_LEG_SPAN || shinLength < MIN_LEG_SPAN) return undefined;
-  const up = { x: thigh.x / thighLength, y: thigh.y / thighLength, z: thigh.z / thighLength };
-  const shinUp = { x: shin.x / shinLength, y: shin.y / shinLength, z: shin.z / shinLength };
-  return dot(up, shinUp) >= STRAIGHT_LEG_DOT ? up : undefined;
+  const straight = (hip: Point3, knee: Point3, ankle: Point3) => {
+    const thigh = subtract(hip, knee);
+    const shin = subtract(knee, ankle);
+    return Math.hypot(thigh.x, thigh.y, thigh.z) >= MIN_LEG_SPAN
+      && Math.hypot(shin.x, shin.y, shin.z) >= MIN_LEG_SPAN
+      && dot(normalize(thigh)!, normalize(shin)!) >= STRAIGHT_LEG_DOT;
+  };
+  // Checked per leg: one bent knee could hide inside the averaged midpoints.
+  if (!straight(leftHip, leftKnee, leftAnkle) || !straight(rightHip, rightKnee, rightAnkle)) return undefined;
+  return normalize(subtract(midpoint(leftHip, rightHip), midpoint(leftKnee, rightKnee)));
 }
 
 /**

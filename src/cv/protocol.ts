@@ -34,9 +34,11 @@ export interface CalibrationProfile {
     /**
      * Standing vertical captured at calibration from the extended legs (≈ gravity) — the fixed
      * lean reference, absorbing camera roll/pitch without inheriting the player's habitual trunk
-     * posture or rotating with a lean. Calibration is rejected when the legs cannot be verified.
+     * posture or rotating with a lean. Absent when the legs could not be verified; the lane
+     * detector then stays disabled rather than approving a posture-tainted reference, while the
+     * rest of the profile (swings, cadence, jumps) still applies.
      */
-    leanUp0: Point3;
+    leanUp0?: Point3;
     /** Lateral trunk lean of the neutral calibration pose; runtime lean is reported as the delta from it. */
     torsoLeanRad0: number;
     /** Dominant wrist relative to its shoulder in a body-local frame, normalized by calibrated shoulder width. */

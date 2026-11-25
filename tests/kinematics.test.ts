@@ -262,11 +262,11 @@ describe('world-space posture calibration', () => {
     const calibrator = new Calibrator();
     calibrator.start(0);
     for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { leanRad: 0.2 }));
-    const world = calibrator.finish('right')?.world;
-    expect(world?.leanUp0.x).toBeCloseTo(0, 2);
-    expect(world?.leanUp0.y).toBeCloseTo(-1, 2);
-    expect(world?.leanUp0.z).toBeCloseTo(0, 2);
-    expect(world?.torsoLeanRad0).toBeCloseTo(0.2, 2);
+    const world = calibrator.finish('right')!.world;
+    expect(world.leanUp0?.x).toBeCloseTo(0, 2);
+    expect(world.leanUp0?.y).toBeCloseTo(-1, 2);
+    expect(world.leanUp0?.z).toBeCloseTo(0, 2);
+    expect(world.torsoLeanRad0).toBeCloseTo(0.2, 2);
   });
 
   it('rejects calibration when the full-body landmarks stay below the confidence gate', () => {
@@ -360,19 +360,29 @@ describe('world-space posture calibration', () => {
     expect(signals.filter(Boolean)).toHaveLength(0);
   });
 
-  it('rejects calibration when the leg vertical cannot be verified', () => {
-    // Ankles hidden: the thigh direction cannot be checked against the shins, so no reference
-    // is approved — the player reframes and recalibrates instead of storing a tilted vertical.
-    const noAnkles = (time: number) => withWorldConfidence(
-      withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
+  it('saves a lean-less profile when the leg vertical cannot be verified', () => {
+    // Ankles hidden (tennis framing): the thigh direction cannot be checked against the shins,
+    // so the profile ships without a lean reference — swings still work, lane changes stay off.
+    const noAnkles = (time: number, options?: Parameters<typeof pose>[1]) => withWorldConfidence(
+      withWorldConfidence(pose(time, options), 27, 0, 0), 28, 0, 0,
     );
     const calibrator = new Calibrator();
     calibrator.start(0);
     for (let time = 0; time <= 3000; time += 100) calibrator.add(noAnkles(time));
-    expect(calibrator.finish('right')).toBeNull();
+    const profile = calibrator.finish('right')!;
+    expect(profile.world.leanUp0).toBeUndefined();
+    const swing = new SwingDetector();
+    for (let time = 0; time <= 240; time += 40) expect(swing.update(noAnkles(time), profile)).toBeUndefined();
+    swing.update(noAnkles(270, { wristLateral: -0.2 }), profile);
+    expect(swing.update(noAnkles(310, { wristLateral: 0.2 }), profile)).toMatchObject({ side: 'forehand' });
+    const lane = new LaneLeanDetector();
+    const signals = [0, 33, 66, 99, 132, 165, 198].map((time) => lane.update(
+      pose(time, { leanRad: 0.3 }), profile,
+    ));
+    expect(signals.filter(Boolean)).toHaveLength(0);
   });
 
-  it('rejects calibration when the knees are bent', () => {
+  it('leaves the lean reference unset when the knees are bent at calibration', () => {
     // Standing with knees bent 20°: shins stay vertical, thighs tilt forward — the thigh
     // direction is not a standing vertical and cannot back the lean reference.
     const bend = (20 * Math.PI) / 180;
@@ -383,7 +393,7 @@ describe('world-space posture calibration', () => {
     for (let time = 0; time <= 3000; time += 100) {
       calibrator.add(poseWithWorldTorso(time, { down: thighDown, shinDown }));
     }
-    expect(calibrator.finish('right')).toBeNull();
+    expect(calibrator.finish('right')!.world.leanUp0).toBeUndefined();
   });
 
   it('measures a whole-body lean where the thighs rotate with the trunk', () => {
