@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OneEuroFilter } from '../src/cv/oneEuroFilter';
+import { OneEuroFilter } from '@wii/spatial-core';
 import { AutoCalibrator } from '../src/cv/autoCalibrator';
 import { Calibrator } from '../src/cv/calibrator';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
@@ -255,6 +255,22 @@ describe('world-space posture calibration', () => {
     expect(profile).not.toBeNull();
     expect(profile.world.readyWristLocal).toBeUndefined();
     expect(profile.world.leanUp0).toBeDefined();
+  });
+
+  it('does not publish a non-finite wrist reference', () => {
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) {
+      const snapshot = pose(time);
+      const worldLandmarks = [...snapshot.worldLandmarks];
+      worldLandmarks[15] = { ...worldLandmarks[15]!, x: Number.NaN };
+      calibrator.add({ ...snapshot, worldLandmarks });
+    }
+
+    const profile = calibrator.finish();
+    expect(profile).not.toBeNull();
+    expect(profile?.world.readyWristLocal).toBeUndefined();
+    expect(Number.isFinite(profile?.world.shoulderWidth)).toBe(true);
   });
 
   it('keeps readyWristLocal when wrist coverage suffices even if the legs are never verified', () => {
@@ -799,7 +815,9 @@ describe('calibração automática', () => {
   };
 
   it('calibra sozinha com o corpo parado, com repouso para as duas mãos', () => {
-    const profile = run((time) => pose(time)).find((step) => step.profile)?.profile;
+    const auto = new AutoCalibrator();
+    const profile = Array.from({ length: 61 }, (_, i) => auto.update(pose(i * 100), { needsWrists: true }))
+      .find((step) => step.profile)?.profile;
     expect(profile?.world.readyWristLocal?.left).toBeDefined();
     expect(profile?.world.readyWristLocal?.right).toBeDefined();
   });
@@ -911,17 +929,16 @@ it('rejeita pela cobertura e retenta quando a perda cobre boa parte da janela', 
   const auto = new AutoCalibrator();
   // 1,2 s sem pose numa janela de 3 s: ~60% de válidos, abaixo dos 65% — a tentativa morre
   // na cobertura, não no reset, e a coleta recomeça com o corpo de volta.
-  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 20 && i < 32 ? lostPose(i * 100) : pose(i * 100)));
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 13 && i < 25 ? lostPose(i * 100) : pose(i * 100)));
   expect(steps.some((step) => step.profile)).toBe(false);
   expect(steps.at(-1)?.phase).toBe('collecting');
 });
 
-it('reinicia o repouso quando o rastreamento se perde antes de coletar', () => {
+it('absorve na cobertura uma perda durante o repouso sem reiniciar', () => {
   const auto = new AutoCalibrator();
-  // Perda durante o settling não tem coleta a proteger: o repouso recomeça do zero.
+  // A âncora inicia a exposição; uma perda durante o settling entra na cobertura e atrasa a convergência.
   const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 5 && i < 9 ? lostPose(i * 100) : pose(i * 100)));
-  const firstCollect = steps.findIndex((step) => step.phase === 'collecting');
-  expect(firstCollect).toBeGreaterThanOrEqual(19);
+  expect(steps.slice(9).some((step) => step.phase === 'framing')).toBe(false);
   expect(steps.some((step) => step.profile)).toBe(true);
 });
 
@@ -931,27 +948,73 @@ it('tolera um lost transitório no meio da coleta', () => {
   // bad core frames) must not throw the attempt away: the lost frames count toward the
   // coverage denominator like any other bad frame and the profile still comes out.
   const lost = (time: number) => ({ ...pose(time, { hiddenLandmarks: [11, 12, 23, 24] }), trackingState: 'lost' as const });
-  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 25 && i <= 28 ? lost(i * 100) : pose(i * 100)));
-  expect(steps[25]?.phase).toBe('collecting');
-  expect(steps[28]?.phase).toBe('collecting');
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 13 && i <= 16 ? lost(i * 100) : pose(i * 100)));
+  expect(steps[13]?.phase).toBe('collecting');
+  expect(steps[16]?.phase).toBe('collecting');
   expect(steps.some((step) => step.profile)).toBe(true);
 });
 
 it('derruba a tentativa quando a pessoa se move durante um blecaute que o gate não recupera', () => {
   const auto = new AutoCalibrator();
-  // Blackout at i=20-23 during which the player steps aside (hipRise shifts hips/shoulders
+  // Blackout at i=13-16 during which the player steps aside (hipRise shifts hips/shoulders
   // by 0.08 > STILL_TOLERANCE). Afterwards the gate flaps — a bad frame every third keeps
   // 'tracked' unreachable — yet ~71% of samples are individually valid. A visible frame
   // outside 'tracked' still proves where the body is: it must re-verify stillness instead
   // of feeding post-move positions into the same medians as the pre-move ones.
   const frame = (i: number) => {
     const time = i * 100;
-    if (i <= 19) return pose(time);
-    if (i <= 23) return { ...pose(time, { hiddenLandmarks: [11, 12, 23, 24] }), trackingState: 'lost' as const };
+    if (i <= 12) return pose(time);
+    if (i <= 16) return { ...pose(time, { hiddenLandmarks: [11, 12, 23, 24] }), trackingState: 'lost' as const };
     const moved = { hipRise: 0.2 };
-    const bad = (i - 24) % 3 === 2;
+    const bad = (i - 17) % 3 === 2;
     return { ...pose(time, bad ? { ...moved, hiddenLandmarks: [11, 12, 23, 24] } : moved), trackingState: 'degraded' as const };
   };
   const steps = Array.from({ length: 61 }, (_, i) => auto.update(frame(i)));
   expect(steps.some((step) => step.profile)).toBe(false);
+});
+
+it('converge em dois segundos de sinal válido quando a cobertura é contínua', () => {
+  const auto = new AutoCalibrator();
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(pose(i * 100)));
+
+  expect(steps[19]?.phase).toBe('collecting');
+  expect(steps[20]?.phase).toBe('done');
+});
+
+it('prolonga a calibração após um blackout curto no início da coleta', () => {
+  const auto = new AutoCalibrator();
+  const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 10 && i < 15 ? lostPose(i * 100) : pose(i * 100)));
+
+  expect(steps[20]?.phase).toBe('collecting');
+  expect(steps.findIndex((step) => step.phase === 'done')).toBe(25);
+});
+
+it('não credita um intervalo longo sem callbacks como sinal válido', () => {
+  const calibrator = new Calibrator();
+  calibrator.start(0, 1000);
+  for (let index = 0; index < 12; index += 1) calibrator.add(pose(index * 20));
+  calibrator.add(pose(2000));
+
+  expect(calibrator.finish()).toBeNull();
+});
+
+it('mantém convergência com um callback perdido em fluxo de cadência baixa', () => {
+  const calibrator = new Calibrator();
+  calibrator.start(0, 1000);
+  for (let time = 0; time < 2000; time += 143) {
+    if (time !== 715) calibrator.add(pose(time));
+  }
+  calibrator.add(pose(2000));
+
+  expect(calibrator.finish()).not.toBeNull();
+});
+
+it('ignora a estabilidade dos punhos ao calibrar corrida e deixa a referência ausente', () => {
+  const auto = new AutoCalibrator();
+  const steps = Array.from({ length: 61 }, (_, i) => {
+    const snapshot = pose(i * 100, { wristLateral: i < 11 ? 0 : 0.4 });
+    return auto.update(snapshot);
+  });
+
+  expect(steps.find((step) => step.profile)?.profile?.world.readyWristLocal).toBeUndefined();
 });

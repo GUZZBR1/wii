@@ -4,10 +4,6 @@ export type { Delegate, Hand, Point3, PoseSnapshot, TrackingState } from '../typ
 export interface CalibrationProfile {
   version: 2;
   completedAtMs: number;
-  image: {
-    torsoHeight: number;
-    shoulderWidth: number;
-  };
   world: {
     shoulderWidth: number;
     /**

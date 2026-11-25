@@ -22,6 +22,8 @@ export const JUMP_MIN_RISE = 0.1;
  * amplitude crossing, so the false-fire boundary is an open measurement question (spec §9).
  */
 export const JUMP_MIN_VELOCITY = 1.2;
+/** A jump's takeoff must rise above the slow envelope of sustained running bounce. */
+const MIN_JUMP_TO_BOUNCE_RATIO = 1.2;
 const TAKEOFF_CONFIRM_MS = 30;
 const REFRACTORY_MS = 400;
 /** Initial arming needs quiet standing: this long inside the neutral band. */
@@ -47,6 +49,8 @@ export class JumpDetector {
   private neutralSince?: number;
   private lastJumpAt = Number.NEGATIVE_INFINITY;
 
+  get suppressesCadence(): boolean { return this.risingSince !== undefined || this.airborne; }
+
   update(sample: TorsoVerticalSample): boolean {
     const { rise, velocityUp, timestampMs } = sample;
     if (!this.armed) {
@@ -60,12 +64,14 @@ export class JumpDetector {
       return false;
     }
 
-    // The velocity gate is evaluated at the moment rise crosses the amplitude floor — that
-    // simultaneity is what bounce cannot fake. After the crossing, confirmation watches the
-    // position only: frame-quantized velocity near a threshold is noisy, but a real takeoff
-    // keeps climbing, so holding the amplitude band for 30 ms confirms it.
+    // A continuous bounce can briefly align rise and velocity after filtering. Require the
+    // candidate to stand above its slow amplitude envelope as well as the absolute rise floor;
+    // the envelope follows sustained running but does not chase a single takeoff transient.
+    // After the crossing, confirmation watches position only: sampled velocity near a threshold
+    // is noisy, but a real takeoff keeps climbing, so holding the rise band for 30 ms confirms it.
     if (this.risingSince === undefined) {
-      if (rise >= JUMP_MIN_RISE && velocityUp >= JUMP_MIN_VELOCITY) this.risingSince = timestampMs;
+      const isProminentAboveBounce = rise >= Math.max(JUMP_MIN_RISE, sample.sustainedOscillationAmplitude * MIN_JUMP_TO_BOUNCE_RATIO);
+      if (isProminentAboveBounce && velocityUp >= JUMP_MIN_VELOCITY) this.risingSince = timestampMs;
     } else if (rise < JUMP_MIN_RISE * 0.9) this.risingSince = undefined;
 
     let fired = false;

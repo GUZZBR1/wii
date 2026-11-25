@@ -45,14 +45,15 @@ export class ActionPipeline {
     const torsoTracking = this.torsoGate.evaluate(snapshot);
     controls = { ...controls, trackingState: torsoTracking.state };
     if (torsoTracking.state === 'tracked') {
-      const sample = this.torsoChannel.update(current);
-      const cadence = this.cadence.update(sample, snapshot.timestampMs);
+      const sample = this.torsoChannel.update(current, this.jump.suppressesCadence);
+      const jumped = sample ? this.jump.update(sample) : false;
+      const cadence = this.cadence.update(sample, snapshot.timestampMs, this.jump.suppressesCadence);
       controls = { sprintSpeed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm, trackingState: 'tracked' };
       const base = this.eventBase(snapshot, torsoTracking.confidence);
       events.push({ ...base, id: this.nextId++, type: 'sprint', speed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm });
       this.sprinting = cadence.speed01 > 0;
       if (cadence.step) events.push({ ...base, id: this.nextId++, type: 'step', side: cadence.step });
-      if (sample && this.jump.update(sample)) events.push({ ...base, id: this.nextId++, type: 'jump' });
+      if (jumped) events.push({ ...base, id: this.nextId++, type: 'jump' });
     } else {
       events.push(...this.stopSprint(snapshot.timestampMs, torsoTracking.confidence, torsoTracking.state));
       if (torsoTracking.state === 'lost') {

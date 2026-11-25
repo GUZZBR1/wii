@@ -13,6 +13,8 @@ const MAX_STEP_INTERVAL_MS = 1800;
 /** The player has stopped once the next step is this many periods late. */
 const STOP_AFTER_PERIODS = 1.6;
 const MAX_STOP_DELAY_MS = 1600;
+/** A long or stuck jump must not keep a stale run cadence alive indefinitely. */
+const MAX_JUMP_CADENCE_HOLD_MS = 1200;
 /**
  * Smallest torso oscillation that counts as stepping, in torsoHeights semi-amplitude.
  * Below this the motion is posture sway or estimator noise. The running literature puts real
@@ -72,10 +74,20 @@ export class CadenceTracker {
   private lastStepAt = Number.NEGATIVE_INFINITY;
   private lastStepSide?: 'left' | 'right';
   private previous?: { rise: number; timeMs: number };
+  private pausedAt?: number;
 
-  update(sample: TorsoVerticalSample | undefined, nowMs: number): CadenceResult {
+  update(sample: TorsoVerticalSample | undefined, nowMs: number, suspendCrossings = false): CadenceResult {
     let step: 'left' | 'right' | undefined;
-    if (sample) {
+    let resumed = false;
+    if (suspendCrossings) {
+      this.pausedAt ??= nowMs;
+    } else if (this.pausedAt !== undefined) {
+      const pausedMs = Math.min(Math.max(0, nowMs - this.pausedAt), MAX_JUMP_CADENCE_HOLD_MS);
+      if (Number.isFinite(this.lastStepAt)) this.lastStepAt += pausedMs;
+      this.pausedAt = undefined;
+      resumed = true;
+    }
+    if (sample && !suspendCrossings && !resumed) {
       const active = sample.oscillationAmplitude >= MIN_OSCILLATION_TORSO;
       const band = Math.min(Math.max(sample.oscillationAmplitude * HYSTERESIS_RATIO, MIN_BAND_TORSO), MAX_BAND_TORSO);
       if (!this.high && sample.rise >= band) {
@@ -103,10 +115,18 @@ export class CadenceTracker {
         this.high = false;
       }
       this.previous = { rise: sample.rise, timeMs: sample.timestampMs };
+    } else if (sample && resumed) {
+      const band = Math.min(Math.max(sample.oscillationAmplitude * HYSTERESIS_RATIO, MIN_BAND_TORSO), MAX_BAND_TORSO);
+      if (sample.rise >= band) this.high = true;
+      else if (sample.rise <= -band) this.high = false;
+      this.previous = { rise: sample.rise, timeMs: sample.timestampMs };
     }
     // One interval (two steps) is enough to start moving. A late step slows the pace before it stops it.
     const period = median(this.lastSteps);
-    const elapsed = nowMs - this.lastStepAt;
+    const suspendedMs = suspendCrossings && this.pausedAt !== undefined
+      ? Math.min(Math.max(0, nowMs - this.pausedAt), MAX_JUMP_CADENCE_HOLD_MS)
+      : 0;
+    const elapsed = nowMs - this.lastStepAt - suspendedMs;
     const moving = period > 0 && elapsed <= Math.min(period * STOP_AFTER_PERIODS, MAX_STOP_DELAY_MS);
     const cadenceSpm = moving ? 60_000 / Math.max(period, elapsed) : 0;
     return { cadenceSpm, speed01: speedFromCadence(cadenceSpm), step };
@@ -118,5 +138,6 @@ export class CadenceTracker {
     this.lastStepAt = Number.NEGATIVE_INFINITY;
     this.lastStepSide = undefined;
     this.previous = undefined;
+    this.pausedAt = undefined;
   }
 }

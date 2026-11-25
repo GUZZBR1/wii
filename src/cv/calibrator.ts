@@ -46,6 +46,28 @@ function coveredDurationMs(
   return coveredMs;
 }
 
+/** Optional references are estimated from timestamped observations, counting each sample only
+ * until the next callback. This keeps a single missing ankle frame from erasing both adjacent
+ * intervals while still treating long callback gaps as unobserved time. */
+function observedDurationMs(
+  samples: readonly CoverageSample[],
+  startMs: number,
+  endMs: number,
+  field: 'stanceValid' | 'wristsValid',
+): number {
+  let observedMs = 0;
+  for (let index = 0; index < samples.length - 1; index += 1) {
+    const current = samples[index]!;
+    const next = samples[index + 1]!;
+    const gapMs = next.timestampMs - current.timestampMs;
+    if (gapMs <= 0 || gapMs > MAX_SIGNAL_GAP_MS || !current[field]) continue;
+    const overlapStart = Math.max(startMs, current.timestampMs);
+    const overlapEnd = Math.min(endMs, next.timestampMs);
+    if (overlapEnd > overlapStart) observedMs += overlapEnd - overlapStart;
+  }
+  return observedMs;
+}
+
 /**
  * Upper-body calibration. A valid frame needs only the torso core in image and world space.
  * Legs improve the neutral vertical when an extended stance is observed; otherwise the trunk
@@ -75,8 +97,6 @@ export class Calibrator {
     if (last - first < MIN_SPAN_MS) return null;
 
     const valid: {
-      torsoHeight: number;
-      shoulderWidth: number;
       worldShoulderWidth: number;
       trunkUp: Point3;
       sample: PoseSnapshot;
@@ -122,7 +142,7 @@ export class Calibrator {
       });
       if (!trunkUp) continue;
 
-      valid.push({ torsoHeight, shoulderWidth, worldShoulderWidth, trunkUp, sample, confidence });
+      valid.push({ worldShoulderWidth, trunkUp, sample, confidence });
       coverage.valid = true;
 
       const stancePoints = [23, 24, 25, 26, 27, 28].map((index) => point(w, index));
@@ -152,7 +172,7 @@ export class Calibrator {
     const collectedValidMs = coveredDurationMs(coverageSamples, collectionStart, last, 'valid');
     if (collectedValidMs < collectionSpanMs * COVERAGE_RATIO) return null;
 
-    const stanceValidMs = coveredDurationMs(coverageSamples, collectionStart, last, 'stanceValid');
+    const stanceValidMs = observedDurationMs(coverageSamples, collectionStart, last, 'stanceValid');
     const stanceVerified = stanceValidMs >= collectionSpanMs * COVERAGE_RATIO;
     const verticalSource = stanceVerified ? stance.map((sample) => sample.up) : valid.map((sample) => sample.trunkUp);
     const upMedian = normalize({
@@ -168,7 +188,7 @@ export class Calibrator {
     const worldShoulderWidth = median(values('worldShoulderWidth'));
 
     let readyWristLocal: Record<Hand, Point3> | undefined;
-    const wristCoverageMs = coveredDurationMs(coverageSamples, collectionStart, last, 'wristsValid');
+    const wristCoverageMs = observedDurationMs(coverageSamples, collectionStart, last, 'wristsValid');
     if (wristCoverageMs >= collectionSpanMs * COVERAGE_RATIO) {
       const readyWrist = (hand: Hand): Point3 => ({
         x: median(wrists.map((sample) => sample[hand].x)) / worldShoulderWidth,

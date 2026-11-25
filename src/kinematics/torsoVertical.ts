@@ -1,5 +1,5 @@
 import type { PoseSnapshot } from '../cv/protocol';
-import { OneEuroFilter } from '../cv/oneEuroFilter';
+import { OneEuroFilter } from '@wii/spatial-core';
 import { landmarkConfidence, midpoint } from './math';
 
 export interface TorsoVerticalSample {
@@ -8,19 +8,23 @@ export interface TorsoVerticalSample {
   rise: number;
   /** Filtered vertical velocity, torsoHeights/s, positive upward. */
   velocityUp: number;
-  /** Semi-amplitude estimate of the recent oscillation, in torsoHeights; ~0 at rest. */
+  /** Fast semi-amplitude estimate used by the cadence gate. */
   oscillationAmplitude: number;
+  /** Slower semi-amplitude estimate used to distinguish takeoff from sustained bounce. */
+  sustainedOscillationAmplitude: number;
 }
 
 const MIN_TORSO_HEIGHT = 0.03;
 const CORE_MIN_CONFIDENCE = 0.55;
 /**
  * The amplitude envelope attacks fast and releases slowly, like a compressor envelope: real
- * bouncing should open the cadence gate within the first cycle (a slow EMA would add a second
- * of startup latency), while noise must not keep the gate open after the motion stops.
+ * bouncing opens the cadence gate within the first cycle while noise cannot keep the gate open
+ * after motion stops. The jump detector separately compares takeoff rise with this envelope.
  */
 const ATTACK_TAU_MS = 150;
+const SUSTAINED_ATTACK_TAU_MS = 500;
 const RELEASE_TAU_MS = 1000;
+const MAX_ADAPTIVE_FREEZE_MS = 1200;
 
 /**
  * Shared vertical channel for the torso: image-space hip-midpoint height normalized by the
@@ -37,14 +41,16 @@ export class TorsoVerticalChannel {
   private baseline?: number;
   private baselineTimeMs?: number;
   private amplitudeMeanAbs?: number;
+  private sustainedAmplitudeMeanAbs?: number;
   private previousEnvTimeMs?: number;
   private previous?: { position: number; timeMs: number };
+  private adaptiveFreezeStartedAt?: number;
 
   constructor(options: { baselineTauMs?: number } = {}) {
     this.baselineTauMs = options.baselineTauMs ?? 1000;
   }
 
-  update(snapshot: PoseSnapshot): TorsoVerticalSample | undefined {
+  update(snapshot: PoseSnapshot, freezeAdaptiveState = false): TorsoVerticalSample | undefined {
     const l = snapshot.landmarks;
     const leftShoulder = l[11];
     const rightShoulder = l[12];
@@ -57,6 +63,10 @@ export class TorsoVerticalChannel {
     const torsoHeight = hips.y - shoulders.y;
     if (!(torsoHeight >= MIN_TORSO_HEIGHT) || !Number.isFinite(torsoHeight)) return undefined;
 
+    if (freezeAdaptiveState) this.adaptiveFreezeStartedAt ??= snapshot.timestampMs;
+    else this.adaptiveFreezeStartedAt = undefined;
+    const shouldFreeze = freezeAdaptiveState && snapshot.timestampMs - this.adaptiveFreezeStartedAt! <= MAX_ADAPTIVE_FREEZE_MS;
+
     const raw = hips.y / torsoHeight;
     const position = this.positionFilter.filter(raw, snapshot.timestampMs);
     if (this.baseline === undefined) {
@@ -64,8 +74,11 @@ export class TorsoVerticalChannel {
       this.baselineTimeMs = snapshot.timestampMs;
     } else {
       const dt = Math.max((snapshot.timestampMs - this.baselineTimeMs!) / 1000, 1 / 120);
-      const alpha = 1 - Math.exp(-dt / (this.baselineTauMs / 1000));
-      this.baseline += alpha * (position - this.baseline);
+      if (!shouldFreeze) {
+        const alpha = 1 - Math.exp(-dt / (this.baselineTauMs / 1000));
+        this.baseline += alpha * (position - this.baseline);
+      }
+      // Keep the next adaptation step tied to the next frame, even while frozen.
       this.baselineTimeMs = snapshot.timestampMs;
     }
     // Image y is down-positive: rising hips shrink the normalized position.
@@ -80,21 +93,27 @@ export class TorsoVerticalChannel {
 
     const absRise = Math.abs(rise);
     const env = this.amplitudeMeanAbs ?? 0;
+    const sustainedEnv = this.sustainedAmplitudeMeanAbs ?? 0;
     const dtMs = this.previousEnvTimeMs === undefined ? 33 : Math.max(snapshot.timestampMs - this.previousEnvTimeMs, 1);
-    const tauMs = absRise > env ? ATTACK_TAU_MS : RELEASE_TAU_MS;
-    const alphaAmp = 1 - Math.exp(-dtMs / tauMs);
-    this.amplitudeMeanAbs = env + alphaAmp * (absRise - env);
+    if (!shouldFreeze) {
+      const cadenceTau = absRise > env ? ATTACK_TAU_MS : RELEASE_TAU_MS;
+      const cadenceAlpha = 1 - Math.exp(-dtMs / cadenceTau);
+      this.amplitudeMeanAbs = env + cadenceAlpha * (absRise - env);
+
+      const sustainedTau = absRise > sustainedEnv ? SUSTAINED_ATTACK_TAU_MS : RELEASE_TAU_MS;
+      const sustainedAlpha = 1 - Math.exp(-dtMs / sustainedTau);
+      this.sustainedAmplitudeMeanAbs = sustainedEnv + sustainedAlpha * (absRise - sustainedEnv);
+    }
     this.previousEnvTimeMs = snapshot.timestampMs;
 
     return {
       timestampMs: snapshot.timestampMs,
       rise,
       velocityUp,
-      // mean-|rise| of a sinusoid is 2A/pi of its semi-amplitude: scale back so the envelope
-      // reads in semi-amplitude units, the same units the literature and the input fixtures
-      // use. The fast attack biases the envelope toward the peaks, so for a steady sinusoidal
-      // bounce the estimate reads ~10-15% above the true semi-amplitude.
-      oscillationAmplitude: this.amplitudeMeanAbs / 0.64,
+      // Mean-|rise| of a sinusoid is 2A/pi of its semi-amplitude: scale both envelopes back to
+      // semi-amplitude units, the same units as the fixtures and detector thresholds.
+      oscillationAmplitude: (this.amplitudeMeanAbs ?? 0) / 0.64,
+      sustainedOscillationAmplitude: (this.sustainedAmplitudeMeanAbs ?? 0) / 0.64,
     };
   }
 
@@ -103,7 +122,9 @@ export class TorsoVerticalChannel {
     this.baseline = undefined;
     this.baselineTimeMs = undefined;
     this.amplitudeMeanAbs = undefined;
+    this.sustainedAmplitudeMeanAbs = undefined;
     this.previousEnvTimeMs = undefined;
     this.previous = undefined;
+    this.adaptiveFreezeStartedAt = undefined;
   }
 }

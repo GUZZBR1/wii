@@ -47,7 +47,9 @@ function feed(detector: JumpDetector, trajectory: (timeMs: number) => number, fp
     const rise = trajectory(time);
     const velocityUp = (rise - previous) / (dt / 1000);
     previous = rise;
-    const sample: TorsoVerticalSample = { timestampMs: time, rise, velocityUp, oscillationAmplitude: amplitude };
+    const sample: TorsoVerticalSample = {
+      timestampMs: time, rise, velocityUp, oscillationAmplitude: amplitude, sustainedOscillationAmplitude: amplitude,
+    };
     if (detector.update(sample)) events.push(time);
   }
   return events;
@@ -56,7 +58,7 @@ function feed(detector: JumpDetector, trajectory: (timeMs: number) => number, fp
 /** Quiet standing long enough to arm the detector (|rise| in band for 160 ms+). */
 function arm(detector: JumpDetector, untilMs = 0) {
   for (let t = -600; t < untilMs; t += 33) {
-    detector.update({ timestampMs: t, rise: 0, velocityUp: 0, oscillationAmplitude: 0 });
+    detector.update({ timestampMs: t, rise: 0, velocityUp: 0, oscillationAmplitude: 0, sustainedOscillationAmplitude: 0 });
   }
 }
 
