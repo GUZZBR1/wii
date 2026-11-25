@@ -55,6 +55,9 @@ export function GameCanvas({ sport, onEngine, tracking }: Props) {
   return <div className="game-viewport">
     <canvas ref={canvasRef} />
     <div className="game-hud"><div><span>{sport === 'track' ? 'SCORE' : 'PONTOS'}</span><strong>{hud.label}</strong></div><div className="game-speed"><span>{sport === 'track' ? 'RITMO' : 'MIRA'}</span><strong>{sport === 'track' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>
+    {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${hud.feedback.kind}`}>
+      <span>{hud.feedback.text}</span>
+    </div>}
     <div className="game-ready"><i className={tracking.startsWith('TRACKING') ? 'ready' : ''} />{hud.status}</div>
     <div className="game-controls">{sport === 'track' ? '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' : 'espaço bater  ·  ← → escolher direção'}</div>
   </div>;

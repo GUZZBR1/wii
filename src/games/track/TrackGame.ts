@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { SportActionEvent } from '../../cv/protocol';
 import { GameLoop } from '../core/GameLoop';
+import { type Feedback, awardText, SHAKE_DURATION_S, shakeOffset } from './feedback';
 import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type Pace, stumble } from './gait';
 import { HurdleFlow, type ItemKind, RUNNER_Z } from './hurdleFlow';
 import { ItemAssets } from './itemAssets';
@@ -8,7 +9,7 @@ import { JUMP_DURATION_S, jumpHeight } from './jump';
 import { type Lane, nextKind, nextLane } from './spawn';
 import { isPerfectJump, TrackScore } from './trackScore';
 
-export interface GameHudState { score: number; label: string; speed01: number; status: string }
+export interface GameHudState { score: number; label: string; speed01: number; status: string; feedback?: Feedback }
 type Item = { group: THREE.Group; kind: ItemKind; lane: number; z: number; passed: boolean };
 const GAIT_STATUS: Record<Gait, string> = { idle: 'Parado', walk: 'Andando', run: 'Correndo' };
 
@@ -34,6 +35,8 @@ export class TrackGame {
   private travelled = 0;
   private readonly laneHistory: Lane[] = [];
   private lastHud = '';
+  private feedback?: Feedback;
+  private shakeTime = 0;
   private status = 'Ande ou corra no lugar com a câmera, ou use ↓';
 
   constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: GameHudState) => void) {
@@ -108,7 +111,15 @@ export class TrackGame {
     }
   }
 
+  private showFeedback(kind: Feedback['kind'], text: string): void {
+    this.feedback = { id: (this.feedback?.id ?? 0) + 1, kind, text };
+    this.publishHud();
+  }
+
   private update(dt: number): void {
+    this.shakeTime = Math.max(0, this.shakeTime - dt);
+    const shake = shakeOffset(this.shakeTime);
+    this.camera.position.set(shake.x, 3.4 + shake.y, 11);
     this.shownSpeed = easeSpeed(this.shownSpeed, this.pace.speed01, dt);
     const speed = this.shownSpeed;
     const gait = gaitFor(speed, this.gait);
@@ -135,14 +146,16 @@ export class TrackGame {
     const flow = this.hurdleFlow.advance(this.items, advance, this.lane, airborne, this.travelled);
     for (const { hurdle: item, outcome } of flow.judged) {
       // Only a jump over the hurdle can be perfect; dodging it by lane just clears it.
-      if (outcome === 'cleared') this.score.hurdleCleared(item.lane === this.lane && isPerfectJump(this.jumpTime));
+      if (outcome === 'cleared') this.showFeedback('clear', awardText(this.score.hurdleCleared(item.lane === this.lane && isPerfectJump(this.jumpTime))));
       if (outcome === 'hit') {
         this.score.hurdleHit();
         this.shownSpeed = stumble(this.shownSpeed);
         this.status = 'Tropeçou!';
+        this.shakeTime = SHAKE_DURATION_S;
+        this.showFeedback('hit', 'TROPEÇOU!');
       }
       if (outcome === 'collected') {
-        this.score.coinCollected();
+        this.showFeedback('coin', `+${this.score.coinCollected()}`);
         item.group.visible = false;
       }
     }
@@ -160,10 +173,10 @@ export class TrackGame {
   private publishHud(): void {
     const score = this.score.display;
     const label = String(score).padStart(5, '0');
-    const key = `${label}-${this.shownSpeed.toFixed(2)}-${this.status}`;
+    const key = `${label}-${this.shownSpeed.toFixed(2)}-${this.status}-${this.feedback?.id}`;
     if (key === this.lastHud) return;
     this.lastHud = key;
-    this.onHud({ score, label, speed01: this.shownSpeed, status: this.status });
+    this.onHud({ score, label, speed01: this.shownSpeed, status: this.status, feedback: this.feedback });
   }
 
   dispose(): void {
