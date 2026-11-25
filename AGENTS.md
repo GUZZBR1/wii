@@ -33,7 +33,7 @@ Camera access needs HTTPS in production; `localhost` works in dev. Keyboard cont
 - Detectors in `src/kinematics/` must stay pure (no DOM/Three.js imports) so tests keep working with synthetic fixtures.
 - Game code owns its Three.js objects: dispose via `disposeObjectTree` (`src/games/core/GameLoop.ts`).
 - Worker protocol changes go through `src/cv/protocol.ts` — keep `WorkerRequest`/`WorkerReply` and `PoseSnapshot` in sync with `pose.worker.ts` and `poseClient.ts`.
-- File names are lowercase kebab-case except framework components (`PoseClient`, `GameCanvas`).
+- TypeScript modules are camelCase (`poseClient.ts`, `trackScore.ts`); classes and React components are PascalCase (`PoseClient`, `GameCanvas.tsx`, `TrackGame.ts`). Scripts, docs, and config files are kebab-case (`copy-mediapipe-wasm.mjs`).
 
 ## Testing Guidelines
 
