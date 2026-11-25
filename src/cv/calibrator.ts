@@ -14,6 +14,34 @@ function point(points: readonly Point3[], index: number): Point3 | undefined { r
 const MIN_SPAN_MS = 2000;
 const VALID_SIGNAL_MS = 1800;
 const MIN_COVERAGE = 0.65;
+// A gap larger than this is unobserved time, not evidence that the pose remained valid.
+// 250 ms still covers the documented degraded camera cadence (~7 fps) with room for one missed frame.
+const MAX_SIGNAL_GAP_MS = 250;
+
+interface CoverageSample {
+  timestampMs: number;
+  valid: boolean;
+  stanceValid: boolean;
+}
+
+function coveredDurationMs(
+  samples: readonly CoverageSample[],
+  startMs: number,
+  endMs: number,
+  field: 'valid' | 'stanceValid',
+): number {
+  let coveredMs = 0;
+  for (let index = 1; index < samples.length; index += 1) {
+    const previous = samples[index - 1]!;
+    const current = samples[index]!;
+    const gapMs = current.timestampMs - previous.timestampMs;
+    if (gapMs <= 0 || gapMs > MAX_SIGNAL_GAP_MS || !previous[field]) continue;
+    const overlapStart = Math.max(startMs, previous.timestampMs);
+    const overlapEnd = Math.min(endMs, current.timestampMs);
+    if (overlapEnd > overlapStart) coveredMs += overlapEnd - overlapStart;
+  }
+  return coveredMs;
+}
 
 export class Calibrator {
   private startedAt?: number;
@@ -53,12 +81,10 @@ export class Calibrator {
       right: Point3;
       confidence: number;
     }[] = [];
-    let collectedTotal = 0;
-    let collectedValid = 0;
-    let collectedStance = 0;
+    const coverageSamples: CoverageSample[] = [];
     for (const sample of this.samples) {
-      const inCollection = sample.timestampMs >= (this.collectionAt ?? sample.timestampMs);
-      if (inCollection) collectedTotal += 1;
+      const coverageSample: CoverageSample = { timestampMs: sample.timestampMs, valid: false, stanceValid: false };
+      coverageSamples.push(coverageSample);
       const l = sample.landmarks;
       const w = sample.worldLandmarks;
       const leftShoulder = point(l, IDX.leftShoulder);
@@ -85,7 +111,7 @@ export class Calibrator {
       const up = legsVertical(sample);
       if (up) {
         stance.push({ up, hipY: hipCenter.y, sample });
-        if (inCollection) collectedStance += 1;
+        coverageSample.stanceValid = true;
       }
       if (!leftWrist || !rightWrist || landmarkConfidence(leftWrist, rightWrist) < 0.55) continue;
       const confidence = Math.min(bodyConfidence, landmarkConfidence(leftWrist, rightWrist));
@@ -93,19 +119,23 @@ export class Calibrator {
       const right = bodyLocalPoint(rightWrist, worldRightShoulder, worldLeftShoulder, worldRightShoulder, worldLeftHip, worldRightHip, 1);
       if (!left || !right) continue;
       valid.push({ torsoHeight, shoulderWidth, kneeLeft: (hipCenter.y - leftKnee.y) / torsoHeight, kneeRight: (hipCenter.y - rightKnee.y) / torsoHeight, worldShoulderWidth, left, right, confidence });
-      if (inCollection) collectedValid += 1;
+      coverageSample.valid = true;
     }
-    // Duas medidas distintas: o tempo de sinal válido (cobertura sobre tudo, inclusive o
-    // repouso fundido) garante o piso estatístico; a razão de cobertura da janela de coleta
-    // limita blecautes sem deixar o repouso — quase sempre válido — diluir a perda.
-    const validRatio = valid.length / this.samples.length;
-    if (validRatio * (last - first) < VALID_SIGNAL_MS) return null;
-    if (collectedTotal === 0 || collectedValid < collectedTotal * MIN_COVERAGE) return null;
+    // Count elapsed milliseconds only between nearby, consecutive observations that are both
+    // valid. A sparse callback stream cannot turn a long blackout into valid exposure time.
+    const validSignalMs = coveredDurationMs(coverageSamples, first, last, 'valid');
+    if (validSignalMs < VALID_SIGNAL_MS) return null;
+    const collectionStart = Math.max(first, this.collectionAt ?? first);
+    const collectionSpanMs = last - collectionStart;
+    if (collectionSpanMs <= 0) return null;
+    const collectedValidMs = coveredDurationMs(coverageSamples, collectionStart, last, 'valid');
+    if (collectedValidMs < collectionSpanMs * MIN_COVERAGE) return null;
     // The lean and jump references are only trusted when the leg geometry verified an extended,
     // fully visible stance — a trunk-direction or bent-stance fallback would store the player's
     // posture and replay it as ghost lean or a jump baseline that never re-arms, so those
     // detectors simply stay disabled instead.
-    const stanceVerified = collectedTotal > 0 && collectedStance >= collectedTotal * MIN_COVERAGE;
+    const collectedStanceMs = coveredDurationMs(coverageSamples, collectionStart, last, 'stanceValid');
+    const stanceVerified = collectedStanceMs >= collectionSpanMs * MIN_COVERAGE;
     let leanUp0: Point3 | undefined;
     let torsoLeanRad0 = 0;
     if (stanceVerified) {

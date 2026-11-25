@@ -423,7 +423,7 @@ describe('world-space posture calibration', () => {
     expect(frames.map((frame) => jump.update(frame, profile)).filter(Boolean)).toHaveLength(0);
   });
 
-  it('verifies the stance references only when most samples show straight legs', () => {
+  it('verifies the stance references only when the legs stay visible for most of the window', () => {
     const noAnkles = (time: number) => withWorldConfidence(
       withWorldConfidence(pose(time), 27, 0, 0), 28, 0, 0,
     );
@@ -435,8 +435,13 @@ describe('world-space posture calibration', () => {
       }
       return calibrator.finish()!.world;
     };
-    expect(calibrateWithGaps((frame) => frame % 4 === 0).leanUp0).toBeDefined();
-    const unverified = calibrateWithGaps((frame) => frame % 2 === 0);
+    // A cobertura é tempo continuamente observado: um bloco inicial sem tornozelos preserva
+    // os intervalos do trecho visível — 73% da janela verifica.
+    expect(calibrateWithGaps((frame) => frame < 8).leanUp0).toBeDefined();
+    // Batida espalhada moderada (3 frames em 31) ainda deixa ~83% dos intervalos cobertos.
+    expect(calibrateWithGaps((frame) => frame % 10 === 0 && frame > 0).leanUp0).toBeDefined();
+    // Metade da janela sem tornozelos não verifica — salto e raia ficam desativados.
+    const unverified = calibrateWithGaps((frame) => frame < 16);
     expect(unverified.leanUp0).toBeUndefined();
   });
 
@@ -977,7 +982,9 @@ it('estica a coleta quando a cobertura degrada em vez de encerrar no tempo fixo'
   // então a convergência desliza para quando a invariante fecha — antes do prazo de 4 s.
   const steps = Array.from({ length: 61 }, (_, i) => auto.update(i >= 10 && i < 15 ? lostPose(i * 100) : pose(i * 100)));
   expect(steps[20]?.phase).toBe('collecting');
-  expect(steps.findIndex((step) => step.phase === 'done')).toBe(24);
+  // O blecaute interrompe os intervalos contíguos de sinal válido — a convergência desliza
+  // um frame além do caso sem blecaute, ainda muito antes do prazo de 4 s.
+  expect(steps.findIndex((step) => step.phase === 'done')).toBe(25);
 });
 
 it('continua coletando quando a postura em pé ainda não verificou em vez de abortar a sonda', () => {
@@ -1012,6 +1019,17 @@ it('mede o piso por tempo de sinal válido: span curto com cobertura cheia aprov
   expect(sparse.finish()).toBeNull();
 });
 
+it('não credita um intervalo sem callbacks como tempo de sinal válido', () => {
+  const calibrator = new Calibrator();
+  calibrator.start(0, 1000);
+  // Doze amostras válidas concentradas nos primeiros 220 ms e uma após um blackout de 1,78 s.
+  // Contagem × span chamaria isso de 2 s válidos; só há cerca de 220 ms observados.
+  for (let index = 0; index < 12; index += 1) calibrator.add(pose(index * 20));
+  calibrator.add(pose(2000));
+
+  expect(calibrator.finish()).toBeNull();
+});
+
 it('não consome as amostras ao sondar: finish() pode ser chamado de novo sobre o mesmo acumulado', () => {
   const calibrator = new Calibrator();
   calibrator.start(0);
@@ -1021,3 +1039,8 @@ it('não consome as amostras ao sondar: finish() pode ser chamado de novo sobre 
   // A sonda adaptativa depende disto: avaliar cedo não pode destruir a coleta em andamento.
   expect(calibrator.finish()).not.toBeNull();
 });
+
+
+
+
+
