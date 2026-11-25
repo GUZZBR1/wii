@@ -76,9 +76,10 @@ export default function App() {
   const onEngine = useCallback((engine: GameEngineHandle | null) => { engineRef.current = engine; }, []);
   const dispatchEvent = useCallback((event: SportActionEvent) => {
     engineRef.current?.onAction(event);
-    if (event.type === 'swing') audioRef.current.hit(event.power01);
-    if (event.type === 'jump') audioRef.current.jump();
-    if (event.type === 'step') audioRef.current.step(event.side);
+    if (sportRef.current === 'track') {
+      if (event.type === 'jump') audioRef.current.jump();
+      if (event.type === 'step') audioRef.current.step(event.side);
+    }
   }, []);
 
   const recalibrate = useCallback(() => {
