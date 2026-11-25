@@ -181,10 +181,6 @@ export class Calibrator {
     return {
       version: 2,
       completedAtMs: last,
-      image: {
-        torsoHeight: median(values('torsoHeight')),
-        shoulderWidth: median(values('shoulderWidth')),
-      },
       world: { shoulderWidth: worldShoulderWidth, leanUp0, torsoLeanRad0, readyWristLocal },
       quality: { validFrameRatio: valid.length / this.samples.length, medianConfidence: median(values('confidence')) },
     };

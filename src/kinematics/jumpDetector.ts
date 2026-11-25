@@ -15,8 +15,11 @@ export const JUMP_MIN_RISE = 0.1;
  * Bounce and jump separate through the phase of the two signals: in a sinusoidal bounce
  * velocity peaks where rise is zero, while a takeoff carries high velocity INTO high rise.
  * At the moment bounce crosses the amplitude floor its filtered velocity is under ~0.7; a
- * jump through the same point carries 1.4–2.3. Bounce-only peaks (~1.4 filtered at the extreme)
- * never coincide with the amplitude gate, which is what actually rejects them.
+ * jump through the same point carries 1.4–2.3. In steady-state sinusoidal bounce the velocity
+ * peak (~1.4 filtered at the extreme) is a quarter-cycle away from the rise peak, so the two
+ * gates never hold at once — that phase separation is what rejects bounce. The protection is
+ * weaker during amplitude transients: a bounce ramping up fast can carry velocity into the
+ * amplitude crossing, so the false-fire boundary is an open measurement question (spec §9).
  */
 export const JUMP_MIN_VELOCITY = 1.2;
 const TAKEOFF_CONFIRM_MS = 30;

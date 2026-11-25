@@ -1,6 +1,5 @@
-import type { PoseSnapshot } from '../cv/protocol';
 import { median } from './math';
-import { TorsoVerticalChannel } from './torsoVertical';
+import type { TorsoVerticalSample } from './torsoVertical';
 
 export interface CadenceResult { cadenceSpm: number; speed01: number; step?: 'left' | 'right' }
 
@@ -17,9 +16,9 @@ const MAX_STOP_DELAY_MS = 1600;
 /**
  * Smallest torso oscillation that counts as stepping, in torsoHeights semi-amplitude.
  * Below this the motion is posture sway or estimator noise. The running literature puts real
- * bouncing at 0.11–0.29 torso semi-amplitude; marching in place is smaller but still well
- * above this floor — the adaptive hysteresis scales with the measured amplitude, so the floor
- * only decides whether ANY stepping exists.
+ * bouncing at 0.11–0.29 torso peak-to-peak (semi-amplitude ~0.05–0.15); marching in place is
+ * smaller but still well above this floor — the adaptive hysteresis scales with the measured
+ * amplitude, so the floor only decides whether ANY stepping exists.
  */
 const MIN_OSCILLATION_TORSO = 0.012;
 /**
@@ -28,6 +27,16 @@ const MIN_OSCILLATION_TORSO = 0.012;
  * with the measured amplitude keeps the crossing point at a consistent phase of each cycle.
  */
 const HYSTERESIS_RATIO = 0.35;
+/**
+ * Hysteresis band limits, in torsoHeights. The floor is the noise-immunity guarantee: a full
+ * Schmitt cycle needs a swing of twice the band, so noise below ~0.024 torso peak-to-peak
+ * (~11 mm) can never produce a step no matter its frequency content — without it, the band
+ * would shrink with the decaying amplitude envelope right after the player stops, opening a
+ * window where post-exercise sway could be miscounted as steps. The ceiling keeps the band
+ * crossable when the measured amplitude is very large.
+ */
+const MIN_BAND_TORSO = 0.012;
+const MAX_BAND_TORSO = 0.05;
 /**
  * Steps/min to game speed, interpolated. Anchors follow the CADENCE-Adults studies (100 steps/min is a
  * moderate walk; walking turns into running around 135-140). Those were measured moving forward, not in place.
@@ -48,24 +57,27 @@ export function speedFromCadence(spm: number): number {
  * Step cadence from the vertical oscillation of the torso: running and marching bounce the
  * torso once per step, so the oscillation frequency IS the step frequency. Self-referencing —
  * the rise is measured against the channel's own adaptive baseline, so no calibration is
- * needed and only the torso core landmarks [11,12,23,24] are read. Step side cannot be told
- * apart from torso motion alone, so left/right alternate per step; consumers only use it for
- * the run cycle animation.
+ * needed. Consumes the pipeline's shared TorsoVerticalChannel sample; frames without a sample
+ * still advance the stop deadline. Step side cannot be told apart from torso motion alone,
+ * so left/right alternate per step; consumers only use it for the run cycle animation.
+ *
+ * Startup: movement begins once two steps form one interval (~1.6 periods after the bounce
+ * starts — inherent to interval measurement, on par with the old knee-lift tracker). Engaging
+ * mid-bounce can phase-shift the first interval; the median-of-three absorbs it within three
+ * steps, and since the player is genuinely bouncing in that scenario the error is small.
  */
 export class CadenceTracker {
-  private readonly channel = new TorsoVerticalChannel();
   private high = false;
   private lastSteps: number[] = [];
   private lastStepAt = Number.NEGATIVE_INFINITY;
   private lastStepSide?: 'left' | 'right';
   private previous?: { rise: number; timeMs: number };
 
-  update(snapshot: PoseSnapshot): CadenceResult {
-    const sample = this.channel.update(snapshot);
+  update(sample: TorsoVerticalSample | undefined, nowMs: number): CadenceResult {
     let step: 'left' | 'right' | undefined;
     if (sample) {
       const active = sample.oscillationAmplitude >= MIN_OSCILLATION_TORSO;
-      const band = sample.oscillationAmplitude * HYSTERESIS_RATIO;
+      const band = Math.min(Math.max(sample.oscillationAmplitude * HYSTERESIS_RATIO, MIN_BAND_TORSO), MAX_BAND_TORSO);
       if (!this.high && sample.rise >= band) {
         this.high = true;
         if (active) {
@@ -94,14 +106,13 @@ export class CadenceTracker {
     }
     // One interval (two steps) is enough to start moving. A late step slows the pace before it stops it.
     const period = median(this.lastSteps);
-    const elapsed = snapshot.timestampMs - this.lastStepAt;
+    const elapsed = nowMs - this.lastStepAt;
     const moving = period > 0 && elapsed <= Math.min(period * STOP_AFTER_PERIODS, MAX_STOP_DELAY_MS);
     const cadenceSpm = moving ? 60_000 / Math.max(period, elapsed) : 0;
     return { cadenceSpm, speed01: speedFromCadence(cadenceSpm), step };
   }
 
   reset(): void {
-    this.channel.reset();
     this.high = false;
     this.lastSteps = [];
     this.lastStepAt = Number.NEGATIVE_INFINITY;

@@ -90,7 +90,11 @@ export class TorsoVerticalChannel {
       timestampMs: snapshot.timestampMs,
       rise,
       velocityUp,
-      oscillationAmplitude: this.amplitudeMeanAbs,
+      // mean-|rise| of a sinusoid is 2A/pi of its semi-amplitude: scale back so the envelope
+      // reads in semi-amplitude units, the same units the literature and the input fixtures
+      // use. The fast attack biases the envelope toward the peaks, so for a steady sinusoidal
+      // bounce the estimate reads ~10-15% above the true semi-amplitude.
+      oscillationAmplitude: this.amplitudeMeanAbs / 0.64,
     };
   }
 

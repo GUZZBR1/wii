@@ -3,12 +3,11 @@ import { OneEuroFilter } from '../src/cv/oneEuroFilter';
 import { AutoCalibrator } from '../src/cv/autoCalibrator';
 import { Calibrator } from '../src/cv/calibrator';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
-import { CadenceTracker } from '../src/kinematics/cadenceTracker';
 import { landmarkConfidence } from '../src/kinematics/math';
 import { LaneLeanDetector, torsoLeanDeltaRad } from '../src/kinematics/postureSignals';
-import { SchmittTrigger } from '../src/kinematics/schmittTrigger';
 import { hasMeaningfulLateralComponent, SwingDetector } from '../src/kinematics/swingDetector';
 import { calibration, pose, poseWithHipBounce, poseWithWorldShoulderWidth, poseWithWorldTorso, rollUpperBody, rotateWorldYaw } from './fixtures/syntheticPose';
+import { cadenceHarness } from './fixtures/torsoHarness';
 
 /** Feeds the pipeline with torso bounce at 150 spm between `from` and `until` — the run-in-place signal. */
 function driveBounce(pipeline: ActionPipeline, profile: ReturnType<typeof calibration>, from: number, until: number, startAt = 0) {
@@ -37,16 +36,6 @@ describe('1-Euro filter', () => {
   });
 });
 
-describe('Schmitt trigger', () => {
-  it('fires once on the upward crossing and rearms below the off threshold', () => {
-    const trigger = new SchmittTrigger(0.1, 0.05, 200);
-    expect(trigger.update(0.11, 0)).toBe(true);
-    expect(trigger.update(0.18, 40)).toBe(false);
-    expect(trigger.update(0.04, 70)).toBe(false);
-    expect(trigger.update(0.11, 240)).toBe(true);
-  });
-});
-
 describe('landmark confidence', () => {
   it('returns zero for no visible points and falls back to presence when visibility is omitted', () => {
     expect(landmarkConfidence()).toBe(0);
@@ -63,12 +52,12 @@ describe('landmark confidence', () => {
 
 describe('cadence tracker', () => {
   it('counts steps from torso bounce and reports a bounded arcade speed', () => {
-    const tracker = new CadenceTracker();
+    const { feed } = cadenceHarness();
     const results = [];
     for (let time = 0; time <= 4000; time += 33) {
       const active = time >= 200 && time <= 3000;
       const units = active ? 0.04 * Math.sin((2 * Math.PI * 2.5 * (time - 200)) / 1000) : 0;
-      results.push({ time, ...tracker.update(poseWithHipBounce(time, units * 0.4)) });
+      results.push({ time, ...feed(poseWithHipBounce(time, units * 0.4)) });
     }
     const steps = results.filter((r) => r.step);
     expect(steps.length).toBeGreaterThan(3);
@@ -79,13 +68,13 @@ describe('cadence tracker', () => {
   });
 
   it('drops the previous cadence window after a long pause', () => {
-    const tracker = new CadenceTracker();
+    const { feed } = cadenceHarness();
     const hz = 2.5;
     const results = [];
     for (let time = 0; time <= 6000; time += 33) {
       const bouncing = (time >= 200 && time <= 2000) || (time >= 4600 && time <= 4700);
       const units = bouncing ? 0.04 * Math.sin((2 * Math.PI * hz * time) / 1000) : 0;
-      results.push({ time, ...tracker.update(poseWithHipBounce(time, units * 0.4)) });
+      results.push({ time, ...feed(poseWithHipBounce(time, units * 0.4)) });
     }
     // Steady bouncing establishes a cadence...
     expect(results.filter((r) => r.time > 1200 && r.time <= 2000).every((r) => r.speed01 > 0)).toBe(true);
@@ -266,7 +255,6 @@ describe('world-space posture calibration', () => {
     expect(profile).not.toBeNull();
     expect(profile.world.readyWristLocal).toBeUndefined();
     expect(profile.world.leanUp0).toBeDefined();
-    expect(profile.image.torsoHeight).toBeGreaterThan(0);
   });
 
   it('keeps readyWristLocal when wrist coverage suffices even if the legs are never verified', () => {
@@ -321,14 +309,13 @@ describe('world-space posture calibration', () => {
     expect(calibrator.finish()).toBeNull();
   });
 
-  it('emits no hipY0 or kneeToHipY0 — jump and cadence are self-referencing now', () => {
+  it('emits no image-space calibration block — jump and cadence are self-referencing now', () => {
     const calibrator = new Calibrator();
     calibrator.start(0);
     for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time));
     const profile = calibrator.finish()!;
     expect(profile.version).toBe(2);
-    expect('hipY0' in profile.image).toBe(false);
-    expect('kneeToHipY0' in profile.image).toBe(false);
+    expect('image' in profile).toBe(false);
   });
 
   it('uses world torso geometry for lane lean and emits one direction while the pose is held', () => {

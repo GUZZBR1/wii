@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { applySprint, applyStep, gaitFor, type Gait, nextPace, type Pace } from '../src/games/track/gait';
-import { CadenceTracker, type CadenceResult } from '../src/kinematics/cadenceTracker';
+import type { CadenceResult } from '../src/kinematics/cadenceTracker';
 import { poseWithHipBounce } from './fixtures/syntheticPose';
+import { cadenceHarness } from './fixtures/torsoHarness';
 
 const START = 500;
 const STOP = 8000;
@@ -13,23 +14,23 @@ const TORSO = 0.4; // fixture torso height in image units
  * step frequency. Amplitude is in torso heights — 0.04 is a modest in-place bounce.
  */
 function bounce(spm: number, amplitude = 0.04): (CadenceResult & { time: number })[] {
-  const tracker = new CadenceTracker();
+  const { feed } = cadenceHarness();
   const hz = spm / 60;
   return Array.from({ length: 320 }, (_, frame) => {
     const time = frame * 33;
     const active = time >= START && time <= STOP;
     const units = active ? amplitude * Math.sin((2 * Math.PI * hz * (time - START)) / 1000) : 0;
-    return { time, ...tracker.update(poseWithHipBounce(time, units * TORSO)) };
+    return { time, ...feed(poseWithHipBounce(time, units * TORSO)) };
   });
 }
 
 /** Feeds scheduled bounce segments: each { from, until, spm } bounces at that rate; gaps stand still. */
-function drive(tracker: CadenceTracker, schedule: { from: number; until: number; spm: number }[], endMs: number) {
+function drive(feed: (snapshot: ReturnType<typeof poseWithHipBounce>) => CadenceResult, schedule: { from: number; until: number; spm: number }[], endMs: number) {
   const results: (CadenceResult & { time: number })[] = [];
   for (let time = 0; time <= endMs; time += 33) {
     const segment = schedule.find((s) => time >= s.from && time <= s.until);
     const units = segment ? 0.04 * Math.sin((2 * Math.PI * (segment.spm / 60) * (time - segment.from)) / 1000) : 0;
-    results.push({ time, ...tracker.update(poseWithHipBounce(time, units * TORSO)) });
+    results.push({ time, ...feed(poseWithHipBounce(time, units * TORSO)) });
   }
   return results;
 }
@@ -51,22 +52,45 @@ describe('pace from torso vertical oscillation', () => {
     expect(bounce(spm).filter((r) => r.time > STOP + 1700).every((r) => r.speed01 === 0)).toBe(true);
   });
 
+  it('stops and stays stopped when post-exercise sway and jitter follow the bounce', () => {
+    const { feed } = cadenceHarness();
+    const hz = 150 / 60;
+    const results = Array.from({ length: 400 }, (_, frame) => {
+      const time = frame * 33;
+      let units = 0;
+      if (time >= START && time <= STOP) {
+        units = 0.04 * Math.sin((2 * Math.PI * hz * (time - START)) / 1000);
+      } else if (time > STOP) {
+        // After stopping, the player sways and breathes hard: slow vertical sway (~0.8 Hz,
+        // semi ~5 mm) plus fast estimator jitter, deterministic but aperiodic.
+        units = 0.005 * Math.sin((2 * Math.PI * 0.8 * (time - STOP)) / 1000) + 0.003 * Math.sin(frame * 1.7);
+      }
+      return { time, ...feed(poseWithHipBounce(time, units * TORSO)) };
+    });
+    // The stop deadline is ~1.6 periods (~640 ms at 150 spm); even with margin, motion must be
+    // over 1.5 s after the bounce ends and must NOT restart: noise crossings in the amplitude
+    // decay window are not steps.
+    const tail = results.filter((r) => r.time > STOP + 1500);
+    expect(tail.length).toBeGreaterThan(50);
+    for (const r of tail) expect(r.speed01, `phantom motion at t=${r.time}`).toBe(0);
+  });
+
   it('does not move when standing still, even with small noise-like jitter', () => {
-    const tracker = new CadenceTracker();
+    const { feed } = cadenceHarness();
     const results = Array.from({ length: 300 }, (_, i) => {
       const jitter = 0.004 * Math.sin(i * 1.7) + 0.003 * Math.sin(i * 0.31);
-      return tracker.update(poseWithHipBounce(i * 33, jitter * TORSO));
+      return feed(poseWithHipBounce(i * 33, jitter * TORSO));
     });
     expect(Math.max(...results.map((r) => r.speed01))).toBe(0);
     expect(Math.max(...results.map((r) => r.cadenceSpm))).toBe(0);
   });
 
   it('does not move for a single isolated bounce', () => {
-    const tracker = new CadenceTracker();
+    const { feed } = cadenceHarness();
     const speeds = Array.from({ length: 120 }, (_, i) => {
       const t = i * 33;
       const units = t > 1000 && t < 1400 ? 0.05 * Math.sin((Math.PI * (t - 1000)) / 400) : 0;
-      return tracker.update(poseWithHipBounce(t, units * TORSO)).speed01;
+      return feed(poseWithHipBounce(t, units * TORSO)).speed01;
     });
     expect(Math.max(...speeds)).toBe(0);
   });
@@ -91,34 +115,34 @@ describe('pace from torso vertical oscillation', () => {
   });
 
   it('works at 15 fps', () => {
-    const tracker = new CadenceTracker();
+    const { feed } = cadenceHarness();
     const hz = 150 / 60;
     const results = Array.from({ length: 200 }, (_, frame) => {
       const time = frame * 66;
       const active = time >= START && time <= STOP;
       const units = active ? 0.04 * Math.sin((2 * Math.PI * hz * (time - START)) / 1000) : 0;
-      return { time, ...tracker.update(poseWithHipBounce(time, units * TORSO)) };
+      return { time, ...feed(poseWithHipBounce(time, units * TORSO)) };
     });
     const steady = results.filter((r) => r.time > 3000 && r.time <= STOP);
     expect(steady.filter((r) => r.speed01 === 0).length).toBeLessThan(steady.length * 0.2);
   });
 
   it('re-measures pace on a late step instead of resurrecting the old cadence', () => {
-    const tracker = new CadenceTracker();
-    const results = drive(tracker, [{ from: 500, until: 4500, spm: 150 }], 5300);
+    const { feed } = cadenceHarness();
+    const results = drive(feed, [{ from: 500, until: 4500, spm: 150 }], 5300);
     expect(results.filter((r) => r.time > 3000 && r.time <= 4500).at(-1)!.speed01).toBeGreaterThan(0);
     // After the stop deadline the speed falls to zero...
     expect(results.at(-1)!.speed01).toBe(0);
     // ...and one isolated bounce pair well past the deadline only measures its own slow interval.
-    const late = drive(tracker, [{ from: 5400, until: 7000, spm: 70 }], 9000);
+    const late = drive(feed, [{ from: 5400, until: 7000, spm: 70 }], 9000);
     const settled = late.filter((r) => r.time > 7500);
     expect(settled.every((r) => r.cadenceSpm < 110)).toBe(true);
     expect(settled.some((r) => r.speed01 > 0)).toBe(true);
   });
 
   it('keeps moving through a direct run-to-walk transition', () => {
-    const tracker = new CadenceTracker();
-    const results = drive(tracker, [{ from: 500, until: 3000, spm: 182 }, { from: 3100, until: 12000, spm: 91 }], 12000);
+    const { feed } = cadenceHarness();
+    const results = drive(feed, [{ from: 500, until: 3000, spm: 182 }, { from: 3100, until: 12000, spm: 91 }], 12000);
     const settled = results.filter((r) => r.time > 5000);
     expect(settled.filter((r) => r.speed01 === 0).length).toBeLessThan(settled.length * 0.15);
     const cadence = results.at(-1)!.cadenceSpm;

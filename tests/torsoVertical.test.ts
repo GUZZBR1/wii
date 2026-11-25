@@ -66,8 +66,8 @@ describe('TorsoVerticalChannel', () => {
     expect(peak).toBeLessThan(expected * 1.4);
   });
 
-  it('adapts the baseline to a posture shift with roughly the configured tau', () => {
-    const channel = new TorsoVerticalChannel({ baselineTauMs: 2000 });
+  it('adapts the baseline to a posture shift with roughly the production tau', () => {
+    const channel = new TorsoVerticalChannel();
     const frames = [];
     for (let t = 0; t <= 3000; t += 33) frames.push(pose(t));
     // Posture drops 0.1 torso (image y grows) at t=3000 and holds.
@@ -76,10 +76,10 @@ describe('TorsoVerticalChannel', () => {
     const at = (ms: number) => out.filter((s) => Math.abs(s.timestampMs - ms) < 50).at(-1)!;
     const initial = Math.abs(at(3150).rise);
     expect(initial).toBeGreaterThan(0.05);
-    // After one tau the residual should be well under half the initial deviation.
-    expect(Math.abs(at(5150).rise)).toBeLessThan(initial * 0.45);
+    // After one tau (1 s) the residual should be well under half the initial deviation.
+    expect(Math.abs(at(4150).rise)).toBeLessThan(initial * 0.45);
     // And after ~3 tau it is practically gone.
-    expect(Math.abs(at(7900).rise)).toBeLessThan(0.02);
+    expect(Math.abs(at(6100).rise)).toBeLessThan(0.02);
   });
 
   it('normalizes per frame: the same torso-unit bounce reads the same at a 30% larger torso height', () => {

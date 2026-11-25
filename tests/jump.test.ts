@@ -72,7 +72,7 @@ function jumpProfile(height: number, depth = 0.1) {
   return (timeMs: number): number => {
     const t = timeMs - 2000; // jump starts at t=2000
     if (t < 0) return 0;
-    if (t < 250) return -depth * Math.sin((Math.PI * t) / 250) * 0.5 - (depth * t) / 500; // crouch dip
+    if (t < 250) return (-depth * (1 - Math.cos((Math.PI * t) / 250))) / 2; // crouch dip: 0 → -depth, zero velocity at both ends
     if (t < 430) {
       const u = (t - 250) / 180;
       return -depth + (height + depth) * u * u; // powered rise — velocity peaks at liftoff
