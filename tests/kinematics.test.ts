@@ -8,7 +8,7 @@ import { landmarkConfidence } from '../src/kinematics/math';
 import { LaneLeanDetector, torsoLeanDeltaRad } from '../src/kinematics/postureSignals';
 import { SchmittTrigger } from '../src/kinematics/schmittTrigger';
 import { hasMeaningfulLateralComponent, SwingDetector } from '../src/kinematics/swingDetector';
-import { calibration, pose, poseWithWorldShoulderWidth, rollUpperBody, rotateWorldYaw } from './fixtures/syntheticPose';
+import { calibration, pose, poseWithWorldShoulderWidth, poseWithWorldTorso, rollUpperBody, rotateWorldYaw } from './fixtures/syntheticPose';
 
 function withWorldConfidence(snapshot: ReturnType<typeof pose>, index: number, visibility: number, presence: number) {
   return {
@@ -142,6 +142,24 @@ describe('jump detector', () => {
     }
     expect(events.filter(Boolean)).toHaveLength(0);
   });
+
+  it('re-arms for a second jump while the hip still oscillates', () => {
+    const detector = new JumpDetector();
+    const profile = calibration();
+    const bump = (time: number, start: number) => {
+      const elapsed = time - start;
+      if (elapsed < 0 || elapsed > 500) return 0;
+      if (elapsed <= 200) return (0.3 * elapsed) / 200;
+      if (elapsed <= 300) return 0.3;
+      return (0.3 * (500 - elapsed)) / 200;
+    };
+    const fired: number[] = [];
+    for (let time = 0; time <= 3400; time += 33) {
+      const hipRise = 0.05 * Math.sin((2 * Math.PI * time) / 500) + bump(time, 800) + bump(time, 2600);
+      if (detector.update(pose(time, { hipRise }), profile)) fired.push(time);
+    }
+    expect(fired).toHaveLength(2);
+  });
 });
 
 describe('swing detector', () => {
@@ -240,11 +258,14 @@ describe('swing detector', () => {
 });
 
 describe('world-space posture calibration', () => {
-  it('stores neutral trunk lean in world coordinates', () => {
+  it('stores the neutral trunk direction as the lean reference', () => {
     const calibrator = new Calibrator();
     calibrator.start(0);
     for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time, { leanRad: 0.2 }));
-    expect(calibrator.finish('right')?.world.torsoLeanRad0).toBeCloseTo(0.2, 2);
+    const torsoUp0 = calibrator.finish('right')?.world.torsoUp0;
+    expect(torsoUp0?.x).toBeCloseTo(-Math.sin(0.2), 2);
+    expect(torsoUp0?.y).toBeCloseTo(-Math.cos(0.2), 2);
+    expect(torsoUp0?.z).toBeCloseTo(0, 2);
   });
 
   it('rejects calibration when the full-body landmarks stay below the confidence gate', () => {
@@ -289,6 +310,33 @@ describe('world-space posture calibration', () => {
     expect(torsoLeanDeltaRad(frame(0, roll), profile)).toBeCloseTo(roll, 1);
     const detector = new LaneLeanDetector();
     const signals = Array.from({ length: 12 }, (_, i) => detector.update(frame(i * 33, i < 4 ? 0 : roll), profile));
+    expect(signals.filter(Boolean)).toEqual([direction]);
+  });
+
+  it('does not read an upright body turn as lean when the camera is tilted', () => {
+    // Webcam pitched 25°: the calibrated trunk-up is tilted in camera space.
+    const tilt = (25 * Math.PI) / 180;
+    const up = { x: 0, y: -Math.cos(tilt), z: Math.sin(tilt) };
+    const profile = { ...calibration(), world: { ...calibration().world, torsoUp0: up } };
+    expect(torsoLeanDeltaRad(poseWithWorldTorso(0, { up }), profile)).toBeCloseTo(0, 3);
+    // A 45° body turn measured ≈ −0.30 rad against the camera's horizontal plane.
+    expect(torsoLeanDeltaRad(poseWithWorldTorso(0, { up, yawRad: Math.PI / 4 }), profile)).toBeCloseTo(0, 2);
+    const detector = new LaneLeanDetector();
+    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
+      poseWithWorldTorso(i * 33, { up, yawRad: (i * Math.PI) / 20 }), profile,
+    ));
+    expect(signals.filter(Boolean)).toHaveLength(0);
+  });
+
+  it.each([[0.24, 'right'], [-0.24, 'left']] as const)('measures a real %s rad lean at 45° yaw with a tilted camera', (leanRad, direction) => {
+    const tilt = (25 * Math.PI) / 180;
+    const up = { x: 0, y: -Math.cos(tilt), z: Math.sin(tilt) };
+    const profile = { ...calibration(), world: { ...calibration().world, torsoUp0: up } };
+    expect(torsoLeanDeltaRad(poseWithWorldTorso(0, { up, yawRad: Math.PI / 4, leanRad }), profile)).toBeCloseTo(leanRad, 2);
+    const detector = new LaneLeanDetector();
+    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
+      poseWithWorldTorso(i * 33, { up, yawRad: Math.PI / 4, leanRad: i < 4 ? 0 : leanRad }), profile,
+    ));
     expect(signals.filter(Boolean)).toEqual([direction]);
   });
 

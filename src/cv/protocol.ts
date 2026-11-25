@@ -31,7 +31,11 @@ export interface CalibrationProfile {
   };
   world: {
     shoulderWidth: number;
-    torsoLeanRad0: number;
+    /**
+     * Neutral trunk-up direction (hip midpoint → shoulder midpoint) in world space. It is the vertical
+     * reference for lateral lean, absorbing camera roll/pitch and the player's habitual posture.
+     */
+    torsoUp0: Point3;
     /** Dominant wrist relative to its shoulder in a body-local frame, normalized by calibrated shoulder width. */
     readyWristLocal: Point3;
   };

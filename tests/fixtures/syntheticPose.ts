@@ -78,11 +78,44 @@ export function poseWithWorldShoulderWidth(timestampMs: number, width: number, w
   return { ...snapshot, worldLandmarks: world };
 }
 
+const unit = (v: Point3): Point3 => { const m = Math.hypot(v.x, v.y, v.z); return { x: v.x / m, y: v.y / m, z: v.z / m }; };
+const scaled = (v: Point3, k: number): Point3 => ({ x: v.x * k, y: v.y * k, z: v.z * k });
+const added = (a: Point3, b: Point3): Point3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });
+const crossed = (a: Point3, b: Point3): Point3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+
+/**
+ * Torso built from an explicit trunk-up direction — e.g. a tilted webcam tips the up axis in camera
+ * space. `yawRad` turns the body about that axis; `leanRad` tilts the trunk toward the player's right.
+ */
+export function poseWithWorldTorso(
+  timestampMs: number,
+  options: { up?: Point3; yawRad?: number; leanRad?: number } = {},
+): PoseSnapshot {
+  const snapshot = pose(timestampMs);
+  const up = unit(options.up ?? { x: 0, y: -1, z: 0 });
+  // Player-right reference flattened perpendicular to the trunk; valid for any non-sideways up.
+  const side0 = unit({ x: up.x * up.x - 1, y: up.x * up.y, z: up.x * up.z });
+  const yaw = options.yawRad ?? 0;
+  const axis = added(scaled(side0, Math.cos(yaw)), scaled(crossed(up, side0), Math.sin(yaw)));
+  const lean = options.leanRad ?? 0;
+  const torsoDir = added(scaled(up, Math.cos(lean)), scaled(axis, Math.sin(lean)));
+  const shoulderAxis = added(scaled(axis, Math.cos(lean)), scaled(up, -Math.sin(lean)));
+  const shoulderMid = scaled(torsoDir, 0.4);
+  const world = snapshot.worldLandmarks.map((point, index) => {
+    if (index === 11) return { ...point, ...added(shoulderMid, scaled(shoulderAxis, -0.2)) };
+    if (index === 12) return { ...point, ...added(shoulderMid, scaled(shoulderAxis, 0.2)) };
+    if (index === 23) return { ...point, ...scaled(axis, -0.1) };
+    if (index === 24) return { ...point, ...scaled(axis, 0.1) };
+    return point;
+  });
+  return { ...snapshot, worldLandmarks: world };
+}
+
 export function calibration(hand: Hand = 'right'): CalibrationProfile {
   return {
     version: 1, completedAtMs: 3000, dominantHand: hand,
     image: { torsoHeight: 0.4, hipY0: 0.55, kneeToHipY0: { left: -0.5, right: -0.5 }, shoulderWidth: 0.14 },
-    world: { shoulderWidth: 0.4, torsoLeanRad0: 0, readyWristLocal: { x: 0, y: -1.25, z: 0 } },
+    world: { shoulderWidth: 0.4, torsoUp0: { x: 0, y: -1, z: 0 }, readyWristLocal: { x: 0, y: -1.25, z: 0 } },
     quality: { validFrameRatio: 1, medianConfidence: 0.95 },
   };
 }
