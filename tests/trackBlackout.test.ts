@@ -85,6 +85,7 @@ describe('track blackout adjudication', () => {
     step(3, 'tracked', 0);
     game.onKey('ArrowLeft');
     step(1.2, 'tracked', 1);
+    (game as unknown as { items: { z: number }[] }).items[0]!.z = -2;
     // Simulation time keeps ticking after a hidden-tab hitch, but wall time has jumped far
     // beyond the last sprint event. A simulation clock would keep driving into the hurdle.
     for (let frame = 0; frame < 120; frame += 1) {
