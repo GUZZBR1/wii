@@ -13,9 +13,8 @@ const MIN_WORLD_STILL_METERS = 0.08;
 const REQUIRED_CORE = [11, 12, 23, 24] as const;
 /** Punhos entram no gate somente para o tênis, que precisa de referência para os swings. */
 const REQUIRED_WRISTS = [15, 16] as const;
-/** Pontos opcionais que podem contribuir para a referência neutra quando estão visíveis. */
-const BODY_AND_LEGS = [11, 12, 23, 24, 25, 26, 27, 28] as const;
-const CALIBRATION_LANDMARKS = [...BODY_AND_LEGS, ...REQUIRED_WRISTS] as const;
+/** Pernas podem melhorar a vertical estimada, mas nunca vigiam movimento nem reiniciam a coleta. */
+const CALIBRATION_LANDMARKS = [...REQUIRED_CORE, ...REQUIRED_WRISTS] as const;
 
 export type CalibrationPhase = 'framing' | 'settling' | 'collecting' | 'done';
 export interface CalibrationStep { phase: CalibrationPhase; progress: number; profile?: CalibrationProfile }
@@ -77,7 +76,7 @@ export class AutoCalibrator {
 
   /** Alguma articulação usada no perfil mudou em imagem ou em espaço mundial. */
   private moved(snapshot: PoseSnapshot, options: { needsWrists?: boolean }): boolean {
-    const landmarks = options.needsWrists ? CALIBRATION_LANDMARKS : BODY_AND_LEGS;
+    const landmarks = options.needsWrists ? CALIBRATION_LANDMARKS : REQUIRED_CORE;
     for (const index of landmarks) {
       const imagePoint = this.confidentPoint(snapshot.landmarks, index);
       const anchoredImagePoint = this.anchor!.imageLandmarks.get(index);
@@ -95,7 +94,7 @@ export class AutoCalibrator {
   private createAnchor(snapshot: PoseSnapshot, options: { needsWrists?: boolean }) {
     const imageLandmarks = new Map<number, Point3>();
     const worldLandmarks = new Map<number, Point3>();
-    const landmarks = options.needsWrists ? CALIBRATION_LANDMARKS : BODY_AND_LEGS;
+    const landmarks = options.needsWrists ? CALIBRATION_LANDMARKS : REQUIRED_CORE;
     for (const index of landmarks) {
       const imagePoint = this.confidentPoint(snapshot.landmarks, index);
       if (imagePoint) imageLandmarks.set(index, imagePoint);

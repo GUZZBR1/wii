@@ -1098,7 +1098,7 @@ it('reinicia o assentamento do tênis quando a profundidade do punho muda sem mu
   );
 });
 
-it('reinicia o assentamento quando os tornozelos aparecem e passam a definir a vertical', () => {
+it('não reancora quando os tornozelos aparecem no meio da coleta', () => {
   const auto = new AutoCalibrator();
   const steps = Array.from({ length: 61 }, (_, index) => {
     const snapshot = pose(index * 100, { leanRad: 0.2 });
@@ -1106,8 +1106,20 @@ it('reinicia o assentamento quando os tornozelos aparecem e passam a definir a v
     return auto.update(index < 15 ? withoutAnkles : snapshot);
   });
 
-  expect(steps[20]?.phase).toBe('settling');
+  expect(steps[20]?.phase).toBe('done');
   const profile = steps.find((step) => step.phase === 'done')?.profile;
   expect(profile).toBeDefined();
-  expect(Math.abs(profile!.world.leanUp0.x)).toBeLessThan(0.02);
+  // The late legs do not reach the coverage required to replace the trunk-derived vertical.
+  expect(Math.abs(profile!.world.leanUp0.x)).toBeGreaterThan(0.05);
+});
+
+it('movimento de perna não reancora a calibração de corrida', () => {
+  const auto = new AutoCalibrator();
+  const steps = Array.from({ length: 61 }, (_, index) => auto.update(pose(index * 100, {
+    kneeLeft: index % 2 === 0 ? 0 : 0.25,
+    kneeRight: index % 2 === 0 ? 0.25 : 0,
+  })));
+
+  expect(steps[20]?.phase).toBe('done');
+  expect(steps.find((step) => step.phase === 'done')?.profile).toBeDefined();
 });
