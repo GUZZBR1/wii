@@ -196,8 +196,8 @@ export function parsePoseRecording(input: unknown): PoseRecording {
   }
   if (value.landmarkSchema !== POSE_LANDMARK_SCHEMA) throw new TypeError('Unsupported pose landmark schema.');
   validateSource(value.source);
-  const rawFrames: unknown[] = Array.isArray(value.frames) ? value.frames : [];
   if (!Array.isArray(value.frames)) throw new TypeError('Pose recording frames must be an array.');
+  const rawFrames: unknown[] = value.frames;
   if (!Number.isInteger(value.frameCount) || value.frameCount !== rawFrames.length) {
     throw new RangeError('Pose recording frameCount does not match its frames.');
   }

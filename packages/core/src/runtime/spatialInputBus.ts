@@ -35,8 +35,4 @@ export class SpatialInputBus {
   publish(event: SpatialInputEvent): void {
     for (const listener of [...this.listeners]) listener(event);
   }
-
-  publishAll(events: readonly SpatialInputEvent[]): void {
-    for (const event of events) this.publish(event);
-  }
 }
