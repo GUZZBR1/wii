@@ -1,5 +1,5 @@
 import { PoseClient as CorePoseClient } from '@wii/spatial-core';
-import type { PoseClientAssets } from '@wii/spatial-core';
+import type { Delegate, PoseClientAssets, PoseClientCallbacks as CoreCallbacks } from '@wii/spatial-core';
 import { MEDIAPIPE_WASM_VERSION, POSE_FULL_MODEL_SHA8, POSE_MODEL_SHA8 } from './mediapipeAssets';
 
 export type { PoseClientCallbacks } from '@wii/spatial-core';
@@ -15,6 +15,11 @@ function defaultPoseAssets(): PoseClientAssets {
 }
 
 export class PoseClient extends CorePoseClient {
+  /** `?pose=cpu` keeps pose off a weak GPU that is already busy drawing the 3D game. */
+  override init(callbacks: CoreCallbacks, preferred: Delegate = new URLSearchParams(location.search).get('pose') === 'cpu' ? 'CPU' : 'GPU'): Promise<void> {
+    return super.init(callbacks, preferred);
+  }
+
   constructor(assets: PoseClientAssets = defaultPoseAssets()) {
     super(assets);
   }
