@@ -87,7 +87,7 @@ describe('track blackout adjudication', () => {
     step(1.2, 'tracked', 1);
     // Simulation time keeps ticking after a hidden-tab hitch, but wall time has jumped far
     // beyond the last sprint event. A simulation clock would keep driving into the hurdle.
-    for (let frame = 0; frame < 60; frame += 1) {
+    for (let frame = 0; frame < 120; frame += 1) {
       now += 1000 / 60;
       update!(1 / 60, now, now + 20_000);
     }

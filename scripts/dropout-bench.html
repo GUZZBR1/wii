@@ -176,7 +176,7 @@ let lossStartedAt;
 for (const f of frames) {
   if (bad(f)) {
     if (lastGoodAt !== undefined && lossStartedAt === undefined && f.ts - lastGoodAt >= 800) {
-      lossStartedAt = lastGoodAt + 800;
+      lossStartedAt = f.ts;
     }
     continue;
   }
