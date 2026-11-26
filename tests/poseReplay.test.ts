@@ -57,8 +57,60 @@ describe('pose recording and replay', () => {
     }
 
     const decoded = parsePoseRecording(JSON.stringify(legacy));
-    expect(decoded.frames[0]!.snapshot.frameWidth).toBe(1280);
-    expect(decoded.frames[0]!.snapshot.frameHeight).toBe(720);
+    expect(decoded.frames[0]!.snapshot.frameWidth).toBe(640);
+    expect(decoded.frames[0]!.snapshot.frameHeight).toBe(360);
+  });
+
+  it('reconstructs the harness inference geometry instead of the source video size', () => {
+    // The recording harness resizes every frame to 640px wide before inference, so the landmarks
+    // are normalized against the resized bitmap — not the original video dimensions stored in
+    // the source metadata. Migration must apply the same resize rule.
+    const recording = createPoseRecording([pose(10)], {
+      kind: 'mediapipe',
+      tasksVisionVersion: '0.10.0',
+      modelSha256: 'a'.repeat(64),
+      delegate: 'GPU',
+      runningMode: 'VIDEO',
+      input: { width: 854, height: 480, rotationDegrees: 0, mirrored: false },
+    });
+    const legacy = JSON.parse(serializePoseRecording(recording)) as {
+      schemaVersion: number;
+      frames: { snapshot: Record<string, unknown> }[];
+    };
+    legacy.schemaVersion = 1;
+    for (const frame of legacy.frames) {
+      delete frame.snapshot.frameWidth;
+      delete frame.snapshot.frameHeight;
+    }
+
+    const decoded = parsePoseRecording(JSON.stringify(legacy));
+    expect(decoded.frames[0]!.snapshot.frameWidth).toBe(640);
+    expect(decoded.frames[0]!.snapshot.frameHeight).toBe(Math.round((480 * 640) / 854));
+  });
+
+  it('migrates legacy objects without mutating the caller snapshots', () => {
+    const recording = createPoseRecording([pose(10)], {
+      kind: 'mediapipe',
+      tasksVisionVersion: '0.10.0',
+      modelSha256: 'a'.repeat(64),
+      delegate: 'GPU',
+      runningMode: 'VIDEO',
+      input: { width: 1280, height: 720, rotationDegrees: 0, mirrored: false },
+    });
+    const legacy = JSON.parse(serializePoseRecording(recording)) as {
+      schemaVersion: number;
+      frames: { snapshot: Record<string, unknown> }[];
+    };
+    legacy.schemaVersion = 1;
+    for (const frame of legacy.frames) {
+      delete frame.snapshot.frameWidth;
+      delete frame.snapshot.frameHeight;
+      Object.freeze(frame.snapshot);
+    }
+
+    const decoded = parsePoseRecording(legacy);
+    expect(decoded.frames[0]!.snapshot.frameWidth).toBe(640);
+    expect(legacy.frames[0]!.snapshot.frameWidth).toBeUndefined();
   });
 
   it('rejects legacy version 1 recordings without recoverable frame dimensions', () => {

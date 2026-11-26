@@ -224,15 +224,26 @@ export function parsePoseRecording(input: unknown): PoseRecording {
     if (!isRecord(frame) || frame.sequence !== index) {
       throw new RangeError(`Replay frame ${index} must have sequence ${index}.`);
     }
-    validateSnapshot(frame.snapshot, index, !legacyWithoutDimensions);
-    if (legacyWithoutDimensions) {
-      frame.snapshot.frameWidth = legacyInput!.width as number;
-      frame.snapshot.frameHeight = legacyInput!.height as number;
-    }
-    if (index > 0 && frame.snapshot.timestampMs <= (rawFrames[index - 1] as PoseRecordingFrame).snapshot.timestampMs) {
+    const snapshot = frame.snapshot;
+    validateSnapshot(snapshot, index, !legacyWithoutDimensions);
+    const ownedSnapshot = legacyWithoutDimensions
+      // Every version 1 recording came from the pose-replay harness, which resizes frames to
+      // 640px wide before inference — so the landmarks are normalized against the resized
+      // bitmap, not the source video dimensions stored in the metadata. Reconstructing the
+      // bitmap size with the same proportional rule keeps the aspect correction honest; the
+      // integer rounding is approximate by at most half a pixel. Never write into the caller's
+      // object: the input may be frozen, and a later validation failure must not leave it
+      // partially migrated.
+      ? {
+          ...snapshot,
+          frameWidth: 640,
+          frameHeight: Math.round(((legacyInput!.height as number) * 640) / (legacyInput!.width as number)),
+        }
+      : snapshot;
+    if (index > 0 && snapshot.timestampMs <= (rawFrames[index - 1] as PoseRecordingFrame).snapshot.timestampMs) {
       throw new RangeError(`Replay timestamps must be strictly increasing (frame ${index}).`);
     }
-    return { sequence: index, snapshot: cloneSnapshot(frame.snapshot) };
+    return { sequence: index, snapshot: cloneSnapshot(ownedSnapshot) };
   });
 
   const firstTimestampMs = frames[0]?.snapshot.timestampMs ?? 0;
