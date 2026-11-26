@@ -15,17 +15,22 @@
     "pretest:watch": "npm run build:core",
     "build:core": "npm run build --workspace @wii/spatial-core",
     "preview": "vite preview --host 0.0.0.0",
-    "test": "vitest run",
+    "test": "node --test tests/quality.test.mjs && vitest run --maxWorkers=2",
     "test:watch": "vitest",
     "lint": "biome lint .",
-    "format": "biome format --write ."
+    "format": "biome format --write .",
+    "check:articles": "node scripts/check-articles.mjs"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "1.2.3",
     "@wii/spatial-core": "0.1.0",
     "react": "19.3.1",
     "react-dom": "19.3.1",
-    "three": "0.187.0"
+    "three": "0.187.0",
+    "@tailwindcss/vite": "^4.3.4",
+    "motion": "^14.9.0",
+    "react-router-dom": "^7.18.5",
+    "tailwindcss": "^4.3.4"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.8",

@@ -158,4 +158,3 @@ describe('adjudicateContact — contacts', () => {
     expect(low.outgoing.y).toBeGreaterThan(2);
   });
 });
-

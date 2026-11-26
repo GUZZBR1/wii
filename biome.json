@@ -2,7 +2,19 @@
   "$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
   "files": {
     "ignoreUnknown": true,
-    "includes": ["**", "!dist", "!packages/core/dist", "!node_modules", "!public/mediapipe/wasm*"]
+    "includes": [
+      "**",
+      "!dist",
+      "!packages/core/dist",
+      "!node_modules",
+      "!public/mediapipe/wasm*",
+      "!!.worktrees",
+      "!!.issues",
+      "!!.omx",
+      "!!.omc",
+      "!!src/.omc",
+      "!!draw-site"
+    ]
   },
   "formatter": {
     "enabled": true,
@@ -22,6 +34,11 @@
   "javascript": {
     "formatter": {
       "quoteStyle": "single"
+    }
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
     }
   }
 }

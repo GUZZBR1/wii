@@ -165,4 +165,3 @@ export function adjudicateContact(query: AdjudicationQuery): ContactOutcome {
     smash,
   };
 }
-

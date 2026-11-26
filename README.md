@@ -30,10 +30,18 @@ npm run preview
 npm run lint
 ```
 
+### Site e jogo
+
+O website abre em `/`, com páginas em `/vision`, `/papers` e `/product`. A área `/app` usa o Wii de `santleme/wii`: a mesma implementação de câmera, calibração, corrida e tênis em `src/App.tsx`, `src/games` e `packages/core`. O link **sair** volta para o site e desmonta a arena.
+
+Tudo usa o `package.json` e o lockfile da raiz. `npm run dev` e `npm run build` servem o site e o jogo juntos; depois do build, execute `npm run check:articles` para conferir os artigos e figuras. O workflow `.github/workflows/ci.yml` verifica essa integração.
+
 O build copia a variante module do WASM do MediaPipe fixado no lockfile para `public/mediapipe/wasm-<versão>/` e verifica o SHA-256 dos modelos locais — servido com o hash no nome — antes de compilar. Os ativos de `mediapipe/` e `assets/` são servidos com `Cache-Control: immutable` (ver `vercel.json`).
 
 ## Arquitetura
 
+- `src/app/`, `src/pages/`, `src/components/`: rotas e interface do website; `ArenaShell` monta o jogo em `/app`.
+- `docs/research/`: artigos e figuras PT/EN; regras visuais em `docs/website-design.md`.
 - `packages/core/` (`@wii/spatial-core`): pacote headless de percepção — Worker do Pose Landmarker (variante WASM module, `useModule`), cliente de captura com um frame em trânsito que mantém o worker quente entre liga/desliga, protocolos, filtro 1-Euro e replay de pose.
 - `src/cv/`: fiação fina sobre o core (URLs padrão dos ativos locais, aquecimento) e a auto-calibração online contínua.
 - `src/kinematics/`: histerese, gating de confiança e detectores puros sobre o filtro 1-Euro do core.
@@ -45,7 +53,7 @@ O vídeo é processado no dispositivo e não é enviado ao servidor do jogo. O M
 
 ## Deploy
 
-Com o Vercel CLI autenticado, execute `npx vercel --prod`. O projeto usa `dist/` como saída estática; a URL HTTPS resultante permite o acesso à webcam sem instalação. O comando de build verifica a versão e o SHA-256 do modelo e publica também os arquivos WASM locais.
+No Vercel, use a raiz do repositório como Root Directory, `npm run build` como build e `dist` como saída. O `vercel.json` mantém as rotas do site funcionando em acessos diretos. Com o Vercel CLI autenticado, execute `npx vercel --prod`. O projeto usa `dist/` como saída estática; a URL HTTPS resultante permite o acesso à webcam sem instalação. O comando de build verifica a versão e o SHA-256 do modelo e publica também os arquivos WASM locais.
 
 ## Controles
 

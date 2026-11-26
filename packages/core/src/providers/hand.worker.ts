@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
 import type { Delegate, Hand, Point3 } from '../types';
+import { shouldFallbackForLatency } from './delegateProbe';
 import type { HandObservation, HandWorkerReply, HandWorkerRequest } from './handProtocol';
 
 let landmarker: HandLandmarker | undefined;
@@ -9,6 +10,14 @@ let modelUrl = '';
 let delegate: Delegate = 'GPU';
 let attemptedFallback = false;
 let wasmLoaderInstance = 0;
+/** Real per-frame inference times on the GPU delegate, collected until the latency verdict. */
+const gpuInferenceTimes: number[] = [];
+let latencyVerdictDone = false;
+/** True while an async delegate re-init runs; frames in the window are dropped, not fatal. */
+let transitioningDelegate = false;
+
+/** Frames needed for the latency verdict: one warmup plus enough warmed samples for a median. */
+const LATENCY_PROBE_FRAMES = 5;
 
 async function createTask(nextDelegate: Delegate): Promise<void> {
   const vision = await FilesetResolver.forVisionTasks(wasmBaseUrl, true);
@@ -26,10 +35,10 @@ async function createTask(nextDelegate: Delegate): Promise<void> {
   landmarker = await HandLandmarker.createFromOptions(vision, {
     baseOptions: { modelAssetBuffer: modelBytes, delegate: nextDelegate },
     runningMode: 'VIDEO',
-    numHands: 2,
-    minHandDetectionConfidence: 0.5,
-    minHandPresenceConfidence: 0.5,
-    minTrackingConfidence: 0.5,
+    numHands: 1,
+    minHandDetectionConfidence: 0.7,
+    minHandPresenceConfidence: 0.7,
+    minTrackingConfidence: 0.65,
   });
   delegate = nextDelegate;
 }
@@ -60,6 +69,7 @@ function observations(result: ReturnType<HandLandmarker['detectForVideo']>): Han
 async function fallback(reason: string): Promise<{ ok: true } | { ok: false; message: string }> {
   if (delegate !== 'GPU' || attemptedFallback) return { ok: false, message: reason };
   attemptedFallback = true;
+  transitioningDelegate = true;
   try {
     landmarker?.close();
   } catch {
@@ -74,6 +84,8 @@ async function fallback(reason: string): Promise<{ ok: true } | { ok: false; mes
     landmarker = undefined;
     const cpuReason = error instanceof Error ? error.message : String(error);
     return { ok: false, message: `GPU falhou (${reason}); fallback CPU também falhou (${cpuReason}).` };
+  } finally {
+    transitioningDelegate = false;
   }
 }
 
@@ -111,18 +123,45 @@ self.onmessage = async ({ data }: MessageEvent<HandWorkerRequest>) => {
   const { bitmap, timestampMs, requestId } = data;
   if (!landmarker) {
     bitmap.close();
+    // During a delegate re-init the missing landmarker is expected — the frame is dropped so the
+    // client releases its one-in-flight slot, but the session survives. Outside a transition it is
+    // the fatal invariant violation it always was.
     self.postMessage({
       type: 'ERROR',
       stage: 'detect',
-      fatal: true,
+      fatal: !transitioningDelegate,
       requestId,
-      message: 'HandLandmarker is not initialized',
+      message: transitioningDelegate ? 'Reinicializando em CPU; frame descartado.' : 'HandLandmarker is not initialized',
     } satisfies HandWorkerReply);
     return;
   }
   try {
+    const inferenceStart = performance.now();
     const result = landmarker.detectForVideo(bitmap, timestampMs);
+    const inferenceMs = performance.now() - inferenceStart;
     self.postMessage({ type: 'HAND', requestId, timestampMs, hands: observations(result) } satisfies HandWorkerReply);
+    // Latency verdict on real frames: the GPU delegate over software GL costs far more per frame
+    // without ever throwing, so only timing evidence can catch it. Decided once, early.
+    if (delegate === 'GPU' && !latencyVerdictDone) {
+      gpuInferenceTimes.push(inferenceMs);
+      if (gpuInferenceTimes.length >= LATENCY_PROBE_FRAMES) {
+        latencyVerdictDone = true;
+        if (shouldFallbackForLatency(gpuInferenceTimes)) {
+          const sorted = [...gpuInferenceTimes.slice(1)].sort((a, b) => a - b);
+          const median = Math.round(sorted[Math.floor(sorted.length / 2)]!);
+          const outcome = await fallback(`GPU lento (mediana ${median} ms/frame — provável GL de software)`);
+          if (!outcome.ok) {
+            self.postMessage({
+              type: 'ERROR',
+              stage: 'detect',
+              fatal: true,
+              requestId,
+              message: outcome.message,
+            } satisfies HandWorkerReply);
+          }
+        }
+      }
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     const fallbackResult = await fallback(message);
