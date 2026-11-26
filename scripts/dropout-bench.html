@@ -139,8 +139,8 @@ await new Promise((r) => setTimeout(r, SECS * 1000 + 500));
 worker.terminate();
 video.srcObject?.getTracks().forEach((track) => { track.stop(); });
 
-// Blackout cru fecha no primeiro frame bom; o blackout de gameplay segue a histerese do
-// TrackingGate e só fecha depois de três frames bons consecutivos.
+// Blackout cru fecha no primeiro frame bom; recuperação fecha depois de três frames bons
+// consecutivos; perda sustentada segue a regra de 800 ms sem nenhum frame bom do TrackingGate.
 const bad = (f) => f.empty || f.torsoConf < 0.5;
 const rawBlackouts = [];
 let rawOpenAt = null;
@@ -150,25 +150,43 @@ for (const f of frames) {
 }
 if (rawOpenAt !== null) rawBlackouts.push(frames.at(-1).ts - rawOpenAt);
 
-const gameplayBlackouts = [];
-let gameplayOpenAt = null;
+const recoveryBlackouts = [];
+let recoveryOpenAt = null;
 let recoveryRun = 0;
 for (const f of frames) {
   if (bad(f)) {
-    if (gameplayOpenAt === null) gameplayOpenAt = f.ts;
+    if (recoveryOpenAt === null) recoveryOpenAt = f.ts;
     recoveryRun = 0;
     continue;
   }
-  if (gameplayOpenAt !== null) {
+  if (recoveryOpenAt !== null) {
     recoveryRun += 1;
     if (recoveryRun >= 3) {
-      gameplayBlackouts.push(f.ts - gameplayOpenAt);
-      gameplayOpenAt = null;
+      recoveryBlackouts.push(f.ts - recoveryOpenAt);
+      recoveryOpenAt = null;
       recoveryRun = 0;
     }
   }
 }
-if (gameplayOpenAt !== null) gameplayBlackouts.push(frames.at(-1).ts - gameplayOpenAt);
+if (recoveryOpenAt !== null) recoveryBlackouts.push(frames.at(-1).ts - recoveryOpenAt);
+
+const sustainedLosses = [];
+let lastGoodAt;
+let lossStartedAt;
+for (const f of frames) {
+  if (bad(f)) {
+    if (lastGoodAt !== undefined && lossStartedAt === undefined && f.ts - lastGoodAt >= 800) {
+      lossStartedAt = lastGoodAt + 800;
+    }
+    continue;
+  }
+  if (lossStartedAt !== undefined) {
+    sustainedLosses.push(f.ts - lossStartedAt);
+    lossStartedAt = undefined;
+  }
+  lastGoodAt = f.ts;
+}
+if (lossStartedAt !== undefined) sustainedLosses.push(frames.at(-1).ts - lossStartedAt);
 const spanS = frames.length > 1 ? (frames.at(-1).ts - frames[0].ts) / 1000 : 1;
 const minutes = spanS / 60;
 const lat = frames.map((f) => f.latencyMs).sort((a, b) => a - b);
@@ -191,18 +209,20 @@ const report = {
   rawBlackoutsOver133ms: rawBlackouts.filter((d) => d > 133).length,
   rawBlackoutsOver800ms: rawBlackouts.filter((d) => d > 800).length,
   longestRawBlackoutMs: rawBlackouts.length ? +Math.max(...rawBlackouts).toFixed(0) : 0,
-  blackouts: gameplayBlackouts.length,
-  blackoutsPerMin: +(gameplayBlackouts.length / minutes).toFixed(1),
-  blackoutsOver133ms: gameplayBlackouts.filter((d) => d > 133).length,
-  blackoutsOver800ms: gameplayBlackouts.filter((d) => d > 800).length,
-  longestBlackoutMs: gameplayBlackouts.length ? +Math.max(...gameplayBlackouts).toFixed(0) : 0,
+  recoveryBlackouts: recoveryBlackouts.length,
+  recoveryBlackoutsPerMin: +(recoveryBlackouts.length / minutes).toFixed(1),
+  recoveryBlackoutsOver133ms: recoveryBlackouts.filter((d) => d > 133).length,
+  longestRecoveryBlackoutMs: recoveryBlackouts.length ? +Math.max(...recoveryBlackouts).toFixed(0) : 0,
+  sustainedLosses: sustainedLosses.length,
+  sustainedLossesPerMin: +(sustainedLosses.length / minutes).toFixed(1),
+  longestSustainedLossMs: sustainedLosses.length ? +Math.max(...sustainedLosses).toFixed(0) : 0,
   latencyMs: { p50: q(0.5), p90: q(0.9), p99: q(0.99) },
   ua: navigator.userAgent,
 };
 phaseEl.textContent = `fim — ${MODEL_KIND}`;
 liveEl.textContent = '';
 reportEl.textContent = `${report.valid ? '' : `BENCHMARK INVÁLIDO — NÃO COMPARAR: ${invalidReason}\n`}` +
-  `blackouts/min: ${report.blackoutsPerMin}  (>133ms: ${report.blackoutsOver133ms}, >800ms: ${report.blackoutsOver800ms})\n` +
+  `recuperações/min: ${report.recoveryBlackoutsPerMin}  perdas sustentadas/min: ${report.sustainedLossesPerMin}\n` +
   `frames vazios/min: ${report.emptyPerMin}  ruins: ${report.badPct}%  poses/s: ${report.posesPerS}  delegate: ${delegate}\n\n` +
   JSON.stringify(report, null, 2);
 window.DROPOUT_BENCH = report;
