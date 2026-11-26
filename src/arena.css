@@ -94,6 +94,7 @@
   .game-banner span { font-size: 14px; font-weight: 700; }
   .recording-prompt { position: absolute; left: 50%; bottom: 20%; transform: translateX(-50%); max-width: 90%; padding: 14px 22px; border-radius: 16px; background: #000c; color: #fff; font-size: 30px; font-weight: 800; text-align: center; pointer-events: none; z-index: 11; }
   .framing-hint { position: absolute; left: 50%; top: 14%; transform: translateX(-50%); max-width: 90%; padding: 10px 18px; border-radius: 14px; background: #c0392b; color: #fff; font-size: 22px; font-weight: 800; text-align: center; pointer-events: none; z-index: 11; }
+  .perf-meter { position: absolute; left: 10px; bottom: 10px; max-width: 60%; padding: 6px 10px; border-radius: 8px; background: #000d; color: #7f7; font: 700 13px/1.4 monospace; pointer-events: none; z-index: 30; }
   /* uma animação por evento (a key do React reinicia) */
   .game-feedback { position: absolute; inset: 0; display: flex; justify-content: center; align-items: flex-start; pointer-events: none; z-index: 2; }
   .game-feedback span { margin-top: 18vh; color: #7be595; font-size: 34px; font-weight: 800; text-shadow: 0 2px 8px #000a; opacity: 0; animation: track-pop .9s ease-out; }

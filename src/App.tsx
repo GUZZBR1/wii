@@ -14,6 +14,7 @@ import { CameraPip } from './ui/CameraPip';
 import { GameCanvas, type GameEngineHandle, type Sport } from './ui/GameCanvas';
 import { HandCursor } from './ui/HandCursor';
 import { HandPanel } from './ui/HandPanel';
+import { PerfMeter } from './ui/PerfMeter';
 import { HAND_IDLE } from './ui/handCursorTypes';
 import { drawPose } from './ui/PoseOverlay';
 import { GamesMenu, HomeMenu, TitleMenu } from './ui/WiiMenu';
@@ -78,6 +79,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const profileRef = useRef<CalibrationProfile | undefined>(undefined);
   const audioRef = useRef(new ProceduralAudio());
   const cameraAttemptRef = useRef(0);
+  const poseFramesRef = useRef(0);
+  const [showPerf] = useState(() => new URLSearchParams(window.location.search).has('fps'));
   /** Diagnostic recording: owned here, fed by onPose, ended by the script, G or the camera stopping. */
   const recorderRef = useRef<PoseRecorder | undefined>(undefined);
   const [recordingPrompt, setRecordingPrompt] = useState<string>();
@@ -183,6 +186,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       }
     },
     onPose: (raw) => {
+      poseFramesRef.current += 1;
       if (recorderRef.current) {
         const current = recorderRef.current.push(raw);
         if (current) setRecordingPrompt(`${current.segment.prompt} · ${Math.ceil(current.remainingMs / 1000)}`);
@@ -433,6 +437,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       videoRef={videoRef} canvasRef={overlayRef} cameraOn={cameraOn} status={cameraStatus} tracking={tracking}
       onStart={() => void startCamera()} onStop={stopCamera}
     />
+    {showPerf && <PerfMeter videoRef={videoRef} poseFrames={poseFramesRef} />}
     {splash && <WiiSplash onDone={endSplash} />}
   </div>;
 }
