@@ -37,7 +37,8 @@ describe('torso action pipeline integration', () => {
     expect(jumps).toHaveLength(1);
     expect(frames.some((frame) => frame.controls.sprintSpeed01 > 0)).toBe(true);
     expect(frames.at(-1)!.controls.trackingState).toBe('tracked');
-    expect(frames.flatMap((frame) => frame.events).filter((event) => event.type === 'lane' || event.type === 'swing' || event.type === 'swing-start')).toHaveLength(0);
+    expect(frames.flatMap((frame) => frame.events).filter((event) => event.type === 'swing' || event.type === 'swing-start')).toHaveLength(0);
+    expect(frames.every((frame) => frame.controls.laneZone === undefined)).toBe(true);
   });
 
   it('keeps cadence alive when a jump overlaps continuous running', () => {
