@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HandCursorDetector } from '../src/kinematics/handCursor';
+import { HandCursorDetector, type MenuHandSnapshot } from '../src/kinematics/handCursor';
 import { emptyHand, hand } from './fixtures/menuHand';
 
 function synched(detector = new HandCursorDetector()) {
@@ -37,8 +37,8 @@ describe('hand cursor synchronization and active zone', () => {
       detector.update(hand(100, { tipX: 0.5 })),
       detector.update(hand(200, { tipX: 0.7 })),
     ];
-    expect(states[0]).toMatchObject({ syncProgress: 0, synced: false, visible: true });
-    expect(states[1]).toMatchObject({ syncProgress: 0.5, synced: false, visible: true });
+    expect(states[0]).toMatchObject({ syncProgress: 0, synced: false, visible: false });
+    expect(states[1]).toMatchObject({ syncProgress: 0.5, synced: false, visible: false });
     expect(states[2]).toMatchObject({ syncProgress: 1, synced: true, visible: true });
   });
 
@@ -91,7 +91,7 @@ describe('hand cursor synchronization and active zone', () => {
     const detector = synched();
     expect(detector.update(emptyHand(1100))).toMatchObject({ visible: true, synced: true });
     const reacquired = detector.update(hand(2000));
-    expect(reacquired).toMatchObject({ visible: true, synced: false, syncProgress: 0 });
+    expect(reacquired).toMatchObject({ visible: false, synced: false, syncProgress: 0 });
   });
 
   it('does not reuse a stale frozen position after a long tracking loss', () => {
@@ -120,6 +120,97 @@ describe('hand cursor synchronization and active zone', () => {
   });
 });
 
+describe('hand cursor hand validation', () => {
+  it('never synchronizes while the handedness score stays below 0.75', () => {
+    const detector = new HandCursorDetector();
+    let state = detector.update({ ...hand(0), handednessScore: 0.5 });
+    for (let time = 100; time <= 1000; time += 100) state = detector.update({ ...hand(time), handednessScore: 0.5 });
+    expect(state).toMatchObject({ synced: false, syncProgress: 0, visible: false });
+  });
+
+  it('synchronizes with a handedness score of exactly 0.75 or with no score at all', () => {
+    for (const handednessScore of [0.75, undefined]) {
+      const detector = new HandCursorDetector();
+      let synced = false;
+      for (let time = 0; time <= 300; time += 100) {
+        synced = detector.update({ ...hand(time), handednessScore }).synced || synced;
+      }
+      expect(synced).toBe(true);
+    }
+  });
+
+  it('rejects a degenerate palm scale while the same shape above 0.03 synchronizes', () => {
+    const tiny = new HandCursorDetector();
+    let state = tiny.update(hand(0, { scale: 0.02 }));
+    for (let time = 100; time <= 1000; time += 100) state = tiny.update(hand(time, { scale: 0.02 }));
+    expect(state).toMatchObject({ synced: false, syncProgress: 0, visible: false });
+
+    // the bounding-box ratio is scale-invariant, so the healthy hand differs only in the scale gate
+    const healthy = new HandCursorDetector();
+    let synced = false;
+    for (let time = 0; time <= 300; time += 100) synced = healthy.update(hand(time, { scale: 0.04 })).synced || synced;
+    expect(synced).toBe(true);
+  });
+
+  it('rejects bounding boxes outside the 0.25..3.5 width-to-height ratio in either direction', () => {
+    // wrist and MIDDLE_MCP share the same x, so rescaling x around the anchor keeps their distance
+    // intact and the rejection can only come from the bounding-box ratio.
+    const xScaled = (timestampMs: number, factor: number): MenuHandSnapshot => {
+      const snapshot = hand(timestampMs);
+      const centerX = snapshot.landmarks[9]!.x;
+      return {
+        ...snapshot,
+        landmarks: snapshot.landmarks.map((landmark) => ({ ...landmark, x: centerX + (landmark.x - centerX) * factor })),
+      };
+    };
+    for (const factor of [0.1, 10]) {
+      const detector = new HandCursorDetector();
+      let state = detector.update(xScaled(0, factor));
+      for (let time = 100; time <= 1000; time += 100) state = detector.update(xScaled(time, factor));
+      expect(state).toMatchObject({ synced: false, syncProgress: 0 });
+    }
+
+    const control = new HandCursorDetector();
+    let synced = false;
+    for (let time = 0; time <= 300; time += 100) synced = control.update(xScaled(time, 0.5)).synced || synced;
+    expect(synced).toBe(true);
+  });
+});
+
+describe('hand cursor distance-sensitive active zone', () => {
+  it('shrinks the zone for a close hand so the screen edge is reached before the camera edge', () => {
+    const detector = new HandCursorDetector();
+    let state = detector.update(hand(0, { scale: 0.3, tipX: 0.25, tipY: 0.5 }));
+    for (let time = 100; time <= 1000; time += 100) {
+      state = detector.update(hand(time, { scale: 0.3, tipX: 0.25, tipY: 0.5 }));
+    }
+    expect(state.activeZone.minX).toBeCloseTo(0.25);
+    expect(state.activeZone.maxX).toBeCloseTo(0.75);
+    expect(state.activeZone.minY).toBeCloseTo(0.25);
+    expect(state.activeZone.maxY).toBeCloseTo(0.75);
+    // camera x 0.25 mirrors to pointer x 0.75, the inner edge of the shrunk zone
+    expect(state.x).toBeCloseTo(1);
+  });
+
+  it('keeps the zone covering the whole camera frame for a distant hand', () => {
+    const detector = new HandCursorDetector();
+    let state = detector.update(hand(0, { scale: 0.1, tipX: 0.25, tipY: 0.5 }));
+    for (let time = 100; time <= 1000; time += 100) {
+      state = detector.update(hand(time, { scale: 0.1, tipX: 0.25, tipY: 0.5 }));
+    }
+    expect(state.activeZone).toMatchObject({ minX: 0, maxX: 1, minY: 0, maxY: 1 });
+    expect(state.x).toBeCloseTo(0.75);
+  });
+
+  it('never overrides an explicit active zone even for a close hand', () => {
+    const zone = { minX: 0.2, maxX: 0.8, minY: 0.1, maxY: 0.9 };
+    const detector = new HandCursorDetector({ activeZone: zone });
+    let state = detector.update(hand(0, { scale: 0.3 }));
+    for (let time = 100; time <= 1000; time += 100) state = detector.update(hand(time, { scale: 0.3 }));
+    expect(state.activeZone).toEqual(zone);
+  });
+});
+
 describe('hand cursor smoothing', () => {
   it('attenuates alternating fingertip jitter without leaving the active zone', () => {
     const detector = synched();
@@ -144,6 +235,42 @@ describe('hand cursor smoothing', () => {
     const initialDistance = Math.abs(target - start);
     const remainingDistance = Math.abs(target - latest);
     expect(remainingDistance).toBeLessThan(initialDistance * 0.35);
+  });
+});
+
+describe('hand cursor pointer anchor', () => {
+  it('keeps the cursor fixed while only the pinch fingertips move, because the anchor is MIDDLE_MCP', () => {
+    // pinchOnRatio 0 disables pinch activation, so neither pinch nor fist can freeze the cursor:
+    // any output motion would have to come from the anchor following the fingertips.
+    const spreadTips = (timestampMs: number): MenuHandSnapshot => {
+      const snapshot = hand(timestampMs, { tipX: 0.5, tipY: 0.5 });
+      const landmarks = snapshot.landmarks.map((landmark) => ({ ...landmark }));
+      landmarks[8]!.x += 0.12;
+      landmarks[8]!.y -= 0.04;
+      landmarks[4]!.x += 0.08;
+      landmarks[4]!.y += 0.03;
+      return { ...snapshot, landmarks };
+    };
+
+    const detector = new HandCursorDetector({ pinchOnRatio: 0 });
+    for (let time = 0; time <= 1000; time += 100) detector.update(hand(time, { tipX: 0.5, tipY: 0.5 }));
+    const before = detector.update(hand(1100, { tipX: 0.5, tipY: 0.5 }));
+    for (const time of [1200, 1300, 1400, 1500]) {
+      const state = detector.update(spreadTips(time));
+      expect(state.x).toBeCloseTo(before.x);
+      expect(state.y).toBeCloseTo(before.y);
+    }
+
+    // control: the same fingertip motion must move a tip- or midIndex-anchored cursor,
+    // otherwise the stability asserted above would be vacuous.
+    for (const pointerAnchor of ['tip', 'midIndex'] as const) {
+      const control = new HandCursorDetector({ pinchOnRatio: 0, pointerAnchor });
+      for (let time = 0; time <= 1000; time += 100) control.update(hand(time, { tipX: 0.5, tipY: 0.5 }));
+      const controlBefore = control.update(hand(1100, { tipX: 0.5, tipY: 0.5 }));
+      let controlState = controlBefore;
+      for (const time of [1200, 1300, 1400, 1500]) controlState = control.update(spreadTips(time));
+      expect(Math.abs(controlState.x - controlBefore.x)).toBeGreaterThan(0.01);
+    }
   });
 });
 

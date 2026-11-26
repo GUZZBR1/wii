@@ -33,7 +33,7 @@ const CHAINS: readonly Chain[] = [
   { mcp: 17, pip: 18, dip: 19, tip: 20 },
 ];
 
-/** Parametric 21-landmark hand. tipX/tipY are raw camera coordinates of the midpoint (#5/#8) pointer anchor before mirroring. */
+/** Parametric 21-landmark hand. tipX/tipY are raw camera coordinates of the MIDDLE_MCP (#9) pointer anchor before mirroring. */
 export function hand(timestampMs: number, options: SyntheticHandOptions = {}): MenuHandSnapshot {
   const scale = options.scale ?? 0.1;
   const curl = options.curl ?? 0;
@@ -41,7 +41,8 @@ export function hand(timestampMs: number, options: SyntheticHandOptions = {}): M
   const anchorY = (options.tipY ?? 0.5) + (options.dy ?? 0);
   const landmarks: Point3[] = Array.from({ length: 21 }, () => point(0, 0));
 
-  // In the open hand the index chain is one palm-scale long and vertical, so #5/#8 average to the anchor.
+  // In the open hand the index chain is one palm-scale long and vertical.
+  // The construction is anchored on the index chain; a uniform shift below centers MIDDLE_MCP instead.
   const indexTipOpen = point(anchorX, anchorY - 0.5 * scale);
   const indexMcpOpen = point(anchorX, anchorY + 0.5 * scale);
   const wrist = point(indexMcpOpen.x + 0.35 * scale, indexMcpOpen.y + 0.95 * scale);
@@ -74,6 +75,14 @@ export function hand(timestampMs: number, options: SyntheticHandOptions = {}): M
     options.pinchRatio === undefined
       ? point(wrist.x - 1.2 * scale, wrist.y - 0.2 * scale)
       : point(landmarks[8]!.x + options.pinchRatio * scale, landmarks[8]!.y);
+
+  // Center MIDDLE_MCP (#9) on the anchor with a uniform shift, preserving all relative geometry.
+  const shiftX = anchorX - landmarks[9]!.x;
+  const shiftY = anchorY - landmarks[9]!.y;
+  for (const landmark of landmarks) {
+    landmark.x += shiftX;
+    landmark.y += shiftY;
+  }
   return { timestampMs, landmarks, handedness: 'Right' };
 }
 

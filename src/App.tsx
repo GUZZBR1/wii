@@ -171,6 +171,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
         timestampMs: snapshot.timestampMs,
         landmarks: primary?.landmarks ?? [],
         handedness: primary?.handedness,
+        handednessScore: primary?.handednessScore,
         aspectY,
       });
       setHandInput({
