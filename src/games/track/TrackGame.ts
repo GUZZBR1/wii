@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { SportActionEvent } from '../../cv/protocol';
 import { GameLoop } from '../core/GameLoop';
+import { type BiomeSpec, biomeAt } from './biomes';
 import { type Feedback, awardText, SHAKE_DURATION_S, shakeOffset } from './feedback';
 import { adjudicationDt, applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type Pace, stumble } from './gait';
 import { HurdleFlow, type ItemKind, RUNNER_Z } from './hurdleFlow';
@@ -8,26 +9,33 @@ import { ItemAssets } from './itemAssets';
 import { JUMP_DURATION_S, jumpHeight } from './jump';
 import { parseRanking, type RunResult, rankRun } from './ranking';
 import { RunGate } from './runGate';
-import { fovFor, scrollZ, timeBoost } from './scroll';
+import { createSkyDome, DustPool, SCENERY_MAX_Z, SCENERY_MIN_Z, SceneryPool } from './scenery';
+import { scrollZ, timeBoost } from './scroll';
 import { type Lane, nextKind, nextLane } from './spawn';
 import { isPerfectJump, TrackScore } from './trackScore';
 
 export interface GameHudState { score: number; label: string; speed01: number; status: string; feedback?: Feedback; combo?: number; banner?: { title: string; detail?: string }; result?: RunResult }
 type Item = { group: THREE.Group; kind: ItemKind; lane: number; z: number; passed: boolean };
-// Scenery loops between the fog and a point behind the camera, so recycling is never visible.
-const SCENERY_MIN_Z = -66;
-const SCENERY_MAX_Z = 14;
+type BiomeColor = Exclude<keyof BiomeSpec, 'id' | 'endDistance' | 'props'>;
 const RANKING_KEY = 'wii-track-ranking';
 const GAIT_STATUS: Record<Gait, string> = { idle: 'Parado', walk: 'Andando', run: 'Correndo' };
 
 export class TrackGame {
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(52, 1, 0.1, 120);
+  private readonly camera = new THREE.PerspectiveCamera(54, 1, 0.1, 120);
   private readonly runner = new THREE.Group();
   private readonly legs: THREE.Group[] = [];
   private readonly arms: THREE.Group[] = [];
-  private readonly scenery: THREE.Mesh[] = [];
-  private readonly shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35, depthWrite: false }));
+  private readonly stripes: THREE.Mesh[] = [];
+  private readonly skyDome = createSkyDome();
+  private readonly sceneryPool = new SceneryPool(biomeAt(0).current.props);
+  private readonly dustPool = new DustPool();
+  /** Colors that follow the biome, each paired with the BiomeSpec field it reads. */
+  private readonly tints: [THREE.Color, BiomeColor][] = [];
+  private readonly tintTarget = new THREE.Color();
+  private camX = 0;
+  private landingDip = 0;
+  private readonly shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false }));
   private readonly items: Item[] = [];
   private readonly itemAssets = new ItemAssets();
   private readonly loop: GameLoop;
@@ -55,56 +63,81 @@ export class TrackGame {
   private status = 'Ande ou corra no lugar com a câmera, ou use ↓';
 
   constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: GameHudState) => void) {
-    this.scene.background = new THREE.Color(0x223038);
-    this.scene.fog = new THREE.Fog(0x223038, 25, 75);
-    this.camera.position.set(0, 3.4, 11);
-    this.camera.lookAt(0, 1.5, -8);
+    this.scene.background = null;
+    this.camera.position.set(0, 3.1, 9.4);
+    this.camera.lookAt(0, 1.4, -8);
     this.setupScene();
+    this.applyBiome();
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) => this.update(dt, wallTimeMs));
+    if (this.loop.renderer) this.loop.renderer.toneMapping = THREE.NeutralToneMapping;
     this.hudTimer = window.setInterval(() => this.publishHud(), 80);
   }
 
   private setupScene(): void {
-    this.scene.add(new THREE.HemisphereLight(0xbad8e6, 0x253038, 2.1));
-    const sun = new THREE.DirectionalLight(0xfff1d0, 3);
-    sun.position.set(-5, 10, 6); this.scene.add(sun);
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(120, 100), new THREE.MeshBasicMaterial({ color: 0x263235 }));
-    ground.rotation.x = -Math.PI / 2; ground.position.z = -30; this.scene.add(ground);
-    const track = new THREE.Mesh(new THREE.PlaneGeometry(9, 90), new THREE.MeshBasicMaterial({ color: 0x454e50 }));
-    track.rotation.x = -Math.PI / 2; track.position.set(0, 0.02, -32); this.scene.add(track);
-    const stripeGeo = new THREE.BoxGeometry(0.06, 0.01, 2.2);
-    const stripeMat = new THREE.MeshBasicMaterial({ color: 0xf4b544 });
-    for (const x of [-3, 0, 3]) {
-      for (let z = SCENERY_MIN_Z; z < SCENERY_MAX_Z; z += 4) this.addScenery(new THREE.Mesh(stripeGeo, stripeMat), x, 0.035, z);
+    const fog = new THREE.Fog(0xd0eafc, 22, 64);
+    this.scene.fog = fog;
+    const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 2);
+    const sun = new THREE.DirectionalLight(0xffffff, 1.8);
+    sun.position.set(-5, 10, 6);
+    this.scene.add(hemi, sun, this.skyDome.mesh, this.sceneryPool.group, this.dustPool.mesh);
+    const surface = () => new THREE.MeshLambertMaterial();
+    const ground = surface(), track = surface(), curb = surface(), stripe = surface();
+    const flat = (width: number, length: number, material: THREE.Material, y: number, z: number) => {
+      const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, length), material);
+      mesh.rotation.x = -Math.PI / 2; mesh.position.set(0, y, z); this.scene.add(mesh);
+    };
+    flat(120, 100, ground, 0, -30);
+    flat(4.8, 90, track, 0.02, -30);
+    const curbGeo = new THREE.BoxGeometry(0.22, 0.14, 90);
+    for (const x of [-2.5, 2.5]) {
+      const curbs = new THREE.Mesh(curbGeo, curb);
+      curbs.position.set(x, 0.07, -30); this.scene.add(curbs);
     }
-    for (let i = 0; i < (SCENERY_MAX_Z - SCENERY_MIN_Z) / 5; i += 1) {
-      const h = 2 + (i % 3) * 1.2;
-      const building = new THREE.Mesh(new THREE.BoxGeometry(2 + (i % 2), h, 2), new THREE.MeshStandardMaterial({ color: i % 2 ? 0x27373b : 0x202c30, flatShading: true }));
-      this.addScenery(building, i % 2 ? -7 : 7, h / 2, SCENERY_MIN_Z + i * 5);
+    const stripeGeo = new THREE.BoxGeometry(0.08, 0.01, 2.2);
+    for (const x of [-0.75, 0.75]) {
+      for (let z = SCENERY_MIN_Z; z < SCENERY_MAX_Z; z += 4) {
+        const mesh = new THREE.Mesh(stripeGeo, stripe);
+        mesh.position.set(x, 0.035, z); this.scene.add(mesh); this.stripes.push(mesh);
+      }
     }
+    this.tints.push(
+      [this.skyDome.topColor, 'skyTop'], [this.skyDome.bottomColor, 'skyBottom'], [fog.color, 'skyBottom'],
+      [ground.color, 'ground'], [track.color, 'track'], [curb.color, 'curb'], [stripe.color, 'stripe'],
+      [hemi.color, 'hemiSky'], [hemi.groundColor, 'hemiGround'], [sun.color, 'sun'],
+    );
     this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.set(0, 0.045, RUNNER_Z); this.scene.add(this.shadow);
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.38, 0.85, 4, 8), new THREE.MeshStandardMaterial({ color: 0xeff0e9, roughness: 0.72, flatShading: true }));
-    torso.position.y = 1.22; this.runner.add(torso);
-    const head = new THREE.Mesh(new THREE.IcosahedronGeometry(0.28, 1), new THREE.MeshStandardMaterial({ color: 0xe8b896, flatShading: true }));
-    head.position.y = 2.08; this.runner.add(head);
-    const trousers = new THREE.MeshStandardMaterial({ color: 0x34434a, flatShading: true });
-    const shoes = new THREE.MeshStandardMaterial({ color: 0xf7a942, flatShading: true });
+    // Mii-like proportions (about three heads tall) with floating hands.
+    const lambert = (color: number) => new THREE.MeshLambertMaterial({ color, flatShading: true });
+    const shirt = lambert(0xffffff), accent = lambert(0x2f9be8), skin = lambert(0xf2c29a), shorts = lambert(0x35516e), shoes = lambert(0xff8a2a);
+    const part = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = this.runner) => {
+      const mesh = new THREE.Mesh(geometry, material);
+      mesh.position.set(x, y, z); parent.add(mesh);
+    };
+    part(new THREE.CapsuleGeometry(0.34, 0.4, 4, 12), shirt, 0, 1.13, 0);
+    part(new THREE.CylinderGeometry(0.35, 0.35, 0.14, 16, 1, true), accent, 0, 1.22, 0);
+    part(new THREE.SphereGeometry(0.42, 16, 12), skin, 0, 1.98, 0);
+    part(new THREE.CylinderGeometry(0.41, 0.425, 0.13, 16, 1, true), accent, 0, 2.11, 0);
+    part(new THREE.BoxGeometry(0.46, 0.05, 0.26), accent, 0, 2.08, -0.48);
+    const legGeo = new THREE.CapsuleGeometry(0.13, 0.4, 3, 8), footGeo = new THREE.BoxGeometry(0.25, 0.14, 0.4);
+    const handGeo = new THREE.SphereGeometry(0.15, 10, 8);
     for (const side of [-1, 1]) {
-      const leg = new THREE.Group(); leg.position.set(side * 0.16, 0.82, 0);
-      const thigh = new THREE.Mesh(new THREE.CapsuleGeometry(0.13, 0.48, 3, 5), trousers); thigh.position.y = -0.25; leg.add(thigh);
-      const foot = new THREE.Mesh(new THREE.BoxGeometry(0.23, 0.12, 0.38), shoes); foot.position.set(0, -0.58, -0.06); leg.add(foot);
-      this.runner.add(leg); this.legs.push(leg);
-      const arm = new THREE.Group(); arm.position.set(side * 0.4, 1.63, 0);
-      const upperArm = new THREE.Mesh(new THREE.CapsuleGeometry(0.11, 0.4, 3, 5), trousers); upperArm.position.y = -0.23; arm.add(upperArm);
-      arm.rotation.z = side * -0.12; this.runner.add(arm); this.arms.push(arm);
+      const leg = new THREE.Group(); leg.position.set(side * 0.17, 0.74, 0);
+      part(legGeo, shorts, 0, -0.33, 0, leg);
+      part(footGeo, shoes, 0, -0.65, -0.06, leg);
+      const arm = new THREE.Group(); arm.position.set(side * 0.55, 1.45, 0);
+      part(handGeo, skin, 0, -0.45, 0, arm);
+      this.runner.add(leg, arm); this.legs.push(leg); this.arms.push(arm);
     }
     this.runner.position.set(0, 0, RUNNER_Z); this.scene.add(this.runner);
     this.addItem('hurdle', -1, -30);
     this.addItem('hurdle', 1, -48);
   }
 
-  private addScenery(mesh: THREE.Mesh, x: number, y: number, z: number): void {
-    mesh.position.set(x, y, z); this.scene.add(mesh); this.scenery.push(mesh);
+  /** Blends every tinted color toward the next biome; returns the current one. */
+  private applyBiome(): BiomeSpec {
+    const { current, next, blend01 } = biomeAt(this.travelled);
+    for (const [color, key] of this.tints) color.setHex(current[key]).lerp(this.tintTarget.setHex(next[key]), blend01);
+    return current;
   }
 
   private addItem(kind: ItemKind, lane: Lane, z: number): void {
@@ -158,7 +191,6 @@ export class TrackGame {
     if (this.gate.phase !== 'running') return;
     this.shakeTime = Math.max(0, this.shakeTime - dt);
     const shake = shakeOffset(this.shakeTime);
-    this.camera.position.set(shake.x, 3.4 + shake.y, 11);
     this.shownSpeed = easeSpeed(this.shownSpeed, this.pace.speed01, dt);
     const speed = this.shownSpeed;
     const gait = gaitFor(speed, this.gait);
@@ -169,7 +201,10 @@ export class TrackGame {
     const physicsDt = adjudicationDt(this.pace, dt, cameraInputAgeMs);
     this.score.advance(physicsDt, speed);
     this.runner.position.x += (this.lane * 1.5 - this.runner.position.x) * Math.min(1, dt * 10);
+    // Lean into the lane change, upright again on arrival.
+    this.runner.rotation.z = THREE.MathUtils.damp(this.runner.rotation.z, (this.runner.position.x - this.lane * 1.5) * 0.14, 14, dt);
     // One leg swing per step: follow the player's cadence, or estimate it from speed for the keyboard.
+    const lastStep = Math.floor(this.stridePhase / Math.PI);
     if (gait !== 'idle') this.stridePhase += dt * Math.PI * (this.pace.cadenceSpm || 70 + speed * 130) / 60;
     const swing = gait === 'idle' ? 0 : gait === 'walk' ? 0.4 : 0.95;
     const stride = Math.sin(this.stridePhase) * swing;
@@ -180,18 +215,32 @@ export class TrackGame {
       const jumpDt = this.jumpSource === 'keyboard' ? dt : physicsDt;
       this.jumpTime = Math.max(0, this.jumpTime - jumpDt);
       this.runner.position.y = jumpHeight(this.jumpTime);
-      if (this.jumpTime === 0) this.status = GAIT_STATUS[gait];
-    } else this.runner.position.y = gait === 'run' ? Math.abs(Math.sin(this.stridePhase)) * 0.14 : 0;
+      if (this.jumpTime === 0) {
+        this.status = GAIT_STATUS[gait];
+        this.landingDip = 0.22;
+        this.dustPool.emit(this.runner.position.x, RUNNER_Z + 0.2, 8);
+      }
+    } else {
+      this.runner.position.y = gait === 'run' ? Math.abs(Math.sin(this.stridePhase)) * 0.14 : 0;
+      if (gait === 'run' && Math.floor(this.stridePhase / Math.PI) !== lastStep) this.dustPool.emit(this.runner.position.x, RUNNER_Z + 0.2, 2);
+    }
     if (speed > 0) this.movingTime += physicsDt;
     const boost = timeBoost(this.movingTime);
     const advance = physicsDt * speed * 22 * boost;
     const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
     this.travelled += advance;
-    for (const piece of this.scenery) piece.position.z = scrollZ(piece.position.z, advance, SCENERY_MIN_Z, SCENERY_MAX_Z);
+    for (const stripe of this.stripes) stripe.position.z = scrollZ(stripe.position.z, advance, SCENERY_MIN_Z, SCENERY_MAX_Z);
+    this.sceneryPool.update(advance, this.applyBiome().props);
+    this.dustPool.update(dt, advance);
     this.shadow.position.x = this.runner.position.x;
     // The shadow shrinks as the runner rises, which is what reads as height.
     this.shadow.scale.setScalar(1 / (1 + this.runner.position.y * 0.6));
-    const fov = this.camera.fov + (fovFor(speed) - this.camera.fov) * Math.min(1, dt * 3);
+    this.camX = THREE.MathUtils.damp(this.camX, this.runner.position.x * 0.35, 6, dt);
+    this.landingDip = THREE.MathUtils.damp(this.landingDip, 0, 9, dt);
+    const bob = gait === 'run' && this.jumpTime === 0 ? Math.abs(Math.sin(this.stridePhase)) * 0.04 : 0;
+    this.camera.position.set(this.camX + shake.x, 3.1 + bob - this.landingDip + shake.y, 9.4);
+    this.camera.lookAt(this.camX * 0.5, 1.4, -8);
+    const fov = THREE.MathUtils.damp(this.camera.fov, 54 + 8 * THREE.MathUtils.clamp(speed, 0, 1), 3, dt);
     if (Math.abs(fov - this.camera.fov) > 0.01) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
     const flow = this.hurdleFlow.advance(this.items, advance, this.lane, airborne, this.travelled, boost);
     for (const { hurdle: item, outcome } of flow.judged) {
@@ -213,7 +262,10 @@ export class TrackGame {
       this.items.splice(this.items.indexOf(old), 1);
       this.scene.remove(old.group);
     }
-    for (const item of this.items) item.group.position.z = item.z;
+    for (const item of this.items) {
+      item.group.position.z = item.z;
+      if (item.kind === 'coin') item.group.rotation.y += dt * 3;
+    }
     if (flow.spawn) {
       const kind = nextKind(Math.random);
       this.addItem(kind, nextLane(this.laneHistory, Math.random), -48);
@@ -249,10 +301,14 @@ export class TrackGame {
 
   dispose(): void {
     window.clearInterval(this.hudTimer);
-    // Items leave the scene first so their shared resources are freed once, by their owner.
+    // Pooled objects leave the scene first so their resources are freed once, by their owner.
     for (const item of this.items) this.scene.remove(item.group);
     this.items.length = 0;
+    this.scene.remove(this.sceneryPool.group, this.dustPool.mesh, this.skyDome.mesh);
     this.loop.dispose();
     this.itemAssets.dispose();
+    this.sceneryPool.dispose();
+    this.dustPool.dispose();
+    this.skyDome.dispose();
   }
 }
