@@ -1,13 +1,12 @@
 /**
  * Is the player running? Judged only by how much both shoulders bounce over one second, in shoulder
  * widths. Real recordings: standing 0.001–0.011, swinging only the arms 0.003–0.020, running in
- * place 0.045–0.14, jumping 0.26–0.40. Real running is irregular, so no rhythm is required.
+ * place 0.045–0.14. Jumps are the jump detector's business: judging them
+ * here by size too stopped the runner for seconds after every jump taken mid-run. Real running is irregular, so no rhythm is required.
  */
 const WINDOW_MS = 1000;
 const MIN_SPAN_MS = 600;
 const MIN_SPREAD_SW = 0.03;
-/** A bounce this big is a jump, not a stride, and the landing is ignored for a while. */
-const JUMP_SPREAD_SW = 0.2;
 const JUMP_LOCKOUT_MS = 1200;
 /** Both shoulders must move together, which independent landmark jitter and one-arm waving do not. */
 const MIN_TOGETHER = 0.65;
@@ -66,9 +65,8 @@ export class BounceDetector {
     const spread = Math.sqrt(mid / l.length) / width;
     const together = ll > 0 && rr > 0 ? lr / Math.sqrt(ll * rr) : 0;
     const recent = this.samples.filter((sample) => t - sample.t <= QUIET_WINDOW_MS);
-    if (spread > JUMP_SPREAD_SW) this.blockedUntil = t + JUMP_LOCKOUT_MS;
     // Old strides alone prove nothing: the body must also be moving in the latest frames.
-    const candidate = spread <= JUMP_SPREAD_SW && spread >= MIN_SPREAD_SW && together >= MIN_TOGETHER && moved(recent) / width >= QUIET_SPREAD_SW;
+    const candidate = spread >= MIN_SPREAD_SW && together >= MIN_TOGETHER && moved(recent) / width >= QUIET_SPREAD_SW;
     if (candidate) {
       if (this.candidateSince === undefined || t - this.candidateAt > CANDIDATE_GAP_MS) this.candidateSince = t;
       this.candidateAt = t;

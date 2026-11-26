@@ -44,6 +44,9 @@ export function summarize(frames: readonly PoseSnapshot[]) {
     stop: share(['stop'], 1.5),
     jumps: share(['jump']),
     side: Math.max(share(['left']), share(['right']), share(['center'])),
+    // Only recordings made after these segments were added have them; -1 otherwise.
+    walk: share(['walk'], 2),
+    runJump: share(['runjump'], 3),
   };
 }
 
