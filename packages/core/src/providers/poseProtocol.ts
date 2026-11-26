@@ -2,7 +2,7 @@ import type { Delegate, Hand, Point3, TrackingState } from '../types';
 
 export type { Delegate, Hand, Point3, PoseSnapshot, TrackingState } from '../types';
 export interface CalibrationProfile {
-  version: 2;
+  version: 3;
   completedAtMs: number;
   world: {
     shoulderWidth: number;
@@ -13,8 +13,8 @@ export interface CalibrationProfile {
     leanUp0: Point3;
     /** Lateral trunk lean of the neutral calibration pose; runtime lean is reported as the delta from it. */
     torsoLeanRad0: number;
-    /** Each wrist relative to its shoulder; absent when a usable wrist reference was not calibrated. */
-    readyWristLocal?: Record<Hand, Point3>;
+    /** Each wrist relative to its own shoulder; each hand has an independent optional reference. */
+    readyWristLocal?: Partial<Record<Hand, Point3>>;
   };
   quality: { validFrameRatio: number; medianConfidence: number };
 }

@@ -8,12 +8,29 @@ const COVERAGE_RATIO = 0.65;
 const MIN_SPAN_MS = 2000;
 const VALID_SIGNAL_MS = 1800;
 const MAX_SIGNAL_GAP_MS = 350;
+/** Bounded rolling evidence window: movement/invalidation can delay convergence without unbounded growth. */
+const WINDOW_MS = 5000;
+/** Minimum observed stable time for an independent wrist reference. */
+const MIN_WRIST_SIGNAL_MS = 1000;
+
+type CoverageField = 'valid' | 'stanceValid' | 'leftWristValid' | 'rightWristValid';
 
 interface CoverageSample {
   timestampMs: number;
   valid: boolean;
   stanceValid: boolean;
-  wristsValid: boolean;
+  leftWristValid: boolean;
+  rightWristValid: boolean;
+}
+
+export interface CalibrationStability {
+  core?: boolean;
+  wrists?: Partial<Record<Hand, boolean>>;
+}
+
+interface StoredSample {
+  snapshot: PoseSnapshot;
+  stability: CalibrationStability;
 }
 
 function point(points: readonly Point3[], index: number): Point3 | undefined {
@@ -31,7 +48,7 @@ function coveredDurationMs(
   samples: readonly CoverageSample[],
   startMs: number,
   endMs: number,
-  field: 'valid' | 'stanceValid' | 'wristsValid',
+  field: CoverageField,
 ): number {
   let coveredMs = 0;
   for (let index = 1; index < samples.length; index += 1) {
@@ -53,7 +70,7 @@ function observedDurationMs(
   samples: readonly CoverageSample[],
   startMs: number,
   endMs: number,
-  field: 'stanceValid' | 'wristsValid',
+  field: CoverageField,
 ): number {
   let observedMs = 0;
   for (let index = 0; index < samples.length - 1; index += 1) {
@@ -71,29 +88,48 @@ function observedDurationMs(
 /**
  * Upper-body calibration. A valid frame needs only the torso core in image and world space.
  * Legs improve the neutral vertical when an extended stance is observed; otherwise the trunk
- * direction is used. Wrist references are independent and require their own temporal coverage.
+ * direction is used. Wrist references are independent per hand and require their own temporal coverage.
  */
 export class Calibrator {
   private startedAt?: number;
   private collectionAt?: number;
-  private samples: PoseSnapshot[] = [];
+  private samples: StoredSample[] = [];
+  private wristEpochs: Record<Hand, number> = { left: Number.NEGATIVE_INFINITY, right: Number.NEGATIVE_INFINITY };
 
   /** settleMs excludes verified stillness from the blackout ratio, but includes it in signal time. */
   start(timestampMs: number, settleMs = 0): void {
     this.startedAt = timestampMs;
     this.collectionAt = timestampMs + settleMs;
     this.samples = [];
+    this.wristEpochs = { left: Number.NEGATIVE_INFINITY, right: Number.NEGATIVE_INFINITY };
   }
 
-  add(snapshot: PoseSnapshot): void {
-    if (this.startedAt !== undefined) this.samples.push(snapshot);
+  add(snapshot: PoseSnapshot, stability: CalibrationStability = {}): void {
+    if (this.startedAt === undefined) return;
+    this.samples.push({ snapshot, stability });
+    const cutoff = snapshot.timestampMs - WINDOW_MS;
+    this.samples = this.samples.filter((sample) => sample.snapshot.timestampMs >= cutoff);
+  }
+
+  /** Core evidence before timestampMs belongs to another neutral posture and must not be reused. */
+  invalidateCore(timestampMs: number): void {
+    this.samples = this.samples.filter((sample) => sample.snapshot.timestampMs >= timestampMs);
+    this.wristEpochs = {
+      left: Math.max(this.wristEpochs.left, timestampMs),
+      right: Math.max(this.wristEpochs.right, timestampMs),
+    };
+  }
+
+  /** Wrist evidence before timestampMs was not verified still and must not enter that hand's median. */
+  invalidateWrist(hand: Hand, timestampMs: number): void {
+    this.wristEpochs[hand] = Math.max(this.wristEpochs[hand], timestampMs);
   }
 
   /** Non-destructive so AutoCalibrator can probe convergence on every frame. */
   finish(): CalibrationProfile | null {
     if (this.startedAt === undefined || this.samples.length < 12) return null;
-    const first = this.samples[0]!.timestampMs;
-    const last = this.samples.at(-1)!.timestampMs;
+    const first = this.samples[0]!.snapshot.timestampMs;
+    const last = this.samples.at(-1)!.snapshot.timestampMs;
     if (last - first < MIN_SPAN_MS) return null;
 
     const valid: {
@@ -103,11 +139,18 @@ export class Calibrator {
       confidence: number;
     }[] = [];
     const stance: { up: Point3; sample: PoseSnapshot }[] = [];
-    const wrists: { left: Point3; right: Point3 }[] = [];
+    const wrists: Record<Hand, { timestampMs: number; point: Point3 }[]> = { left: [], right: [] };
     const coverageSamples: CoverageSample[] = [];
 
-    for (const sample of this.samples) {
-      const coverage: CoverageSample = { timestampMs: sample.timestampMs, valid: false, stanceValid: false, wristsValid: false };
+    for (const stored of this.samples) {
+      const sample = stored.snapshot;
+      const coverage: CoverageSample = {
+        timestampMs: sample.timestampMs,
+        valid: false,
+        stanceValid: false,
+        leftWristValid: false,
+        rightWristValid: false,
+      };
       coverageSamples.push(coverage);
       const l = sample.landmarks;
       const w = sample.worldLandmarks;
@@ -140,7 +183,7 @@ export class Calibrator {
         y: worldShoulderCenter.y - worldHipCenter.y,
         z: worldShoulderCenter.z - worldHipCenter.z,
       });
-      if (!trunkUp) continue;
+      if (!trunkUp || !(stored.stability.core ?? true)) continue;
 
       valid.push({ worldShoulderWidth, trunkUp, sample, confidence });
       coverage.valid = true;
@@ -154,14 +197,20 @@ export class Calibrator {
         }
       }
 
-      const leftWrist = point(w, IDX.leftWrist);
-      const rightWrist = point(w, IDX.rightWrist);
-      if (!leftWrist || !rightWrist || landmarkConfidence(leftWrist, rightWrist) < 0.55) continue;
-      const left = bodyLocalPoint(leftWrist, worldLeftShoulder, worldLeftShoulder, worldRightShoulder, worldLeftHip, worldRightHip, 1);
-      const right = bodyLocalPoint(rightWrist, worldRightShoulder, worldLeftShoulder, worldRightShoulder, worldLeftHip, worldRightHip, 1);
-      if (!left || !right) continue;
-      wrists.push({ left, right });
-      coverage.wristsValid = true;
+      const wristCandidates = [
+        { hand: 'left' as const, wristIndex: IDX.leftWrist, shoulder: worldLeftShoulder, field: 'leftWristValid' as const },
+        { hand: 'right' as const, wristIndex: IDX.rightWrist, shoulder: worldRightShoulder, field: 'rightWristValid' as const },
+      ];
+      for (const candidate of wristCandidates) {
+        if (sample.timestampMs < this.wristEpochs[candidate.hand]) continue;
+        if (!(stored.stability.wrists?.[candidate.hand] ?? true)) continue;
+        const wristPoint = point(w, candidate.wristIndex);
+        if (!wristPoint || landmarkConfidence(wristPoint) < 0.55) continue;
+        const local = bodyLocalPoint(wristPoint, candidate.shoulder, worldLeftShoulder, worldRightShoulder, worldLeftHip, worldRightHip, 1);
+        if (!local) continue;
+        wrists[candidate.hand].push({ timestampMs: sample.timestampMs, point: local });
+        coverage[candidate.field] = true;
+      }
     }
 
     const validSignalMs = coveredDurationMs(coverageSamples, first, last, 'valid');
@@ -187,19 +236,26 @@ export class Calibrator {
     const values = <K extends keyof (typeof valid)[number]>(key: K): number[] => valid.map((item) => item[key] as number);
     const worldShoulderWidth = median(values('worldShoulderWidth'));
 
-    let readyWristLocal: Record<Hand, Point3> | undefined;
-    const wristCoverageMs = observedDurationMs(coverageSamples, collectionStart, last, 'wristsValid');
-    if (wristCoverageMs >= collectionSpanMs * COVERAGE_RATIO) {
-      const readyWrist = (hand: Hand): Point3 => ({
-        x: median(wrists.map((sample) => sample[hand].x)) / worldShoulderWidth,
-        y: median(wrists.map((sample) => sample[hand].y)) / worldShoulderWidth,
-        z: median(wrists.map((sample) => sample[hand].z)) / worldShoulderWidth,
-      });
-      readyWristLocal = { left: readyWrist('left'), right: readyWrist('right') };
+    const wristReferences: Partial<Record<Hand, Point3>> = {};
+    for (const hand of ['left', 'right'] as const) {
+      const field: CoverageField = hand === 'left' ? 'leftWristValid' : 'rightWristValid';
+      const wristStart = Math.max(collectionStart, this.wristEpochs[hand]);
+      const wristSpanMs = last - wristStart;
+      if (wristSpanMs <= 0) continue;
+      const wristCoverageMs = observedDurationMs(coverageSamples, wristStart, last, field);
+      if (wristCoverageMs < MIN_WRIST_SIGNAL_MS || wristCoverageMs < wristSpanMs * COVERAGE_RATIO) continue;
+      const samples = wrists[hand].filter((sample) => sample.timestampMs >= this.wristEpochs[hand]);
+      if (samples.length < 8) continue;
+      wristReferences[hand] = {
+        x: median(samples.map((sample) => sample.point.x)) / worldShoulderWidth,
+        y: median(samples.map((sample) => sample.point.y)) / worldShoulderWidth,
+        z: median(samples.map((sample) => sample.point.z)) / worldShoulderWidth,
+      };
     }
+    const readyWristLocal = Object.keys(wristReferences).length > 0 ? wristReferences : undefined;
 
     return {
-      version: 2,
+      version: 3,
       completedAtMs: last,
       world: { shoulderWidth: worldShoulderWidth, leanUp0, torsoLeanRad0, readyWristLocal },
       quality: { validFrameRatio: valid.length / this.samples.length, medianConfidence: median(values('confidence')) },
@@ -210,5 +266,6 @@ export class Calibrator {
     this.startedAt = undefined;
     this.collectionAt = undefined;
     this.samples = [];
+    this.wristEpochs = { left: Number.NEGATIVE_INFINITY, right: Number.NEGATIVE_INFINITY };
   }
 }

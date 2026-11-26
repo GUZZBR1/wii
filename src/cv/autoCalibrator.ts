@@ -1,5 +1,5 @@
-import type { CalibrationProfile, Point3, PoseSnapshot } from './protocol';
-import { Calibrator } from './calibrator';
+import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from './protocol';
+import { Calibrator, type CalibrationStability } from './calibrator';
 import { distance2, distance3, isFinitePoint, landmarkConfidence } from '../kinematics/math';
 
 const SETTLE_MS = 1000;
@@ -9,63 +9,110 @@ const STILL_TOLERANCE = 0.04;
 /** Movimento 3D máximo relativo à largura do ombro; piso para não amplificar escalas degeneradas. */
 const WORLD_STILL_FRACTION = 0.2;
 const MIN_WORLD_STILL_METERS = 0.08;
+/** Movimento sustentado muda de postura; movimento mais curto é excluído sem jogar fora o trecho estável. */
+const SUSTAINED_MOVEMENT_MS = 300;
 /** Ombros e quadris formam o núcleo necessário para todos os esportes. */
 const REQUIRED_CORE = [11, 12, 23, 24] as const;
-/** Punhos entram no gate somente para o tênis, que precisa de referência para os swings. */
-const REQUIRED_WRISTS = [15, 16] as const;
-/** Pernas podem melhorar a vertical estimada, mas nunca vigiam movimento nem reiniciam a coleta. */
-const CALIBRATION_LANDMARKS = [...REQUIRED_CORE, ...REQUIRED_WRISTS] as const;
+const WRIST_INDEX: Record<Hand, 15 | 16> = { left: 15, right: 16 };
 
 export type CalibrationPhase = 'framing' | 'settling' | 'collecting' | 'done';
 export interface CalibrationStep { phase: CalibrationPhase; progress: number; profile?: CalibrationProfile }
 
-/** Calibra sozinho: espera o corpo enquadrado e parado, coleta e tenta de novo se falhar. */
+interface FeatureAnchor {
+  imageLandmarks: Map<number, Point3>;
+  worldLandmarks: Map<number, Point3>;
+}
+
+interface CoreAnchor extends FeatureAnchor {
+  worldMovementTolerance: number;
+  since: number;
+}
+
+/** Calibra sozinho: espera o torso enquadrado e parado, coleta evidência e invalida seletivamente o que se moveu. */
 export class AutoCalibrator {
   private readonly calibrator = new Calibrator();
-  private anchor?: {
-    imageLandmarks: Map<number, Point3>;
-    worldLandmarks: Map<number, Point3>;
-    worldMovementTolerance: number;
-    since: number;
-  };
+  private coreAnchor?: CoreAnchor;
+  private wristAnchors: Partial<Record<Hand, FeatureAnchor>> = {};
+  private coreUnstableSince?: number;
+  private wristUnstableSince: Partial<Record<Hand, number>> = {};
 
   update(snapshot: PoseSnapshot, options: { needsWrists?: boolean } = {}): CalibrationStep {
-    const required = options.needsWrists ? [...REQUIRED_CORE, ...REQUIRED_WRISTS] : [...REQUIRED_CORE];
-    const visible = required.every((index) => snapshot.landmarks[index]) && landmarkConfidence(...required.map((index) => snapshot.landmarks[index]!)) >= 0.55;
-    // Sem âncora não há investimento a proteger: quadro ruim é só enquadramento.
-    if (!this.anchor && (snapshot.trackingState !== 'tracked' || !visible)) {
-      return { phase: 'framing', progress: 0 };
-    }
-    // Ancorado, todo quadro ruim conta no denominador de cobertura e no prazo — inclusive no
-    // repouso, porque com a fusão o investimento começa na âncora, não na coleta. Mesmo quando
-    // um joint exigido some, os outros pontos ancorados ainda podem provar movimento; ignorar
-    // essa evidência deixaria o usuário mover o torso enquanto tornozelos ou punhos estão fora
-    // do quadro e voltar antes de contaminar as medianas. Pontos ausentes são ignorados por
-    // moved(); qualquer movimento observável invalida a tentativa.
-    if (snapshot.trackingState !== 'tracked' || !visible) {
-      if (this.moved(snapshot, options)) {
-        this.reset();
+    const coreVisible = REQUIRED_CORE.every((index) => snapshot.landmarks[index])
+      && landmarkConfidence(...REQUIRED_CORE.map((index) => snapshot.landmarks[index]!)) >= 0.55;
+    const wristVisible = (hand: Hand) => {
+      const point = snapshot.landmarks[WRIST_INDEX[hand]];
+      return point !== undefined && landmarkConfidence(point) >= 0.55;
+    };
+    const enoughWrists = !options.needsWrists || wristVisible('left') || wristVisible('right');
+
+    if (!this.coreAnchor) {
+      if (snapshot.trackingState !== 'tracked' || !coreVisible || !enoughWrists) {
         return { phase: 'framing', progress: 0 };
       }
-      this.calibrator.add(snapshot);
-      return this.advance(snapshot, options);
-    }
-
-    if (!this.anchor || this.moved(snapshot, options)) {
-      this.reset();
-      this.anchor = this.createAnchor(snapshot, options);
+      this.coreAnchor = this.createCoreAnchor(snapshot);
       // A coleta começa na âncora, não no fim do repouso: os frames do settling já são
-      // verificados como parados, então contam como sinal válido — a invariante de
-      // qualidade é tempo de sinal válido, e o repouso é o trecho mais estável da janela.
+      // verificados como parados, então contam como sinal válido.
       this.calibrator.start(snapshot.timestampMs, SETTLE_MS);
     }
-    this.calibrator.add(snapshot);
+
+    const stability = this.assessStability(snapshot, options, { coreVisible, wristVisible });
+    this.calibrator.add(snapshot, stability);
     return this.advance(snapshot, options);
+  }
+
+  /** Marca evidência ruim como instável; invalida retroativamente só quando o movimento é sustentado. */
+  private assessStability(
+    snapshot: PoseSnapshot,
+    options: { needsWrists?: boolean },
+    visibility: { coreVisible: boolean; wristVisible: (hand: Hand) => boolean },
+  ): CalibrationStability {
+    const stability: CalibrationStability = { core: true, wrists: {} };
+
+    if (visibility.coreVisible) {
+      const coreMoved = this.featureMoved(snapshot, this.coreAnchor!, REQUIRED_CORE, this.coreAnchor!.worldMovementTolerance);
+      if (coreMoved) {
+        stability.core = false;
+        this.coreUnstableSince ??= snapshot.timestampMs;
+        if (snapshot.timestampMs - this.coreUnstableSince >= SUSTAINED_MOVEMENT_MS) {
+          this.calibrator.invalidateCore(snapshot.timestampMs);
+          this.coreAnchor = this.createCoreAnchor(snapshot);
+          this.coreUnstableSince = undefined;
+        }
+      } else this.coreUnstableSince = undefined;
+    } else {
+      stability.core = false;
+    }
+
+    if (!options.needsWrists) return stability;
+
+    for (const hand of ['left', 'right'] as const) {
+      const index = WRIST_INDEX[hand];
+      if (!visibility.wristVisible(hand)) {
+        stability.wrists![hand] = false;
+        continue;
+      }
+      this.wristAnchors[hand] ??= this.createFeatureAnchor(snapshot, [index]);
+      const anchor = this.wristAnchors[hand]!;
+      const moved = this.featureMoved(snapshot, anchor, [index], this.coreAnchor!.worldMovementTolerance);
+      if (!moved) {
+        this.wristUnstableSince[hand] = undefined;
+        stability.wrists![hand] = true;
+        continue;
+      }
+      stability.wrists![hand] = false;
+      this.wristUnstableSince[hand] ??= snapshot.timestampMs;
+      if (snapshot.timestampMs - this.wristUnstableSince[hand]! >= SUSTAINED_MOVEMENT_MS) {
+        this.calibrator.invalidateWrist(hand, snapshot.timestampMs);
+        this.wristAnchors[hand] = this.createFeatureAnchor(snapshot, [index]);
+        this.wristUnstableSince[hand] = undefined;
+      }
+    }
+    return stability;
   }
 
   /** Sonda a convergência em cada frame; cobertura boa encerra cedo e gaps estendem até o prazo. */
   private advance(snapshot: PoseSnapshot, options: { needsWrists?: boolean }): CalibrationStep {
-    const stillMs = snapshot.timestampMs - this.anchor!.since;
+    const stillMs = snapshot.timestampMs - this.coreAnchor!.since;
     if (stillMs < SETTLE_MS) return { phase: 'settling', progress: 0 };
     const probe = this.calibrator.finish();
     if (probe && (!options.needsWrists || probe.world.readyWristLocal)) return this.complete(probe, options);
@@ -74,42 +121,47 @@ export class AutoCalibrator {
     return this.conclude(options);
   }
 
-  /** Alguma articulação usada no perfil mudou em imagem ou em espaço mundial. */
-  private moved(snapshot: PoseSnapshot, options: { needsWrists?: boolean }): boolean {
-    const landmarks = options.needsWrists ? CALIBRATION_LANDMARKS : REQUIRED_CORE;
-    for (const index of landmarks) {
+  /** Alguma articulação da característica mudou em imagem ou em espaço mundial. */
+  private featureMoved(
+    snapshot: PoseSnapshot,
+    anchor: FeatureAnchor,
+    indices: readonly number[],
+    worldMovementTolerance: number,
+  ): boolean {
+    for (const index of indices) {
       const imagePoint = this.confidentPoint(snapshot.landmarks, index);
-      const anchoredImagePoint = this.anchor!.imageLandmarks.get(index);
-      if (!anchoredImagePoint && imagePoint) return true;
+      const anchoredImagePoint = anchor.imageLandmarks.get(index);
       if (anchoredImagePoint && imagePoint && distance2(imagePoint, anchoredImagePoint) > STILL_TOLERANCE) return true;
 
       const worldPoint = this.confidentPoint(snapshot.worldLandmarks, index);
-      const anchoredWorldPoint = this.anchor!.worldLandmarks.get(index);
-      if (!anchoredWorldPoint && worldPoint) return true;
-      if (anchoredWorldPoint && worldPoint && distance3(worldPoint, anchoredWorldPoint) > this.anchor!.worldMovementTolerance) return true;
+      const anchoredWorldPoint = anchor.worldLandmarks.get(index);
+      if (anchoredWorldPoint && worldPoint && distance3(worldPoint, anchoredWorldPoint) > worldMovementTolerance) return true;
     }
     return false;
   }
 
-  private createAnchor(snapshot: PoseSnapshot, options: { needsWrists?: boolean }) {
+  private createCoreAnchor(snapshot: PoseSnapshot): CoreAnchor {
+    const feature = this.createFeatureAnchor(snapshot, REQUIRED_CORE);
+    const leftShoulder = feature.worldLandmarks.get(11);
+    const rightShoulder = feature.worldLandmarks.get(12);
+    const shoulderWidth = leftShoulder && rightShoulder ? distance3(leftShoulder, rightShoulder) : 0;
+    return {
+      ...feature,
+      worldMovementTolerance: Math.max(MIN_WORLD_STILL_METERS, shoulderWidth * WORLD_STILL_FRACTION),
+      since: snapshot.timestampMs,
+    };
+  }
+
+  private createFeatureAnchor(snapshot: PoseSnapshot, indices: readonly number[]): FeatureAnchor {
     const imageLandmarks = new Map<number, Point3>();
     const worldLandmarks = new Map<number, Point3>();
-    const landmarks = options.needsWrists ? CALIBRATION_LANDMARKS : REQUIRED_CORE;
-    for (const index of landmarks) {
+    for (const index of indices) {
       const imagePoint = this.confidentPoint(snapshot.landmarks, index);
       if (imagePoint) imageLandmarks.set(index, imagePoint);
       const worldPoint = this.confidentPoint(snapshot.worldLandmarks, index);
       if (worldPoint) worldLandmarks.set(index, worldPoint);
     }
-    const leftShoulder = worldLandmarks.get(11);
-    const rightShoulder = worldLandmarks.get(12);
-    const shoulderWidth = leftShoulder && rightShoulder ? distance3(leftShoulder, rightShoulder) : 0;
-    return {
-      imageLandmarks,
-      worldLandmarks,
-      worldMovementTolerance: Math.max(MIN_WORLD_STILL_METERS, shoulderWidth * WORLD_STILL_FRACTION),
-      since: snapshot.timestampMs,
-    };
+    return { imageLandmarks, worldLandmarks };
   }
 
   private confidentPoint(points: readonly (Point3 | undefined)[], index: number): Point3 | undefined {
@@ -119,8 +171,7 @@ export class AutoCalibrator {
 
   private conclude(options: { needsWrists?: boolean }): CalibrationStep {
     const profile = this.calibrator.finish();
-    // Sem referência dos punhos o tênis não consegue registrar swing; corrida, salto e raia
-    // usam apenas o perfil do torso e continuam sem exigir pernas ou pés no quadro.
+    // Para tênis basta uma referência de punho convergida; a outra mão pode ser refinada depois.
     if (profile && (!options.needsWrists || profile.world.readyWristLocal)) return this.complete(profile, options);
     this.reset();
     return { phase: 'framing', progress: 0 };
@@ -136,5 +187,11 @@ export class AutoCalibrator {
     return { phase: 'done', progress: 1, profile: completed };
   }
 
-  reset(): void { this.calibrator.reset(); this.anchor = undefined; }
+  reset(): void {
+    this.calibrator.reset();
+    this.coreAnchor = undefined;
+    this.wristAnchors = {};
+    this.coreUnstableSince = undefined;
+    this.wristUnstableSince = {};
+  }
 }

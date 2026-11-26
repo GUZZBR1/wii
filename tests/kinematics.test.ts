@@ -176,6 +176,32 @@ describe('swing detector', () => {
     expect(detector.update(pose(270, { wristLateral: -0.2 }), profile)).toMatchObject({ kind: 'onset' });
     expect(detector.update(pose(310, { wristLateral: 0.2 }), profile)).toMatchObject({ side: 'forehand' });
   });
+
+  it('re-arms without a wrist reference after low speed is sustained', () => {
+    const detector = new SwingDetector('right');
+    const base = calibration();
+    const profile = { ...base, world: { ...base.world, readyWristLocal: undefined } };
+    detector.update(pose(0), profile);
+    detector.update(pose(100, { wristLateral: -0.3 }), profile);
+    expect(detector.update(pose(150, { wristLateral: 0.2 }), profile)).toMatchObject({ kind: 'confirmed' });
+    for (let time = 200; time <= 700; time += 50) detector.update(pose(time), profile);
+
+    expect(detector.update(pose(750, { wristLateral: -0.3 }), profile)).toMatchObject({ kind: 'onset' });
+    expect(detector.update(pose(800, { wristLateral: 0.2 }), profile)).toMatchObject({ kind: 'confirmed' });
+  });
+
+  it('does not count a tracking gap as velocity-only re-arm dwell', () => {
+    const detector = new SwingDetector('right');
+    const base = calibration();
+    const profile = { ...base, world: { ...base.world, readyWristLocal: undefined } };
+    detector.update(pose(0), profile);
+    detector.update(pose(100, { wristLateral: -0.3 }), profile);
+    detector.update(pose(150, { wristLateral: 0.2 }), profile);
+    for (let time = 200; time <= 600; time += 50) detector.update(pose(time), profile);
+    detector.update(pose(900), profile); // resumes after a 300 ms hole: not observed rest
+
+    expect(detector.update(pose(950, { wristLateral: -0.3 }), profile)).toBeUndefined();
+  });
 });
 
 describe('world-space posture calibration', () => {
@@ -268,8 +294,21 @@ describe('world-space posture calibration', () => {
 
     const profile = calibrator.finish();
     expect(profile).not.toBeNull();
-    expect(profile?.world.readyWristLocal).toBeUndefined();
+    expect(profile?.world.readyWristLocal?.left).toBeUndefined();
+    expect(profile?.world.readyWristLocal?.right).toBeDefined();
     expect(Number.isFinite(profile?.world.shoulderWidth)).toBe(true);
+  });
+
+  it.each(['left', 'right'] as const)('calibrates the %s wrist reference independently', (hand) => {
+    const missing = hand === 'left' ? 16 : 15;
+    const calibrator = new Calibrator();
+    calibrator.start(0);
+    for (let time = 0; time <= 3000; time += 100) calibrator.add(withWorldConfidence(pose(time), missing, 0, 0));
+
+    const profile = calibrator.finish();
+    expect(profile).not.toBeNull();
+    expect(profile?.world.readyWristLocal?.[hand]).toBeDefined();
+    expect(profile?.world.readyWristLocal?.[hand === 'left' ? 'right' : 'left']).toBeUndefined();
   });
 
   it('keeps readyWristLocal when wrist coverage suffices even if the legs are never verified', () => {
@@ -329,7 +368,7 @@ describe('world-space posture calibration', () => {
     calibrator.start(0);
     for (let time = 0; time <= 3000; time += 100) calibrator.add(pose(time));
     const profile = calibrator.finish()!;
-    expect(profile.version).toBe(2);
+    expect(profile.version).toBe(3);
     expect('image' in profile).toBe(false);
   });
 
@@ -795,7 +834,7 @@ describe('action pipeline (upper-body only)', () => {
     expect(events.filter((event) => event.type === 'jump' && event.timestampMs < 3000)).toHaveLength(0);
   });
 
-  it('emits no swings without readyWristLocal, but lanes, cadence and jump still work', () => {
+  it('keeps swings available without readyWristLocal; lanes, cadence and jump still work', () => {
     const pipeline = new ActionPipeline();
     const noWristProfile = {
       ...calibration(),
@@ -805,7 +844,8 @@ describe('action pipeline (upper-body only)', () => {
     const hz = 150 / 60;
     for (let time = 0; time <= 2500; time += 33) {
       const units = time >= 200 && time <= 1500 ? 0.04 * Math.sin((2 * Math.PI * hz * (time - 200)) / 1000) : 0;
-      // Big wrist arcs on top — none of them may produce a swing without the reference.
+      // Big wrist arcs on top — swings remain available because their references are only
+      // a re-arm fast path, not an onset prerequisite.
       const snapshot = torsoOnly(time, units * 0.4);
       const withWrist = {
         ...snapshot,
@@ -813,7 +853,7 @@ describe('action pipeline (upper-body only)', () => {
       };
       events.push(...pipeline.update(withWrist, noWristProfile).events);
     }
-    expect(events.filter((event) => event.type === 'swing')).toHaveLength(0);
+    expect(events.filter((event) => event.type === 'swing').length).toBeGreaterThan(0);
     expect(events.filter((event) => event.type === 'step').length).toBeGreaterThan(2);
   });
 });
@@ -1029,7 +1069,7 @@ it('ignora a estabilidade dos punhos ao calibrar corrida e deixa a referência a
   expect(steps.find((step) => step.profile)?.profile?.world.readyWristLocal).toBeUndefined();
 });
 
-it('reinicia o assentamento do tênis quando os punhos se movem sem mover o torso', () => {
+it('movimento sustentado do punho invalida só aquela mão, sem reancorar o torso', () => {
   const auto = new AutoCalibrator();
   const snapshots = Array.from({ length: 42 }, (_, index) => {
     const snapshot = pose(index * 100);
@@ -1042,20 +1082,15 @@ it('reinicia o assentamento do tênis quando os punhos se movem sem mover o tors
   });
   const steps = snapshots.map((snapshot) => auto.update(snapshot, { needsWrists: true }));
 
-  expect(steps[11]?.phase).toBe('settling');
-  expect(steps[20]?.phase).toBe('settling');
+  // O torso continua coletando; apenas a evidência anterior do punho esquerdo é descartada.
+  expect(steps[11]?.phase).toBe('collecting');
   const completed = steps.find((step) => step.phase === 'done');
-  expect(completed?.profile?.world.readyWristLocal?.left).toBeDefined();
-
-  const expected = new Calibrator();
-  expected.start(1100, 1000);
-  for (const snapshot of snapshots.slice(11, 32)) expected.add(snapshot);
-  expect(completed?.profile?.world.readyWristLocal?.left.x).toBeCloseTo(
-    expected.finish()!.world.readyWristLocal!.left.x,
-  );
+  expect(completed).toBeDefined();
+  expect(completed?.profile?.world.readyWristLocal?.left).toBeUndefined();
+  expect(completed?.profile?.world.readyWristLocal?.right).toBeDefined();
 });
 
-it('reinicia o assentamento quando a abertura dos ombros muda sem mover o centro', () => {
+it('movimento sustentado do core invalida o torso, mas um deslocamento curto não reinicia a tentativa', () => {
   const auto = new AutoCalibrator();
   const steps = Array.from({ length: 42 }, (_, index) => {
     const snapshot = pose(index * 100);
@@ -1069,12 +1104,12 @@ it('reinicia o assentamento quando a abertura dos ombros muda sem mover o centro
     return auto.update({ ...snapshot, landmarks, worldLandmarks });
   });
 
-  expect(steps[11]?.phase).toBe('settling');
+  expect(steps[11]?.phase).toBe('collecting');
   expect(steps[20]?.phase).toBe('settling');
   expect(steps.find((step) => step.phase === 'done')?.profile).toBeDefined();
 });
 
-it('reinicia o assentamento do tênis quando a profundidade do punho muda sem mudar sua projeção', () => {
+it('profundidade sustentada do punho invalida só aquela mão sem depender da projeção 2D', () => {
   const auto = new AutoCalibrator();
   const snapshots = Array.from({ length: 42 }, (_, index) => {
     const snapshot = pose(index * 100);
@@ -1085,41 +1120,9 @@ it('reinicia o assentamento do tênis quando a profundidade do punho muda sem mu
   });
   const steps = snapshots.map((snapshot) => auto.update(snapshot, { needsWrists: true }));
 
-  expect(steps[11]?.phase).toBe('settling');
-  expect(steps[20]?.phase).toBe('settling');
+  expect(steps[11]?.phase).toBe('collecting');
   const completed = steps.find((step) => step.phase === 'done');
-  expect(completed?.profile?.world.readyWristLocal?.right).toBeDefined();
-
-  const expected = new Calibrator();
-  expected.start(1100, 1000);
-  for (const snapshot of snapshots.slice(11, 32)) expected.add(snapshot);
-  expect(completed?.profile?.world.readyWristLocal?.right.z).toBeCloseTo(
-    expected.finish()!.world.readyWristLocal!.right.z,
-  );
-});
-
-it('não reancora quando os tornozelos aparecem no meio da coleta', () => {
-  const auto = new AutoCalibrator();
-  const steps = Array.from({ length: 61 }, (_, index) => {
-    const snapshot = pose(index * 100, { leanRad: 0.2 });
-    const withoutAnkles = withWorldConfidence(withWorldConfidence(snapshot, 27, 0, 0), 28, 0, 0);
-    return auto.update(index < 15 ? withoutAnkles : snapshot);
-  });
-
-  expect(steps[20]?.phase).toBe('done');
-  const profile = steps.find((step) => step.phase === 'done')?.profile;
-  expect(profile).toBeDefined();
-  // The late legs do not reach the coverage required to replace the trunk-derived vertical.
-  expect(Math.abs(profile!.world.leanUp0.x)).toBeGreaterThan(0.05);
-});
-
-it('movimento de perna não reancora a calibração de corrida', () => {
-  const auto = new AutoCalibrator();
-  const steps = Array.from({ length: 61 }, (_, index) => auto.update(pose(index * 100, {
-    kneeLeft: index % 2 === 0 ? 0 : 0.25,
-    kneeRight: index % 2 === 0 ? 0.25 : 0,
-  })));
-
-  expect(steps[20]?.phase).toBe('done');
-  expect(steps.find((step) => step.phase === 'done')?.profile).toBeDefined();
+  expect(completed).toBeDefined();
+  expect(completed?.profile?.world.readyWristLocal?.right).toBeUndefined();
+  expect(completed?.profile?.world.readyWristLocal?.left).toBeDefined();
 });
