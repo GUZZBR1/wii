@@ -1,0 +1,28 @@
+import { describe, expect, it } from 'vitest';
+import { ActionPipeline } from '../src/kinematics/actionPipeline';
+import { calibration, pose, poseWithHipBounce } from './fixtures/syntheticPose';
+
+const maxSpeed = (frame: (time: number) => ReturnType<typeof pose>) => {
+  const pipeline = new ActionPipeline();
+  let max = 0;
+  for (let time = 0; time <= 8000; time += 33) max = Math.max(max, pipeline.update(frame(time), calibration()).controls.sprintSpeed01);
+  return max;
+};
+
+describe('running is judged by the size of the shoulder bounce', () => {
+  it('ignores alternating arms with the knees out of the picture', () => {
+    expect(maxSpeed((time) => {
+      const wave = 0.05 * Math.sin((2 * Math.PI * 1.5 * time) / 1000);
+      const base = pose(time);
+      return { ...base, landmarks: base.landmarks.map((point, index) => {
+        if (index >= 25) return { ...point, visibility: 0.1 };
+        if (index === 13 || index === 15) return { ...point, y: point.y + wave };
+        return index === 14 || index === 16 ? { ...point, y: point.y - wave } : point;
+      }) };
+    })).toBe(0);
+  });
+
+  it('does not read one big jump as running', () => {
+    expect(maxSpeed((time) => poseWithHipBounce(time, time > 3000 && time < 3600 ? -0.1 * Math.sin((Math.PI * (time - 3000)) / 600) : 0))).toBe(0);
+  });
+});

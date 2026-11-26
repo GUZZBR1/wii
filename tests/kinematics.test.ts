@@ -251,7 +251,9 @@ describe('action pipeline tracking gate', () => {
     const before = pipeline.update(bounceAt(1533), profile);
     expect(before.controls.trackingState).toBe('tracked');
     const degraded = pipeline.update(pose(1566, { confidence: 0.1 }), profile);
-    expect(degraded.controls).toMatchObject({ sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'degraded' });
+    // The run was under way, so one bad frame coasts it instead of stopping it.
+    expect(degraded.controls.trackingState).toBe('degraded');
+    expect(degraded.controls.sprintSpeed01).toBeGreaterThan(0.4);
     expect(degraded.events.filter((event) => event.type === 'step')).toHaveLength(0);
     // The gate needs three consecutive good frames to leave 'degraded' — and no spurious
     // step fires out of the dip itself.

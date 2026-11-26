@@ -2,7 +2,7 @@ import { parsePoseRecording } from '@wii/spatial-core';
 import { describe, expect, it } from 'vitest';
 import { segmentAt, TRACK_RECORDING_SCRIPT } from '../src/cv/recordingScript';
 import { PoseRecorder } from '../src/cv/poseRecorder';
-import { replayTrack } from './fixtures/replayTrack';
+import { replayTrack, summarize } from './fixtures/replayTrack';
 import { pose } from './fixtures/syntheticPose';
 
 const SCRIPT_MS = TRACK_RECORDING_SCRIPT.reduce((total, segment) => total + segment.seconds * 1000, 0);
@@ -33,6 +33,7 @@ describe.skipIf(Object.keys(recordings).length === 0)('scoreboard for real recor
     const seconds = (recording.lastTimestampMs - recording.firstTimestampMs) / 1000;
     console.log(`${name} · ${recording.source.delegate} · ${(frames.length / seconds).toFixed(1)} fps`);
     console.table(replayTrack(frames));
+    console.log('SUMMARY', JSON.stringify(summarize(frames)));
     expect(frames.length).toBeGreaterThan(0);
   });
 });

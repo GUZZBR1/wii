@@ -20,6 +20,33 @@ export interface SegmentScore {
 const LANE: Partial<Record<SegmentKind, -1 | 0 | 1>> = { left: -1, center: 0, right: 1 };
 
 /** Replays frames in the same order as App.onPose and scores each scripted segment. */
+/** The comparison table: share of frames (%) with the runner moving where it should and should not. */
+export function summarize(frames: readonly PoseSnapshot[]) {
+  const pipeline = new ActionPipeline();
+  const calibrator = new AdaptiveCalibrator();
+  let profile: CalibrationProfile | undefined;
+  const first = frames[0]?.timestampMs ?? 0;
+  const rows = frames.flatMap((snapshot) => {
+    profile = calibrator.update(snapshot, pipeline.laneZone) ?? profile;
+    const { controls } = pipeline.update(snapshot, profile);
+    const current = segmentAt(snapshot.timestampMs - first);
+    return current ? [{ kind: current.segment.kind, intoS: current.segment.seconds - current.remainingMs / 1000, moving: controls.sprintSpeed01 > 0 }] : [];
+  });
+  const share = (kinds: SegmentKind[], fromS = 0) => {
+    const chosen = rows.filter((row) => kinds.includes(row.kind) && row.intoS >= fromS);
+    return chosen.length ? Math.round((100 * chosen.filter((row) => row.moving).length) / chosen.length) : -1;
+  };
+  return {
+    still: share(['still']),
+    arms: share(['arms']),
+    // After 6 s the player is surely running; 1.5 s after "stop" they are surely meant to be stopped.
+    run: share(['run'], 6),
+    stop: share(['stop'], 1.5),
+    jumps: share(['jump']),
+    side: Math.max(share(['left']), share(['right']), share(['center'])),
+  };
+}
+
 export function replayTrack(frames: readonly PoseSnapshot[]): SegmentScore[] {
   const pipeline = new ActionPipeline();
   const calibrator = new AdaptiveCalibrator();

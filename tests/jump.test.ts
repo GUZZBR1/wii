@@ -48,7 +48,7 @@ function feed(detector: JumpDetector, trajectory: (timeMs: number) => number, fp
     const velocityUp = (rise - previous) / (dt / 1000);
     previous = rise;
     const sample: TorsoVerticalSample = {
-      timestampMs: time, rise, velocityUp, oscillationAmplitude: amplitude, sustainedOscillationAmplitude: amplitude,
+      timestampMs: time, rise, velocityUp, oscillationAmplitude: amplitude, shoulders: { left: 0, right: 0, width: 1 }, sustainedOscillationAmplitude: amplitude,
     };
     if (detector.update(sample)) events.push(time);
   }
@@ -58,7 +58,7 @@ function feed(detector: JumpDetector, trajectory: (timeMs: number) => number, fp
 /** Quiet standing long enough to arm the detector (|rise| in band for 160 ms+). */
 function arm(detector: JumpDetector, untilMs = 0) {
   for (let t = -600; t < untilMs; t += 33) {
-    detector.update({ timestampMs: t, rise: 0, velocityUp: 0, oscillationAmplitude: 0, sustainedOscillationAmplitude: 0 });
+    detector.update({ timestampMs: t, rise: 0, velocityUp: 0, oscillationAmplitude: 0, shoulders: { left: 0, right: 0, width: 1 }, sustainedOscillationAmplitude: 0 });
   }
 }
 
@@ -166,7 +166,7 @@ describe('JumpDetector (adaptive baseline)', () => {
     const detector = new JumpDetector();
     arm(detector);
     const update = (timestampMs: number, rise: number, velocityUp: number) => detector.update({
-      timestampMs, rise, velocityUp, oscillationAmplitude: 0, sustainedOscillationAmplitude: 0,
+      timestampMs, rise, velocityUp, oscillationAmplitude: 0, shoulders: { left: 0, right: 0, width: 1 }, sustainedOscillationAmplitude: 0,
     });
 
     expect(update(2000, 0.12, 2)).toBe(false);

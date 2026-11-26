@@ -126,24 +126,6 @@ describe('torso action pipeline integration', () => {
     expect(Math.max(...speeds)).toBe(0);
   });
 
-  it('detects fast gliding running from alternating knee/arm drive even with minimal torso bounce', () => {
-    const pipeline = new ActionPipeline();
-    const profile = calibration();
-    const results = [];
-    for (let timeMs = 0; timeMs <= 3500; timeMs += 33) {
-      // Very small vertical torso bounce (0.005 torso — below MIN_OSCILLATION_TORSO),
-      // but clear alternating knee drive at 165 spm (2.75 Hz).
-      const phase = (2 * Math.PI * (165 / 60) * timeMs) / 1000;
-      const snap = pose(timeMs, {
-        kneeLeft: Math.max(0, Math.sin(phase)) * 0.22,
-        kneeRight: Math.max(0, -Math.sin(phase)) * 0.22,
-      });
-      results.push(pipeline.update(snap, profile));
-    }
-    const tail = results.slice(-15);
-    expect(tail.every((r) => r.controls.sprintSpeed01 > 0.55)).toBe(true);
-  });
-
   it('recovers full running speed on the very first step after a 700 ms tracking blackout', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();

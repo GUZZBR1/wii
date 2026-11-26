@@ -12,16 +12,10 @@ export interface TorsoVerticalSample {
   oscillationAmplitude: number;
   /** Slower semi-amplitude estimate used to distinguish takeoff from sustained bounce. */
   sustainedOscillationAmplitude: number;
-  /** Asymmetry between left and right shoulder vertical motion (0 = symmetric bounce, 1 = pure shrug/tilt). */
-  shoulderAsymmetry01?: number;
-  /** Alternating vertical limb differential (elbows/wrists or knees, in torsoHeights) for low-bounce running. */
-  limbDrive?: number;
-  /**
-   * Which landmarks produced `rise`. Hips track the centre of mass; shoulders also move with
-   * head, arms and torso lean, so shoulder-only samples are good enough for a periodic step
-   * rhythm but must never be read as a jump.
-   */
+  /** Which landmarks produced `rise`; shoulder-only samples are never read as a jump. */
   source?: 'hips' | 'shoulders';
+  /** Shoulder heights and the (slowly measured) shoulder width, in the same units, for the bounce detector. */
+  shoulders: { left: number; right: number; width: number };
 }
 
 const MIN_TORSO_HEIGHT = 0.03;
@@ -58,7 +52,7 @@ export class TorsoVerticalChannel {
   private sustainedAmplitudeMeanAbs?: number;
   private previousEnvTimeMs?: number;
   private previous?: { position: number; timeMs: number };
-  private previousShoulders?: { leftY: number; rightY: number };
+  private widthScale?: number;
   private adaptiveFreezeStartedAt?: number;
 
   constructor(options: { baselineTauMs?: number } = {}) {
@@ -108,31 +102,11 @@ export class TorsoVerticalChannel {
     // running arms or high knees, fall back seamlessly to shoulders.y + torsoHeight so the
     // normalized value stays in the exact same domain without dropping the frame.
     const raw = (hips ? hips.y : shoulders.y + torsoHeight) / torsoHeight;
-    let shoulderAsymmetry01 = 0;
-    if (this.previousShoulders) {
-      const dL = (this.previousShoulders.leftY - leftShoulder.y) / torsoHeight;
-      const dR = (this.previousShoulders.rightY - rightShoulder.y) / torsoHeight;
-      const sumAbs = Math.abs(dL) + Math.abs(dR);
-      if (sumAbs > 0.004) {
-        // Real vertical torso bounce moves both shoulders in the same vertical direction (dL * dR > 0);
-        // shrugging one shoulder, waving one arm or tilting the upper body produces high |dL - dR| / (|dL| + |dR|).
-        shoulderAsymmetry01 = Math.min(1, Math.abs(dL - dR) / sumAbs);
-      }
+    if (Number.isFinite(shoulderWidth) && shoulderWidth >= MIN_SHOULDER_WIDTH) {
+      this.widthScale = this.widthScale === undefined ? shoulderWidth : this.widthScale + (shoulderWidth - this.widthScale) * 0.03;
     }
-    this.previousShoulders = { leftY: leftShoulder.y, rightY: rightShoulder.y };
-
-    // Complementary alternating limb drive (knees 25/26 or elbows 13/14) normalized by torsoHeight:
-    // supports high-cadence running where the runner glides with minimal vertical torso bounce.
-    let limbDrive: number | undefined;
-    const leftKnee = l[25];
-    const rightKnee = l[26];
-    const leftElbow = l[13];
-    const rightElbow = l[14];
-    if (leftKnee && rightKnee && landmarkConfidence(leftKnee, rightKnee) >= CORE_MIN_CONFIDENCE) {
-      limbDrive = (rightKnee.y - leftKnee.y) / torsoHeight;
-    } else if (leftElbow && rightElbow && landmarkConfidence(leftElbow, rightElbow) >= CORE_MIN_CONFIDENCE) {
-      limbDrive = (rightElbow.y - leftElbow.y) / torsoHeight;
-    }
+    if (this.widthScale === undefined) return undefined;
+    const shoulderHeights = { left: leftShoulder.y * aspect, right: rightShoulder.y * aspect, width: this.widthScale };
     const position = this.positionFilter.filter(raw, snapshot.timestampMs);
     if (this.baseline === undefined) {
       this.baseline = position;
@@ -182,8 +156,7 @@ export class TorsoVerticalChannel {
       // semi-amplitude units, the same units as the fixtures and detector thresholds.
       oscillationAmplitude: (this.amplitudeMeanAbs ?? 0) / 0.64,
       sustainedOscillationAmplitude: (this.sustainedAmplitudeMeanAbs ?? 0) / 0.64,
-      shoulderAsymmetry01,
-      limbDrive,
+      shoulders: shoulderHeights,
       source: hips ? 'hips' : 'shoulders',
     };
   }
@@ -197,7 +170,7 @@ export class TorsoVerticalChannel {
     this.sustainedAmplitudeMeanAbs = undefined;
     this.previousEnvTimeMs = undefined;
     this.previous = undefined;
-    this.previousShoulders = undefined;
+    this.widthScale = undefined;
     this.adaptiveFreezeStartedAt = undefined;
   }
 }
