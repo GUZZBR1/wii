@@ -523,7 +523,6 @@ describe('action pipeline tracking gate', () => {
 
   it.each([
     ['hidden hips', 'degraded'],
-    ['removed calibration', 'lost'],
     ['reset', 'lost'],
   ] as const)('stops the sprint exactly once on %s', (cause, state) => {
     const pipeline = new ActionPipeline();
@@ -532,10 +531,22 @@ describe('action pipeline tracking gate', () => {
     pipeline.update(poseWithHipBounce(1079, 0), profile);
     const after = [1112, 1145].flatMap((time) => {
       if (cause === 'reset') return pipeline.reset();
-      if (cause === 'removed calibration') return pipeline.update(pose(time)).events;
       return pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile).events;
     });
     expect(after.filter((event) => event.type === 'sprint')).toMatchObject([{ speed01: 0, cadenceSpm: 0, trackingState: state }]);
+  });
+
+  it('keeps cadence running when calibration is removed mid-stream', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const hz = 150 / 60;
+    const bounceAt = (time: number) => poseWithHipBounce(time, 0.04 * Math.sin((2 * Math.PI * hz * (time - 66)) / 1000) * 0.4);
+    for (let time = 0; time <= 1046; time += 33) pipeline.update(bounceAt(time), profile);
+
+    const frames = [1079, 1112, 1145].map((time) => pipeline.update(bounceAt(time)));
+    expect(frames.every((frame) => frame.controls.trackingState === 'tracked')).toBe(true);
+    expect(frames.at(-1)!.controls.sprintSpeed01).toBeGreaterThan(0);
+    expect(frames.flatMap((frame) => frame.events).filter((event) => event.type === 'sprint' && event.speed01 === 0)).toHaveLength(0);
   });
 
   it('keeps the sprint going when the knees leave the camera frame', () => {

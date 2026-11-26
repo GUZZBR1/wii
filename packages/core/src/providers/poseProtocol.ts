@@ -96,8 +96,8 @@ interface ActionBase {
   confidence: number;
   /**
    * 'tracked' marks an action measured on a tracked pose; any other state marks a control event emitted because
-   * the action's landmarks could not be confirmed — the sprint stop is 'degraded'/'lost' when tracking decays,
-   * and 'lost' when calibration is absent (e.g. after a dominant-hand change) or capture stops.
+   * the action's landmarks could not be confirmed — the sprint stop is 'degraded'/'lost' when tracking decays
+   * or capture stops. Calibration absence gates calibration-dependent controls, never torso cadence itself.
    */
   trackingState: TrackingState;
   /** 'cv' events come from the pose pipeline; 'keyboard' events are injected controls, not pose measurements. */

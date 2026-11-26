@@ -23,6 +23,23 @@ function runningRise(timeMs: number): number {
 }
 
 describe('torso action pipeline integration', () => {
+  it('keeps cadence and jump active without a calibration profile', () => {
+    const pipeline = new ActionPipeline();
+    const frames = [];
+
+    for (let timeMs = 0; timeMs <= 7200; timeMs += 33) {
+      const rise = runningRise(timeMs) + jumpRise(timeMs);
+      const result = pipeline.update(poseWithHipBounce(timeMs, -rise * TORSO_HEIGHT));
+      frames.push({ timeMs, ...result });
+    }
+
+    const jumps = frames.flatMap((frame) => frame.events).filter((event) => event.type === 'jump');
+    expect(jumps).toHaveLength(1);
+    expect(frames.some((frame) => frame.controls.sprintSpeed01 > 0)).toBe(true);
+    expect(frames.at(-1)!.controls.trackingState).toBe('tracked');
+    expect(frames.flatMap((frame) => frame.events).filter((event) => event.type === 'lane' || event.type === 'swing' || event.type === 'swing-start')).toHaveLength(0);
+  });
+
   it('keeps cadence alive when a jump overlaps continuous running', () => {
     const pipeline = new ActionPipeline();
     const frames = [];
