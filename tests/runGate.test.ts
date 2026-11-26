@@ -39,6 +39,44 @@ describe('run gate', () => {
     expect(gate.phase).toBe('running');
   });
 
+  it('rides out a lost pose that recovers inside the grace window', () => {
+    const gate = new RunGate();
+    gate.setTracking('TRACKING');
+    run(gate, 3);
+    gate.setTracking('SEM POSE');
+    run(gate, 0.5);
+    expect(gate.phase).toBe('running');
+    gate.setTracking('TRACKING');
+    run(gate, 2);
+    expect(gate.phase).toBe('running');
+  });
+
+  it('pauses only after the loss persists past the grace window', () => {
+    const gate = new RunGate();
+    gate.setTracking('TRACKING');
+    run(gate, 3);
+    gate.setTracking('SEM POSE');
+    run(gate, 0.7);
+    expect(gate.phase).toBe('running');
+    run(gate, 0.3);
+    expect(gate.phase).toBe('paused');
+  });
+
+  it('restarts the grace window when a degraded frame interrupts the loss', () => {
+    const gate = new RunGate();
+    gate.setTracking('TRACKING');
+    run(gate, 3);
+    gate.setTracking('SEM POSE');
+    run(gate, 0.5);
+    gate.setTracking('PROCURANDO');
+    run(gate, 0.2);
+    gate.setTracking('SEM POSE');
+    run(gate, 0.5);
+    expect(gate.phase).toBe('running');
+    run(gate, 0.4);
+    expect(gate.phase).toBe('paused');
+  });
+
   it('pauses a countdown interrupted by tracking loss', () => {
     const gate = new RunGate();
     gate.setTracking('TRACKING');
@@ -53,6 +91,7 @@ describe('run gate', () => {
     gate.setTracking('TRACKING · CORRIDA');
     run(gate, 3);
     gate.setTracking('SEM POSE');
+    run(gate, 1);
     expect(gate.phase).toBe('paused');
 
     gate.setTracking('TRACKING · CORRIDA');
@@ -64,9 +103,14 @@ describe('run gate', () => {
     expect(gate.resumeByKey()).toBe(false);
     gate.setTracking('TRACKING');
     gate.setTracking('SEM POSE');
+    // A key during the grace window is just a normal press — the pause has not engaged yet.
+    run(gate, 0.5);
+    expect(gate.resumeByKey()).toBe(false);
+    run(gate, 0.5);
     expect(gate.resumeByKey()).toBe(true);
     run(gate, 3);
     gate.setTracking('SEM POSE');
+    run(gate, 5);
     expect(gate.phase).toBe('running');
   });
 });

@@ -2,8 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { OneEuroFilter } from '@wii/spatial-core';
 import { AutoCalibrator } from '../src/cv/autoCalibrator';
 import { Calibrator } from '../src/cv/calibrator';
+import type { ContinuousControls } from '../src/cv/protocol';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
 import { landmarkConfidence } from '../src/kinematics/math';
+import { TrackingGate } from '../src/kinematics/trackingGate';
 import { LaneLeanDetector, torsoLeanDeltaRad } from '../src/kinematics/postureSignals';
 import { hasMeaningfulLateralComponent, SwingDetector } from '../src/kinematics/swingDetector';
 import { calibration, pose, poseWithHipBounce, poseWithWorldShoulderWidth, poseWithWorldTorso, rollUpperBody, rotateWorldYaw } from './fixtures/syntheticPose';
@@ -517,13 +519,12 @@ describe('action pipeline tracking gate', () => {
     driveBounce(pipeline, profile, 66, 1046);
     const active = pipeline.update(poseWithHipBounce(1079, 0), profile);
     expect(active.controls.sprintSpeed01).toBeGreaterThan(0);
-    const lost = [1110, 1143, 1176, 1209].map((time) => pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile)).at(-1)!;
+    const lost = [1110, 1143, 1176, 1209, 1242, 1275, 1308, 1341].map((time) => pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile)).at(-1)!;
     expect(lost.controls).toMatchObject({ sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'lost' });
   });
 
   it.each([
     ['hidden hips', 'degraded'],
-    ['removed calibration', 'lost'],
     ['reset', 'lost'],
   ] as const)('stops the sprint exactly once on %s', (cause, state) => {
     const pipeline = new ActionPipeline();
@@ -532,7 +533,6 @@ describe('action pipeline tracking gate', () => {
     pipeline.update(poseWithHipBounce(1079, 0), profile);
     const after = [1112, 1145].flatMap((time) => {
       if (cause === 'reset') return pipeline.reset();
-      if (cause === 'removed calibration') return pipeline.update(pose(time)).events;
       return pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile).events;
     });
     expect(after.filter((event) => event.type === 'sprint')).toMatchObject([{ speed01: 0, cadenceSpm: 0, trackingState: state }]);
@@ -632,8 +632,11 @@ describe('action pipeline tracking gate', () => {
     };
     [0, 33, 66].forEach((time) => { pipeline.update(missingHips(time), profile); });
     pipeline.update(missingHips(99, -0.3), profile);
-    const recovery = pipeline.update(missingHips(132, 0.2), profile);
-    const swing = recovery.events.find((event) => event.type === 'swing');
+    // The world-space wrist gate stays tracked through the swing; the image-space body gate
+    // needs 8 bad frames to reach 'lost', so the confirmation lands before it.
+    const events = [132, 165, 198, 231].flatMap((time) => pipeline.update(missingHips(time, 0.2), profile).events);
+    const recovery = pipeline.update(missingHips(264, 0.2), profile);
+    const swing = events.find((event) => event.type === 'swing');
     expect(recovery.snapshot.trackingState).toBe('lost');
     expect(swing).toMatchObject({ type: 'swing', trackingState: 'tracked' });
   });
@@ -674,7 +677,7 @@ describe('mão da raquete', () => {
     const held = pipeline.update(pose(132, { wristLateral: 0.05, leftWristLateral: 0.35 }), profile);
     expect(held.events.filter((event) => event.type === 'swing')).toHaveLength(0);
     // Left wrist vanishes: once its gate is lost the pending arc dies and the held swing emits.
-    const swings = [165, 198, 231, 264]
+    const swings = [165, 198, 231, 264, 297, 330, 363, 396, 429]
       .flatMap((time) => pipeline.update(withWorldConfidence(pose(time, { wristLateral: 0.05 }), 15, 0, 0), profile).events)
       .filter((event) => event.type === 'swing');
     expect(swings).toHaveLength(1);
@@ -726,7 +729,7 @@ describe('mão da raquete', () => {
     expect(held.events.filter((event) => event.type === 'swing')).toHaveLength(0);
     // Both wrists vanish: the held swing's own basis is gone — it must be dropped, not released.
     const lost = (time: number) => withWorldConfidence(withWorldConfidence(pose(time, { wristLateral: 0.05 }), 15, 0, 0), 16, 0, 0);
-    const swings = [165, 198, 231, 264].flatMap((time) => pipeline.update(lost(time), profile).events).filter((event) => event.type === 'swing');
+    const swings = [165, 198, 231, 264, 297, 330, 363, 396].flatMap((time) => pipeline.update(lost(time), profile).events).filter((event) => event.type === 'swing');
     expect(swings).toHaveLength(0);
   });
 });
@@ -1087,16 +1090,137 @@ it('reinicia o assentamento do tênis quando a profundidade do punho muda sem mu
   );
 });
 
-it('reinicia o assentamento quando os tornozelos aparecem e passam a definir a vertical', () => {
+it('não reinicia o assentamento quando os tornozelos aparecem e passam a definir a vertical', () => {
   const auto = new AutoCalibrator();
   const steps = Array.from({ length: 61 }, (_, index) => {
     const snapshot = pose(index * 100, { leanRad: 0.2 });
     const withoutAnkles = withWorldConfidence(withWorldConfidence(snapshot, 27, 0, 0), 28, 0, 0);
-    return auto.update(index < 15 ? withoutAnkles : snapshot);
+    return auto.update(index < 6 ? withoutAnkles : snapshot);
   });
 
-  expect(steps[20]?.phase).toBe('settling');
+  // Legs are a bonus, not a requirement: ankles entering the frame edge do not restart the
+  // anchor, and once stably visible their verified stance still feeds the vertical reference.
+  expect(steps[20]?.phase).toBe('done');
   const profile = steps.find((step) => step.phase === 'done')?.profile;
   expect(profile).toBeDefined();
   expect(Math.abs(profile!.world.leanUp0.x)).toBeLessThan(0.02);
+});
+
+it('não zera a calibração de corrida quando os joelhos entram e se mexem na borda do quadro', () => {
+  const auto = new AutoCalibrator();
+  const steps = Array.from({ length: 61 }, (_, index) => {
+    const time = index * 100;
+    // Legs invisible for the first second, then knees and ankles appear swinging well past
+    // the stillness tolerances — edge-of-frame motion that is not torso stillness evidence.
+    const snapshot = pose(time, index < 10
+      ? { hiddenLandmarks: [25, 26, 27, 28] }
+      : { kneeLeft: 0.3 * Math.sin(index), kneeRight: -0.3 * Math.sin(index) });
+    const worldLandmarks = snapshot.worldLandmarks.map((point, pointIndex) => (
+      pointIndex >= 25
+        ? { ...point, visibility: index < 10 ? 0 : 0.9, presence: index < 10 ? 0 : 0.9, y: point.y + (index >= 10 ? 0.12 * Math.sin(index * 2) : 0) }
+        : point
+    ));
+    return auto.update({ ...snapshot, worldLandmarks });
+  });
+
+  // Under the old anchor every leg frame re-armed the settling and the attempt never closed;
+  // now only the required core governs stillness, so calibration still lands at ~2 s.
+  expect(steps[20]?.phase).toBe('done');
+  expect(steps.some((step) => step.profile)).toBe(true);
+});
+
+describe('action pipeline sem calibração', () => {
+  it('emite sprint, passo e salto sem nenhum perfil de calibração', () => {
+    const pipeline = new ActionPipeline();
+    const hz = 2.8;
+    const jumpAt = (timeMs: number) => {
+      const t = timeMs - 3000;
+      if (t < 0) return 0;
+      if (t < 250) return -0.1 * Math.sin((Math.PI * t) / 250) * 0.5 - (0.1 * t) / 500;
+      if (t < 430) { const u = (t - 250) / 180; return -0.1 + 0.35 * u * u; }
+      if (t < 700) return 0.25;
+      if (t < 1000) return 0.25 * (1 - (t - 700) / 300);
+      return 0;
+    };
+    const events = [];
+    let lastControls: ContinuousControls | undefined;
+    for (let time = 0; time <= 5000; time += 33) {
+      const bouncing = time >= 1000;
+      const units = (bouncing ? 0.05 * Math.sin((2 * Math.PI * hz * (time - 1000)) / 1000) : 0) + jumpAt(time);
+      const result = pipeline.update(poseWithHipBounce(time, -units * 0.4));
+      lastControls = result.controls;
+      events.push(...result.events);
+    }
+    expect(events.some((event) => event.type === 'sprint' && event.speed01 > 0)).toBe(true);
+    expect(events.filter((event) => event.type === 'step').length).toBeGreaterThan(3);
+    expect(events.filter((event) => event.type === 'jump')).toHaveLength(1);
+    // The real tracking state flows through controls — a missing profile is not a loss.
+    expect(lastControls?.trackingState).toBe('tracked');
+    expect(events.filter((event) => event.trackingState === 'lost')).toHaveLength(0);
+  });
+
+  it('não emite raia nem swing enquanto o perfil não existe', () => {
+    const pipeline = new ActionPipeline();
+    const events = [];
+    for (let time = 0; time <= 1500; time += 33) {
+      const snapshot = pose(time, {
+        leanRad: time >= 500 ? 0.3 : 0,
+        wristLateral: time >= 900 ? -0.4 : 0.3,
+      });
+      events.push(...pipeline.update(snapshot).events);
+    }
+    expect(events.filter((event) => event.type === 'lane' || event.type === 'swing' || event.type === 'swing-start')).toHaveLength(0);
+  });
+
+  it('mantém a corrida quando o perfil some no meio da sessão', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    driveBounce(pipeline, profile, 66, 1046);
+    pipeline.update(poseWithHipBounce(1079, 0), profile);
+    const uncalibrated = pipeline.update(poseWithHipBounce(1112, 0));
+    expect(uncalibrated.controls.trackingState).toBe('tracked');
+    expect(uncalibrated.events.filter((event) => event.trackingState === 'lost')).toHaveLength(0);
+    expect(uncalibrated.events.filter((event) => event.type === 'sprint').length).toBeGreaterThan(0);
+  });
+});
+
+describe('quedas breves de rastreamento', () => {
+  it('mantém o portão em degradado durante um blecaute curto e só declara perda quando ela persiste', () => {
+    const gate = new TrackingGate();
+    [0, 33, 66].forEach((time) => { gate.evaluate(pose(time)); });
+    expect(gate.evaluate(pose(99)).state).toBe('tracked');
+    for (let index = 1; index <= 7; index += 1) {
+      expect(gate.evaluate(pose(99 + index * 33, { confidence: 0.1 })).state).toBe('degraded');
+    }
+    expect(gate.evaluate(pose(99 + 8 * 33, { confidence: 0.1 })).state).toBe('lost');
+  });
+
+  it('preserva a cadência através de uma queda que não chega a perdida', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    driveBounce(pipeline, profile, 66, 1046);
+    pipeline.update(poseWithHipBounce(1079, 0), profile);
+    // Quatro quadros ruins — o antigo limite de perda: agora o canal inteiro fica em
+    // degradado, e cadência/salto/canal não são reiniciados.
+    const dip = [1112, 1145, 1178, 1211].map((time) => pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile));
+    expect(dip.every((frame) => frame.controls.trackingState === 'degraded')).toBe(true);
+    const hz = 150 / 60;
+    const bounceAt = (time: number) => poseWithHipBounce(time, 0.04 * Math.sin((2 * Math.PI * hz * time) / 1000) * 0.4);
+    const recovery = [1244, 1277, 1310].map((time) => pipeline.update(bounceAt(time), profile));
+    const last = recovery.at(-1)!;
+    expect(last.controls.trackingState).toBe('tracked');
+    expect(last.controls.sprintSpeed01).toBeGreaterThan(0);
+  });
+});
+
+it('absorve quedas curtas de FPS na cobertura da coleta de calibração', () => {
+  const calibrator = new Calibrator();
+  calibrator.start(0, 1000);
+  // Duas pausas de ~450-500 ms entre callbacks — rajadas de frames perdidos que uma webcam
+  // comum produz sob carga. Os intervalos contam como sinal contínuo em vez de furar a cobertura.
+  for (let time = 0; time <= 3000; time += 50) {
+    if ((time >= 1400 && time < 1850) || (time >= 2200 && time < 2650)) continue;
+    calibrator.add(pose(time));
+  }
+  expect(calibrator.finish()).not.toBeNull();
 });

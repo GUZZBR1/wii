@@ -30,18 +30,12 @@ export class ActionPipeline {
     const start = performance.now();
     const body = this.bodyGate.evaluate(snapshot);
     const current = { ...snapshot, trackingState: body.state, bodyConfidence: body.confidence };
-    if (!calibration) {
-      const stopped = this.stopSprint(snapshot.timestampMs, body.confidence, 'lost');
-      this.resetDetectors();
-      return {
-        snapshot: current, events: stopped,
-        controls: { sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'lost' },
-        kinematicsMs: performance.now() - start,
-      };
-    }
     const events: SportActionEvent[] = [];
     let controls: ContinuousControls = { sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'lost' };
 
+    // The torso channel is self-referencing — cadence and jump read the channel's own adaptive
+    // baseline and never consult the profile — so it runs the moment the torso gate tracks,
+    // calibration or not. Only lane lean and swings wait for the profile.
     const torsoTracking = this.torsoGate.evaluate(snapshot);
     controls = { ...controls, trackingState: torsoTracking.state };
     if (torsoTracking.state === 'tracked') {
@@ -61,6 +55,16 @@ export class ActionPipeline {
         this.jump.reset();
         this.torsoChannel.reset();
       }
+    }
+
+    if (!calibration) {
+      // Without a profile the lane and swing gates produce nothing — reset them so a
+      // late-arriving profile does not inherit state built on uncalibrated frames.
+      this.laneGate.reset();
+      this.lean.reset();
+      this.swings.forEach(({ gate, detector }) => { gate.reset(); detector.reset(); });
+      this.heldSwing = undefined;
+      return { snapshot: current, events, controls, kinematicsMs: performance.now() - start };
     }
 
     const laneTracking = this.laneGate.evaluate(snapshot);

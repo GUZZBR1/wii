@@ -4,8 +4,8 @@ import { distance2, distance3, isFinitePoint, landmarkConfidence } from '../kine
 
 const SETTLE_MS = 1000;
 const COLLECT_MS = 3000;
-/** Movimento máximo em coordenadas normalizadas da imagem para os joints usados no perfil. */
-const STILL_TOLERANCE = 0.04;
+/** Movimento máximo em coordenadas normalizadas da imagem para os joints exigidos pela âncora. */
+const STILL_TOLERANCE = 0.055;
 /** Movimento 3D máximo relativo à largura do ombro; piso para não amplificar escalas degeneradas. */
 const WORLD_STILL_FRACTION = 0.2;
 const MIN_WORLD_STILL_METERS = 0.08;
@@ -13,9 +13,6 @@ const MIN_WORLD_STILL_METERS = 0.08;
 const REQUIRED_CORE = [11, 12, 23, 24] as const;
 /** Punhos entram no gate somente para o tênis, que precisa de referência para os swings. */
 const REQUIRED_WRISTS = [15, 16] as const;
-/** Pontos opcionais que podem contribuir para a referência neutra quando estão visíveis. */
-const BODY_AND_LEGS = [11, 12, 23, 24, 25, 26, 27, 28] as const;
-const CALIBRATION_LANDMARKS = [...BODY_AND_LEGS, ...REQUIRED_WRISTS] as const;
 
 export type CalibrationPhase = 'framing' | 'settling' | 'collecting' | 'done';
 export interface CalibrationStep { phase: CalibrationPhase; progress: number; profile?: CalibrationProfile }
@@ -75,9 +72,11 @@ export class AutoCalibrator {
     return this.conclude(options);
   }
 
-  /** Alguma articulação usada no perfil mudou em imagem ou em espaço mundial. */
+  /** Alguma articulação exigida mudou em imagem ou em espaço mundial. Pernas não são
+   * verificadas: entram no perfil como bônus via cobertura do Calibrator, mas um joelho
+   * aparecendo ou se mexendo na borda da câmera não é movimento da postura neutra. */
   private moved(snapshot: PoseSnapshot, options: { needsWrists?: boolean }): boolean {
-    const landmarks = options.needsWrists ? CALIBRATION_LANDMARKS : BODY_AND_LEGS;
+    const landmarks = options.needsWrists ? [...REQUIRED_CORE, ...REQUIRED_WRISTS] : [...REQUIRED_CORE];
     for (const index of landmarks) {
       const imagePoint = this.confidentPoint(snapshot.landmarks, index);
       const anchoredImagePoint = this.anchor!.imageLandmarks.get(index);
@@ -95,7 +94,7 @@ export class AutoCalibrator {
   private createAnchor(snapshot: PoseSnapshot, options: { needsWrists?: boolean }) {
     const imageLandmarks = new Map<number, Point3>();
     const worldLandmarks = new Map<number, Point3>();
-    const landmarks = options.needsWrists ? CALIBRATION_LANDMARKS : BODY_AND_LEGS;
+    const landmarks = options.needsWrists ? [...REQUIRED_CORE, ...REQUIRED_WRISTS] : [...REQUIRED_CORE];
     for (const index of landmarks) {
       const imagePoint = this.confidentPoint(snapshot.landmarks, index);
       if (imagePoint) imageLandmarks.set(index, imagePoint);

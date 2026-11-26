@@ -2,6 +2,12 @@ import type { PoseSnapshot, TrackingState } from '../cv/protocol';
 import { landmarkConfidence } from './math';
 
 const CORE_BODY_LANDMARKS = [11, 12, 23, 24] as const;
+/**
+ * Consecutive bad frames before 'lost' — ~270 ms at 30 fps, ~530 ms at 15 fps. Short enough
+ * to catch a real blackout, long enough that a fast jump or a blur burst stays 'degraded'
+ * instead of resetting the cadence/jump/channel state that 'lost' clears downstream.
+ */
+const BAD_FRAMES_TO_LOST = 8;
 export type LandmarkSpace = 'image' | 'world';
 
 export class TrackingGate {
@@ -31,7 +37,7 @@ export class TrackingGate {
     } else {
       this.badFrames += 1;
       this.goodFrames = 0;
-      if (this.badFrames >= 4) this.state = 'lost';
+      if (this.badFrames >= BAD_FRAMES_TO_LOST) this.state = 'lost';
       else this.state = 'degraded';
     }
     return { state: this.state, confidence };

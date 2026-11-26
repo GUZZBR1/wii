@@ -4,10 +4,12 @@ import { bodyLocalPoint, legsVertical, torsoLeanRad } from '../kinematics/bodyFr
 
 const IDX = { leftShoulder: 11, rightShoulder: 12, leftWrist: 15, rightWrist: 16, leftHip: 23, rightHip: 24 } as const;
 const COVERAGE_RATIO = 0.65;
-// The 1.8 s floor is an engineering hypothesis, not a webcam minimum validated for BlazePose.
 const MIN_SPAN_MS = 2000;
-const VALID_SIGNAL_MS = 1800;
-const MAX_SIGNAL_GAP_MS = 350;
+// The 1.5 s floor is an engineering hypothesis, not a webcam minimum validated for BlazePose.
+const VALID_SIGNAL_MS = 1500;
+/** Callback gaps up to this still count as continuous signal — short FPS dips on common
+ * webcams (~130 ms at 15 fps per lost frame, ~400 ms at 5 fps) must not erase coverage. */
+const MAX_SIGNAL_GAP_MS = 500;
 
 interface CoverageSample {
   timestampMs: number;
@@ -91,7 +93,7 @@ export class Calibrator {
 
   /** Non-destructive so AutoCalibrator can probe convergence on every frame. */
   finish(): CalibrationProfile | null {
-    if (this.startedAt === undefined || this.samples.length < 12) return null;
+    if (this.startedAt === undefined || this.samples.length < 10) return null;
     const first = this.samples[0]!.timestampMs;
     const last = this.samples.at(-1)!.timestampMs;
     if (last - first < MIN_SPAN_MS) return null;
