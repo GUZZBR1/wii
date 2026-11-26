@@ -17,6 +17,11 @@ export interface CalibrationProfile {
     readyWristLocal?: Partial<Record<Hand, Point3>>;
   };
   quality: { validFrameRatio: number; medianConfidence: number };
+  /**
+   * Per-control convergence, when the profile comes from an online estimator. Missing means
+   * a traditionally completed profile, so consumers treat every control as ready.
+   */
+  readiness?: { scale01: number; neutral01: number };
 }
 
 export interface WorkerInit {

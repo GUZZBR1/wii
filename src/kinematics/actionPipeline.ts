@@ -55,16 +55,18 @@ export class ActionPipeline {
     }
 
     const laneTracking = this.laneGate.evaluate(snapshot);
-    if (!calibration) this.lean.reset();
+    const laneReady = calibration !== undefined && (calibration.readiness?.neutral01 ?? 1) >= 0.65;
+    if (!laneReady) this.lean.reset();
     else if (laneTracking.state === 'tracked') {
       const lane = this.lean.update(current, calibration);
       if (lane) events.push({ ...this.eventBase(snapshot, laneTracking.confidence), id: this.nextId++, type: 'lane', direction: lane });
     } else if (laneTracking.state === 'lost') this.lean.reset();
 
+    const swingScaleReady = calibration !== undefined && (calibration.readiness?.scale01 ?? 1) >= 0.5;
     const results = this.swings.map(({ wrist, gate, detector, hand }) => {
       const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, wrist], 'world');
-      if (tracking.state === 'lost' || !calibration) detector.reset();
-      const output = calibration && tracking.state === 'tracked' ? detector.update(current, calibration) : undefined;
+      if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
+      const output = calibration && swingScaleReady && tracking.state === 'tracked' ? detector.update(current, calibration) : undefined;
       // The onset bypasses arbitration and the refractory on purpose: it is the real-time,
       // unconfirmed channel — the game's cue to start the stroke animation now, not proof of a hit.
       if (output?.kind === 'onset') {

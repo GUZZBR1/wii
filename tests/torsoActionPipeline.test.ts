@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
-import { calibration, poseWithHipBounce } from './fixtures/syntheticPose';
+import { calibration, pose, poseWithHipBounce } from './fixtures/syntheticPose';
 
 const TORSO_HEIGHT = 0.4;
 
@@ -69,4 +69,36 @@ describe('torso action pipeline integration', () => {
 
     expect(jumps).toHaveLength(0);
   });
+
+
+  it('keeps lane quiet until the online neutral estimate has converged', () => {
+    const run = (neutral01: number) => {
+      const pipeline = new ActionPipeline();
+      const profile = { ...calibration(), readiness: { scale01: 1, neutral01 } };
+      const events = [];
+      for (let time = 0; time <= 500; time += 33) {
+        events.push(...pipeline.update(pose(time, { leanRad: time < 150 ? 0 : 0.24 }), profile).events);
+      }
+      return events.filter((event) => event.type === 'lane');
+    };
+
+    expect(run(0)).toHaveLength(0);
+    expect(run(1)).toHaveLength(1);
+  });
+
+  it('keeps swing quiet until the online body scale is trustworthy', () => {
+    const run = (scale01: number) => {
+      const pipeline = new ActionPipeline();
+      const profile = { ...calibration(), readiness: { scale01, neutral01: 1 } };
+      for (const time of [0, 33, 66]) pipeline.update(pose(time), profile);
+      return [
+        ...pipeline.update(pose(100, { wristLateral: -0.3 }), profile).events,
+        ...pipeline.update(pose(150, { wristLateral: 0.2 }), profile).events,
+      ].filter((event) => event.type === 'swing' || event.type === 'swing-start');
+    };
+
+    expect(run(0)).toHaveLength(0);
+    expect(run(1).length).toBeGreaterThan(0);
+  });
+
 });
