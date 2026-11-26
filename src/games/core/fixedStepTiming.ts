@@ -39,13 +39,18 @@ export function mapWallTimestampToSimulationMs(
 ): number {
   const projected = toSimulationTimestampMs(eventWallTimestampMs, wallToSimulationOffsetMs);
   if (!Number.isFinite(lastSimulationTimeMs) || !Number.isFinite(lastWallTimestampMs)) return projected;
-  const acceptedElapsedMs = Math.min(maxFrameDeltaMs, Math.max(0, observedWallTimestampMs - lastWallTimestampMs));
+  const elapsedWallMs = Math.max(0, observedWallTimestampMs - lastWallTimestampMs);
+  const acceptedElapsedMs = Math.min(maxFrameDeltaMs, elapsedWallMs);
+  const discardedElapsedMs = elapsedWallMs - acceptedElapsedMs;
   const simulationNowMs = Math.min(
     toSimulationTimestampMs(observedWallTimestampMs, wallToSimulationOffsetMs),
     lastSimulationTimeMs + acceptedElapsedMs,
   );
-  const eventAgeMs = Math.max(0, observedWallTimestampMs - eventWallTimestampMs);
-  return Math.min(projected, simulationNowMs, simulationNowMs - eventAgeMs);
+  if (eventWallTimestampMs <= lastWallTimestampMs) return projected;
+
+  const eventAfterDiscardedTimeMs = Math.max(lastWallTimestampMs, eventWallTimestampMs - discardedElapsedMs);
+  const mappedEvent = lastSimulationTimeMs + (eventAfterDiscardedTimeMs - lastWallTimestampMs);
+  return Math.min(projected, simulationNowMs, mappedEvent);
 }
 
 export function elapsedSimulationSeconds(previousTimeMs: number, nextTimeMs: number, initialStepSeconds: number): number {
