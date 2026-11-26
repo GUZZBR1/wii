@@ -97,9 +97,8 @@ export class ActionPipeline {
 
     // Lane control reads the shoulder line in image space, so it stays active whenever the
     // torso gate is tracked OR both shoulders are clearly visible (even if hips are cropped).
-    const laneReady = calibration !== undefined && (calibration.readiness?.neutral01 ?? 1) >= 0.65;
-    if (laneReady && (torsoTracking.state === 'tracked' || shouldersConfident)) {
-      const zone = this.lanePosition.update(current, calibration);
+    if (torsoTracking.state === 'tracked' || shouldersConfident) {
+      const zone = this.lanePosition.update(current);
       if (zone !== undefined) controls = { ...controls, laneZone: zone };
     }
 
@@ -188,6 +187,9 @@ export class ActionPipeline {
       cadenceSpm,
     };
   }
+
+  /** A new run: the player may be standing somewhere else, so the lane center is measured again. */
+  recenterLane(): void { this.lanePosition.reset(); }
 
   /** Returns the events the game still needs, such as stopping a sprint in progress. */
   reset(): SportActionEvent[] {

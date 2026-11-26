@@ -13,7 +13,7 @@ export interface SegmentScore {
   /** Seconds into the segment until the first moving frame / the first still frame. */
   firstMovingS?: number;
   firstStillS?: number;
-  /** Share of frames, after the first 500 ms, in the lane the segment asks for. */
+  /** Share of the segment's last 1.5 s in the lane it asks for (reading and walking take ~2 s). */
   lane01?: number;
 }
 
@@ -43,7 +43,7 @@ export function replayTrack(frames: readonly PoseSnapshot[]): SegmentScore[] {
       score.firstMovingS ??= intoMs / 1000;
     } else score.firstStillS ??= intoMs / 1000;
     const wanted = LANE[score.kind];
-    if (wanted !== undefined && intoMs >= 500) {
+    if (wanted !== undefined && current.remainingMs <= 1500) {
       score.laneFrames += 1;
       if (controls.laneZone === wanted) score.laneHits += 1;
     }

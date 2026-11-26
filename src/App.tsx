@@ -145,6 +145,10 @@ export default function App({ exit }: { exit?: ReactNode }) {
     });
   }, []);
 
+  useEffect(() => {
+    if (screen === 'play') pipelineRef.current.recenterLane();
+  }, [screen]);
+
   // G starts/stops a recording during a camera run. Detectors and calibration restart with it,
   // so replaying the file from a cold start reproduces what happened live.
   useEffect(() => {

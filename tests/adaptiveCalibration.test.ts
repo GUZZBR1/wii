@@ -158,17 +158,7 @@ describe('adaptive calibration', () => {
     expect(Math.abs(profile!.image.shoulderCenterX0 - 0.5)).toBeLessThan(0.005);
   });
 
-  it('activates scale-dependent controls before the slower neutral lane reference converges', () => {
-    // Quietness probe: even a displaced player gets no lane zone while neutral has not converged.
-    const probeCalibrator = new AdaptiveCalibrator();
-    const probePipeline = new ActionPipeline();
-    const zonesBeforeConvergence: (number | undefined)[] = [];
-    for (let time = 0; time <= 700; time += 35) {
-      const frame = pose(time, { shiftUserRightSw: 0.25 });
-      zonesBeforeConvergence.push(probePipeline.update(frame, probeCalibrator.update(frame, 0)).controls.laneZone);
-    }
-    expect(zonesBeforeConvergence.every((zone) => zone === undefined)).toBe(true);
-
+  it('activates scale-dependent controls quickly', () => {
     // Scale-dependent swings come online much earlier than the neutral lane reference.
     const swingCalibrator = new AdaptiveCalibrator();
     const swingPipeline = new ActionPipeline();
@@ -179,20 +169,6 @@ describe('adaptive calibration', () => {
     const swingFrame = pose(1335, { wristLateral: -0.3 });
     const swingEvents = swingPipeline.update(swingFrame, swingCalibrator.update(swingFrame, 0)).events;
     expect(swingEvents.some((event) => event.type === 'swing-start')).toBe(true);
-
-    // With a clean centered bootstrap the lane zone activates once neutral converges.
-    const laneCalibrator = new AdaptiveCalibrator();
-    const lanePipeline = new ActionPipeline();
-    for (let time = 0; time <= 3000; time += 35) {
-      const frame = pose(time);
-      lanePipeline.update(frame, laneCalibrator.update(frame, 0));
-    }
-    let convergedZone: number | undefined;
-    for (let time = 3035; time <= 3400; time += 35) {
-      const frame = pose(time, { shiftUserRightSw: 0.25 });
-      convergedZone = lanePipeline.update(frame, laneCalibrator.update(frame, 0)).controls.laneZone ?? convergedZone;
-    }
-    expect(convergedZone).toBe(1);
   });
 
   it('keeps publishing wrist references while the neutral center is starved off-center', () => {
