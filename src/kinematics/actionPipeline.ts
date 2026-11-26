@@ -63,6 +63,7 @@ export class ActionPipeline {
     } else if (laneTracking.state === 'lost') this.lean.reset();
 
     const swingScaleReady = calibration !== undefined && (calibration.readiness?.scale01 ?? 1) >= 0.5;
+    if (!swingScaleReady) this.heldSwing = undefined;
     const results = this.swings.map(({ wrist, gate, detector, hand }) => {
       const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, wrist], 'world');
       if (tracking.state === 'lost' || !swingScaleReady) detector.reset();

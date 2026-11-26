@@ -535,6 +535,21 @@ describe('mão da raquete', () => {
     expect(swings[0]!.type === 'swing' && swings[0]!.power01).toBeGreaterThan(0.5);
   });
 
+  it('descarta o golpe segurado quando a escala deixa de ser confiável antes da liberação', () => {
+    const pipeline = new ActionPipeline();
+    const ready = { ...calibration(), readiness: { scale01: 1, neutral01: 1 } };
+    const unready = { ...calibration(), readiness: { scale01: 0, neutral01: 1 } };
+    [0, 33, 66].forEach((time) => { pipeline.update(pose(time), ready); });
+    pipeline.update(pose(99, { wristLateral: -0.15 }), ready);
+    const held = pipeline.update(pose(132, { wristLateral: 0.05, leftWristLateral: 0.35 }), ready);
+    expect(held.events.filter((event) => event.type === 'swing')).toHaveLength(0);
+
+    const fallen = pipeline.update(pose(165, { wristLateral: 0.05, leftWristLateral: 0.35 }), unready);
+    expect(fallen.events.filter((event) => event.type === 'swing')).toHaveLength(0);
+    const recovered = pipeline.update(pose(198, { wristLateral: 0.05, leftWristLateral: 0.35 }), ready);
+    expect(recovered.events.filter((event) => event.type === 'swing')).toHaveLength(0);
+  });
+
   it('solta o golpe segurado quando a mão rival perde o rastreamento sem confirmar', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();

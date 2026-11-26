@@ -40,6 +40,11 @@ interface CoreObservation {
   legUp?: Point3;
 }
 
+interface CoreFrameValidity {
+  timestampMs: number;
+  valid: boolean;
+}
+
 interface WristObservation {
   timestampMs: number;
   confidence: number;
@@ -145,14 +150,16 @@ function leanAngle(observation: CoreObservation, up: Point3): number | undefined
 }
 
 
-function coveredDurationMs(samples: readonly { timestampMs: number }[], startMs: number, endMs: number): number {
+function coveredDurationMs(samples: readonly CoreFrameValidity[], startMs: number, endMs: number): number {
   let covered = 0;
   for (let index = 1; index < samples.length; index += 1) {
     const previous = samples[index - 1]!;
     const current = samples[index]!;
+    const weight = (previous.valid ? 0.5 : 0) + (current.valid ? 0.5 : 0);
+    if (weight === 0) continue;
     const gap = current.timestampMs - previous.timestampMs;
     if (gap <= 0 || gap > MAX_CORE_OBSERVATION_GAP_MS) continue;
-    covered += Math.min(endMs, current.timestampMs) - Math.max(startMs, previous.timestampMs);
+    covered += (Math.min(endMs, current.timestampMs) - Math.max(startMs, previous.timestampMs)) * weight;
   }
   return Math.max(0, covered);
 }
@@ -173,6 +180,7 @@ function makeWristState(): WristState {
  */
 export class AdaptiveCalibrator {
   private coreObservations: CoreObservation[] = [];
+  private coreFrameValidity: CoreFrameValidity[] = [];
   private readonly wrists: Record<Hand, WristState> = { left: makeWristState(), right: makeWristState() };
   private published?: CalibrationProfile;
   private lastPublishAt = Number.NEGATIVE_INFINITY;
@@ -183,6 +191,7 @@ export class AdaptiveCalibrator {
   update(snapshot: PoseSnapshot): CalibrationProfile | undefined {
     const now = snapshot.timestampMs;
     const core = this.extractCore(snapshot);
+    this.coreFrameValidity.push({ timestampMs: now, valid: core !== undefined });
     if (core) {
       this.coreObservations.push(core);
       this.observeWrists(snapshot);
@@ -289,6 +298,7 @@ export class AdaptiveCalibrator {
 
   private prune(now: number): void {
     this.coreObservations = this.coreObservations.filter((sample) => now - sample.timestampMs <= CORE_WINDOW_MS);
+    this.coreFrameValidity = this.coreFrameValidity.filter((sample) => now - sample.timestampMs <= CORE_WINDOW_MS);
     for (const hand of ['left', 'right'] as const) {
       this.wrists[hand].observations = this.wrists[hand].observations.filter((sample) => now - sample.timestampMs <= WRIST_WINDOW_MS);
     }
@@ -298,7 +308,7 @@ export class AdaptiveCalibrator {
     const first = this.coreObservations[0]?.timestampMs ?? 0;
     const last = this.coreObservations.at(-1)?.timestampMs ?? 0;
     const spanMs = Math.max(0, last - first);
-    const coveredMs = coveredDurationMs(this.coreObservations, first, last);
+    const coveredMs = coveredDurationMs(this.coreFrameValidity, first, last);
     return { spanMs, coveredMs, ratio: spanMs > 0 ? coveredMs / spanMs : 0 };
   }
 
@@ -347,15 +357,13 @@ export class AdaptiveCalibrator {
       if (reference) readyWristLocal[hand] = reference;
     }
 
-    const first = this.coreObservations[0]!;
-    const spanMs = Math.max(1, now - first.timestampMs);
     const coverage = this.coreCoverage();
     const widthMad = median(this.coreObservations.map((sample) => Math.abs(sample.shoulderWidth - shoulderWidth)));
     const scaleDispersion01 = clamp(1 - widthMad / (shoulderWidth * 0.12));
     const localDispersion01 = clamp(1 - neutralMode.dispersion / 0.12);
     const readiness = {
-      scale01: clamp(spanMs / MIN_PUBLISH_SPAN_MS) * clamp(coverage.ratio / CORE_COVERAGE_RATIO) * scaleDispersion01,
-      neutral01: clamp(spanMs / 2500) * clamp(coverage.ratio / CORE_COVERAGE_RATIO)
+      scale01: clamp(coverage.spanMs / MIN_PUBLISH_SPAN_MS) * clamp(coverage.ratio / CORE_COVERAGE_RATIO) * scaleDispersion01,
+      neutral01: clamp(coverage.coveredMs / 2500) * clamp(coverage.ratio / CORE_COVERAGE_RATIO)
         * (0.15 + 0.7 * neutralMode.strength01 + 0.15 * localDispersion01),
     };
     return {
@@ -452,6 +460,7 @@ export class AdaptiveCalibrator {
 
   reset(): void {
     this.coreObservations = [];
+    this.coreFrameValidity = [];
     this.wrists.left = makeWristState();
     this.wrists.right = makeWristState();
     this.published = undefined;

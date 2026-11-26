@@ -80,6 +80,44 @@ describe('adaptive calibration', () => {
     expect(profile).toBeUndefined();
   });
 
+  it('does not credit intervals containing rejected frames as continuous evidence', () => {
+    const calibrator = new AdaptiveCalibrator();
+    const frames = [];
+    for (let cycle = 0; cycle < 20; cycle += 1) {
+      const start = cycle * 175;
+      frames.push(pose(start));
+      for (let rejected = 1; rejected <= 4; rejected += 1) {
+        frames.push(pose(start + rejected * 35, { confidence: 0.1 }));
+      }
+    }
+
+    expect(feed(calibrator, frames)).toBeUndefined();
+  });
+
+  it('does not let time spent rejecting frames mature neutral readiness', () => {
+    const calibrator = new AdaptiveCalibrator();
+    let profile: CalibrationProfile | undefined;
+    for (let time = 0; time <= 700; time += 35) profile = calibrator.update(pose(time)) ?? profile;
+    expect(profile).toBeDefined();
+    const initialNeutral01 = profile!.readiness!.neutral01;
+
+    for (let time = 735; time <= 3500; time += 35) {
+      profile = calibrator.update(pose(time, { confidence: 0.1 })) ?? profile;
+    }
+
+    expect(profile!.readiness!.neutral01).toBeLessThanOrEqual(initialNeutral01 + 1e-9);
+    expect(profile!.readiness!.neutral01).toBeLessThan(0.65);
+  });
+
+  it('still converges when isolated rejected frames leave most of the stream valid', () => {
+    const calibrator = new AdaptiveCalibrator();
+    const frames = Array.from({ length: 160 }, (_, index) => (
+      index % 4 === 3 ? pose(index * 35, { confidence: 0.1 }) : pose(index * 35)
+    ));
+
+    expect(feed(calibrator, frames)).toBeDefined();
+  });
+
   it('uses the robust median shoulder width instead of chasing noisy frames', () => {
     const calibrator = new AdaptiveCalibrator();
     const frames = [];
