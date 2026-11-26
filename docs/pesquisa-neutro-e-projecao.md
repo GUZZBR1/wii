@@ -99,6 +99,8 @@ A zona depende do mesmo `e`: se o erro for grande o bastante para fazer a postur
 
 **A zona é veto/contexto, não prova.** Quando a zona é centro, um deslocamento dentro da banda não está comandando raia e pode ser postura; idealmente entraria na calibração depois de passar por um detector independente de repouso, agregação episódica e adaptação lenta. Em zona lateral, nenhuma amostra da banda é evidência de neutro. O risco principal não é oscilação exponencial, mas deadlock por perda de observabilidade.
 
+> **Status (implementado neste PR):** o veto por zona está aplicado com a zona gravada por amostra no momento da coleta — admitir com a zona atual reabriria retroativamente as amostras de lane segurada ainda na janela. A qualificação independente de repouso e a agregação episódica abaixo continuam como trabalho futuro.
+
 Refinamento documentado para trabalho futuro (não implementado no PR do controle por posição): episódios de repouso qualificados — zona central contínua, velocidade do centro dos ombros (independente de `x0`, pois derivada temporal cancela o offset) abaixo de limiar por 0,7–1,5 s, uma mediana por episódio, recorrência antes de mover o centro, reentrada obrigatória como na patente de joystick US10463954B2. Os valores são hipóteses de engenharia a medir com sessões reais, não constantes validadas.
 
 **Testes mínimos recomendados pela pesquisa** — parcialmente já cobertos no PR: postura deslocada estável a ±0,07 converge sem entrar em raia ✔; retenções longas a ±0,13/±0,20 não são perseguidas ✔; sway periódico dentro da banda não adapta (simétrico — a moda é consenso); erro artificial de `x0` autocorrige abaixo do limiar de entrada.
@@ -128,6 +130,8 @@ w = hypot(x11 - x12, (y11 - y12) * imageHeight / imageWidth)
 ```
 
 ## B3. Veredicto do Problema B
+
+> **Status (implementado neste PR):** a correção de aspect ratio recomendada abaixo já está aplicada — `LanePositionTracker` e `AdaptiveCalibrator` medem a largura dos ombros com `dy × frameHeight/frameWidth`, e as dimensões do frame viajam no `PoseSnapshot` desde o bitmap do worker. Gravações de pose ganharam schema v2 com as dimensões por frame; arquivos v1 migram pela geometria de input gravada no source. O que permanece como trabalho futuro é a escala frontal equivalente híbrida para yaw extremo, condicionada ao benchmark descrito.
 
 Nenhum denominador único é robusto em todas as condições. O `hypot` atual precisa primeiro ser corrigido para aspect ratio — correção geométrica direta, sem tuning. Entre as opções simples, largura euclidiana aspect-corrected dos ombros é melhor que x-only para jogadores frontais. Para yaw extremo, torso é geometricamente mais invariante, mas a literatura favorece comprimento euclidiano/transformação de torso, não altura vertical simples — uma **escala frontal equivalente híbrida e lentamente filtrada** é o caminho documentado para trabalho futuro, com benchmark dedicado (yaw 0/15/30/45°, passos nos dois eixos, lean, corrida com sway, câmeras 4:3 e 16:9) antes de qualquer troca de denominador. O limiar de raia permanece fixo se a escala estiver corrigida; adaptar limiar por yaw sem decompor passo/lean mistura duas semânticas de controle incompatíveis.
 

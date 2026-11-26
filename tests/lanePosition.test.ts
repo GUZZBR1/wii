@@ -87,30 +87,39 @@ describe('LanePositionTracker', () => {
 });
 
 describe('aspect-corrected shoulder width', () => {
-  it('measures the same normalized displacement when the shoulders tilt in-plane', () => {
+  // Rotate the two shoulder landmarks around their center within the image plane. Rotation is
+  // done in pixel units — x and y landmarks are normalized independently, so a naive rotation in
+  // normalized coordinates would shear the pose instead of tilting it.
+  const tiltShoulders = (snapshot: ReturnType<typeof pose>, tiltDeg: number) => {
+    const tilt = (tiltDeg * Math.PI) / 180;
+    const aspect = snapshot.frameWidth / snapshot.frameHeight;
+    const landmarks = snapshot.landmarks.map((point, index) => {
+      if (index !== 11 && index !== 12) return point;
+      const cx = (snapshot.landmarks[11]!.x + snapshot.landmarks[12]!.x) / 2;
+      const cy = (snapshot.landmarks[11]!.y + snapshot.landmarks[12]!.y) / 2;
+      const dx = point.x - cx;
+      const dy = point.y - cy;
+      return { ...point, x: cx + dx * Math.cos(tilt) - (dy * Math.sin(tilt)) / aspect, y: cy + dx * Math.sin(tilt) * aspect + dy * Math.cos(tilt) };
+    });
+    return { ...snapshot, landmarks };
+  };
+
+  it('keeps a marginal displacement inside the lane at every in-plane shoulder tilt', () => {
     // x and y are normalized by frame width and height independently, so a raw hypot would let a
     // tilted shoulder line measure wider than a horizontal one — deflating sensitivity exactly
-    // while the player leans. The aspect-corrected width must be tilt-invariant.
+    // while the player leans. The step here is marginal on purpose: 0.13sw corrected still
+    // crosses the 0.12sw entry at any tilt, but the ~31% width inflation of a raw hypot at 35°
+    // would deflate it to ~0.10sw and the runner would never leave the center.
     const measure = (tiltDeg: number) => {
       const tracker = new LanePositionTracker();
-      // settle the filter at center
       for (let time = 0; time <= 1000; time += 33) tracker.update(pose(time), calibration());
-      const tilt = (tiltDeg * Math.PI) / 180;
-      const snapshot = pose(1100, { shiftUserRightSw: 0.3 });
-      const landmarks = snapshot.landmarks.map((point, index) => {
-        if (index !== 11 && index !== 12) return point;
-        // rotate each shoulder around the shoulder center within the image plane
-        const cx = (snapshot.landmarks[11]!.x + snapshot.landmarks[12]!.x) / 2;
-        const cy = (snapshot.landmarks[11]!.y + snapshot.landmarks[12]!.y) / 2;
-        const dx = point.x - cx;
-        const dy = point.y - cy;
-        return { ...point, x: cx + dx * Math.cos(tilt) - dy * Math.sin(tilt) * (720 / 1280), y: cy + (dx * Math.sin(tilt) * (1280 / 720)) + dy * Math.cos(tilt) };
-      });
-      return tracker.update({ ...snapshot, landmarks }, calibration());
+      let zone: -1 | 0 | 1 = 0;
+      for (let time = 1033; time <= 1300; time += 33) {
+        zone = tracker.update(tiltShoulders(pose(time, { shiftUserRightSw: 0.13 }), tiltDeg), calibration()) ?? zone;
+      }
+      return zone;
     };
-    expect(measure(0)).toBe(measure(15));
-    expect(measure(0)).toBe(measure(25));
-    expect(measure(0)).toBe(1); // the displacement is deep enough to be in the right lane at any tilt
+    for (const tiltDeg of [0, 15, 25, 35]) expect(measure(tiltDeg)).toBe(1);
   });
 });
 
