@@ -1,4 +1,4 @@
-import { type RefObject, useState } from 'react';
+import { type RefObject, useEffect, useState } from 'react';
 
 interface Props {
   videoRef: RefObject<HTMLVideoElement | null>;
@@ -12,6 +12,9 @@ interface Props {
 
 export function CameraPip(props: Props) {
   const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    if (!props.cameraOn) setExpanded(false);
+  }, [props.cameraOn]);
 
   return <aside className={expanded ? 'cam-pip expanded' : 'cam-pip'}>
     <div className="cam-feed">

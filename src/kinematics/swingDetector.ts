@@ -33,7 +33,7 @@ const SWING_DIRECTION_EPSILON_BODY_WIDTHS_PER_SEC = 0.5;
 const SWING_MIN_DURATION_MS = 30;
 const POSITIONED_REARM_DWELL_MS = 180;
 const VELOCITY_ONLY_REARM_DWELL_MS = 500;
-const REARM_MAX_SAMPLE_GAP_MS = 100;
+const REARM_MAX_SAMPLE_GAP_MS = 200;
 export const SWING_MAX_DURATION_MS = 300;
 
 export function hasMeaningfulLateralComponent(speedBodyWidthsPerSecond: number, lateralSpeedBodyWidthsPerSecond: number): boolean {
