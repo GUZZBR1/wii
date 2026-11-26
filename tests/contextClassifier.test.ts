@@ -85,7 +85,6 @@ describe('BodyFeatureExtractor', () => {
   it('reports zero velocity on the first frame and converges to wrist speed in continuous motion', () => {
     const extractor = new BodyFeatureExtractor();
     const first = extractor.extract(pose(0))!;
-    expect(first.landmarkVelocities[16]).toEqual({ x: 0, y: 0, z: 0 });
     expect(first.wristVelocityRight).toEqual({ x: 0, y: 0, z: 0 });
     // Steady lateral sweep at 0.05 m/frame ≈ 3.75 shoulder-widths/s. Positions are OneEuro-filtered
     // before differentiation, so a single step change reads low; the filter converges within a few

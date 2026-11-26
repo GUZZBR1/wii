@@ -6,15 +6,16 @@ export interface CalibrationProfile {
   completedAtMs: number;
   world: {
     shoulderWidth: number;
-    /**
-     * Standing vertical captured from verified extended legs when available, otherwise from
-     * the neutral trunk direction. Runtime lean is measured as a delta from the neutral pose.
-     */
-    leanUp0: Point3;
-    /** Lateral trunk lean of the neutral calibration pose; runtime lean is reported as the delta from it. */
-    torsoLeanRad0: number;
     /** Each wrist relative to its own shoulder; each hand has an independent optional reference. */
     readyWristLocal?: Partial<Record<Hand, Point3>>;
+  };
+  image: {
+    /**
+     * Neutral shoulder-center x in normalized image coordinates, from the player's dominant
+     * posture. Lane control measures lateral displacement against it: in raw camera coordinates
+     * the player's own right is toward image left, so displacement rightward is centerX0 − x.
+     */
+    shoulderCenterX0: number;
   };
   quality: { validFrameRatio: number; medianConfidence: number };
   /**
@@ -52,6 +53,9 @@ export type WorkerReply =
       timestampMs: number;
       landmarks: Point3[];
       worldLandmarks: Point3[];
+      /** Pixel dimensions of the frame the normalized landmarks were measured on. */
+      frameWidth: number;
+      frameHeight: number;
     }
   | { type: 'FALLBACK'; from: 'GPU'; to: 'CPU'; reason: string }
   | { type: 'ERROR'; stage: 'init'; fatal: boolean; message: string }
@@ -61,7 +65,6 @@ export type SportActionEvent =
   | ActionBase & { type: 'sprint'; speed01: number; cadenceSpm: number }
   | ActionBase & { type: 'step'; side: Hand }
   | ActionBase & { type: 'jump' }
-  | ActionBase & { type: 'lane'; direction: 'left' | 'right' }
   /**
    * Unconfirmed real-time notice that a wrist crossed the swing onset threshold — emitted on the
    * crossing frame, ~100-400 ms before the swing confirms (if it ever does). Backswings and
@@ -89,6 +92,14 @@ export interface ContinuousControls {
   sprintSpeed01: number;
   cadenceSpm: number;
   trackingState: TrackingState;
+  /**
+   * Authoritative body lane zone from camera input: the position the player's torso actually
+   * occupies, not a step to interpret. Undefined while the camera has no opinion (unready
+   * calibration or untracked torso) — keyboard lane control owns the lane in the meantime.
+   * Because the zone is restated every frame, it survives countdowns, pauses and remounts
+   * without the dropped-step desync that relative lane events had.
+   */
+  laneZone?: -1 | 0 | 1;
 }
 
 interface ActionBase {

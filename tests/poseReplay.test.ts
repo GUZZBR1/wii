@@ -16,6 +16,8 @@ const lostPose = (timestampMs: number) => ({
   worldLandmarks: [],
   trackingState: 'lost' as const,
   bodyConfidence: 0,
+  frameWidth: 1280,
+  frameHeight: 720,
 });
 
 describe('pose recording and replay', () => {
@@ -33,6 +35,114 @@ describe('pose recording and replay', () => {
     ]);
     expect(decoded.frames[1]!.snapshot.worldLandmarks[16]).toEqual(snapshots[1]!.worldLandmarks[16]);
     expect(decoded.frames[2]!.snapshot.landmarks).toEqual([]);
+  });
+
+  it('migrates legacy version 1 recordings using the trusted input geometry', () => {
+    const recording = createPoseRecording([pose(10), pose(43)], {
+      kind: 'mediapipe',
+      tasksVisionVersion: '0.10.0',
+      modelSha256: 'a'.repeat(64),
+      delegate: 'GPU',
+      runningMode: 'VIDEO',
+      input: { width: 1280, height: 720, rotationDegrees: 0, mirrored: false },
+    });
+    const legacy = JSON.parse(serializePoseRecording(recording)) as {
+      schemaVersion: number;
+      frames: { snapshot: Record<string, unknown> }[];
+    };
+    legacy.schemaVersion = 1;
+    for (const frame of legacy.frames) {
+      delete frame.snapshot.frameWidth;
+      delete frame.snapshot.frameHeight;
+    }
+
+    const decoded = parsePoseRecording(JSON.stringify(legacy));
+    expect(decoded.frames[0]!.snapshot.frameWidth).toBe(640);
+    expect(decoded.frames[0]!.snapshot.frameHeight).toBe(360);
+  });
+
+  it('reconstructs the harness inference geometry instead of the source video size', () => {
+    // The recording harness resizes every frame to 640px wide before inference, so the landmarks
+    // are normalized against the resized bitmap — not the original video dimensions stored in
+    // the source metadata. Migration must apply the same resize rule.
+    const recording = createPoseRecording([pose(10)], {
+      kind: 'mediapipe',
+      tasksVisionVersion: '0.10.0',
+      modelSha256: 'a'.repeat(64),
+      delegate: 'GPU',
+      runningMode: 'VIDEO',
+      input: { width: 854, height: 480, rotationDegrees: 0, mirrored: false },
+    });
+    const legacy = JSON.parse(serializePoseRecording(recording)) as {
+      schemaVersion: number;
+      frames: { snapshot: Record<string, unknown> }[];
+    };
+    legacy.schemaVersion = 1;
+    for (const frame of legacy.frames) {
+      delete frame.snapshot.frameWidth;
+      delete frame.snapshot.frameHeight;
+    }
+
+    const decoded = parsePoseRecording(JSON.stringify(legacy));
+    expect(decoded.frames[0]!.snapshot.frameWidth).toBe(640);
+    expect(decoded.frames[0]!.snapshot.frameHeight).toBe(Math.round((480 * 640) / 854));
+  });
+
+  it('migrates legacy objects without mutating the caller snapshots', () => {
+    const recording = createPoseRecording([pose(10)], {
+      kind: 'mediapipe',
+      tasksVisionVersion: '0.10.0',
+      modelSha256: 'a'.repeat(64),
+      delegate: 'GPU',
+      runningMode: 'VIDEO',
+      input: { width: 1280, height: 720, rotationDegrees: 0, mirrored: false },
+    });
+    const legacy = JSON.parse(serializePoseRecording(recording)) as {
+      schemaVersion: number;
+      frames: { snapshot: Record<string, unknown> }[];
+    };
+    legacy.schemaVersion = 1;
+    for (const frame of legacy.frames) {
+      delete frame.snapshot.frameWidth;
+      delete frame.snapshot.frameHeight;
+      Object.freeze(frame.snapshot);
+    }
+
+    const decoded = parsePoseRecording(legacy);
+    expect(decoded.frames[0]!.snapshot.frameWidth).toBe(640);
+    expect(legacy.frames[0]!.snapshot.frameWidth).toBeUndefined();
+  });
+
+  it('rejects legacy version 1 recordings without recoverable frame dimensions', () => {
+    const recording = createPoseRecording([pose(10)]);
+    const legacy = JSON.parse(serializePoseRecording(recording)) as {
+      schemaVersion: number;
+      frames: { snapshot: Record<string, unknown> }[];
+    };
+    legacy.schemaVersion = 1;
+    for (const frame of legacy.frames) {
+      delete frame.snapshot.frameWidth;
+      delete frame.snapshot.frameHeight;
+    }
+
+    expect(() => parsePoseRecording(JSON.stringify(legacy))).toThrow(/re-record|frame dimensions/i);
+  });
+
+  it('rejects current-schema recordings whose snapshots lack frame dimensions', () => {
+    const recording = createPoseRecording([pose(10)], {
+      kind: 'mediapipe',
+      tasksVisionVersion: '0.10.0',
+      modelSha256: 'a'.repeat(64),
+      delegate: 'GPU',
+      runningMode: 'VIDEO',
+      input: { width: 1280, height: 720, rotationDegrees: 0, mirrored: false },
+    });
+    const broken = JSON.parse(serializePoseRecording(recording)) as {
+      frames: { snapshot: Record<string, unknown> }[];
+    };
+    delete broken.frames[0]!.snapshot.frameWidth;
+
+    expect(() => parsePoseRecording(JSON.stringify(broken))).toThrow(/frameWidth/);
   });
 
   it('replays from the beginning after reset and returns independent snapshots', () => {
@@ -109,7 +219,7 @@ describe('pose recording and replay', () => {
     expect(() => parsePoseRecording('{')).toThrow(/valid JSON/);
 
     const valid = createPoseRecording([pose(0), pose(40)]);
-    expect(() => parsePoseRecording({ ...valid, schemaVersion: 2 })).toThrow(/Unsupported pose recording schema/);
+    expect(() => parsePoseRecording({ ...valid, schemaVersion: 3 })).toThrow(/Unsupported pose recording schema/);
     expect(() => parsePoseRecording({ ...valid, frameCount: 3 })).toThrow(/frameCount/);
     expect(() => parsePoseRecording({ ...valid, lastTimestampMs: 100 })).toThrow(/time bounds/);
     expect(() => parsePoseRecording({ ...valid, frames: [{ ...valid.frames[0]!, sequence: 1 }, valid.frames[1]] })).toThrow(/sequence/);

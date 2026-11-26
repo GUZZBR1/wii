@@ -1,6 +1,6 @@
 import type { Delegate, Point3, PoseSnapshot } from '../types';
 
-export const POSE_RECORDING_SCHEMA_VERSION = 1 as const;
+export const POSE_RECORDING_SCHEMA_VERSION = 2 as const;
 export const POSE_LANDMARK_SCHEMA = 'mediapipe-pose-33' as const;
 export type PoseRecordingTimestampClock = 'performance' | 'media-time' | 'synthetic';
 
@@ -49,6 +49,8 @@ function cloneSnapshot(snapshot: PoseSnapshot): PoseSnapshot {
     worldLandmarks: snapshot.worldLandmarks.map(clonePoint),
     trackingState: snapshot.trackingState,
     bodyConfidence: snapshot.bodyConfidence,
+    frameWidth: snapshot.frameWidth,
+    frameHeight: snapshot.frameHeight,
   };
 }
 
@@ -98,7 +100,7 @@ function validateLandmarks(value: unknown, description: string): asserts value i
   });
 }
 
-function validateSnapshot(value: unknown, index: number): asserts value is PoseSnapshot {
+function validateSnapshot(value: unknown, index: number, requireFrameDimensions: boolean): asserts value is PoseSnapshot {
   const description = `Replay frame ${index} snapshot`;
   if (!isRecord(value)) throw new TypeError(`${description} must be an object.`);
   assertFinite(value.timestampMs, `${description}.timestampMs`);
@@ -114,6 +116,13 @@ function validateSnapshot(value: unknown, index: number): asserts value is PoseS
   validateLandmarks(value.worldLandmarks, `${description}.worldLandmarks`);
   if (value.landmarks.length !== value.worldLandmarks.length) {
     throw new RangeError(`${description} image and world landmarks must have the same count.`);
+  }
+  if (requireFrameDimensions) {
+    assertFinite(value.frameWidth, `${description}.frameWidth`);
+    assertFinite(value.frameHeight, `${description}.frameHeight`);
+    if (value.frameWidth <= 0 || value.frameHeight <= 0) {
+      throw new RangeError(`${description} frame dimensions must be positive.`);
+    }
   }
 }
 
@@ -188,14 +197,23 @@ export function parsePoseRecording(input: unknown): PoseRecording {
     }
   }
   if (!isRecord(value)) throw new TypeError('Pose recording must be an object.');
-  if (value.schemaVersion !== POSE_RECORDING_SCHEMA_VERSION) {
+  if (value.schemaVersion !== POSE_RECORDING_SCHEMA_VERSION && value.schemaVersion !== 1) {
     throw new RangeError(`Unsupported pose recording schema version: ${String(value.schemaVersion)}.`);
   }
+  const legacyWithoutDimensions = value.schemaVersion === 1;
   if (value.timestampUnit !== 'ms' || !['performance', 'media-time', 'synthetic'].includes(String(value.timestampClock))) {
     throw new TypeError('Pose recording timestamps require milliseconds and a supported clock domain.');
   }
   if (value.landmarkSchema !== POSE_LANDMARK_SCHEMA) throw new TypeError('Unsupported pose landmark schema.');
   validateSource(value.source);
+  // Version 1 predates per-frame dimensions, but lane measurement divides by the frame aspect
+  // ratio — replaying without them would feed NaN into every filter downstream. The recorder has
+  // always stored the input video geometry in the source metadata, so genuine recordings migrate;
+  // anything else cannot be recovered and the player must re-record.
+  const legacyInput = isRecord(value.source) && isRecord(value.source.input) ? value.source.input : undefined;
+  if (legacyWithoutDimensions && (!Number.isInteger(legacyInput?.width) || !Number.isInteger(legacyInput?.height))) {
+    throw new RangeError('Pose recording schema version 1 lacks frame dimensions and trusted input geometry; please re-record it.');
+  }
   if (!Array.isArray(value.frames)) throw new TypeError('Pose recording frames must be an array.');
   const rawFrames: unknown[] = value.frames;
   if (!Number.isInteger(value.frameCount) || value.frameCount !== rawFrames.length) {
@@ -206,11 +224,26 @@ export function parsePoseRecording(input: unknown): PoseRecording {
     if (!isRecord(frame) || frame.sequence !== index) {
       throw new RangeError(`Replay frame ${index} must have sequence ${index}.`);
     }
-    validateSnapshot(frame.snapshot, index);
-    if (index > 0 && frame.snapshot.timestampMs <= (rawFrames[index - 1] as PoseRecordingFrame).snapshot.timestampMs) {
+    const snapshot = frame.snapshot;
+    validateSnapshot(snapshot, index, !legacyWithoutDimensions);
+    const ownedSnapshot = legacyWithoutDimensions
+      // Every version 1 recording came from the pose-replay harness, which resizes frames to
+      // 640px wide before inference — so the landmarks are normalized against the resized
+      // bitmap, not the source video dimensions stored in the metadata. Reconstructing the
+      // bitmap size with the same proportional rule keeps the aspect correction honest; the
+      // integer rounding is approximate by at most half a pixel. Never write into the caller's
+      // object: the input may be frozen, and a later validation failure must not leave it
+      // partially migrated.
+      ? {
+          ...snapshot,
+          frameWidth: 640,
+          frameHeight: Math.round(((legacyInput!.height as number) * 640) / (legacyInput!.width as number)),
+        }
+      : snapshot;
+    if (index > 0 && snapshot.timestampMs <= (rawFrames[index - 1] as PoseRecordingFrame).snapshot.timestampMs) {
       throw new RangeError(`Replay timestamps must be strictly increasing (frame ${index}).`);
     }
-    return { sequence: index, snapshot: cloneSnapshot(frame.snapshot) };
+    return { sequence: index, snapshot: cloneSnapshot(ownedSnapshot) };
   });
 
   const firstTimestampMs = frames[0]?.snapshot.timestampMs ?? 0;

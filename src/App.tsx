@@ -96,6 +96,7 @@ export default function App() {
     setTracking('SEM POSE');
     setCameraStatus('Câmera desligada');
     for (const event of pipelineRef.current.reset()) dispatchEvent(event);
+    engineRef.current?.resetLaneZone?.();
     contextRef.current.reset();
     resetCalibration();
     drawPose(overlayRef.current, videoRef.current);
@@ -115,13 +116,14 @@ export default function App() {
         if (stale()) return;
         // Implicit calibration: every observed frame is evidence. The current profile is a
         // continuously improving estimate, never a mode the player has to enter or watch.
-        profileRef.current = calibratorRef.current.update(raw) ?? profileRef.current;
+        profileRef.current = calibratorRef.current.update(raw, pipelineRef.current.laneZone) ?? profileRef.current;
         const result = pipelineRef.current.update(raw, profileRef.current);
         const current = result.snapshot;
         const decision = contextRef.current.update(current, profileRef.current);
         const activity = decision.confidence01 > 0.4 ? ` · ${ACTIVITY_LABEL[decision.activity]}` : '';
         setTracking(current.trackingState === 'tracked' ? `TRACKING${activity}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
         drawPose(overlayRef.current, videoRef.current, current);
+        engineRef.current?.setLaneZone?.(result.controls.laneZone);
         for (const event of result.events) dispatchEvent(event);
       },
     };

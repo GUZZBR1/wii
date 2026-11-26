@@ -1,7 +1,7 @@
 import type { CalibrationProfile, ContinuousControls, Hand, PoseSnapshot, SportActionEvent, TrackingState } from '../cv/protocol';
 import { CadenceTracker } from './cadenceTracker';
 import { JumpDetector } from './jumpDetector';
-import { LaneLeanDetector } from './postureSignals';
+import { LanePositionTracker } from './postureSignals';
 import { SWING_MAX_DURATION_MS, SwingDetector, type SwingSignal } from './swingDetector';
 import { TorsoVerticalChannel } from './torsoVertical';
 import { TrackingGate } from './trackingGate';
@@ -25,10 +25,9 @@ export class ActionPipeline {
   /** One gate and one vertical channel for the torso core: cadence and jump read the same frame's sample. */
   private readonly torsoGate = new TrackingGate([11, 12, 23, 24]);
   private readonly torsoChannel = new TorsoVerticalChannel();
-  private readonly laneGate = new TrackingGate([11, 12, 23, 24], 'world');
   private readonly cadence = new CadenceTracker();
   private readonly jump = new JumpDetector();
-  private readonly lean = new LaneLeanDetector();
+  private readonly lanePosition = new LanePositionTracker();
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
     { hand, wrist, gate: new TrackingGate([], 'world'), detector: new SwingDetector(hand) }
@@ -80,13 +79,16 @@ export class ActionPipeline {
       }
     }
 
-    const laneTracking = this.laneGate.evaluate(snapshot);
+    // Lane control reads the same image torso core as the vertical channel, so it shares the
+    // torso gate. The zone is published as a continuous authoritative position, not a step
+    // event: the game re-reads it every frame, so countdowns, pauses and remounts cannot drop
+    // it, and a frozen zone never desyncs — when updates resume the filter re-converges within
+    // a frame and the restated zone corrects whatever the runner did in the meantime.
     const laneReady = calibration !== undefined && (calibration.readiness?.neutral01 ?? 1) >= 0.65;
-    if (!laneReady) this.lean.reset();
-    else if (laneTracking.state === 'tracked') {
-      const lane = this.lean.update(current, calibration);
-      if (lane) events.push({ ...this.eventBase(snapshot, laneTracking.confidence), id: this.nextId++, type: 'lane', direction: lane });
-    } else if (laneTracking.state === 'lost') this.lean.reset();
+    if (laneReady && torsoTracking.state === 'tracked') {
+      const zone = this.lanePosition.update(current, calibration);
+      if (zone !== undefined) controls = { ...controls, laneZone: zone };
+    }
 
     const swingScaleReady = calibration !== undefined && (calibration.readiness?.scale01 ?? 1) >= 0.5;
     if (!swingScaleReady) this.heldSwing = undefined;
@@ -135,6 +137,14 @@ export class ActionPipeline {
   }
 
   /**
+   * The lane zone the tracker currently believes the body occupies. Calibration uses it as
+   * context: while the zone is center no lane is held, so band displacements are stance rather
+   * than control input. One frame stale by the time the next calibration update consumes it,
+   * which is meaningless for a statistical admission decision.
+   */
+  get laneZone(): -1 | 0 | 1 { return this.lanePosition.currentZone; }
+
+  /**
    * The sprint event a blackout frame still owes the game: the last measured speed carried
    * forward with exponential damping, or nothing once the coast has run out — the final
    * stop is emitted by the caller through stopSprint, exactly once.
@@ -160,7 +170,7 @@ export class ActionPipeline {
   /** Returns the events the game still needs, such as stopping a sprint in progress. */
   reset(): SportActionEvent[] {
     const stopped = this.stopSprint(performance.now(), 0, 'lost');
-    this.bodyGate.reset(); this.torsoGate.reset(); this.laneGate.reset(); this.swings.forEach(({ gate }) => { gate.reset(); });
+    this.bodyGate.reset(); this.torsoGate.reset(); this.swings.forEach(({ gate }) => { gate.reset(); });
     this.resetDetectors();
     this.coast = undefined;
     return stopped;
@@ -176,5 +186,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.torsoChannel.reset(); this.lean.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }
