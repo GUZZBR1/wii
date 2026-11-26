@@ -8,17 +8,13 @@ describe('CameraPip visibility', () => {
     const markup = renderToStaticMarkup(
       createElement(CameraPip, {
         hidden: true,
-        sport: 'track',
         videoRef: createRef<HTMLVideoElement>(),
         canvasRef: createRef<HTMLCanvasElement>(),
         cameraOn: false,
         status: 'Câmera desligada',
         tracking: 'SEM POSE',
-        calibrationPhase: 'framing',
-        calibrationProgress: 0,
         onStart: vi.fn(),
         onStop: vi.fn(),
-        onRecalibrate: vi.fn(),
       }),
     );
 
