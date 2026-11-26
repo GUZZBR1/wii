@@ -79,9 +79,19 @@ export class SwingDetector {
     const rightShoulder = snapshot.worldLandmarks[12];
     const leftHip = snapshot.worldLandmarks[23];
     const rightHip = snapshot.worldLandmarks[24];
-    if (!wrist || !shoulder || !leftShoulder || !rightShoulder || !leftHip || !rightHip) { this.reset(); return undefined; }
+    if (!wrist || !shoulder || !leftShoulder || !rightShoulder) {
+      if (!this.pendingSwing || snapshot.timestampMs - this.pendingSwing.startedAt > SWING_MAX_DURATION_MS) {
+        this.reset();
+      }
+      return undefined;
+    }
     const localWrist = bodyLocalPoint(wrist, shoulder, leftShoulder, rightShoulder, leftHip, rightHip, calibration.world.shoulderWidth);
-    if (!localWrist) { this.reset(); return undefined; }
+    if (!localWrist) {
+      if (!this.pendingSwing || snapshot.timestampMs - this.pendingSwing.startedAt > SWING_MAX_DURATION_MS) {
+        this.reset();
+      }
+      return undefined;
+    }
     const current = {
       x: this.xFilter.filter(localWrist.x, snapshot.timestampMs),
       y: this.yFilter.filter(localWrist.y, snapshot.timestampMs),
@@ -100,7 +110,9 @@ export class SwingDetector {
     const lateralSpeedBodyWidthsPerSecond = vx;
     const readyWrist = calibration.world.readyWristLocal?.[hand];
     const readyDistance = readyWrist ? distance3(current, readyWrist) : undefined;
-    const confidence = landmarkConfidence(leftShoulder, rightShoulder, leftHip, rightHip, wrist);
+    const confidence = leftHip && rightHip && landmarkConfidence(leftHip, rightHip) >= 0.35
+      ? landmarkConfidence(leftShoulder, rightShoulder, leftHip, rightHip, wrist)
+      : landmarkConfidence(leftShoulder, rightShoulder, wrist);
     const frameGapMs = current.time - this.previous.time;
     this.previous = current;
 

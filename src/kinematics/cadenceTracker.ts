@@ -1,4 +1,5 @@
 import { median } from './math';
+import { PeriodicityWindow } from './periodicity';
 import type { TorsoVerticalSample } from './torsoVertical';
 
 export interface CadenceResult { cadenceSpm: number; speed01: number; step?: 'left' | 'right' }
@@ -39,6 +40,32 @@ const HYSTERESIS_RATIO = 0.35;
  */
 const MIN_BAND_TORSO = 0.012;
 const MAX_BAND_TORSO = 0.05;
+/** Maximum shoulder vertical asymmetry allowed for a valid torso bounce step (rejects one-arm waving/shrugs). */
+const MAX_SHOULDER_ASYMMETRY = 0.72;
+/** Limb differential hysteresis band (in torsoHeights) for low-bounce high-cadence running. */
+const LIMB_DRIVE_BAND = 0.055;
+/**
+ * Minimum normalized autocorrelation for the torso bounce to count as stepping. Real running and
+ * marching repeat at their own period (≥0.7 in practice); jitter, breathing and posture sway stay
+ * under ~0.35. This is the gate that keeps a motionless player from "running".
+ */
+const PERIODIC_ENTER = 0.75;
+/**
+ * A medium window confirms a vigorous rhythm sooner, but short windows are noisier (measured noise
+ * ceiling 0.82–0.91 at 1.2–2.2 s vs 0.69 at 3.2 s), so it must clear a higher bar.
+ */
+const PERIODIC_ENTER_FAST = 0.9;
+const FAST_WINDOW_MS = 1800;
+const FAST_MAX_LAG_MS = 900;
+/** Once confirmed, the rhythm only has to stay clearly periodic — hysteresis so a stride hiccup does not drop it. */
+const PERIODIC_STAY = 0.5;
+/** Limb (knee/elbow) differential repeats once per stride pair; same enter/stay hysteresis, slightly stricter. */
+const LIMB_PERIODIC_ENTER = 0.8;
+const LIMB_PERIODIC_STAY = 0.55;
+/** Once periodic, stepping stays allowed this long without a fresh periodic reading. */
+const PERIODIC_GRACE_MS = 1000;
+/** After a short tracking hole the window must refill; keep the verdict alive while it does. */
+const PERIODIC_GAP_GRACE_MS = 900;
 /**
  * Steps/min to game speed, interpolated. Anchors follow the CADENCE-Adults studies (100 steps/min is a
  * moderate walk; walking turns into running around 135-140). Those were measured moving forward, not in place.
@@ -75,6 +102,12 @@ export class CadenceTracker {
   private lastStepSide?: 'left' | 'right';
   private previous?: { rise: number; timeMs: number };
   private pausedAt?: number;
+  private limbSide: -1 | 0 | 1 = 0;
+  private pendingGapRecoveryMs = 0;
+  private readonly torsoWindow = new PeriodicityWindow(3000);
+  private readonly limbWindow = new PeriodicityWindow(2400);
+  private periodicUntil = Number.NEGATIVE_INFINITY;
+  private limbPeriodicUntil = Number.NEGATIVE_INFINITY;
 
   update(sample: TorsoVerticalSample | undefined, nowMs: number, suspendCrossings = false): CadenceResult {
     let step: 'left' | 'right' | undefined;
@@ -84,16 +117,69 @@ export class CadenceTracker {
     } else if (this.pausedAt !== undefined) {
       const pausedMs = Math.min(Math.max(0, nowMs - this.pausedAt), MAX_JUMP_CADENCE_HOLD_MS);
       if (Number.isFinite(this.lastStepAt)) this.lastStepAt += pausedMs;
+      // A jump suspends sampling; the rhythm verdict survives it while the window refills.
+      if (this.periodicUntil >= this.pausedAt) this.periodicUntil = Math.max(this.periodicUntil + pausedMs, nowMs + PERIODIC_GAP_GRACE_MS);
+      if (this.limbPeriodicUntil >= this.pausedAt) this.limbPeriodicUntil = Math.max(this.limbPeriodicUntil + pausedMs, nowMs + PERIODIC_GAP_GRACE_MS);
       this.pausedAt = undefined;
       resumed = true;
     }
     if (sample && !suspendCrossings && !resumed) {
-      const active = sample.oscillationAmplitude >= MIN_OSCILLATION_TORSO;
+      const sampleGapMs = this.previous !== undefined ? sample.timestampMs - this.previous.timeMs : 0;
+      if (sampleGapMs > 200 && sampleGapMs <= 1200 && this.lastSteps.length > 0 && Number.isFinite(this.lastStepAt)) {
+        this.pendingGapRecoveryMs += sampleGapMs;
+        // The gap emptied the autocorrelation window; carry a live verdict across it while it refills.
+        if (this.periodicUntil >= this.previous!.timeMs) this.periodicUntil = sample.timestampMs + PERIODIC_GAP_GRACE_MS;
+        if (this.limbPeriodicUntil >= this.previous!.timeMs) this.limbPeriodicUntil = sample.timestampMs + PERIODIC_GAP_GRACE_MS;
+        // Re-arm the Schmitt state if the downward half-cycle occurred inside the blackout gap
+        // so the very first upward crossing after recovery fires immediately instead of being skipped.
+        const band = Math.min(Math.max(sample.oscillationAmplitude * HYSTERESIS_RATIO, MIN_BAND_TORSO), MAX_BAND_TORSO);
+        if (sample.rise < band) this.high = false;
+      }
+
+      this.torsoWindow.push(sample.timestampMs, sample.rise);
+      const torsoStrength = this.torsoWindow.analyze(MIN_STEP_INTERVAL_MS, MAX_STEP_INTERVAL_MS, 3000).strength;
+      const fastStrength = this.torsoWindow.analyze(MIN_STEP_INTERVAL_MS, FAST_MAX_LAG_MS, FAST_WINDOW_MS).strength;
+      const confirmed = sample.timestampMs <= this.periodicUntil;
+      if (confirmed
+        ? Math.max(torsoStrength, fastStrength) >= PERIODIC_STAY
+        : torsoStrength >= PERIODIC_ENTER || fastStrength >= PERIODIC_ENTER_FAST) {
+        this.periodicUntil = sample.timestampMs + PERIODIC_GRACE_MS;
+      }
+      if (sample.limbDrive !== undefined) {
+        this.limbWindow.push(sample.timestampMs, sample.limbDrive);
+        const limbStrength = this.limbWindow.analyze(2 * MIN_STEP_INTERVAL_MS, 1200).strength;
+        if (limbStrength >= (sample.timestampMs <= this.limbPeriodicUntil ? LIMB_PERIODIC_STAY : LIMB_PERIODIC_ENTER)) {
+          this.limbPeriodicUntil = sample.timestampMs + PERIODIC_GRACE_MS;
+        }
+      }
+
+      const symmetric = (sample.shoulderAsymmetry01 ?? 0) <= MAX_SHOULDER_ASYMMETRY;
+      const active = sample.oscillationAmplitude >= MIN_OSCILLATION_TORSO && symmetric;
       const band = Math.min(Math.max(sample.oscillationAmplitude * HYSTERESIS_RATIO, MIN_BAND_TORSO), MAX_BAND_TORSO);
+
+      const recordStep = (crossTime: number) => {
+        step = this.lastStepSide === 'left' ? 'right' : 'left';
+        // If a tracking blackout gap happened since the last step, advance lastStepAt by the
+        // missed periods on this confirmed crossing so the player resumes running immediately
+        // on the first step back instead of throwing away lastSteps and waiting 2 full steps.
+        if (this.pendingGapRecoveryMs > 0 && this.lastSteps.length > 0) {
+          const currentPeriod = median(this.lastSteps);
+          this.lastStepAt = crossTime - currentPeriod;
+          this.pendingGapRecoveryMs = 0;
+        }
+        const interval = crossTime - this.lastStepAt;
+        const deadline = Math.min(median(this.lastSteps) * STOP_AFTER_PERIODS, MAX_STOP_DELAY_MS);
+        if (interval > deadline) this.lastSteps = [];
+        if (interval >= MIN_STEP_INTERVAL_MS && interval <= MAX_STEP_INTERVAL_MS) {
+          this.lastSteps = [...this.lastSteps, interval].slice(-3);
+        }
+        this.lastStepAt = crossTime;
+        this.lastStepSide = step;
+      };
+
       if (!this.high && sample.rise >= band) {
         this.high = true;
         if (active) {
-          step = this.lastStepSide === 'left' ? 'right' : 'left';
           // Linear interpolation of the crossing time: frame-quantized step times would
           // dominate the interval error at high cadence (a 400 ms period is only ~12 frames).
           let crossTime = sample.timestampMs;
@@ -101,22 +187,31 @@ export class CadenceTracker {
             const fraction = (band - this.previous.rise) / (sample.rise - this.previous.rise);
             crossTime = this.previous.timeMs + fraction * (sample.timestampMs - this.previous.timeMs);
           }
-          const interval = crossTime - this.lastStepAt;
-          // A step later than the session's stop deadline opens a fresh interval window: the old
-          // cadence is dropped, but the measured interval still estimates the new pace. A step
-          // beyond the acceptance ceiling is too old to pair with, so it only re-arms the tracker.
-          const deadline = Math.min(median(this.lastSteps) * STOP_AFTER_PERIODS, MAX_STOP_DELAY_MS);
-          if (interval > deadline) this.lastSteps = [];
-          if (interval >= MIN_STEP_INTERVAL_MS && interval <= MAX_STEP_INTERVAL_MS) this.lastSteps = [...this.lastSteps, interval].slice(-3);
-          this.lastStepAt = crossTime;
-          this.lastStepSide = step;
+          recordStep(crossTime);
         }
       } else if (this.high && sample.rise <= -band) {
         this.high = false;
       }
+
+      // Secondary channel: alternating limb drive (knees or elbows) catches fast "gliding" runs
+      // where the player pumps legs/arms rapidly with minimal vertical torso bounce.
+      if (!step && symmetric && sample.limbDrive !== undefined && sample.timestampMs <= this.limbPeriodicUntil) {
+        const nextLimbSide = sample.limbDrive >= LIMB_DRIVE_BAND ? 1 : sample.limbDrive <= -LIMB_DRIVE_BAND ? -1 : this.limbSide;
+        if (nextLimbSide !== 0 && this.limbSide !== 0 && nextLimbSide !== this.limbSide) {
+          if (sample.timestampMs - this.lastStepAt >= MIN_STEP_INTERVAL_MS) {
+            recordStep(sample.timestampMs);
+          }
+        }
+        if (nextLimbSide !== 0) this.limbSide = nextLimbSide;
+      }
+
+      // Crossings keep feeding the interval memory (so a real run starts instantly once the rhythm
+      // is confirmed), but an unconfirmed rhythm never reaches the game as a step.
+      if (step && sample.timestampMs > this.periodicUntil && sample.timestampMs > this.limbPeriodicUntil) step = undefined;
       this.previous = { rise: sample.rise, timeMs: sample.timestampMs };
     } else if (sample && resumed) {
       const band = Math.min(Math.max(sample.oscillationAmplitude * HYSTERESIS_RATIO, MIN_BAND_TORSO), MAX_BAND_TORSO);
+      this.torsoWindow.push(sample.timestampMs, sample.rise);
       if (sample.rise >= band) this.high = true;
       else if (sample.rise <= -band) this.high = false;
       this.previous = { rise: sample.rise, timeMs: sample.timestampMs };
@@ -127,7 +222,8 @@ export class CadenceTracker {
       ? Math.min(Math.max(0, nowMs - this.pausedAt), MAX_JUMP_CADENCE_HOLD_MS)
       : 0;
     const elapsed = nowMs - this.lastStepAt - suspendedMs;
-    const moving = period > 0 && elapsed <= Math.min(period * STOP_AFTER_PERIODS, MAX_STOP_DELAY_MS);
+    const rhythmConfirmed = nowMs <= this.periodicUntil || nowMs <= this.limbPeriodicUntil;
+    const moving = rhythmConfirmed && period > 0 && elapsed <= Math.min(period * STOP_AFTER_PERIODS, MAX_STOP_DELAY_MS);
     const cadenceSpm = moving ? 60_000 / Math.max(period, elapsed) : 0;
     return { cadenceSpm, speed01: speedFromCadence(cadenceSpm), step };
   }
@@ -139,5 +235,11 @@ export class CadenceTracker {
     this.lastStepSide = undefined;
     this.previous = undefined;
     this.pausedAt = undefined;
+    this.limbSide = 0;
+    this.pendingGapRecoveryMs = 0;
+    this.torsoWindow.reset();
+    this.limbWindow.reset();
+    this.periodicUntil = Number.NEGATIVE_INFINITY;
+    this.limbPeriodicUntil = Number.NEGATIVE_INFINITY;
   }
 }

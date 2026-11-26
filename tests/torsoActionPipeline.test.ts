@@ -102,4 +102,81 @@ describe('torso action pipeline integration', () => {
     expect(run(1).length).toBeGreaterThan(0);
   });
 
+  it('keeps running cadence and tracking alive when arm pump occludes one hip landmark every stride', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const results = [];
+    for (let timeMs = 0; timeMs <= 3500; timeMs += 33) {
+      const rise = runningRise(timeMs);
+      const snapshot = poseWithHipBounce(timeMs, -rise * TORSO_HEIGHT);
+      // Alternate occluding left (23) or right (24) hip as arms pump across the waist.
+      const occludedHip = Math.floor(timeMs / 165) % 2 === 0 ? 23 : 24;
+      const landmarks = snapshot.landmarks.map((point, index) => (
+        index === occludedHip ? { ...point, visibility: 0.2, presence: 0.2 } : point
+      ));
+      results.push(pipeline.update({ ...snapshot, landmarks }, profile));
+    }
+    const tail = results.slice(-20);
+    expect(tail.every((r) => r.controls.trackingState === 'tracked')).toBe(true);
+    expect(tail.every((r) => r.controls.sprintSpeed01 > 0.3)).toBe(true);
+  });
+
+  it('rejects asymmetric single-shoulder shrugs and one-arm waving while standing still', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const speeds: number[] = [];
+    for (let timeMs = 0; timeMs <= 3000; timeMs += 33) {
+      const base = pose(timeMs);
+      // Shrug/wave only the right shoulder (12) and wrist (16) up and down at 2.5 Hz while left shoulder (11) stays put.
+      const wave = 0.08 * Math.sin((2 * Math.PI * 2.5 * timeMs) / 1000);
+      const landmarks = base.landmarks.map((point, index) => (
+        index === 12 || index === 16 ? { ...point, y: point.y + wave } : point
+      ));
+      // Also hide hips to force shoulder-driven vertical measurement, proving asymmetry gates it.
+      landmarks[23] = { ...landmarks[23]!, visibility: 0.1, presence: 0.1 };
+      landmarks[24] = { ...landmarks[24]!, visibility: 0.6, presence: 0.6 };
+      const result = pipeline.update({ ...base, landmarks }, profile);
+      speeds.push(result.controls.sprintSpeed01);
+    }
+    expect(Math.max(...speeds)).toBe(0);
+  });
+
+  it('detects fast gliding running from alternating knee/arm drive even with minimal torso bounce', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const results = [];
+    for (let timeMs = 0; timeMs <= 3500; timeMs += 33) {
+      // Very small vertical torso bounce (0.005 torso — below MIN_OSCILLATION_TORSO),
+      // but clear alternating knee drive at 165 spm (2.75 Hz).
+      const phase = (2 * Math.PI * (165 / 60) * timeMs) / 1000;
+      const snap = pose(timeMs, {
+        kneeLeft: Math.max(0, Math.sin(phase)) * 0.22,
+        kneeRight: Math.max(0, -Math.sin(phase)) * 0.22,
+      });
+      results.push(pipeline.update(snap, profile));
+    }
+    const tail = results.slice(-15);
+    expect(tail.every((r) => r.controls.sprintSpeed01 > 0.55)).toBe(true);
+  });
+
+  it('recovers full running speed on the very first step after a 700 ms tracking blackout', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const hz = 165 / 60;
+    const bounceAt = (t: number) => poseWithHipBounce(t, t < 300 ? 0 : -0.05 * Math.sin((2 * Math.PI * hz * (t - 300)) / 1000) * TORSO_HEIGHT);
+
+    for (let t = 0; t <= 2200; t += 33) pipeline.update(bounceAt(t), profile);
+    // 700 ms blackout (past the old 580 ms deadline, inside the 800 ms gate loss window):
+    for (let t = 2233; t <= 2900; t += 33) {
+      pipeline.update(pose(t, { confidence: 0.1 }), profile);
+    }
+    // Tracking returns: within one single step crossing (~360 ms — not two steps / ~730 ms),
+    // full running speed (>0.55) is already restored.
+    let recoveredSpeed = 0;
+    for (let t = 2933; t <= 3329; t += 33) {
+      recoveredSpeed = Math.max(recoveredSpeed, pipeline.update(bounceAt(t), profile).controls.sprintSpeed01);
+    }
+    expect(recoveredSpeed).toBeGreaterThan(0.55);
+  });
+
 });

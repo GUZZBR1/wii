@@ -29,6 +29,7 @@ export interface WorkerInit {
   type: 'INIT';
   wasmBaseUrl: string;
   modelUrl: string;
+  cpuModelUrl?: string;
   delegate: Delegate;
 }
 

@@ -31,6 +31,19 @@ describe('adaptive calibration', () => {
     expect(profile!.world.readyWristLocal).toBeUndefined();
   });
 
+  it('publishes a valid calibration profile even when hips [23, 24] are completely outside a close webcam frame', () => {
+    const calibrator = new AdaptiveCalibrator();
+    const frames = [];
+    for (let time = 0; time <= 750; time += 35) {
+      frames.push(hideWorld(pose(time, { hiddenLandmarks: [23, 24, 25, 26, 27, 28] }), [23, 24, 25, 26, 27, 28]));
+    }
+
+    const profile = feed(calibrator, frames);
+    expect(profile).toBeDefined();
+    expect(profile!.world.shoulderWidth).toBeCloseTo(0.4, 2);
+    expect(profile!.image.shoulderCenterX0).toBeCloseTo(0.5, 2);
+  });
+
   it('does not publish before a minimum evidence span', () => {
     const calibrator = new AdaptiveCalibrator();
     expect(feed(calibrator, [pose(0), pose(100), pose(200), pose(300)])).toBeUndefined();

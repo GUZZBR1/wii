@@ -163,4 +163,21 @@ describe('pipeline swing-start and enriched events', () => {
     expect(events.some((event) => event.type === 'swing-start')).toBe(true);
     expect(events.some((event) => event.type === 'swing')).toBe(true);
   });
+
+  it('confirms a swing when both image and world hips [23, 24] are out of frame (upper-body webcam framing)', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    const hideAllHips = (snapshot: ReturnType<typeof pose>) => ({
+      ...snapshot,
+      landmarks: snapshot.landmarks.map((p, i) => (i === 23 || i === 24 ? { ...p, visibility: 0.1, presence: 0.1 } : p)),
+      worldLandmarks: snapshot.worldLandmarks.map((p, i) => (i === 23 || i === 24 ? { ...p, visibility: 0.1, presence: 0.1 } : p)),
+    });
+    for (const time of [0, 33, 66]) pipeline.update(hideAllHips(pose(time)), profile);
+    const events = [
+      hideAllHips(pose(100, { wristLateral: -0.3 })),
+      hideAllHips(pose(150, { wristLateral: 0.2 })),
+    ].flatMap((frame) => pipeline.update(frame, profile).events);
+    expect(events.some((event) => event.type === 'swing-start')).toBe(true);
+    expect(events.some((event) => event.type === 'swing')).toBe(true);
+  });
 });

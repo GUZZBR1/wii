@@ -24,8 +24,13 @@ export class TrackGame {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(54, 1, 0.1, 120);
   private readonly runner = new THREE.Group();
+  private readonly torsoGroup = new THREE.Group();
+  private readonly headGroup = new THREE.Group();
   private readonly legs: THREE.Group[] = [];
+  private readonly shins: THREE.Group[] = [];
+  private readonly feet: THREE.Mesh[] = [];
   private readonly arms: THREE.Group[] = [];
+  private readonly forearms: THREE.Group[] = [];
   private readonly stripes: THREE.Mesh[] = [];
   private readonly skyDome = createSkyDome();
   private readonly sceneryPool = new SceneryPool(biomeAt(0).current.props);
@@ -107,27 +112,45 @@ export class TrackGame {
       [hemi.color, 'hemiSky'], [hemi.groundColor, 'hemiGround'], [sun.color, 'sun'],
     );
     this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.set(0, 0.045, RUNNER_Z); this.scene.add(this.shadow);
-    // Mii-like proportions (about three heads tall) with floating hands.
+    // Articulated Mii-like proportions with upper body counter-rotation, knee joints, and ankle push-off.
     const lambert = (color: number) => new THREE.MeshLambertMaterial({ color, flatShading: true });
     const shirt = lambert(0xffffff), accent = lambert(0x2f9be8), skin = lambert(0xf2c29a), shorts = lambert(0x35516e), shoes = lambert(0xff8a2a);
     const part = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = this.runner) => {
       const mesh = new THREE.Mesh(geometry, material);
       mesh.position.set(x, y, z); parent.add(mesh);
+      return mesh;
     };
-    part(new THREE.CapsuleGeometry(0.34, 0.4, 4, 12), shirt, 0, 1.13, 0);
-    part(new THREE.CylinderGeometry(0.35, 0.35, 0.14, 16, 1, true), accent, 0, 1.22, 0);
-    part(new THREE.SphereGeometry(0.42, 16, 12), skin, 0, 1.98, 0);
-    part(new THREE.CylinderGeometry(0.41, 0.425, 0.13, 16, 1, true), accent, 0, 2.11, 0);
-    part(new THREE.BoxGeometry(0.46, 0.05, 0.26), accent, 0, 2.08, -0.48);
-    const legGeo = new THREE.CapsuleGeometry(0.13, 0.4, 3, 8), footGeo = new THREE.BoxGeometry(0.25, 0.14, 0.4);
-    const handGeo = new THREE.SphereGeometry(0.15, 10, 8);
+    this.torsoGroup.position.set(0, 0.78, 0);
+    part(new THREE.CapsuleGeometry(0.34, 0.4, 4, 12), shirt, 0, 0.35, 0, this.torsoGroup);
+    part(new THREE.CylinderGeometry(0.35, 0.35, 0.14, 16, 1, true), accent, 0, 0.44, 0, this.torsoGroup);
+    this.headGroup.position.set(0, 1.2, 0);
+    part(new THREE.SphereGeometry(0.42, 16, 12), skin, 0, 0, 0, this.headGroup);
+    part(new THREE.CylinderGeometry(0.41, 0.425, 0.13, 16, 1, true), accent, 0, 0.13, 0, this.headGroup);
+    part(new THREE.BoxGeometry(0.46, 0.05, 0.26), accent, 0, 0.1, -0.48, this.headGroup);
+    this.torsoGroup.add(this.headGroup);
+    this.runner.add(this.torsoGroup);
+
+    const thighGeo = new THREE.CapsuleGeometry(0.13, 0.22, 3, 8);
+    const shinGeo = new THREE.CapsuleGeometry(0.105, 0.2, 3, 8);
+    const footGeo = new THREE.BoxGeometry(0.25, 0.14, 0.4);
+    const upperArmGeo = new THREE.CapsuleGeometry(0.095, 0.2, 3, 8);
+    const handGeo = new THREE.SphereGeometry(0.145, 10, 8);
     for (const side of [-1, 1]) {
       const leg = new THREE.Group(); leg.position.set(side * 0.17, 0.74, 0);
-      part(legGeo, shorts, 0, -0.33, 0, leg);
-      part(footGeo, shoes, 0, -0.65, -0.06, leg);
-      const arm = new THREE.Group(); arm.position.set(side * 0.55, 1.45, 0);
-      part(handGeo, skin, 0, -0.45, 0, arm);
-      this.runner.add(leg, arm); this.legs.push(leg); this.arms.push(arm);
+      part(thighGeo, shorts, 0, -0.18, 0, leg);
+      const shin = new THREE.Group(); shin.position.set(0, -0.36, 0);
+      part(shinGeo, skin, 0, -0.15, 0, shin);
+      const foot = part(footGeo, shoes, 0, -0.3, -0.06, shin);
+      leg.add(shin);
+      const arm = new THREE.Group(); arm.position.set(side * 0.46, 0.68, 0);
+      part(upperArmGeo, shirt, 0, -0.14, 0, arm);
+      const forearm = new THREE.Group(); forearm.position.set(0, -0.28, 0);
+      part(handGeo, skin, 0, -0.18, -0.04, forearm);
+      arm.add(forearm);
+      this.torsoGroup.add(arm);
+      this.runner.add(leg);
+      this.legs.push(leg); this.shins.push(shin); this.feet.push(foot);
+      this.arms.push(arm); this.forearms.push(forearm);
     }
     this.runner.position.set(0, 0, RUNNER_Z); this.scene.add(this.runner);
     this.addItem('hurdle', -1, -30);
@@ -219,6 +242,14 @@ export class TrackGame {
 
     const cameraInputAgeMs = this.lastSprintInputAtMs !== undefined ? Math.max(0, wallTimeMs - this.lastSprintInputAtMs) : 0;
     const physicsDt = adjudicationDt(this.pace, dt, cameraInputAgeMs);
+    // Keep visual scroll alive while camera input is actively coasting ('degraded' within the
+    // stale budget) so transient single-frame occlusion bursts never freeze the track on screen,
+    // while hurdle collision adjudication still respects physicsDt.
+    const visualDt = physicsDt > 0
+      ? physicsDt
+      : this.pace.owner === 'camera' && this.pace.cameraTracking === 'degraded' && cameraInputAgeMs <= 400
+        ? dt
+        : 0;
     this.score.advance(physicsDt, speed);
     this.runner.position.x += (this.lane * 1.5 - this.runner.position.x) * Math.min(1, dt * 10);
     // Lean into the lane change, upright again on arrival.
@@ -226,11 +257,70 @@ export class TrackGame {
     // One leg swing per step: follow the player's cadence, or estimate it from speed for the keyboard.
     const lastStep = Math.floor(this.stridePhase / Math.PI);
     if (gait !== 'idle') this.stridePhase += dt * Math.PI * (this.pace.cadenceSpm || 70 + speed * 130) / 60;
-    const swing = gait === 'idle' ? 0 : gait === 'walk' ? 0.4 : 0.95;
-    const stride = Math.sin(this.stridePhase) * swing;
-    this.legs[0]!.rotation.x = stride; this.legs[1]!.rotation.x = -stride;
-    this.arms[0]!.rotation.x = -stride * (gait === 'run' ? 1.1 : 0.65); this.arms[1]!.rotation.x = -this.arms[0]!.rotation.x;
-    this.runner.rotation.x = gait === 'run' ? -0.16 : 0;
+    const isRun = gait === 'run';
+    const swing = gait === 'idle' ? 0 : gait === 'walk' ? 0.48 : 0.85 + Math.min(0.25, speed * 0.25);
+    const airbornePose = this.jumpTime > 0;
+    for (const index of [0, 1] as const) {
+      const phase = this.stridePhase + (index === 1 ? Math.PI : 0);
+      const s = Math.sin(phase);
+      const c = Math.cos(phase);
+      // In camera view (-Z is forward down the track), positive rotation.x swings the limb backward
+      // and negative rotation.x drives the knee/arm forward.
+      const thighPitch = airbornePose
+        ? (index === 0 ? -0.75 : 0.35)
+        : gait === 'idle'
+          ? 0
+          : s * swing - (isRun ? Math.max(0, -s) * 0.22 : 0);
+      // Knee only bends backward (+rotation.x): heel kick during recovery (c < 0) and high-knee bend.
+      const kneeFlex = airbornePose
+        ? (index === 0 ? 0.95 : 0.65)
+        : gait === 'idle'
+          ? 0
+          : isRun
+            ? Math.max(0, -c) * 1.15 + Math.max(0, -s) * 0.35
+            : Math.max(0, -c) * 0.45;
+      const footPitch = airbornePose
+        ? 0.25
+        : gait === 'idle'
+          ? 0
+          : Math.max(0, s) * (isRun ? 0.38 : 0.18) - Math.max(0, -s) * 0.15;
+      this.legs[index]!.rotation.x = THREE.MathUtils.damp(this.legs[index]!.rotation.x, thighPitch, 22, dt);
+      this.shins[index]!.rotation.x = THREE.MathUtils.damp(this.shins[index]!.rotation.x, kneeFlex, 24, dt);
+      this.feet[index]!.rotation.x = THREE.MathUtils.damp(this.feet[index]!.rotation.x, footPitch, 22, dt);
+
+      // Contra-lateral arm pump: right arm swings forward with left leg, elbows bent in an L during running.
+      const armPhase = phase + Math.PI;
+      const armSin = Math.sin(armPhase);
+      const armPitch = airbornePose
+        ? -0.55
+        : gait === 'idle'
+          ? 0
+          : armSin * swing * (isRun ? 1.05 : 0.65);
+      const elbowFlex = airbornePose
+        ? -0.85
+        : gait === 'idle'
+          ? -0.1
+          : isRun
+            ? -0.75 - Math.max(0, -armSin) * 0.45
+            : -0.25 - Math.max(0, -armSin) * 0.2;
+      const side = index === 0 ? -1 : 1;
+      this.arms[index]!.rotation.x = THREE.MathUtils.damp(this.arms[index]!.rotation.x, armPitch, 22, dt);
+      this.arms[index]!.rotation.z = side * (isRun ? 0.14 : 0.08);
+      this.forearms[index]!.rotation.x = THREE.MathUtils.damp(this.forearms[index]!.rotation.x, elbowFlex, 24, dt);
+      this.forearms[index]!.rotation.y = -side * (isRun ? 0.22 : 0.08);
+    }
+
+    const strideSin = Math.sin(this.stridePhase);
+    const targetForwardLean = airbornePose ? -0.08 : gait === 'idle' ? 0 : -(0.06 + speed * 0.18);
+    this.runner.rotation.x = THREE.MathUtils.damp(this.runner.rotation.x, targetForwardLean, 12, dt);
+    this.torsoGroup.rotation.y = THREE.MathUtils.damp(
+      this.torsoGroup.rotation.y,
+      gait === 'idle' ? 0 : -strideSin * (isRun ? 0.18 : 0.08),
+      18,
+      dt,
+    );
+    this.headGroup.rotation.y = -this.torsoGroup.rotation.y * 0.55;
+    this.headGroup.rotation.x = -this.runner.rotation.x * 0.45;
     if (this.jumpTime > 0) {
       const jumpDt = this.jumpSource === 'keyboard' ? dt : physicsDt;
       this.jumpTime = Math.max(0, this.jumpTime - jumpDt);
@@ -241,17 +331,19 @@ export class TrackGame {
         this.dustPool.emit(this.runner.position.x, RUNNER_Z + 0.2, 8);
       }
     } else {
-      this.runner.position.y = gait === 'run' ? Math.abs(Math.sin(this.stridePhase)) * 0.14 : 0;
+      const bounceAmp = gait === 'run' ? 0.11 + speed * 0.06 : gait === 'walk' ? 0.035 : 0;
+      this.runner.position.y = bounceAmp > 0 ? Math.abs(Math.sin(this.stridePhase)) * bounceAmp : 0;
       if (gait === 'run' && Math.floor(this.stridePhase / Math.PI) !== lastStep) this.dustPool.emit(this.runner.position.x, RUNNER_Z + 0.2, 2);
     }
     if (speed > 0) this.movingTime += physicsDt;
     const boost = timeBoost(this.movingTime);
     const advance = physicsDt * speed * 22 * boost;
+    const visualAdvance = visualDt * speed * 22 * boost;
     const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
-    this.travelled += advance;
-    for (const stripe of this.stripes) stripe.position.z = scrollZ(stripe.position.z, advance, SCENERY_MIN_Z, SCENERY_MAX_Z);
-    this.sceneryPool.update(advance, this.applyBiome().props);
-    this.dustPool.update(dt, advance);
+    this.travelled += visualAdvance;
+    for (const stripe of this.stripes) stripe.position.z = scrollZ(stripe.position.z, visualAdvance, SCENERY_MIN_Z, SCENERY_MAX_Z);
+    this.sceneryPool.update(visualAdvance, this.applyBiome().props);
+    this.dustPool.update(dt, visualAdvance);
     this.shadow.position.x = this.runner.position.x;
     // The shadow shrinks as the runner rises, which is what reads as height.
     this.shadow.scale.setScalar(1 / (1 + this.runner.position.y * 0.6));

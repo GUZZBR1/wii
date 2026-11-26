@@ -268,7 +268,7 @@ describe('action pipeline tracking gate', () => {
     // A sustained blackout — past the gate's 800 ms window — ends in 'lost' with the
     // sprint fully stopped (the coast has long decayed by then).
     const blackout = [];
-    for (let time = 1112; time <= 2000; time += 33) blackout.push(pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile));
+    for (let time = 1112; time <= 2000; time += 33) blackout.push(pipeline.update(pose(time, { hiddenLandmarks: [11, 12] }), profile));
     const lost = blackout.at(-1)!;
     expect(lost.controls).toMatchObject({ sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'lost' });
   });
@@ -283,7 +283,7 @@ describe('action pipeline tracking gate', () => {
     pipeline.update(poseWithHipBounce(1079, 0), profile);
     const after = [1112, 1145, 1178, 1211, 1244, 2000].flatMap((time) => {
       if (cause === 'reset') return pipeline.reset();
-      return pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile).events;
+      return pipeline.update(pose(time, { hiddenLandmarks: [11, 12] }), profile).events;
     });
     const stops = after.filter((event) => event.type === 'sprint' && event.speed01 === 0);
     expect(stops).toHaveLength(1);
@@ -302,7 +302,7 @@ describe('action pipeline tracking gate', () => {
     expect(speedBefore).toBeGreaterThan(0.3);
     // A ~200 ms blur burst: the speed must decay smoothly, never hitting zero — and no
     // stop event may fire.
-    const burst = [1112, 1145, 1178, 1211, 1244, 1277].map((time) => pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile));
+    const burst = [1112, 1145, 1178, 1211, 1244, 1277].map((time) => pipeline.update(pose(time, { hiddenLandmarks: [11, 12] }), profile));
     const speeds = burst.map((result) => result.controls.sprintSpeed01);
     expect(speeds.every((speed) => speed > 0)).toBe(true);
     expect(speeds[0]!).toBeLessThan(speedBefore);
@@ -322,7 +322,7 @@ describe('action pipeline tracking gate', () => {
     driveBounce(pipeline, profile, 66, 1046);
     pipeline.update(bounceAt(1079), profile);
     // The player keeps running through a ~300 ms blackout the camera cannot see.
-    for (let time = 1112; time <= 1400; time += 33) pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile);
+    for (let time = 1112; time <= 1400; time += 33) pipeline.update(pose(time, { hiddenLandmarks: [11, 12] }), profile);
     // Detectors were never reset: the cadence memory is warm, so measured cadence flows
     // within the first tracked frames — a from-scratch restart would emit nothing for
     // ~2 step intervals (~800 ms at 150 spm). The median-of-three then purges the
@@ -343,7 +343,7 @@ describe('action pipeline tracking gate', () => {
     // Beyond the 600 ms coast timeout the runner must be fully stopped — and the zero
     // emitted exactly once even though bad frames keep coming.
     const blackout = [];
-    for (let time = 1112; time <= 1750; time += 33) blackout.push(pipeline.update(pose(time, { hiddenLandmarks: [23, 24] }), profile));
+    for (let time = 1112; time <= 1750; time += 33) blackout.push(pipeline.update(pose(time, { hiddenLandmarks: [11, 12] }), profile));
     const stops = blackout.flatMap((result) => result.events).filter((event) => event.type === 'sprint' && event.speed01 === 0);
     expect(stops).toHaveLength(1);
     expect(blackout.at(-1)!.controls.sprintSpeed01).toBe(0);
@@ -449,7 +449,7 @@ describe('action pipeline tracking gate', () => {
     expect(result.events.filter((event) => event.type === 'swing')).toHaveLength(0);
   });
 
-  it('allows a swing when only its feature landmarks are tracked, and labels that local gate', () => {
+  it('keeps swings and tracking alive when only the hips are missing (shoulder-anchored gate)', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
     const missingHips = (time: number, wristLateral = 0) => {
@@ -461,7 +461,7 @@ describe('action pipeline tracking gate', () => {
     pipeline.update(missingHips(99, -0.3), profile);
     const recovery = pipeline.update(missingHips(132, 0.2), profile);
     const swing = recovery.events.find((event) => event.type === 'swing');
-    expect(recovery.snapshot.trackingState).toBe('lost');
+    expect(recovery.snapshot.trackingState).toBe('tracked');
     expect(swing).toMatchObject({ type: 'swing', trackingState: 'tracked' });
   });
 });
@@ -663,7 +663,7 @@ describe('action pipeline (upper-body only)', () => {
     const events = [];
     const hz = 150 / 60;
     for (let time = 0; time <= 2500; time += 33) {
-      const units = time >= 200 && time <= 1500 ? 0.04 * Math.sin((2 * Math.PI * hz * (time - 200)) / 1000) : 0;
+      const units = time >= 200 && time <= 2200 ? 0.04 * Math.sin((2 * Math.PI * hz * (time - 200)) / 1000) : 0;
       // Big wrist arcs on top — swings remain available because their references are only
       // a re-arm fast path, not an onset prerequisite.
       const snapshot = torsoOnly(time, units * 0.4);

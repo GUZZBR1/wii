@@ -15,15 +15,17 @@ import { TrackingGate } from './trackingGate';
  * through the whole window — only a sustained 'lost' (the gate's own 800 ms blackout) resets
  * them, so a blur burst no longer wipes the cadence memory the run depends on.
  */
+const UPPER_BODY_ANCHOR = [11, 12] as const;
 const COAST_TIMEOUT_MS = 600;
 const COAST_HALF_LIFE_MS = 150;
 /** Below this the carried speed is indistinguishable from stopped; the coast ends in a clean zero. */
 const COAST_MIN_SPEED01 = 0.02;
 
 export class ActionPipeline {
-  private readonly bodyGate = new TrackingGate();
+  /** Shoulder-anchored: hips sit at the bottom edge of a laptop webcam frame or behind the swinging arms. */
+  private readonly bodyGate = new TrackingGate(UPPER_BODY_ANCHOR);
   /** One gate and one vertical channel for the torso core: cadence and jump read the same frame's sample. */
-  private readonly torsoGate = new TrackingGate([11, 12, 23, 24]);
+  private readonly torsoGate = new TrackingGate(UPPER_BODY_ANCHOR);
   private readonly torsoChannel = new TorsoVerticalChannel();
   private readonly cadence = new CadenceTracker();
   private readonly jump = new JumpDetector();
@@ -50,12 +52,26 @@ export class ActionPipeline {
 
     const torsoTracking = this.torsoGate.evaluate(snapshot);
     controls = { ...controls, trackingState: torsoTracking.state };
-    if (torsoTracking.state === 'tracked') {
+    const shouldersConfident = Boolean(
+      snapshot.landmarks[11]
+      && snapshot.landmarks[12]
+      && (snapshot.landmarks[11]!.visibility ?? 0) >= 0.7
+      && (snapshot.landmarks[12]!.visibility ?? 0) >= 0.7
+      && (snapshot.landmarks[11]!.presence ?? 0) >= 0.7
+      && (snapshot.landmarks[12]!.presence ?? 0) >= 0.7,
+    );
+    const oneHipVisible = Boolean(
+      snapshot.landmarks[23]
+      && snapshot.landmarks[24]
+      && Math.max(snapshot.landmarks[23]!.visibility ?? 0, snapshot.landmarks[24]!.visibility ?? 0) >= 0.5
+      && Math.min(snapshot.landmarks[23]!.visibility ?? 0, snapshot.landmarks[24]!.visibility ?? 0) < 0.5,
+    );
+    if (torsoTracking.state === 'tracked' || (shouldersConfident && oneHipVisible)) {
       const sample = this.torsoChannel.update(current, this.jump.suppressesCadence);
-      const jumped = sample ? this.jump.update(sample) : false;
+      const jumped = sample && sample.source !== 'shoulders' ? this.jump.update(sample) : false;
       const cadence = this.cadence.update(sample, snapshot.timestampMs, this.jump.suppressesCadence);
       controls = { sprintSpeed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm, trackingState: 'tracked' };
-      const base = this.eventBase(snapshot, torsoTracking.confidence);
+      const base = this.eventBase(snapshot, Math.max(torsoTracking.confidence, 0.55));
       events.push({ ...base, id: this.nextId++, type: 'sprint', speed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm });
       this.sprinting = cadence.speed01 > 0;
       this.coast = cadence.speed01 > 0
@@ -79,13 +95,10 @@ export class ActionPipeline {
       }
     }
 
-    // Lane control reads the same image torso core as the vertical channel, so it shares the
-    // torso gate. The zone is published as a continuous authoritative position, not a step
-    // event: the game re-reads it every frame, so countdowns, pauses and remounts cannot drop
-    // it, and a frozen zone never desyncs — when updates resume the filter re-converges within
-    // a frame and the restated zone corrects whatever the runner did in the meantime.
+    // Lane control reads the shoulder line in image space, so it stays active whenever the
+    // torso gate is tracked OR both shoulders are clearly visible (even if hips are cropped).
     const laneReady = calibration !== undefined && (calibration.readiness?.neutral01 ?? 1) >= 0.65;
-    if (laneReady && torsoTracking.state === 'tracked') {
+    if (laneReady && (torsoTracking.state === 'tracked' || shouldersConfident)) {
       const zone = this.lanePosition.update(current, calibration);
       if (zone !== undefined) controls = { ...controls, laneZone: zone };
     }
@@ -93,7 +106,16 @@ export class ActionPipeline {
     const swingScaleReady = calibration !== undefined && (calibration.readiness?.scale01 ?? 1) >= 0.5;
     if (!swingScaleReady) this.heldSwing = undefined;
     const results = this.swings.map(({ wrist, gate, detector, hand }) => {
-      const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, wrist], 'world');
+      const worldHipsVisible = Boolean(
+        snapshot.worldLandmarks[23]
+        && snapshot.worldLandmarks[24]
+        && Math.min(
+          snapshot.worldLandmarks[23]!.visibility ?? snapshot.worldLandmarks[23]!.presence ?? 0,
+          snapshot.worldLandmarks[24]!.visibility ?? snapshot.worldLandmarks[24]!.presence ?? 0,
+        ) >= 0.35,
+      );
+      const swingLandmarks = worldHipsVisible ? [11, 12, 23, 24, wrist] : [11, 12, wrist];
+      const tracking = gate.evaluate(snapshot, swingLandmarks, 'world');
       if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
       else if (tracking.state === 'degraded') detector.interruptRearm();
       const output = calibration && swingScaleReady && tracking.state === 'tracked' ? detector.update(current, calibration) : undefined;
