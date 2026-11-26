@@ -190,9 +190,9 @@ export default function App() {
         <button type="button" className={sport === 'track' ? 'active' : ''} onClick={() => setSport('track')}>01 · CORRIDA</button>
         <button type="button" className={sport === 'tennis' ? 'active' : ''} onClick={() => {
           setSport('tennis');
-          // Um perfil vindo da corrida pode não ter referência de punhos — e sem ela o swing
-          // não dispara: o tênis refaz a calibração pedindo as mãos visíveis.
-          if (profileRef.current && !profileRef.current.world.readyWristLocal) recalibrate();
+          // Referências de punho são apenas o re-arm rápido. Sem elas o swing continua
+          // disponível pelo fallback de velocidade baixa, então trocar de esporte não apaga
+          // a calibração do torso nem bloqueia a partida.
         }}>02 · TÊNIS</button>
       </nav>
       <button type="button" className="mute-fab" onClick={toggleMute} title={muted ? 'Áudio desligado' : 'Áudio ligado'}>{muted ? '×' : '♫'}</button>

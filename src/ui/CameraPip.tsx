@@ -31,8 +31,7 @@ export function CameraPip(props: Props) {
   const calibrated = props.calibrationPhase === 'done';
 
   useEffect(() => { setExpanded(props.cameraOn); }, [props.cameraOn]);
-  // Voltar a calibrar pede a tela cheia de novo — inclusive quando a troca de esporte a reinicia.
-  useEffect(() => { if (props.cameraOn && !calibrated) setExpanded(true); }, [props.cameraOn, calibrated]);
+  // Calibração incompleta não toma a tela: o jogo já pode usar torso antes do perfil.
   // Deixa o "Calibrado" visível por um instante antes de voltar para o canto.
   useEffect(() => {
     if (!calibrated) return;

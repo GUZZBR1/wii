@@ -12,7 +12,7 @@
 
 - Node.js 24 LTS e npm 11 ou compatível.
 - Navegador desktop moderno (Chrome, Edge ou Firefox) com câmera e WebGL 2; publicação e uso da câmera exigem HTTPS (localhost funciona em desenvolvimento).
-- Câmera enquadrando o corpo inteiro para corrida e salto. O Tênis funciona com enquadramento mais próximo.
+- Câmera enquadrando cabeça e torso até o quadril. Pernas e pés são opcionais; para tênis, pelo menos uma mão visível melhora a referência da raquetada.
 
 ## Desenvolvimento
 
@@ -21,7 +21,7 @@ npm ci
 npm run dev
 ```
 
-O servidor local imprime a URL de desenvolvimento. A primeira ação **Ativar câmera** solicita permissão; a câmera abre em tela grande e calibra sozinha quando você fica parado e enquadrado (cerca de quatro segundos). A mão da raquete é detectada pelo movimento. Se a câmera não estiver disponível, setas e espaço continuam funcionando.
+O servidor local imprime a URL de desenvolvimento. A primeira ação **Ativar câmera** solicita permissão; a câmera abre em tela grande e calibra sozinha quando você fica parado e enquadrado. Corrida e salto já funcionam enquanto a referência corporal converge; raia e raquetada entram progressivamente. A mão da raquete é detectada pelo movimento. Se a câmera não estiver disponível, setas e espaço continuam funcionando.
 
 ```bash
 npm test
