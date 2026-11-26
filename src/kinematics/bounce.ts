@@ -12,6 +12,12 @@ const JUMP_LOCKOUT_MS = 1200;
 /** Both shoulders must move together, which independent landmark jitter and one-arm waving do not. */
 const MIN_TOGETHER = 0.65;
 const HOLD_MS = 300;
+/** A jump passes through running-sized bounces on its way up; only a run stays there. */
+const SUSTAIN_MS = 200;
+/** A noisy frame or two does not restart the wait. */
+const CANDIDATE_GAP_MS = 100;
+/** A run confirmed this recently (a tracking hole, a stumble) resumes without waiting again. */
+const RESUME_MS = 1000;
 /** The long window remembers the last strides; a flat recent stretch means the player already stopped. */
 const QUIET_WINDOW_MS = 450;
 const QUIET_SPREAD_SW = 0.012;
@@ -43,6 +49,8 @@ export class BounceDetector {
   private until = Number.NEGATIVE_INFINITY;
   private blockedUntil = Number.NEGATIVE_INFINITY;
   private above = false;
+  private candidateSince?: number;
+  private candidateAt = Number.NEGATIVE_INFINITY;
   private lastRiseAt = Number.NEGATIVE_INFINITY;
 
   /** Heights are image y (growing downward) in the same units as the shoulder width. */
@@ -60,11 +68,18 @@ export class BounceDetector {
     const recent = this.samples.filter((sample) => t - sample.t <= QUIET_WINDOW_MS);
     if (spread > JUMP_SPREAD_SW) this.blockedUntil = t + JUMP_LOCKOUT_MS;
     // Old strides alone prove nothing: the body must also be moving in the latest frames.
-    else if (spread >= MIN_SPREAD_SW && together >= MIN_TOGETHER && moved(recent) / width >= QUIET_SPREAD_SW) this.until = t + HOLD_MS;
+    const candidate = spread <= JUMP_SPREAD_SW && spread >= MIN_SPREAD_SW && together >= MIN_TOGETHER && moved(recent) / width >= QUIET_SPREAD_SW;
+    if (candidate) {
+      if (this.candidateSince === undefined || t - this.candidateAt > CANDIDATE_GAP_MS) this.candidateSince = t;
+      this.candidateAt = t;
+      // Entering takes persistence; a run confirmed moments ago stays confirmed on any good frame.
+      if (t - this.until <= RESUME_MS || t - this.candidateSince >= SUSTAIN_MS) this.until = t + HOLD_MS;
+    }
 
     const recentTimes = recent.map((sample) => sample.t);
     const recentMid = detrend(recentTimes, recent.map((sample) => (sample.left + sample.right) / 2));
-    const quiet = t - recentTimes[0]! >= QUIET_WINDOW_MS * 0.7
+    // Two frames straddling a tracking hole always look flat after detrending, so they prove nothing.
+    const quiet = recent.length >= 4 && t - recentTimes[0]! >= QUIET_WINDOW_MS * 0.7
       && Math.sqrt(recentMid.reduce((sum, value) => sum + value * value, 0) / recentMid.length) / width < QUIET_SPREAD_SW;
     if (quiet) this.until = Number.NEGATIVE_INFINITY;
 
@@ -84,5 +99,7 @@ export class BounceDetector {
     this.samples = [];
     this.until = this.blockedUntil = this.lastRiseAt = Number.NEGATIVE_INFINITY;
     this.above = false;
+    this.candidateSince = undefined;
+    this.candidateAt = Number.NEGATIVE_INFINITY;
   }
 }

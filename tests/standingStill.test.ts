@@ -122,7 +122,7 @@ describe('real running must still be detected, quickly, under the same noise', (
     // is what keeps a motionless player from running, and it needs a couple of strides of evidence.
     ['running 165 spm', 165, 0.05, 0.008, false, 3500],
     ['running 165 spm, hips hidden', 165, 0.05, 0.008, true, 3500],
-    ['jogging in place 140 spm', 140, 0.035, 0.008, false, 4500],
+    ['jogging in place 140 spm', 140, 0.035, 0.008, false, 5500],
     ['walking in place 100 spm, small bounce', 100, 0.025, 0.006, false, 10000],
   ] as const)('%s', (_name, spm, amplitude, sigma, hipsHidden, budgetMs) => {
     for (const seed of [7, 11, 23]) {

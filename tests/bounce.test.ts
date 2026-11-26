@@ -22,7 +22,7 @@ describe('running is judged by the size of the shoulder bounce', () => {
     })).toBe(0);
   });
 
-  it('does not read one big jump as running', () => {
-    expect(maxSpeed((time) => poseWithHipBounce(time, time > 3000 && time < 3600 ? -0.1 * Math.sin((Math.PI * (time - 3000)) / 600) : 0))).toBe(0);
+  it('does not read one jump, the size real recordings show, as running', () => {
+    expect(maxSpeed((time) => poseWithHipBounce(time, time > 3000 && time < 3600 ? -0.18 * Math.sin((Math.PI * (time - 3000)) / 600) : 0))).toBe(0);
   });
 });
