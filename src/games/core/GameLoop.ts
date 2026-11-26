@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { collectFixedStepTimestamps } from './fixedStepTiming';
+import { collectFixedStepTimestamps, MAX_FRAME_DELTA_SECONDS } from './fixedStepTiming';
 
 export function disposeObjectTree(root: THREE.Object3D): void {
   const geometries = new Set<THREE.BufferGeometry>();
@@ -23,6 +23,7 @@ export class GameLoop {
   readonly renderer: THREE.WebGLRenderer;
   private accumulator = 0;
   private previousTime = 0;
+  private simulationTimeMs = 0;
   private readonly observer: ResizeObserver;
   private disposed = false;
 
@@ -30,7 +31,7 @@ export class GameLoop {
     canvas: HTMLCanvasElement,
     readonly scene: THREE.Scene,
     readonly camera: THREE.PerspectiveCamera,
-    private readonly update: (dt: number, simulationTimeMs: number) => void,
+    private readonly update: (dt: number, simulationTimeMs: number, wallTimeMs: number) => void,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
@@ -43,13 +44,19 @@ export class GameLoop {
 
   private tick(time: number): void {
     if (this.disposed) return;
-    if (!this.previousTime) this.previousTime = time;
-    this.accumulator += Math.min((time - this.previousTime) / 1000, 0.1);
+    if (!this.previousTime) {
+      this.previousTime = time;
+      this.simulationTimeMs = time;
+    }
+    this.accumulator += Math.min((time - this.previousTime) / 1000, MAX_FRAME_DELTA_SECONDS);
     this.previousTime = time;
     const fixed = 1 / 60;
-    const schedule = collectFixedStepTimestamps(time, this.accumulator, fixed, 5);
+    const schedule = collectFixedStepTimestamps(this.simulationTimeMs, this.accumulator, fixed, 5);
     this.accumulator = schedule.remainderSeconds;
-    for (const simulationTimeMs of schedule.timestampsMs) this.update(fixed, simulationTimeMs);
+    for (const simulationTimeMs of schedule.timestampsMs) {
+      this.simulationTimeMs = simulationTimeMs;
+      this.update(fixed, simulationTimeMs, time);
+    }
     this.renderer.render(this.scene, this.camera);
   }
 

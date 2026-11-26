@@ -3,6 +3,11 @@ import type { SportActionEvent } from '../../cv/protocol';
 import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
 import type { GameHudState } from '../core/hud';
+import {
+  elapsedSimulationSeconds,
+  mapWallTimestampToSimulationMs,
+  MAX_FRAME_DELTA_SECONDS,
+} from '../core/fixedStepTiming';
 import { advanceBall, createBall, solveOutgoing, timeAtPlane, type BallState } from './ballistics';
 import { adjudicateContact, type ContactOutcome } from './contactAdjudicator';
 import { adaptOpponentSkill, createOpponentAi, decideReturn, type OpponentAiState } from './opponentAi';
@@ -71,6 +76,9 @@ export class TennisGame {
   private swingAnimT = 1;
   private opponentSwingT = 1;
   private opponentHitPlan: OpponentHitPlan | null = null;
+  private wallToSimulationOffsetMs = 0;
+  private lastSimulationTimeMs = Number.NEGATIVE_INFINITY;
+  private lastWallTimeMs = Number.NEGATIVE_INFINITY;
   private opponentAi: OpponentAiState = createOpponentAi();
   private status = 'Espaço ou raquetada para sacar';
   private feedback: { id: number; text: string; tone: 'good' | 'bad' | 'neutral' } | undefined;
@@ -128,7 +136,9 @@ export class TennisGame {
     this.opponentMesh.add(this.opponentRacket);
 
     this.scene.add(this.ballMesh);
-    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, simulationTimeMs) => this.update(dt, simulationTimeMs));
+    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, simulationTimeMs, wallTimeMs) => (
+      this.update(dt, simulationTimeMs, wallTimeMs)
+    ));
     this.hudTimer = window.setInterval(() => this.publishHud(), 200);
   }
 
@@ -175,27 +185,36 @@ export class TennisGame {
   // ---------------------------------------------------------------- swing resolution
 
   private resolveSwing(swing: { side: 'forehand' | 'backhand'; power01: number; verticalSpeed: number; contactY: number; peakTimestampMs: number }): void {
-    const now = nowMs();
+    const wallNow = nowMs();
+    const now = Math.max(this.lastSimulationTimeMs, this.simulationTimestampAt(wallNow, wallNow));
+    const simulationSwing = {
+      ...swing,
+      peakTimestampMs: Math.min(now, this.simulationTimestampAt(swing.peakTimestampMs, wallNow)),
+    };
 
     if (this.phase.kind === 'player-serve') {
-      this.resolveServe(swing, now);
+      this.resolveServe(simulationSwing, now, wallNow);
       return;
     }
     if (this.phase.kind !== 'rally' || !this.ball) return;
 
-    const ballAtPeak = this.rewind(swing.peakTimestampMs);
+    const ballAtPeak = this.rewind(simulationSwing.peakTimestampMs);
     if (!ballAtPeak) return; // swing predates the current flight — nothing to adjudicate
 
     const outcome = adjudicateContact({
       ballAtPeak,
       playerX: this.playerX,
       movementPenalty01: Math.min(1, this.playerLateralSpeed / PLAYER_MOVE_SPEED),
-      swing,
+      swing: simulationSwing,
     });
-    this.applyPlayerOutcome(outcome, ballAtPeak, swing.peakTimestampMs, now);
+    this.applyPlayerOutcome(outcome, ballAtPeak, simulationSwing.peakTimestampMs, now, false, wallNow);
   }
 
-  private resolveServe(swing: { side: 'forehand' | 'backhand'; power01: number; verticalSpeed: number; contactY: number; peakTimestampMs: number }, now: number): void {
+  private resolveServe(
+    swing: { side: 'forehand' | 'backhand'; power01: number; verticalSpeed: number; contactY: number; peakTimestampMs: number },
+    now: number,
+    wallNow: number,
+  ): void {
     if (this.phase.kind !== 'player-serve' || !this.ball) return;
     const ballAtPeak = this.rewind(swing.peakTimestampMs) ?? this.ball;
     // Temporal override: the toss defines its own ideal instant (just past the apex), and the
@@ -208,10 +227,17 @@ export class TennisGame {
       timingErrorOverrideMs: swing.peakTimestampMs - this.phase.idealHitMs,
       geometry: { reachRadius: 2.2, playerZ: BASELINE_Z + 1, maxTimingMs: 320 },
     });
-    this.applyPlayerOutcome(outcome, ballAtPeak, swing.peakTimestampMs, now, true);
+    this.applyPlayerOutcome(outcome, ballAtPeak, swing.peakTimestampMs, now, true, wallNow);
   }
 
-  private applyPlayerOutcome(outcome: ContactOutcome, ballAtPeak: BallState, peakMs: number, now: number, isServe = false): void {
+  private applyPlayerOutcome(
+    outcome: ContactOutcome,
+    ballAtPeak: BallState,
+    peakMs: number,
+    now: number,
+    isServe = false,
+    wallNow = nowMs(),
+  ): void {
     if (outcome.kind === 'ignore') return;
     if (outcome.kind === 'whiff') {
       const labels: Record<typeof outcome.reason, string> = {
@@ -231,6 +257,9 @@ export class TennisGame {
     const advancedShot = advancePlayerShotToNow(ballAtPeak, outcome.outgoing, lagSec, NET_HEIGHT);
     this.ball = advancedShot.ball;
     this.tape = [{ tMs: now, ball: this.ball }];
+    this.lastSimulationTimeMs = Math.max(this.lastSimulationTimeMs, now);
+    this.lastWallTimeMs = wallNow;
+    this.wallToSimulationOffsetMs = now - wallNow;
     this.phase = { kind: 'rally' };
     this.opponentHitPlan = null;
     this.audio?.hit(0.4 + 0.6 * outcome.quality01);
@@ -260,9 +289,30 @@ export class TennisGame {
     return advanceBall(anchor.ball, Math.max(0, (tMs - anchor.tMs) / 1000));
   }
 
+  private simulationTimestampAt(wallTimestampMs: number, observedWallTimestampMs: number): number {
+    return mapWallTimestampToSimulationMs(
+      wallTimestampMs,
+      observedWallTimestampMs,
+      this.wallToSimulationOffsetMs,
+      this.lastSimulationTimeMs,
+      this.lastWallTimeMs,
+      MAX_FRAME_DELTA_SECONDS * 1000,
+    );
+  }
+
   // ---------------------------------------------------------------- update
 
-  private update(dt: number, now: number): void {
+  private update(fixedDt: number, now: number, wallNow: number): void {
+    if (now < this.lastSimulationTimeMs) {
+      // An input can land between fixed steps and advance the ball beyond this queued step.
+      // Skip that stale step so the tape and physics clock stay ordered.
+      this.render();
+      return;
+    }
+    this.wallToSimulationOffsetMs = now - wallNow;
+    this.lastWallTimeMs = wallNow;
+    const dt = elapsedSimulationSeconds(this.lastSimulationTimeMs, now, fixedDt);
+    this.lastSimulationTimeMs = now;
     this.stepPhase(dt, now);
     this.stepAvatars(dt);
     this.stepBall(dt, now);
