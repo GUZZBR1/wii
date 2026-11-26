@@ -9,7 +9,7 @@ import { ProceduralAudio } from './games/audio';
 import { CameraPip } from './ui/CameraPip';
 import { GameCanvas, type GameEngineHandle, type Sport } from './ui/GameCanvas';
 import { drawPose } from './ui/PoseOverlay';
-import './styles.css';
+import './arena.css';
 
 const ACTIVITY_LABEL: Record<ActivityKind, string> = {
   idle: 'PARADO',
@@ -182,7 +182,7 @@ export default function App() {
     });
   }, []);
 
-  return <main className="stage">
+  return <div className="wii-game"><div className="stage">
     <GameCanvas key={sport} sport={sport} onEngine={onEngine} tracking={tracking} audio={audioRef.current} />
 
     <div className="hud-dock">
@@ -204,5 +204,5 @@ export default function App() {
       calibrationPhase={calibrationPhase} calibrationProgress={calibrationProgress}
       onStart={() => void startCamera()} onStop={stopCamera} onRecalibrate={recalibrate}
     />
-  </main>;
+  </div></div>;
 }

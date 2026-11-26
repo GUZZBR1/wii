@@ -1,0 +1,84 @@
+.wii-game { position: fixed; inset: 0; z-index: 0; overflow: hidden; margin: 0; background: #10161b; color: #e8e9e2; font-family: 'Arial', sans-serif; font-synthesis: none; line-height: normal; text-rendering: optimizeLegibility; --ink: #e8e9e2; --muted: #8a918f; --line: #ffffff1f; --orange: #f2a844; --green: #65c882; --red: #fa6262; --mono: 'SFMono-Regular', Consolas, monospace; --condensed: Impact, 'Arial Narrow', sans-serif; --glass: #10161bb8; }
+.wii-game, .wii-game * { box-sizing: border-box; }
+.wii-game button { font: inherit; cursor: pointer; }
+.wii-game .stage { position: absolute; inset: 0; }
+.wii-game .sport-dock, .wii-game .mute-fab, .wii-game .cam-pip, .wii-game .game-hud span, .wii-game .game-controls, .wii-game .tracking-chip, .wii-game .cam-empty, .wii-game .pip-btn, .wii-game .cam-guide, .wii-game .cam-status { font-family: var(--mono); }
+
+/* jogo em tela cheia */
+.wii-game .game-viewport { position: absolute; inset: 0; }
+.wii-game .game-viewport canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.wii-game .game-hud { position: absolute; left: 18px; right: 18px; top: 15px; display: flex; justify-content: space-between; color: white; pointer-events: none; z-index: 3; }
+.wii-game .game-hud div { display: flex; flex-direction: column; gap: 1px; }
+.wii-game .game-hud span { color: #d3d2c7; font-size: 8px; letter-spacing: 1px; }
+.wii-game .game-hud strong { font: 700 30px var(--condensed); letter-spacing: 1px; }
+.wii-game .game-hud em { color: var(--green); font: 700 14px var(--condensed); font-style: normal; letter-spacing: 1px; }
+.wii-game .game-banner { position: absolute; left: 0; right: 0; top: 24%; display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 0 16px; text-align: center; pointer-events: none; z-index: 4; text-shadow: 0 2px 8px #000c; }
+.wii-game .game-banner strong { font: 700 64px var(--condensed); letter-spacing: 2px; }
+.wii-game .game-banner span { font: 11px var(--mono); }
+.wii-game .game-over { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(300px, 90vw); max-height: 90%; overflow: auto; padding: 18px; border: 1px solid var(--line); border-radius: 8px; background: #10161bf2; text-align: center; font: 12px var(--mono); z-index: 9; }
+.wii-game .game-over h2 { margin: 0 0 8px; font: 700 34px var(--condensed); color: var(--red); }
+.wii-game .game-over h3 { margin: 14px 0 6px; font-size: 11px; color: var(--muted); }
+.wii-game .game-over ol { margin: 0 0 14px; padding: 0; list-style: none; }
+.wii-game .game-over li { display: flex; justify-content: space-between; padding: 3px 10px; }
+.wii-game .game-over li.current { background: var(--orange); color: #16130a; font-weight: 700; }
+.wii-game .game-over button { padding: 9px 16px; border: 0; border-radius: 4px; background: var(--orange); color: #16130a; font-weight: 700; }
+.wii-game .game-speed { text-align: right; }
+.wii-game .game-speed strong { color: var(--orange); font-size: 20px; }
+.wii-game .game-ready { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 9px 12px; background: #10161bcc; color: #e5e6dc; font: 9px var(--mono); letter-spacing: .3px; white-space: nowrap; z-index: 3; }
+.wii-game .game-ready i { width: 6px; height: 6px; background: #e8a446; border-radius: 50%; margin-right: 7px; display: inline-block; }
+.wii-game .game-ready i.ready { background: var(--green); }
+.wii-game .game-controls { position: absolute; left: 15px; bottom: 12px; color: #d3d2c799; font-size: 8px; letter-spacing: .4px; z-index: 3; }
+
+/* feedback: uma animação por evento (a key do React reinicia) */
+.wii-game .game-feedback { position: absolute; inset: 0; pointer-events: none; z-index: 2; display: flex; justify-content: center; align-items: flex-start; }
+.wii-game .game-feedback span { margin-top: 18vh; font: 700 34px var(--condensed); letter-spacing: 1px; color: var(--green); text-shadow: 0 2px 8px #000a; opacity: 0; animation: feedback-pop .9s ease-out; }
+.wii-game .game-feedback.coin span { color: #ffe066; }
+.wii-game .game-feedback.hit { animation: feedback-flash .4s ease-out; }
+.wii-game .game-feedback.hit span { color: var(--red); }
+@keyframes feedback-pop { 0% { opacity: 0; transform: translateY(12px) scale(.8); } 20% { opacity: 1; transform: none; } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-18px); } }
+@keyframes feedback-flash { from { background: #fa626266; } to { background: transparent; } }
+
+/* cluster flutuante: modalidades + áudio */
+.wii-game .hud-dock { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; align-items: center; z-index: 10; }
+.wii-game .sport-dock { display: flex; gap: 4px; }
+.wii-game .sport-dock button { padding: 8px 11px; border: 1px solid var(--line); border-radius: 4px; background: var(--glass); color: #c9cbc2; font-size: 8px; letter-spacing: .5px; backdrop-filter: blur(8px); }
+.wii-game .sport-dock button:hover { border-color: #ffffff55; }
+.wii-game .sport-dock button.active { background: var(--orange); border-color: var(--orange); color: #16130a; font-weight: 600; }
+.wii-game .mute-fab { width: 30px; height: 30px; border: 1px solid var(--line); border-radius: 4px; background: var(--glass); color: #c9cbc2; font-size: 12px; backdrop-filter: blur(8px); }
+.wii-game .mute-fab:hover { border-color: #ffffff55; }
+
+/* pip da câmera */
+.wii-game .cam-pip { position: absolute; right: 14px; bottom: 14px; width: 210px; z-index: 10; overflow: hidden; border: 1px solid var(--line); border-radius: 6px; background: #0c1114; box-shadow: 0 10px 28px #000a; }
+.wii-game .cam-feed { position: relative; aspect-ratio: 4/3; background: #141b1e; }
+.wii-game .cam-feed video, .wii-game .cam-feed canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+.wii-game .cam-feed canvas { z-index: 2; }
+.wii-game .cam-empty { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #7d8a86; text-align: center; }
+.wii-game .cam-empty strong { font-size: 9px; letter-spacing: 1px; }
+.wii-game .cam-empty small { font-size: 6.5px; color: #5d6a66; }
+.wii-game .tracking-chip { position: absolute; z-index: 4; left: 6px; top: 6px; padding: 4px 6px; background: #10161bcc; color: #f7f0dc; font-size: 7px; letter-spacing: .5px; border-radius: 2px; }
+.wii-game .cam-bar { display: flex; gap: 4px; padding: 6px; align-items: center; }
+.wii-game .pip-btn { flex: 1; padding: 7px 6px; border: 1px solid var(--line); border-radius: 3px; background: transparent; color: #dfe1d7; font-size: 7.5px; letter-spacing: .4px; }
+.wii-game .pip-btn:hover { border-color: #ffffff55; }
+.wii-game .pip-btn:disabled { opacity: .45; cursor: not-allowed; }
+.wii-game .pip-btn.primary { background: var(--orange); border-color: var(--orange); color: #16130a; font-weight: 600; letter-spacing: .7px; }
+.wii-game .pip-btn.icon { flex: 0 0 30px; color: #c9a25a; }
+.wii-game .cam-status { padding: 0 8px 8px; color: #6d7a75; font-size: 6.5px; line-height: 1.5; min-height: 16px; }
+
+@media (max-width: 640px) {
+  .wii-game .cam-pip:not(.expanded) { width: 150px; }
+  .wii-game .game-hud strong { font-size: 22px; }
+  .wii-game .sport-dock button { padding: 7px 8px; }
+}
+
+.wii-game .cam-guide { position: absolute; z-index: 4; left: 6px; right: 6px; bottom: 6px; padding: 5px 6px; background: #10161be0; color: #f7f0dc; font-size: 7.5px; line-height: 1.4; text-align: center; border-radius: 2px; }
+.wii-game .cam-guide.ok { background: #1f6f43e6; }
+
+/* tela cheia: a imagem inteira, sem cortes */
+.wii-game .cam-pip.expanded { inset: 14px; width: auto; z-index: 20; display: flex; flex-direction: column; }
+.wii-game .expanded .cam-feed { flex: 1; min-height: 0; aspect-ratio: auto; }
+.wii-game .expanded .cam-feed video, .wii-game .expanded .cam-feed canvas { object-fit: contain; }
+.wii-game .expanded .cam-guide { top: 10px; bottom: auto; left: 130px; right: 130px; font-size: 18px; padding: 12px 16px; }
+.wii-game .expanded .tracking-chip { font-size: 11px; }
+.wii-game .expanded .cam-bar { justify-content: center; }
+.wii-game .expanded .pip-btn { flex: 0 0 auto; padding: 10px 18px; font-size: 11px; }
+.wii-game .expanded .cam-status { font-size: 9px; text-align: center; }

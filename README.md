@@ -30,24 +30,18 @@ npm run preview
 npm run lint
 ```
 
-### Site consolidado
+### Site e jogo
 
-A pasta `site/` contém o website completo desenvolvido no repositório `GUZZBR1/wii-site`, incluindo páginas editoriais, pesquisa, assets e a arena integrada em `/app`. Ele é um app Vite independente e não participa do lint/build do pacote raiz:
+O website abre em `/`, com páginas em `/vision`, `/papers` e `/product`. A área `/app` usa o Wii de `santleme/wii`: a mesma implementação de câmera, calibração, corrida e tênis em `src/App.tsx`, `src/games` e `packages/core`. O link **sair** volta para o site e desmonta a arena.
 
-```bash
-cd site
-npm ci
-npm test
-npm run build
-node scripts/check-articles.mjs
-```
-
-O workflow `.github/workflows/site.yml` verifica o site separadamente. Para publicar o website, configure `site` como Root Directory e `dist` como Output Directory; a raiz continua sendo a arena original.
+Tudo usa o `package.json` e o lockfile da raiz. `npm run dev` e `npm run build` servem o site e o jogo juntos; depois do build, execute `npm run check:articles` para conferir os artigos e figuras. O workflow `.github/workflows/ci.yml` verifica essa integração.
 
 O build copia a variante module do WASM do MediaPipe fixado no lockfile para `public/mediapipe/wasm-<versão>/` e verifica o SHA-256 do modelo Lite local — servido com o hash no nome — antes de compilar. Os ativos de `mediapipe/` e `assets/` são servidos com `Cache-Control: immutable` (ver `vercel.json`).
 
 ## Arquitetura
 
+- `src/app/`, `src/pages/`, `src/components/`: rotas e interface do website; `ArenaShell` monta o jogo em `/app`.
+- `docs/research/`: artigos e figuras PT/EN; regras visuais em `docs/website-design.md`.
 - `src/cv/`: Worker do Pose Landmarker (variante WASM module, `useModule`), cliente de captura com um frame em trânsito que mantém o worker quente entre liga/desliga e carrega os ativos em paralelo à permissão de câmera; calibração.
 - `src/kinematics/`: filtro 1-Euro, histerese, gating de confiança e detectores puros.
 - `src/games/`: loop fixo Three.js e cenas arcade desacopladas da câmera.
@@ -58,7 +52,7 @@ O vídeo é processado no dispositivo e não é enviado ao servidor do jogo. O M
 
 ## Deploy
 
-Com o Vercel CLI autenticado, execute `npx vercel --prod`. O projeto usa `dist/` como saída estática; a URL HTTPS resultante permite o acesso à webcam sem instalação. O comando de build verifica a versão e o SHA-256 do modelo e publica também os arquivos WASM locais.
+No Vercel, use a raiz do repositório como Root Directory, `npm run build` como build e `dist` como saída. O `vercel.json` mantém as rotas do site funcionando em acessos diretos. Com o Vercel CLI autenticado, execute `npx vercel --prod`. O projeto usa `dist/` como saída estática; a URL HTTPS resultante permite o acesso à webcam sem instalação. O comando de build verifica a versão e o SHA-256 do modelo e publica também os arquivos WASM locais.
 
 ## Controles
 
