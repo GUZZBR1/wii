@@ -53,4 +53,8 @@ describe('fixed-step simulation timestamps', () => {
   it('does not advance the simulation clock by a full background-tab pause', () => {
     expect(mapWallTimestampToSimulationMs(11_000, 11_000, 0, 1_000, 1_000, 100)).toBe(1_100);
   });
+
+  it('preserves the swing peak age when mapping a recent event after a long pause', () => {
+    expect(mapWallTimestampToSimulationMs(1_950, 2_000, 0, 1_000, 1_000, 100)).toBe(1_050);
+  });
 });

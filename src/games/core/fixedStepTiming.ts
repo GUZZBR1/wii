@@ -24,7 +24,7 @@ export function collectFixedStepTimestamps(
   return { timestampsMs, remainderSeconds };
 }
 
-/** Converts camera/input timestamps to the same clock as the last completed simulation step. */
+/** Converts camera/input timestamps to the simulation clock and preserves their age. */
 export function toSimulationTimestampMs(wallTimestampMs: number, wallToSimulationOffsetMs: number): number {
   return wallTimestampMs + wallToSimulationOffsetMs;
 }
@@ -40,7 +40,12 @@ export function mapWallTimestampToSimulationMs(
   const projected = toSimulationTimestampMs(eventWallTimestampMs, wallToSimulationOffsetMs);
   if (!Number.isFinite(lastSimulationTimeMs) || !Number.isFinite(lastWallTimestampMs)) return projected;
   const acceptedElapsedMs = Math.min(maxFrameDeltaMs, Math.max(0, observedWallTimestampMs - lastWallTimestampMs));
-  return Math.min(projected, lastSimulationTimeMs + acceptedElapsedMs);
+  const simulationNowMs = Math.min(
+    toSimulationTimestampMs(observedWallTimestampMs, wallToSimulationOffsetMs),
+    lastSimulationTimeMs + acceptedElapsedMs,
+  );
+  const eventAgeMs = Math.max(0, observedWallTimestampMs - eventWallTimestampMs);
+  return Math.min(projected, simulationNowMs, simulationNowMs - eventAgeMs);
 }
 
 export function elapsedSimulationSeconds(previousTimeMs: number, nextTimeMs: number, initialStepSeconds: number): number {
