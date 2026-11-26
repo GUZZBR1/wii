@@ -30,6 +30,20 @@ npm run preview
 npm run lint
 ```
 
+### Site consolidado
+
+A pasta `site/` contém o website completo desenvolvido no repositório `GUZZBR1/wii-site`, incluindo páginas editoriais, pesquisa, assets e a arena integrada em `/app`. Ele é um app Vite independente e não participa do lint/build do pacote raiz:
+
+```bash
+cd site
+npm ci
+npm test
+npm run build
+node scripts/check-articles.mjs
+```
+
+O workflow `.github/workflows/site.yml` verifica o site separadamente. Para publicar o website, configure `site` como Root Directory e `dist` como Output Directory; a raiz continua sendo a arena original.
+
 O build copia a variante module do WASM do MediaPipe fixado no lockfile para `public/mediapipe/wasm-<versão>/` e verifica o SHA-256 do modelo Lite local — servido com o hash no nome — antes de compilar. Os ativos de `mediapipe/` e `assets/` são servidos com `Cache-Control: immutable` (ver `vercel.json`).
 
 ## Arquitetura
