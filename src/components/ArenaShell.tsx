@@ -35,13 +35,16 @@ export default function ArenaShell() {
     }, 1100);
   };
 
+  const exitLink = (
+    <Link className="arena-exit" style={{ zIndex: 30 }} to="/product" onClick={leave}>{tr('sair ↗', 'exit ↗')}</Link>
+  );
+
   return (
     <main className={`arena-page${leaving ? ' is-leaving' : ''}`} id="page-content">
       <div className="arena-flash" aria-hidden="true" />
       {leaving && <div className="arena-leave" aria-hidden="true" />}
       <div className="arena">
-        <Suspense fallback={null}><ArenaApp /></Suspense>
-        <Link className="arena-exit" style={{ zIndex: 30 }} to="/product" onClick={leave}>{tr('sair ↗', 'exit ↗')}</Link>
+        <Suspense fallback={null}><ArenaApp exit={exitLink} /></Suspense>
       </div>
     </main>
   );
