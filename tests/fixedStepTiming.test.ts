@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   collectFixedStepTimestamps,
   elapsedSimulationSeconds,
+  isBeforeOrAtPauseBoundary,
   mapWallTimestampToSimulationMs,
   toSimulationTimestampMs,
 } from '../src/games/core/fixedStepTiming';
@@ -60,5 +61,10 @@ describe('fixed-step simulation timestamps', () => {
 
   it('keeps events from before a long pause on the historical simulation timeline', () => {
     expect(mapWallTimestampToSimulationMs(1_000, 2_000, 0, 1_000, 1_000, 100)).toBe(1_000);
+  });
+
+  it('marks an event from before or at a discarded pause boundary as stale', () => {
+    expect(isBeforeOrAtPauseBoundary(1_000, 1_000)).toBe(true);
+    expect(isBeforeOrAtPauseBoundary(1_001, 1_000)).toBe(false);
   });
 });

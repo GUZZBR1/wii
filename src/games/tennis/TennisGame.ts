@@ -5,6 +5,7 @@ import { GameLoop } from '../core/GameLoop';
 import type { GameHudState } from '../core/hud';
 import {
   elapsedSimulationSeconds,
+  isBeforeOrAtPauseBoundary,
   mapWallTimestampToSimulationMs,
   MAX_FRAME_DELTA_SECONDS,
 } from '../core/fixedStepTiming';
@@ -79,6 +80,7 @@ export class TennisGame {
   private wallToSimulationOffsetMs = 0;
   private lastSimulationTimeMs = Number.NEGATIVE_INFINITY;
   private lastWallTimeMs = Number.NEGATIVE_INFINITY;
+  private pauseBoundaryWallTimeMs = Number.NEGATIVE_INFINITY;
   private opponentAi: OpponentAiState = createOpponentAi();
   private status = 'Espaço ou raquetada para sacar';
   private feedback: { id: number; text: string; tone: 'good' | 'bad' | 'neutral' } | undefined;
@@ -186,6 +188,8 @@ export class TennisGame {
 
   private resolveSwing(swing: { side: 'forehand' | 'backhand'; power01: number; verticalSpeed: number; contactY: number; peakTimestampMs: number }): void {
     const wallNow = nowMs();
+    this.notePauseBoundary(wallNow);
+    if (isBeforeOrAtPauseBoundary(swing.peakTimestampMs, this.pauseBoundaryWallTimeMs)) return;
     const now = Math.max(this.lastSimulationTimeMs, this.simulationTimestampAt(wallNow, wallNow));
     const simulationSwing = {
       ...swing,
@@ -290,6 +294,7 @@ export class TennisGame {
   }
 
   private simulationTimestampAt(wallTimestampMs: number, observedWallTimestampMs: number): number {
+    this.notePauseBoundary(observedWallTimestampMs);
     return mapWallTimestampToSimulationMs(
       wallTimestampMs,
       observedWallTimestampMs,
@@ -303,6 +308,7 @@ export class TennisGame {
   // ---------------------------------------------------------------- update
 
   private update(fixedDt: number, now: number, wallNow: number): void {
+    this.notePauseBoundary(wallNow);
     if (now < this.lastSimulationTimeMs) {
       // An input can land between fixed steps and advance the ball beyond this queued step.
       // Skip that stale step so the tape and physics clock stay ordered.
@@ -318,6 +324,15 @@ export class TennisGame {
     this.stepBall(dt, now);
     this.stepAnimations(dt);
     this.render();
+  }
+
+  private notePauseBoundary(wallNow: number): void {
+    if (
+      Number.isFinite(this.lastWallTimeMs)
+      && wallNow - this.lastWallTimeMs > MAX_FRAME_DELTA_SECONDS * 1000
+    ) {
+      this.pauseBoundaryWallTimeMs = Math.max(this.pauseBoundaryWallTimeMs, this.lastWallTimeMs);
+    }
   }
 
   private stepPhase(_dt: number, now: number): void {

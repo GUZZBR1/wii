@@ -57,3 +57,7 @@ export function elapsedSimulationSeconds(previousTimeMs: number, nextTimeMs: num
   if (!Number.isFinite(previousTimeMs)) return initialStepSeconds;
   return Math.max(0, (nextTimeMs - previousTimeMs) / 1000);
 }
+
+export function isBeforeOrAtPauseBoundary(eventWallTimestampMs: number, pauseBoundaryWallTimestampMs: number): boolean {
+  return Number.isFinite(pauseBoundaryWallTimestampMs) && eventWallTimestampMs <= pauseBoundaryWallTimestampMs;
+}
