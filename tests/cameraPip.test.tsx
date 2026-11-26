@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { act, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import { CameraPip } from '../src/ui/CameraPip';
 
@@ -47,6 +48,23 @@ describe('CameraPip', () => {
       root.unmount();
     });
     container.remove();
+  });
+
+  it('uses torso framing for running sports and wrist framing for tennis', () => {
+    const props = {
+      videoRef: createRef<HTMLVideoElement>(),
+      canvasRef: createRef<HTMLCanvasElement>(),
+      cameraOn: true,
+      status: '',
+      tracking: 'TRACKING',
+      onStart: () => {},
+      onStop: () => {},
+    };
+
+    const athletics = renderToStaticMarkup(<CameraPip {...props} sport="athletics" />);
+    expect(athletics).toContain('Enquadre a cabeça e o torso até o quadril');
+    expect(athletics).not.toContain('mãos visíveis');
+    expect(renderToStaticMarkup(<CameraPip {...props} sport="tennis" />)).toContain('mãos visíveis');
   });
 
   it('collapses when the camera turns off and stays collapsed when it returns', async () => {

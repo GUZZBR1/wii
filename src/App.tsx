@@ -98,10 +98,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const onEngine = useCallback((engine: GameEngineHandle | null) => { engineRef.current = engine; }, []);
   const dispatchEvent = useCallback((event: SportActionEvent) => {
     engineRef.current?.onAction(event);
-    if (sportRef.current === 'track') {
-      if (event.type === 'jump') audioRef.current.jump();
-      if (event.type === 'step') audioRef.current.step(event.side);
-    }
+    if (sportRef.current !== 'tennis' && event.type === 'step') audioRef.current.step(event.side);
+    if (sportRef.current === 'track' && event.type === 'jump') audioRef.current.jump();
   }, []);
 
   const resetCalibration = useCallback(() => {
@@ -377,6 +375,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
     <CameraPip
       hidden={menu && handPanelOpen}
+      sport={screen === 'play' ? sport : undefined}
       videoRef={videoRef} canvasRef={overlayRef} cameraOn={cameraOn} status={cameraStatus} tracking={tracking}
       onStart={() => void startCamera()} onStop={stopCamera}
     />

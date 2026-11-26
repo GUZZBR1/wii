@@ -62,14 +62,15 @@
   .logo-btn { padding: 0; border: 0; background: none; transition: transform .18s; }
   .logo-btn:hover { transform: scale(1.06); }
   .menu-body { flex: 1; display: flex; flex-wrap: wrap; gap: 4vw; justify-content: center; align-items: center; align-content: center; padding: 24px 4vw; background: radial-gradient(circle at 70% 40%, #0000 28%, #ffffff30 28.5% 36%, #0000 36.5%), linear-gradient(135deg, #1c8fd1, #8fd6f3 55%, #2a9bd8); }
-  .sport-list { display: flex; flex-direction: column; gap: 14px; width: min(400px, 90vw); }
-  .sport-list .wii-btn { padding: 20px; border-color: #35434d; border-radius: 18px; font-size: 28px; }
+  .sport-list { display: flex; flex-direction: column; gap: 12px; width: min(400px, 90vw); }
+  .sport-list .wii-btn { padding: 16px 20px; border-color: #35434d; border-radius: 18px; font-size: 26px; }
   .sport-list .wii-btn.selected { background: linear-gradient(#c9f1fb, #8fdcef 52%, #b2e9f5); }
   .sport-list .wii-btn.back { align-self: flex-start; padding: 8px 24px; font-size: 16px; }
   .preview { width: min(520px, 90vw); margin: 0; overflow: hidden; border: 6px solid #fff; border-radius: 24px; background: #fff; box-shadow: 0 8px 24px #0b4a6e66; }
   .scene { aspect-ratio: 16/9; }
   .preview.tennis .scene { background: linear-gradient(90deg, #0000 49.6%, #fff 49.6% 50.4%, #0000 50.4%) 50% 100% / 100% 40% no-repeat, linear-gradient(#0000 68%, #fff 68% 70%, #0000 70%), linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #3f8f4b 42% 48%, #3f78b5 48%); }
   .preview.track .scene { background: linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #4e9e52 42% 52%, #0000 52%), repeating-linear-gradient(#c8603f 0 13%, #fff 13% 14%); }
+  .preview.athletics .scene { background: radial-gradient(ellipse 70% 58% at 50% 72%, #4e9e52 0 24%, #fff 24% 25%, #c8603f 25% 29%, #fff 29% 30%, #c8603f 30% 34%, #fff 34% 35%, #c8603f 35% 39%, #fff 39% 40%, #c8603f 40% 48%, #0000 48%), linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #dce3e8 42% 50%, #4e9e52 50%); }
   .preview figcaption { padding: 12px; text-align: center; font-weight: 700; }
 
   /* jogo em tela cheia */
@@ -102,6 +103,7 @@
 
   .game-over { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(320px, 90vw); max-height: 90%; overflow: auto; padding: 20px; border: 3px solid var(--blue); border-radius: 24px; background: #fffffff5; box-shadow: var(--shadow); text-align: center; z-index: 9; }
   .game-over h2 { margin: 0 0 8px; font-size: 30px; color: #d64545; }
+  .game-over.complete h2 { color: var(--green); }
   .game-over h3 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
   .game-over p { margin: 0; }
   .game-over ol { margin: 0 0 14px; padding: 0; list-style: none; }
