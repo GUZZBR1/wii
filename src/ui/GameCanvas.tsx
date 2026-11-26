@@ -12,7 +12,13 @@ interface Props {
   tracking: string;
 }
 
-export function GameCanvas({ sport, onEngine, tracking }: Props) {
+/** Restarting remounts the whole run, so a new game starts from a clean engine and canvas. */
+export function GameCanvas(props: Props) {
+  const [run, setRun] = useState(0);
+  return <GameRun key={run} {...props} onRestart={() => setRun((value) => value + 1)} />;
+}
+
+function GameRun({ sport, onEngine, tracking, onRestart }: Props & { onRestart: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hud, setHud] = useState<GameHudState>({ score: 0, label: '00000', speed01: 0, status: 'Pronto para jogar' });
   const hudRef = useRef(setHud);
@@ -67,6 +73,16 @@ export function GameCanvas({ sport, onEngine, tracking }: Props) {
       <span>{hud.feedback.text}</span>
     </div>}
     {hud.banner && <div className="game-banner" role="status"><strong>{hud.banner.title}</strong>{hud.banner.detail && <span>{hud.banner.detail}</span>}</div>}
+    {hud.result && <div className="game-over" role="dialog" aria-label="Fim de corrida">
+      <h2>Você perdeu!</h2>
+      <p>Sua melhor marca nesta corrida: <strong>{hud.result.points}</strong> pontos</p>
+      <h3>Seu ranking</h3>
+      <ol>{hud.result.ranking.map((points, index) => (
+        // biome-ignore lint/suspicious/noArrayIndexKey: the place is the row's identity and scores may repeat
+        <li key={index} className={hud.result?.position === index + 1 ? 'current' : ''}><span>{index + 1}º</span><span>{points}</span></li>
+      ))}</ol>
+      <button type="button" ref={(button) => button?.focus()} onClick={onRestart}>Jogar de novo</button>
+    </div>}
     <div className="game-ready"><i className={tracking.startsWith('TRACKING') ? 'ready' : ''} />{hud.status}</div>
     <div className="game-controls">{sport === 'track' ? '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' : 'espaço bater  ·  ← → escolher direção'}</div>
   </div>;

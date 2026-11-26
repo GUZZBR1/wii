@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fovFor, scrollZ } from '../src/games/track/scroll';
+import { fovFor, MAX_BOOST, scrollZ, timeBoost } from '../src/games/track/scroll';
 
 describe('scenery scroll', () => {
   it('advances and wraps to the far end keeping the overshoot', () => {
@@ -13,6 +13,13 @@ describe('scenery scroll', () => {
     for (let i = 0; i < 5000; i += 1) pieces = pieces.map((z) => scrollZ(z, 0.37, -66, 14));
     expect((pieces[1]! - pieces[0]! + 80) % 80).toBeCloseTo(4);
     expect((pieces[2]! - pieces[1]! + 80) % 80).toBeCloseTo(4);
+  });
+
+  it('speeds up with time, up to a ceiling', () => {
+    expect(timeBoost(0)).toBe(1);
+    expect(timeBoost(60)).toBeCloseTo(1.5);
+    expect(timeBoost(120)).toBe(MAX_BOOST);
+    expect(timeBoost(9999)).toBe(MAX_BOOST);
   });
 
   it('widens the view with speed within bounds', () => {

@@ -26,8 +26,9 @@ describe('track score', () => {
     score.hurdleCleared();
     expect(score.display).toBe(100);
     score.hurdleHit();
+    expect(score.display).toBe(65);
     score.hurdleHit();
-    expect(score.display).toBe(30);
+    expect(score.display).toBe(0);
     score.hurdleHit();
     expect(score.display).toBe(0);
   });
@@ -71,6 +72,25 @@ describe('track score', () => {
     expect(score.coinCollected()).toBe(25);
     expect(score.display).toBe(125);
     expect(score.combo).toBe(1);
+  });
+
+  it('doubles the penalty on every trip, even with clears in between', () => {
+    const score = new TrackScore();
+    const penalties = [1, 2, 3, 4].map(() => {
+      score.hurdleCleared();
+      return score.hurdleHit();
+    });
+    expect(penalties).toEqual([35, 70, 140, 280]);
+  });
+
+  it('loses the run when a trip wipes the score, remembering the peak', () => {
+    const score = new TrackScore();
+    score.hurdleCleared();
+    score.hurdleHit();
+    expect(score.over).toBe(false);
+    score.hurdleHit();
+    expect(score.over).toBe(true);
+    expect(score.peak).toBe(100);
   });
 
   it('ignores malformed speed values', () => {

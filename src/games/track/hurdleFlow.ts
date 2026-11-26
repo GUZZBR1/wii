@@ -1,6 +1,6 @@
 export type ItemKind = 'hurdle' | 'coin';
-/** Hurdles end up `cleared` or `hit`; coins end up `collected` or `missed`. */
-export type Outcome = 'cleared' | 'hit' | 'collected' | 'missed';
+/** Hurdles end up `cleared` (jumped), `dodged` (passed in another lane) or `hit`; coins end up `collected` or `missed`. */
+export type Outcome = 'cleared' | 'dodged' | 'hit' | 'collected' | 'missed';
 export interface HurdleBody { kind?: ItemKind; lane: number; z: number; passed: boolean }
 export interface HurdleStep<T extends HurdleBody> { judged: { hurdle: T; outcome: Outcome }[]; despawned: T[]; spawn: boolean }
 
@@ -18,23 +18,28 @@ export function spawnSpacing(travelled: number): number {
   return MAX_SPAWN_DISTANCE - (MAX_SPAWN_DISTANCE - MIN_SPAWN_DISTANCE) * progress;
 }
 
-/** A hurdle is cleared by jumping or by lane; a coin only needs the runner in its lane. */
+/**
+ * A hurdle is cleared only by jumping over it; going around it is safe but earns nothing.
+ * A coin only needs the runner in its lane.
+ */
 function judge(item: HurdleBody, runnerLane: number, airborne: boolean): Outcome {
   const sameLane = item.lane === runnerLane;
   if (item.kind === 'coin') return sameLane ? 'collected' : 'missed';
-  return !sameLane || airborne ? 'cleared' : 'hit';
+  if (!sameLane) return 'dodged';
+  return airborne ? 'cleared' : 'hit';
 }
 
 /**
  * Pure rules for the track's hurdles: they move with travelled distance, are judged a single
- * time when they cross the runner's plane, spawn every `spawnSpacing` travelled and are
+ * time when they cross the runner's plane, spawn every `spawnSpacing` travelled
+ * (stretched by `boost`, so a faster world keeps the same time between them) and are
  * recycled once they are well behind the runner.
  */
 export class HurdleFlow {
   private sinceSpawn = 0;
 
   /** Moves every hurdle `distance` toward the runner and reports what that step produced. */
-  advance<T extends HurdleBody>(hurdles: T[], distance: number, runnerLane: number, airborne: boolean, travelled = 0): HurdleStep<T> {
+  advance<T extends HurdleBody>(hurdles: T[], distance: number, runnerLane: number, airborne: boolean, travelled = 0, boost = 1): HurdleStep<T> {
     const judged: HurdleStep<T>['judged'] = [];
     for (const hurdle of hurdles) {
       hurdle.z += distance;
@@ -44,7 +49,7 @@ export class HurdleFlow {
       }
     }
     this.sinceSpawn += distance;
-    const spawn = this.sinceSpawn > spawnSpacing(travelled);
+    const spawn = this.sinceSpawn > spawnSpacing(travelled) * boost;
     if (spawn) this.sinceSpawn = 0;
     return { judged, despawned: hurdles.filter((hurdle) => hurdle.z > DESPAWN_Z), spawn };
   }

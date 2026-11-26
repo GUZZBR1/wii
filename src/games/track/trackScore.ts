@@ -18,6 +18,24 @@ export interface Award { points: number; multiplier: number; perfect: boolean }
 export class TrackScore {
   private value = 0;
   private streak = 0;
+  private nextPenalty = HIT_PENALTY;
+  private best = 0;
+  private ended = false;
+
+  /** Highest score held during the run. */
+  get peak(): number {
+    return Math.floor(this.best);
+  }
+
+  /** True once a trip has wiped the score out: the run is lost. */
+  get over(): boolean {
+    return this.ended;
+  }
+
+  private add(points: number): void {
+    this.value += points;
+    this.best = Math.max(this.best, this.value);
+  }
 
   get combo(): number {
     return this.streak;
@@ -25,7 +43,7 @@ export class TrackScore {
 
   advance(dt: number, speed01: number): void {
     if (!Number.isFinite(speed01)) return;
-    this.value += dt * speed01 * 50;
+    this.add(dt * speed01 * 50);
   }
 
   /** Each clear in a row raises the multiplier by one, up to MAX_MULTIPLIER. */
@@ -33,19 +51,24 @@ export class TrackScore {
     this.streak += 1;
     const multiplier = Math.min(MAX_MULTIPLIER, this.streak);
     const points = (CLEAR_POINTS + (perfect ? PERFECT_POINTS : 0)) * multiplier;
-    this.value += points;
+    this.add(points);
     return { points, multiplier, perfect };
   }
 
   /** Coins are a flat bonus: they neither build nor break the combo. */
   coinCollected(): number {
-    this.value += COIN_POINTS;
+    this.add(COIN_POINTS);
     return COIN_POINTS;
   }
 
-  hurdleHit(): void {
+  /** Every trip of the run costs double the previous one. Returns the penalty charged. */
+  hurdleHit(): number {
+    const penalty = this.nextPenalty;
+    this.nextPenalty *= 2;
     this.streak = 0;
-    this.value = Math.max(0, this.value - HIT_PENALTY);
+    this.value = Math.max(0, this.value - penalty);
+    if (this.display === 0) this.ended = true;
+    return penalty;
   }
 
   get display(): number {

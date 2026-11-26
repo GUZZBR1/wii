@@ -6,16 +6,18 @@ import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type P
 import { HurdleFlow, type ItemKind, RUNNER_Z } from './hurdleFlow';
 import { ItemAssets } from './itemAssets';
 import { JUMP_DURATION_S, jumpHeight } from './jump';
+import { parseRanking, type RunResult, rankRun } from './ranking';
 import { RunGate } from './runGate';
-import { fovFor, scrollZ } from './scroll';
+import { fovFor, scrollZ, timeBoost } from './scroll';
 import { type Lane, nextKind, nextLane } from './spawn';
 import { isPerfectJump, TrackScore } from './trackScore';
 
-export interface GameHudState { score: number; label: string; speed01: number; status: string; feedback?: Feedback; combo?: number; banner?: { title: string; detail?: string } }
+export interface GameHudState { score: number; label: string; speed01: number; status: string; feedback?: Feedback; combo?: number; banner?: { title: string; detail?: string }; result?: RunResult }
 type Item = { group: THREE.Group; kind: ItemKind; lane: number; z: number; passed: boolean };
 // Scenery loops between the fog and a point behind the camera, so recycling is never visible.
 const SCENERY_MIN_Z = -66;
 const SCENERY_MAX_Z = 14;
+const RANKING_KEY = 'wii-track-ranking';
 const GAIT_STATUS: Record<Gait, string> = { idle: 'Parado', walk: 'Andando', run: 'Correndo' };
 
 export class TrackGame {
@@ -40,11 +42,14 @@ export class TrackGame {
   private readonly hurdleFlow = new HurdleFlow();
   private jumpTime = 0;
   private travelled = 0;
+  /** Seconds actually spent moving: standing still, pauses and countdowns do not speed the run up. */
+  private movingTime = 0;
   private readonly laneHistory: Lane[] = [];
   private lastHud = '';
   private feedback?: Feedback;
   private shakeTime = 0;
   private readonly gate = new RunGate();
+  private result?: RunResult;
   private status = 'Ande ou corra no lugar com a câmera, ou use ↓';
 
   constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: GameHudState) => void) {
@@ -117,7 +122,7 @@ export class TrackGame {
   onAction(event: SportActionEvent): void {
     if (event.type === 'step') this.pace = applyStep(this.pace);
     if (event.type === 'sprint') this.pace = applySprint(this.pace, event);
-    if (this.gate.phase !== 'running') return;
+    if (this.result || this.gate.phase !== 'running') return;
     if (event.type === 'jump') { this.jumpTime = JUMP_DURATION_S; this.status = 'Salto!'; }
     if (event.type === 'lane') { this.lane = Math.max(-1, Math.min(1, this.lane + (event.direction === 'left' ? -1 : 1))); }
   }
@@ -125,7 +130,7 @@ export class TrackGame {
   onKey(key: string): void {
     const pressed = key.toLowerCase();
     if (!['arrowleft', 'arrowright', 'arrowup', 'arrowdown', ' ', 'a', 'd', 'w', 's'].includes(pressed)) return;
-    if (this.gate.resumeByKey()) return;
+    if (this.result || this.gate.resumeByKey()) return;
     if (this.gate.phase !== 'running' && pressed !== 'arrowdown' && pressed !== 's') return;
     if (key === 'ArrowLeft' || key.toLowerCase() === 'a') this.lane = Math.max(-1, this.lane - 1);
     if (key === 'ArrowRight' || key.toLowerCase() === 'd') this.lane = Math.min(1, this.lane + 1);
@@ -143,6 +148,7 @@ export class TrackGame {
 
   private update(dt: number): void {
     // Everything below is frozen until the gate opens: no travel, score, jump or judging.
+    if (this.result) return;
     this.gate.advance(dt);
     if (this.gate.phase !== 'running') return;
     this.shakeTime = Math.max(0, this.shakeTime - dt);
@@ -168,7 +174,9 @@ export class TrackGame {
       this.runner.position.y = jumpHeight(this.jumpTime);
       if (this.jumpTime === 0) this.status = GAIT_STATUS[gait];
     } else this.runner.position.y = gait === 'run' ? Math.abs(Math.sin(this.stridePhase)) * 0.14 : 0;
-    const advance = dt * speed * 22;
+    if (speed > 0) this.movingTime += dt;
+    const boost = timeBoost(this.movingTime);
+    const advance = dt * speed * 22 * boost;
     const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
     this.travelled += advance;
     for (const piece of this.scenery) piece.position.z = scrollZ(piece.position.z, advance, SCENERY_MIN_Z, SCENERY_MAX_Z);
@@ -177,21 +185,22 @@ export class TrackGame {
     this.shadow.scale.setScalar(1 / (1 + this.runner.position.y * 0.6));
     const fov = this.camera.fov + (fovFor(speed) - this.camera.fov) * Math.min(1, dt * 3);
     if (Math.abs(fov - this.camera.fov) > 0.01) { this.camera.fov = fov; this.camera.updateProjectionMatrix(); }
-    const flow = this.hurdleFlow.advance(this.items, advance, this.lane, airborne, this.travelled);
+    const flow = this.hurdleFlow.advance(this.items, advance, this.lane, airborne, this.travelled, boost);
     for (const { hurdle: item, outcome } of flow.judged) {
-      // Only a jump over the hurdle can be perfect; dodging it by lane just clears it.
-      if (outcome === 'cleared') this.showFeedback('clear', awardText(this.score.hurdleCleared(item.lane === this.lane && isPerfectJump(this.jumpTime))));
+      // A dodge scores nothing and leaves the combo as it is.
+      if (outcome === 'cleared') this.showFeedback('clear', awardText(this.score.hurdleCleared(isPerfectJump(this.jumpTime))));
       if (outcome === 'hit') {
-        this.score.hurdleHit();
+        const penalty = this.score.hurdleHit();
         this.shownSpeed = stumble(this.shownSpeed);
         this.shakeTime = SHAKE_DURATION_S;
-        this.showFeedback('hit', 'TROPEÇOU!');
+        this.showFeedback('hit', `TROPEÇOU! −${penalty}`);
       }
       if (outcome === 'collected') {
         this.showFeedback('coin', `+${this.score.coinCollected()}`);
         item.group.visible = false;
       }
     }
+    if (this.score.over) this.endRun();
     for (const old of flow.despawned) {
       this.items.splice(this.items.indexOf(old), 1);
       this.scene.remove(old.group);
@@ -203,20 +212,31 @@ export class TrackGame {
     }
   }
 
+  /** The ranking lives in this browser only; blocked storage just means it is not remembered. */
+  private endRun(): void {
+    let previous: number[] = [];
+    try { previous = parseRanking(localStorage.getItem(RANKING_KEY)); } catch {}
+    this.result = rankRun(previous, this.score.peak);
+    try { localStorage.setItem(RANKING_KEY, JSON.stringify(this.result.ranking)); } catch {}
+    this.publishHud();
+  }
+
   private publishHud(): void {
     const score = this.score.display;
     const speed = Math.round(this.shownSpeed * 100) / 100;
     const { combo } = this.score;
-    const banner = this.gate.phase === 'countdown'
+    const banner = this.result
+      ? undefined
+      : this.gate.phase === 'countdown'
       ? { title: String(this.gate.count) }
       : this.gate.phase === 'paused'
         ? { title: 'PAUSADO', detail: 'Tracking perdido · volte ao quadro ou aperte uma tecla para seguir no teclado' }
         : undefined;
     const label = String(score).padStart(5, '0');
-    const key = `${label}-${speed}-${this.status}-${this.feedback?.id}-${combo}-${banner?.title}`;
+    const key = `${label}-${speed}-${this.status}-${this.feedback?.id}-${combo}-${banner?.title}-${this.result?.points}`;
     if (key === this.lastHud) return;
     this.lastHud = key;
-    this.onHud({ score, label, speed01: speed, status: this.status, feedback: this.feedback, combo, banner });
+    this.onHud({ score, label, speed01: speed, status: this.status, feedback: this.feedback, combo, banner, result: this.result });
   }
 
   dispose(): void {
