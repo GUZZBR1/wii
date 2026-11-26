@@ -1,16 +1,25 @@
 /// <reference lib="webworker" />
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision';
-import type { HandObservation, HandWorkerReply, HandWorkerRequest } from './handProtocol';
 import type { Delegate, Hand, Point3 } from '../types';
+import type { HandObservation, HandWorkerReply, HandWorkerRequest } from './handProtocol';
 
 let landmarker: HandLandmarker | undefined;
 let wasmBaseUrl = '';
 let modelUrl = '';
 let delegate: Delegate = 'GPU';
 let attemptedFallback = false;
+let wasmLoaderInstance = 0;
 
 async function createTask(nextDelegate: Delegate): Promise<void> {
   const vision = await FilesetResolver.forVisionTasks(wasmBaseUrl, true);
+  if (wasmLoaderInstance > 0) {
+    // MediaPipe consumes and clears self.ModuleFactory after instantiation. The module worker
+    // caches an ESM import by URL, so a retry needs a fresh loader URL to restore the factory.
+    const loaderUrl = new URL(vision.wasmLoaderPath, self.location.href);
+    loaderUrl.searchParams.set('instance', String(wasmLoaderInstance));
+    vision.wasmLoaderPath = loaderUrl.href;
+  }
+  wasmLoaderInstance += 1;
   const response = await fetch(modelUrl);
   if (!response.ok) throw new Error(`Hand model request failed (${response.status})`);
   const modelBytes = new Uint8Array(await response.arrayBuffer());
