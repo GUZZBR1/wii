@@ -25,7 +25,7 @@ export class RunGate {
 
   /** `tracking` is the app's camera label; 'PROCURANDO' is a transient that changes nothing. */
   setTracking(tracking: string): void {
-    if (tracking === 'TRACKING') {
+    if (tracking === 'TRACKING' || tracking.startsWith('TRACKING · ')) {
       this.cameraSeen = true;
       if (this.current === 'paused') this.restart();
     } else if (tracking === 'SEM POSE' && this.cameraSeen) {
