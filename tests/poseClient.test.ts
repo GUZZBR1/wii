@@ -95,6 +95,8 @@ describe('PoseClient capture sessions', () => {
     client.beginCapture(video, { onPose: newOnPose, onStatus });
     worker.reply({
       type: 'POSE',
+      frameWidth: 1280,
+      frameHeight: 720,
       requestId: oldFrame.requestId,
       captureEpoch: oldFrame.captureEpoch,
       timestampMs: 10,
@@ -122,6 +124,8 @@ describe('PoseClient capture sessions', () => {
       timestampMs: 20,
       landmarks: visibleLandmarks(),
       worldLandmarks: visibleLandmarks(),
+      frameWidth: 1280,
+      frameHeight: 720,
     };
     worker.reply({ ...poseReply, requestId: poseReply.requestId + 1 });
     expect(newOnPose).not.toHaveBeenCalled();
@@ -134,6 +138,8 @@ describe('PoseClient capture sessions', () => {
       worldLandmarks: visibleLandmarks(),
       trackingState: 'degraded',
       bodyConfidence: 1,
+      frameWidth: 1280,
+      frameHeight: 720,
     });
 
     client.dispose();

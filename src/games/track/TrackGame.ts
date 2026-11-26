@@ -33,6 +33,7 @@ export class TrackGame {
   private readonly loop: GameLoop;
   private readonly hudTimer: number;
   private lane = 0;
+  private cameraLaneZone: -1 | 0 | 1 | undefined;
   /** Speed asked for by the player and who set it; `shownSpeed` eases toward it. */
   private pace: Pace = { owner: 'camera', speed01: 0, cadenceSpm: 0 };
   private shownSpeed = 0;
@@ -121,6 +122,26 @@ export class TrackGame {
     this.publishHud();
   }
 
+  /**
+   * Camera lane authority: the zone is the position the player's body actually occupies, so it
+   * applies absolutely — never as a step — whenever it changes, in any game phase. Keyboard
+   * steps still write the lane directly and hold until the body zone changes again; while the
+   * zone is undefined the camera has no opinion and the keyboard owns the lane outright.
+   * The comparison rests on the last DEFINED zone, not current availability: reacquiring the
+   * same zone after a blurry frame is not a body movement and must not steamroll a keyboard
+   * pick made during the drop.
+   */
+  setLaneZone(zone: -1 | 0 | 1 | undefined): void {
+    if (zone === undefined) return;
+    if (zone !== this.cameraLaneZone) this.lane = zone;
+    this.cameraLaneZone = zone;
+  }
+
+  /** Ends the camera session's lane authority: the next session reasserts from a clean comparison. */
+  resetLaneZone(): void {
+    this.cameraLaneZone = undefined;
+  }
+
   onAction(event: SportActionEvent): void {
     if (event.type === 'step') this.pace = applyStep(this.pace);
     if (event.type === 'sprint') {
@@ -129,7 +150,6 @@ export class TrackGame {
     }
     if (this.result || this.gate.phase !== 'running') return;
     if (event.type === 'jump') { this.jumpTime = JUMP_DURATION_S; this.jumpSource = 'camera'; this.status = 'Salto!'; }
-    if (event.type === 'lane') { this.lane = Math.max(-1, Math.min(1, this.lane + (event.direction === 'left' ? -1 : 1))); }
   }
 
   onKey(key: string): void {

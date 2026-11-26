@@ -1,6 +1,7 @@
 import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from './protocol';
 import { OneEuroFilter } from '@wii/spatial-core';
-import { bodyLocalPoint, legsVertical } from '../kinematics/bodyFrame';
+import { bodyLocalPoint } from '../kinematics/bodyFrame';
+import { EXIT_LANE_SW } from '../kinematics/postureSignals';
 import { clamp, distance3, isFinitePoint, landmarkConfidence, median, midpoint } from '../kinematics/math';
 
 const CORE = [11, 12, 23, 24] as const;
@@ -14,9 +15,13 @@ const MAX_CORE_OBSERVATION_GAP_MS = 200;
 const MIN_CORE_COVERED_MS = 500;
 const CORE_COVERAGE_RATIO = 0.65;
 const UPDATE_INTERVAL_MS = 250;
-const VECTOR_CONSENSUS_DOT = Math.cos((15 * Math.PI) / 180);
-const LEAN_BIN_RAD = 0.05;
-const LEAN_CLUSTER_RADIUS_RAD = 0.1;
+/** Sustained starvation of near-center evidence before the player is treated as relocated, not leaning. */
+const CENTER_RELOCATION_MS = 30000;
+/** Below this much weighted posture evidence the neutral estimate does not publish — control input is not posture. */
+const MIN_CENTER_EVIDENCE = 2;
+/** Center-x mode bins in normalized image units — smaller than shoulder-jitter so noise clouds cluster. */
+const CENTER_BIN = 0.005;
+const CENTER_CLUSTER_RADIUS = 0.01;
 const SCALE_ALPHA = 0.02;
 const POSE_ALPHA = 0.015;
 const CHANGE_POINT_POSE_ALPHA = 0.06;
@@ -34,10 +39,16 @@ interface CoreObservation {
   timestampMs: number;
   confidence: number;
   shoulderWidth: number;
-  torso: Point3;
-  across: Point3;
-  trunkUp: Point3;
-  legUp?: Point3;
+  /** Shoulder-center x in normalized image coordinates — the lane-control neutral evidence. */
+  shoulderCenterX: number;
+  /** Image-space shoulder width of the same frame; normalizes center deviations scale-free. */
+  imageShoulderWidth: number;
+  /**
+   * The lane zone when this frame was captured. Admission is a property of the moment the
+   * evidence was produced — never of the present — or returning to center would retroactively
+   * admit every held-lane sample still inside the rolling window and the mode would chase it.
+   */
+  laneZone: -1 | 0 | 1;
 }
 
 interface CoreFrameValidity {
@@ -57,76 +68,32 @@ interface WristState {
   observations: WristObservation[];
 }
 
-function subtract(a: Point3, b: Point3): Point3 {
-  return { x: a.x - b.x, y: a.y - b.y, z: a.z - b.z };
-}
-
-function dot(a: Point3, b: Point3): number {
-  return a.x * b.x + a.y * b.y + a.z * b.z;
-}
-
-function normalize(vector: Point3): Point3 | undefined {
-  const magnitude = Math.hypot(vector.x, vector.y, vector.z);
-  if (!Number.isFinite(magnitude) || magnitude < 1e-6) return undefined;
-  return { x: vector.x / magnitude, y: vector.y / magnitude, z: vector.z / magnitude };
-}
-
 function blend(a: number, b: number, alpha: number): number {
   return a + (b - a) * alpha;
-}
-
-function blendVector(a: Point3, b: Point3, alpha: number): Point3 | undefined {
-  return normalize({
-    x: blend(a.x, b.x, alpha),
-    y: blend(a.y, b.y, alpha),
-    z: blend(a.z, b.z, alpha),
-  });
-}
-
-function blendAngle(a: number, b: number, alpha: number): number {
-  const delta = Math.atan2(Math.sin(b - a), Math.cos(b - a));
-  return a + delta * alpha;
-}
-
-function angleDistance(a: number, b: number): number {
-  return Math.abs(Math.atan2(Math.sin(b - a), Math.cos(b - a)));
 }
 
 function confident(point: Point3 | undefined): point is Point3 {
   return isFinitePoint(point) && landmarkConfidence(point) >= MIN_CONFIDENCE;
 }
 
-/** Dominant-vector consensus: a temporal RANSAC-like mode, robust to leans and transient noise. */
-function vectorConsensus(samples: readonly { vector: Point3; confidence: number }[]): Point3 | undefined {
-  let best: { weight: number; vector: Point3 } | undefined;
-  for (const candidate of samples) {
-    let weight = 0;
-    for (const other of samples) {
-      if (dot(candidate.vector, other.vector) >= VECTOR_CONSENSUS_DOT) weight += other.confidence;
-    }
-    if (!best || weight > best.weight) best = { weight, vector: candidate.vector };
-  }
-  if (!best) return undefined;
-  const cluster = samples.filter((sample) => dot(sample.vector, best.vector) >= VECTOR_CONSENSUS_DOT);
-  return normalize({
-    x: cluster.reduce((sum, sample) => sum + sample.vector.x * sample.confidence, 0),
-    y: cluster.reduce((sum, sample) => sum + sample.vector.y * sample.confidence, 0),
-    z: cluster.reduce((sum, sample) => sum + sample.vector.z * sample.confidence, 0),
-  });
-}
-
 /** Histogram mode followed by a local median; better than a mean when gameplay alternates postures. */
-function scalarMode(samples: readonly { value: number; confidence: number }[]): { value: number; strength01: number; dispersion: number } | undefined {
+function scalarMode(
+  samples: readonly { value: number; confidence: number }[],
+  binWidth: number,
+  clusterRadius: number,
+): { value: number; strength01: number; dispersion: number } | undefined {
   if (!samples.length) return undefined;
   const bins = new Map<number, number>();
   const totalWeight = samples.reduce((sum, sample) => sum + sample.confidence, 0);
   for (const sample of samples) {
-    const bin = Math.round(sample.value / LEAN_BIN_RAD);
+    const bin = Math.round(sample.value / binWidth);
     bins.set(bin, (bins.get(bin) ?? 0) + sample.confidence);
   }
   const [bestBin] = [...bins.entries()].sort((a, b) => b[1] - a[1])[0]!;
-  const center = bestBin * LEAN_BIN_RAD;
-  const cluster = samples.filter((sample) => Math.abs(sample.value - center) <= LEAN_CLUSTER_RADIUS_RAD);
+  const center = bestBin * binWidth;
+  // Zero-confidence samples are gated-out control input, not posture: they must not pull the
+  // median even when they fall inside the winning bin's image-space cluster.
+  const cluster = samples.filter((sample) => sample.confidence > 0 && Math.abs(sample.value - center) <= clusterRadius);
   const value = median(cluster.map((sample) => sample.value));
   const clusterWeight = cluster.reduce((sum, sample) => sum + sample.confidence, 0);
   return {
@@ -135,20 +102,6 @@ function scalarMode(samples: readonly { value: number; confidence: number }[]): 
     dispersion: median(cluster.map((sample) => Math.abs(sample.value - value))),
   };
 }
-
-function leanAngle(observation: CoreObservation, up: Point3): number | undefined {
-  const upDirection = normalize(up);
-  if (!upDirection) return undefined;
-  const acrossUp = dot(observation.across, upDirection);
-  const side = normalize({
-    x: observation.across.x - upDirection.x * acrossUp,
-    y: observation.across.y - upDirection.y * acrossUp,
-    z: observation.across.z - upDirection.z * acrossUp,
-  });
-  if (!side) return undefined;
-  return Math.atan2(dot(observation.torso, side), dot(observation.torso, upDirection));
-}
-
 
 function coveredDurationMs(samples: readonly CoreFrameValidity[], startMs: number, endMs: number): number {
   let covered = 0;
@@ -184,12 +137,19 @@ export class AdaptiveCalibrator {
   private readonly wrists: Record<Hand, WristState> = { left: makeWristState(), right: makeWristState() };
   private published?: CalibrationProfile;
   private lastPublishAt = Number.NEGATIVE_INFINITY;
-  private verticalUsesLegs = false;
   private scaleDisagreementSince?: number;
   private poseDisagreementSince?: number;
+  private centerStarvedSince?: number;
+  private laneZone: -1 | 0 | 1 = 0;
 
-  update(snapshot: PoseSnapshot): CalibrationProfile | undefined {
+  /**
+   * Consumes one frame. `laneZone` is the lane state machine's current zone: it is the only
+   * reliable discriminator between stance and control input inside the hysteresis band — while
+   * the zone is center, no lane is held, so a band displacement must be the player's stance.
+   */
+  update(snapshot: PoseSnapshot, laneZone: -1 | 0 | 1): CalibrationProfile | undefined {
     const now = snapshot.timestampMs;
+    this.laneZone = laneZone;
     const core = this.extractCore(snapshot);
     this.coreFrameValidity.push({ timestampMs: now, valid: core !== undefined });
     if (core) {
@@ -226,15 +186,11 @@ export class AdaptiveCalibrator {
     const shoulderCenter = midpoint(leftShoulder, rightShoulder);
     const hipCenter = midpoint(leftHip, rightHip);
     const torsoHeight = Math.abs(hipCenter.y - shoulderCenter.y);
-    const imageShoulderWidth = Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y);
+    const aspect = snapshot.frameHeight / snapshot.frameWidth;
+    const imageShoulderWidth = Math.hypot(leftShoulder.x - rightShoulder.x, (leftShoulder.y - rightShoulder.y) * aspect);
     const shoulderWidth = distance3(worldLeftShoulder, worldRightShoulder);
     if (torsoHeight < 0.03 || imageShoulderWidth < 0.03 || shoulderWidth < 0.03) return undefined;
 
-    const worldShoulderCenter = midpoint(worldLeftShoulder, worldRightShoulder);
-    const worldHipCenter = midpoint(worldLeftHip, worldRightHip);
-    const torso = subtract(worldShoulderCenter, worldHipCenter);
-    const trunkUp = normalize(torso);
-    if (!trunkUp) return undefined;
     return {
       timestampMs: snapshot.timestampMs,
       confidence: landmarkConfidence(
@@ -242,10 +198,9 @@ export class AdaptiveCalibrator {
         leftShoulder, rightShoulder, leftHip, rightHip,
       ),
       shoulderWidth,
-      torso,
-      across: subtract(worldRightShoulder, worldLeftShoulder),
-      trunkUp,
-      legUp: legsVertical(snapshot),
+      shoulderCenterX: (leftShoulder.x + rightShoulder.x) / 2,
+      imageShoulderWidth,
+      laneZone: this.laneZone,
     };
   }
 
@@ -324,32 +279,43 @@ export class AdaptiveCalibrator {
     const shoulderWidth = median(this.coreObservations.map((sample) => sample.shoulderWidth));
     if (!Number.isFinite(shoulderWidth) || shoulderWidth <= 0) return undefined;
 
-    const legSamples = this.coreObservations.flatMap((sample) => sample.legUp ? [{ vector: sample.legUp, confidence: sample.confidence }] : []);
-    const legRatio = legSamples.length / this.coreObservations.length;
-    if (!this.verticalUsesLegs && legSamples.length >= 8 && legRatio >= 0.2) this.verticalUsesLegs = true;
-    if (this.verticalUsesLegs && (legSamples.length < 4 || legRatio < 0.1)) this.verticalUsesLegs = false;
-    const verticalSamples = this.verticalUsesLegs
-      ? legSamples
-      : this.coreObservations.map((sample) => ({ vector: sample.trunkUp, confidence: sample.confidence }));
-    const leanUp0 = vectorConsensus(verticalSamples);
-    if (!leanUp0) return undefined;
-
-    const priorLean = this.published?.world.torsoLeanRad0;
-    const angles = this.coreObservations.flatMap((sample) => {
-      const value = leanAngle(sample, leanUp0);
-      if (value === undefined) return [];
-      // Control input is evidence too, but a held lane lean must not be able to recentre the
-      // neutral reference immediately. Deviations from the current posterior are downweighted;
-      // sustained recurrent deviations still win as the rolling evidence accumulates.
-      const priorDelta = priorLean === undefined ? 0 : angleDistance(value, priorLean);
-      const uprightPrior = 1 / (1 + (value / 0.3) ** 2);
-      const posteriorPrior = 1 / (1 + (priorDelta / 0.25) ** 2);
-      const confidence = sample.confidence * uprightPrior * posteriorPrior;
-      return [{ value, confidence }];
-    });
-    const neutralMode = scalarMode(angles);
-    if (!neutralMode) return undefined;
-    const torsoLeanRad0 = neutralMode.value;
+    const priorCenterX = this.published?.image.shoulderCenterX0;
+    // Neutral evidence is posture, never control input: inside an active side lane everything
+    // is control and contributes nothing — otherwise a long hold would recentre the reference
+    // and the return to center would read as the opposite lane.
+    const deviations = this.coreObservations.map((sample) => ({
+      sample,
+      deviationSw: priorCenterX === undefined ? 0 : Math.abs(sample.shoulderCenterX - priorCenterX) / sample.imageShoulderWidth,
+    }));
+    // The lane zone is the discriminator the bare distance cannot be: inside the hysteresis
+    // band (between EXIT and ENTER) a displacement is control input when a lane is active, but
+    // it is the player's stance when the zone is center — no lane was ever entered to hold.
+    // Zone-center evidence is therefore admitted at any deviation: transitory dodge frames leak
+    // in, but they are brief and symmetric while stance is sustained, and the mode is consensus.
+    const isPosture = (deviationSw: number, laneZone: number) => deviationSw < EXIT_LANE_SW || laneZone === 0;
+    const admitted = deviations.filter(({ sample, deviationSw }) => isPosture(deviationSw, sample.laneZone)).length;
+    // Escape hatch: if almost nothing counts as neutral evidence for a long stretch, the player
+    // is not holding a lane — nobody holds one for half a minute — they physically moved, and
+    // the gate reference is what is wrong. Admission reopens and the change-point blend hurries.
+    const admissionRatio = deviations.length > 0 ? admitted / deviations.length : 1;
+    if (priorCenterX === undefined || admissionRatio >= 0.1) this.centerStarvedSince = undefined;
+    else this.centerStarvedSince ??= now;
+    const relocating = this.centerStarvedSince !== undefined && now - this.centerStarvedSince >= CENTER_RELOCATION_MS;
+    const centerSamples = deviations.map(({ sample, deviationSw }) => ({
+      value: sample.shoulderCenterX,
+      confidence: sample.confidence * (relocating || isPosture(deviationSw, sample.laneZone) ? 1 : 0),
+    }));
+    // No posture evidence means no center estimate: with every near-center sample gated out,
+    // a zero-weight mode would still report the held lane position as neutral and the blend
+    // would chase it. But only the center freezes — scale and wrist references have their own
+    // evidence and keep publishing, or a tennis player standing off-center would never learn
+    // a wrist reference. The neutral readiness freezes with the center it describes.
+    const centerEvidence = centerSamples.reduce((sum, sample) => sum + sample.confidence, 0);
+    const freezeCenter = centerEvidence < MIN_CENTER_EVIDENCE;
+    if (freezeCenter && !this.published) return undefined;
+    const neutralMode = freezeCenter ? undefined : scalarMode(centerSamples, CENTER_BIN, CENTER_CLUSTER_RADIUS);
+    if (!freezeCenter && !neutralMode) return undefined;
+    const shoulderCenterX0 = freezeCenter ? this.published!.image.shoulderCenterX0 : neutralMode!.value;
 
     const readyWristLocal: Partial<Record<Hand, Point3>> = {};
     for (const hand of ['left', 'right'] as const) {
@@ -360,21 +326,23 @@ export class AdaptiveCalibrator {
     const coverage = this.coreCoverage();
     const widthMad = median(this.coreObservations.map((sample) => Math.abs(sample.shoulderWidth - shoulderWidth)));
     const scaleDispersion01 = clamp(1 - widthMad / (shoulderWidth * 0.12));
-    const localDispersion01 = clamp(1 - neutralMode.dispersion / 0.12);
+    const localDispersion01 = neutralMode ? clamp(1 - neutralMode.dispersion / 0.02) : 0;
+    const freshNeutral01 = neutralMode
+      ? clamp(coverage.coveredMs / 2500) * clamp(coverage.ratio / CORE_COVERAGE_RATIO)
+        * (0.15 + 0.7 * neutralMode.strength01 + 0.15 * localDispersion01)
+      : (this.published?.readiness?.neutral01 ?? 0);
     const readiness = {
       scale01: clamp(coverage.spanMs / MIN_PUBLISH_SPAN_MS) * clamp(coverage.ratio / CORE_COVERAGE_RATIO) * scaleDispersion01,
-      neutral01: clamp(coverage.coveredMs / 2500) * clamp(coverage.ratio / CORE_COVERAGE_RATIO)
-        * (0.15 + 0.7 * neutralMode.strength01 + 0.15 * localDispersion01),
+      neutral01: freshNeutral01,
     };
     return {
       version: 3,
       completedAtMs: now,
       world: {
         shoulderWidth,
-        leanUp0,
-        torsoLeanRad0,
         readyWristLocal: Object.keys(readyWristLocal).length ? readyWristLocal : undefined,
       },
+      image: { shoulderCenterX0 },
       quality: {
         validFrameRatio: clamp(coverage.ratio),
         medianConfidence: median(this.coreObservations.map((sample) => sample.confidence)),
@@ -416,19 +384,17 @@ export class AdaptiveCalibrator {
 
   private blendProfile(current: CalibrationProfile, target: CalibrationProfile, now: number): CalibrationProfile {
     const scaleDelta = Math.abs(target.world.shoulderWidth - current.world.shoulderWidth) / current.world.shoulderWidth;
-    const leanDelta = angleDistance(current.world.torsoLeanRad0, target.world.torsoLeanRad0);
-    const upDelta = Math.acos(Math.max(-1, Math.min(1, dot(current.world.leanUp0, target.world.leanUp0))));
+    const centerDelta = Math.abs(target.image.shoulderCenterX0 - current.image.shoulderCenterX0);
     if (scaleDelta > 0.15) this.scaleDisagreementSince ??= now;
     else this.scaleDisagreementSince = undefined;
-    if (leanDelta > 0.2 || upDelta > 0.2) this.poseDisagreementSince ??= now;
+    if (centerDelta > 0.015) this.poseDisagreementSince ??= now;
     else this.poseDisagreementSince = undefined;
     const scaleSustained = this.scaleDisagreementSince !== undefined && now - this.scaleDisagreementSince >= CHANGE_POINT_EVIDENCE_MS;
     const poseSustained = this.poseDisagreementSince !== undefined && now - this.poseDisagreementSince >= CHANGE_POINT_EVIDENCE_MS;
     const scaleAlpha = scaleSustained ? CHANGE_POINT_SCALE_ALPHA : SCALE_ALPHA;
     const poseAlpha = poseSustained ? CHANGE_POINT_POSE_ALPHA : POSE_ALPHA;
     const shoulderWidth = blend(current.world.shoulderWidth, target.world.shoulderWidth, scaleAlpha);
-    const leanUp0 = blendVector(current.world.leanUp0, target.world.leanUp0, poseAlpha) ?? target.world.leanUp0;
-    const torsoLeanRad0 = blendAngle(current.world.torsoLeanRad0, target.world.torsoLeanRad0, poseAlpha);
+    const shoulderCenterX0 = blend(current.image.shoulderCenterX0, target.image.shoulderCenterX0, poseAlpha);
 
     const readyWristLocal: Partial<Record<Hand, Point3>> = { ...current.world.readyWristLocal };
     for (const hand of ['left', 'right'] as const) {
@@ -449,10 +415,9 @@ export class AdaptiveCalibrator {
       completedAtMs: now,
       world: {
         shoulderWidth,
-        leanUp0,
-        torsoLeanRad0,
         readyWristLocal: Object.keys(readyWristLocal).length ? readyWristLocal : undefined,
       },
+      image: { shoulderCenterX0 },
       quality: target.quality,
       readiness: target.readiness,
     };
@@ -465,8 +430,8 @@ export class AdaptiveCalibrator {
     this.wrists.right = makeWristState();
     this.published = undefined;
     this.lastPublishAt = Number.NEGATIVE_INFINITY;
-    this.verticalUsesLegs = false;
     this.scaleDisagreementSince = undefined;
     this.poseDisagreementSince = undefined;
+    this.centerStarvedSince = undefined;
   }
 }

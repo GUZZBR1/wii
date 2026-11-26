@@ -49,7 +49,7 @@ describe('pose replay worker session', () => {
     if (nextFrame?.type !== 'FRAME') throw new Error('Expected a frame request.');
     const poseReply: WorkerReply = {
       type: 'POSE', requestId: nextFrame.requestId, captureEpoch: nextFrame.captureEpoch,
-      timestampMs: 100, landmarks: [], worldLandmarks: [],
+      timestampMs: 100, landmarks: [], worldLandmarks: [], frameWidth: 1280, frameHeight: 720,
     };
     worker.emit(poseReply);
     await expect(nextSample).resolves.toEqual(poseReply);
