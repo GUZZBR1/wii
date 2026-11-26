@@ -43,6 +43,12 @@ interface CoreObservation {
   shoulderCenterX: number;
   /** Image-space shoulder width of the same frame; normalizes center deviations scale-free. */
   imageShoulderWidth: number;
+  /**
+   * The lane zone when this frame was captured. Admission is a property of the moment the
+   * evidence was produced — never of the present — or returning to center would retroactively
+   * admit every held-lane sample still inside the rolling window and the mode would chase it.
+   */
+  laneZone: -1 | 0 | 1;
 }
 
 interface CoreFrameValidity {
@@ -134,9 +140,16 @@ export class AdaptiveCalibrator {
   private scaleDisagreementSince?: number;
   private poseDisagreementSince?: number;
   private centerStarvedSince?: number;
+  private laneZone: -1 | 0 | 1 = 0;
 
-  update(snapshot: PoseSnapshot): CalibrationProfile | undefined {
+  /**
+   * Consumes one frame. `laneZone` is the lane state machine's current zone: it is the only
+   * reliable discriminator between stance and control input inside the hysteresis band — while
+   * the zone is center, no lane is held, so a band displacement must be the player's stance.
+   */
+  update(snapshot: PoseSnapshot, laneZone: -1 | 0 | 1): CalibrationProfile | undefined {
     const now = snapshot.timestampMs;
+    this.laneZone = laneZone;
     const core = this.extractCore(snapshot);
     this.coreFrameValidity.push({ timestampMs: now, valid: core !== undefined });
     if (core) {
@@ -186,6 +199,7 @@ export class AdaptiveCalibrator {
       shoulderWidth,
       shoulderCenterX: (leftShoulder.x + rightShoulder.x) / 2,
       imageShoulderWidth,
+      laneZone: this.laneZone,
     };
   }
 
@@ -265,27 +279,31 @@ export class AdaptiveCalibrator {
     if (!Number.isFinite(shoulderWidth) || shoulderWidth <= 0) return undefined;
 
     const priorCenterX = this.published?.image.shoulderCenterX0;
-    // Neutral evidence is posture near the center, full stop: a held lane position is control
-    // input, not posture, and contributes nothing — otherwise a long hold would recentre the
-    // reference and the return to center would read as the opposite lane. Admission cuts off
-    // at the lane-exit threshold: any displacement beyond it can be an active lane (the zone
-    // hysteresis holds lanes down to EXIT_LANE_SW), so even shallow holds are fully gated.
+    // Neutral evidence is posture, never control input: inside an active side lane everything
+    // is control and contributes nothing — otherwise a long hold would recentre the reference
+    // and the return to center would read as the opposite lane.
     const deviations = this.coreObservations.map((sample) => ({
       sample,
       deviationSw: priorCenterX === undefined ? 0 : Math.abs(sample.shoulderCenterX - priorCenterX) / sample.imageShoulderWidth,
     }));
+    // The lane zone is the discriminator the bare distance cannot be: inside the hysteresis
+    // band (between EXIT and ENTER) a displacement is control input when a lane is active, but
+    // it is the player's stance when the zone is center — no lane was ever entered to hold.
+    // Zone-center evidence is therefore admitted at any deviation: transitory dodge frames leak
+    // in, but they are brief and symmetric while stance is sustained, and the mode is consensus.
+    const isPosture = (deviationSw: number, laneZone: number) => deviationSw < EXIT_LANE_SW || laneZone === 0;
+    const admitted = deviations.filter(({ sample, deviationSw }) => isPosture(deviationSw, sample.laneZone)).length;
     // Escape hatch: if almost nothing counts as neutral evidence for a long stretch, the player
     // is not holding a lane — nobody holds one for half a minute — they physically moved, and
     // the gate reference is what is wrong. Admission reopens and the change-point blend hurries.
-    const admitted = deviations.filter(({ deviationSw }) => deviationSw < EXIT_LANE_SW).length;
     const admissionRatio = deviations.length > 0 ? admitted / deviations.length : 1;
     if (priorCenterX === undefined || admissionRatio >= 0.1) this.centerStarvedSince = undefined;
     else this.centerStarvedSince ??= now;
     const relocating = this.centerStarvedSince !== undefined && now - this.centerStarvedSince >= CENTER_RELOCATION_MS;
-    const centerSamples = deviations.map(({ sample, deviationSw }) => {
-      const postureWeight = deviationSw < EXIT_LANE_SW ? 1 : 0;
-      return { value: sample.shoulderCenterX, confidence: sample.confidence * (relocating ? 1 : postureWeight) };
-    });
+    const centerSamples = deviations.map(({ sample, deviationSw }) => ({
+      value: sample.shoulderCenterX,
+      confidence: sample.confidence * (relocating || isPosture(deviationSw, sample.laneZone) ? 1 : 0),
+    }));
     // No posture evidence means no center estimate: with every near-center sample gated out,
     // a zero-weight mode would still report the held lane position as neutral and the blend
     // would chase it. But only the center freezes — scale and wrist references have their own

@@ -94,8 +94,9 @@ describe('lane position control through the real pipeline and calibrator', () =>
     const zoneTrace: { atMs: number; zone: number | undefined }[] = [];
     for (let time = 0; time <= totalMs; time += 33) {
       const snapshot = pose(time, { shiftUserRightSw: shiftAt(time, timeline) });
-      // The exact App.tsx wiring: every frame is calibration evidence first, control input second.
-      profile = calibrator.update(snapshot) ?? profile;
+      // The exact App.tsx wiring: every frame is calibration evidence first — with the lane zone
+      // as context — control input second.
+      profile = calibrator.update(snapshot, pipeline.laneZone) ?? profile;
       const result = pipeline.update(snapshot, profile);
       zoneTrace.push({ atMs: time, zone: result.controls.laneZone });
     }
@@ -142,6 +143,23 @@ describe('lane position control through the real pipeline and calibrator', () =>
     expect(Math.min(...held.map((p) => p.zone ?? 0))).toBe(1); // lane held all the way through
     expect(zoneTrace.at(-1)!.zone).toBe(0);
     expect(Math.abs(profile!.image.shoulderCenterX0 - 0.5)).toBeLessThan(0.005);
+  });
+
+  it('adapts to a small sustained stance shift so dodges away from it still reach the lane', () => {
+    // Regression for the hysteresis-band hole: settling 0.07 sw right of center never enters a
+    // lane, so it is stance rather than control — the reference must follow it, or a leftward
+    // dodge measured from the stale center falls short of the left lane.
+    const { zoneTrace, profile } = drivePipeline([
+      { atMs: 5000, shiftSw: 0.07, rampMs: 500 },
+      { atMs: 28000, shiftSw: -0.08, rampMs: 300 }, // 0.15 sw dodge left from the shifted stance
+      { atMs: 29500, shiftSw: 0.07, rampMs: 400 },
+    ], 31000);
+    const duringDodge = zoneTrace.filter((p) => p.atMs >= 28100 && p.atMs <= 29400);
+    expect(Math.min(...duringDodge.map((p) => p.zone ?? 0))).toBe(-1);
+    // And the shift is stance, not a lane: while settled, the zone stays center.
+    const settled = zoneTrace.filter((p) => p.atMs >= 15000 && p.atMs <= 27000);
+    expect(settled.every((p) => p.zone === 0 || p.zone === undefined)).toBe(true);
+    void profile;
   });
 
   it('a player who only ever leans right never ends up in the left lane', () => {

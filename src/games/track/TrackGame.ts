@@ -127,10 +127,19 @@ export class TrackGame {
    * applies absolutely — never as a step — whenever it changes, in any game phase. Keyboard
    * steps still write the lane directly and hold until the body zone changes again; while the
    * zone is undefined the camera has no opinion and the keyboard owns the lane outright.
+   * The comparison rests on the last DEFINED zone, not current availability: reacquiring the
+   * same zone after a blurry frame is not a body movement and must not steamroll a keyboard
+   * pick made during the drop.
    */
   setLaneZone(zone: -1 | 0 | 1 | undefined): void {
-    if (zone !== undefined && zone !== this.cameraLaneZone) this.lane = zone;
+    if (zone === undefined) return;
+    if (zone !== this.cameraLaneZone) this.lane = zone;
     this.cameraLaneZone = zone;
+  }
+
+  /** Ends the camera session's lane authority: the next session reasserts from a clean comparison. */
+  resetLaneZone(): void {
+    this.cameraLaneZone = undefined;
   }
 
   onAction(event: SportActionEvent): void {

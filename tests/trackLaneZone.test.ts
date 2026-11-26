@@ -70,6 +70,24 @@ describe('authoritative camera lane zones in the track game', () => {
     canvas.remove();
   });
 
+  it('keeps a keyboard lane override through a transient tracking drop and reacquisition', () => {
+    // Regression: a blurry frame omits the zone, and reacquiring the SAME zone must not look
+    // like a body movement — the player never moved, so the keyboard pick must survive.
+    const { game, canvas, lane } = makeGame();
+    run(game, 4);
+    game.setLaneZone(0);
+    game.onKey('ArrowRight');
+    expect(lane()).toBe(1);
+    game.setLaneZone(undefined); // degraded frame: camera has no opinion
+    game.setLaneZone(undefined);
+    game.setLaneZone(0); // tracking recovers, body still centered — no movement happened
+    expect(lane()).toBe(1);
+    game.setLaneZone(-1); // but a genuine body movement to the left lane still reasserts
+    expect(lane()).toBe(-1);
+    game.dispose();
+    canvas.remove();
+  });
+
   it('hands the lane to the keyboard outright while the camera has no opinion', () => {
     const { game, canvas, lane } = makeGame();
     run(game, 4);

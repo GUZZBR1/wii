@@ -38,5 +38,8 @@ export class LanePositionTracker {
     return this.zone;
   }
 
+  /** The zone the state machine currently believes the body occupies — even while updates pause. */
+  get currentZone(): -1 | 0 | 1 { return this.zone; }
+
   reset(): void { this.filter.reset(); this.zone = 0; }
 }

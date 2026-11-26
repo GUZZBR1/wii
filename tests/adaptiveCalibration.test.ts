@@ -13,7 +13,7 @@ function hideWorld(snapshot: ReturnType<typeof pose>, indices: readonly number[]
 
 function feed(calibrator: AdaptiveCalibrator, frames: ReturnType<typeof pose>[]) {
   let profile: CalibrationProfile | undefined;
-  for (const frame of frames) profile = calibrator.update(frame) ?? profile;
+  for (const frame of frames) profile = calibrator.update(frame, 0) ?? profile;
   return profile;
 }
 
@@ -76,12 +76,12 @@ describe('adaptive calibration', () => {
   it('does not let time spent rejecting frames mature neutral readiness', () => {
     const calibrator = new AdaptiveCalibrator();
     let profile: CalibrationProfile | undefined;
-    for (let time = 0; time <= 700; time += 35) profile = calibrator.update(pose(time)) ?? profile;
+    for (let time = 0; time <= 700; time += 35) profile = calibrator.update(pose(time), 0) ?? profile;
     expect(profile).toBeDefined();
     const initialNeutral01 = profile!.readiness!.neutral01;
 
     for (let time = 735; time <= 3500; time += 35) {
-      profile = calibrator.update(pose(time, { confidence: 0.1 })) ?? profile;
+      profile = calibrator.update(pose(time, { confidence: 0.1 }), 0) ?? profile;
     }
 
     expect(profile!.readiness!.neutral01).toBeLessThanOrEqual(initialNeutral01 + 1e-9);
@@ -112,8 +112,8 @@ describe('adaptive calibration', () => {
 
   it('adapts the neutral center only after a relocation is sustained far beyond any lane hold', () => {
     const calibrator = new AdaptiveCalibrator();
-    for (let time = 0; time <= 1400; time += 35) calibrator.update(pose(time));
-    const initial = calibrator.update(pose(1435));
+    for (let time = 0; time <= 1400; time += 35) calibrator.update(pose(time), 0);
+    const initial = calibrator.update(pose(1435), 0);
     expect(initial).toBeDefined();
     expect(initial!.image.shoulderCenterX0).toBeCloseTo(0.5, 2);
 
@@ -121,7 +121,7 @@ describe('adaptive calibration', () => {
     // neutral must not chase it — that ambiguity is exactly how the inverted lane came back.
     let held = initial;
     for (let time = 1470; time <= 21000; time += 35) {
-      held = calibrator.update(pose(time, { shiftUserRightSw: 0.3 })) ?? held;
+      held = calibrator.update(pose(time, { shiftUserRightSw: 0.3 }), 1) ?? held;
     }
     expect(Math.abs(held!.image.shoulderCenterX0 - 0.5)).toBeLessThan(0.01);
 
@@ -129,7 +129,7 @@ describe('adaptive calibration', () => {
     // the gate reopens and the reference moves toward the new standing position.
     let adapted = held;
     for (let time = 21035; time <= 55000; time += 35) {
-      adapted = calibrator.update(pose(time, { shiftUserRightSw: 0.3 })) ?? adapted;
+      adapted = calibrator.update(pose(time, { shiftUserRightSw: 0.3 }), 1) ?? adapted;
     }
     // 0.3 shoulder widths toward the player's right is 0.042 normalized units toward image left.
     expect(adapted!.image.shoulderCenterX0).toBeLessThan(0.49);
@@ -138,9 +138,9 @@ describe('adaptive calibration', () => {
   it('does not recentre neutral after a short lane-position hold', () => {
     const calibrator = new AdaptiveCalibrator();
     let profile: CalibrationProfile | undefined;
-    for (let time = 0; time <= 2500; time += 35) profile = calibrator.update(pose(time)) ?? profile;
-    for (let time = 2535; time <= 4300; time += 35) profile = calibrator.update(pose(time, { shiftUserRightSw: 0.3 })) ?? profile;
-    for (let time = 4335; time <= 7000; time += 35) profile = calibrator.update(pose(time)) ?? profile;
+    for (let time = 0; time <= 2500; time += 35) profile = calibrator.update(pose(time), 0) ?? profile;
+    for (let time = 2535; time <= 4300; time += 35) profile = calibrator.update(pose(time, { shiftUserRightSw: 0.3 }), 1) ?? profile;
+    for (let time = 4335; time <= 7000; time += 35) profile = calibrator.update(pose(time), 0) ?? profile;
 
     expect(Math.abs(profile!.image.shoulderCenterX0 - 0.5)).toBeLessThan(0.005);
   });
@@ -152,7 +152,7 @@ describe('adaptive calibration', () => {
     const zonesBeforeConvergence: (number | undefined)[] = [];
     for (let time = 0; time <= 700; time += 35) {
       const frame = pose(time, { shiftUserRightSw: 0.25 });
-      zonesBeforeConvergence.push(probePipeline.update(frame, probeCalibrator.update(frame)).controls.laneZone);
+      zonesBeforeConvergence.push(probePipeline.update(frame, probeCalibrator.update(frame, 0)).controls.laneZone);
     }
     expect(zonesBeforeConvergence.every((zone) => zone === undefined)).toBe(true);
 
@@ -161,10 +161,10 @@ describe('adaptive calibration', () => {
     const swingPipeline = new ActionPipeline();
     for (let time = 0; time <= 1300; time += 35) {
       const frame = pose(time);
-      swingPipeline.update(frame, swingCalibrator.update(frame));
+      swingPipeline.update(frame, swingCalibrator.update(frame, 0));
     }
     const swingFrame = pose(1335, { wristLateral: -0.3 });
-    const swingEvents = swingPipeline.update(swingFrame, swingCalibrator.update(swingFrame)).events;
+    const swingEvents = swingPipeline.update(swingFrame, swingCalibrator.update(swingFrame, 0)).events;
     expect(swingEvents.some((event) => event.type === 'swing-start')).toBe(true);
 
     // With a clean centered bootstrap the lane zone activates once neutral converges.
@@ -172,12 +172,12 @@ describe('adaptive calibration', () => {
     const lanePipeline = new ActionPipeline();
     for (let time = 0; time <= 3000; time += 35) {
       const frame = pose(time);
-      lanePipeline.update(frame, laneCalibrator.update(frame));
+      lanePipeline.update(frame, laneCalibrator.update(frame, 0));
     }
     let convergedZone: number | undefined;
     for (let time = 3035; time <= 3400; time += 35) {
       const frame = pose(time, { shiftUserRightSw: 0.25 });
-      convergedZone = lanePipeline.update(frame, laneCalibrator.update(frame)).controls.laneZone ?? convergedZone;
+      convergedZone = lanePipeline.update(frame, laneCalibrator.update(frame, 0)).controls.laneZone ?? convergedZone;
     }
     expect(convergedZone).toBe(1);
   });
@@ -190,15 +190,15 @@ describe('adaptive calibration', () => {
     const calibrator = new AdaptiveCalibrator();
     let profile: CalibrationProfile | undefined;
     for (let time = 0; time <= 1000; time += 35) {
-      profile = calibrator.update(pose(time, { hiddenLandmarks: [15, 16] })) ?? profile;
+      profile = calibrator.update(pose(time, { hiddenLandmarks: [15, 16] }), 0) ?? profile;
     }
     for (let time = 1035; time <= 9100; time += 35) {
-      profile = calibrator.update(pose(time, { shiftUserRightSw: 0.3, hiddenLandmarks: [15, 16] })) ?? profile;
+      profile = calibrator.update(pose(time, { shiftUserRightSw: 0.3, hiddenLandmarks: [15, 16] }), 1) ?? profile;
     }
     expect(profile!.world.readyWristLocal?.right).toBeUndefined(); // no wrist evidence yet at all
 
     for (let time = 9135; time <= 12500; time += 35) {
-      profile = calibrator.update(pose(time, { shiftUserRightSw: 0.3 })) ?? profile;
+      profile = calibrator.update(pose(time, { shiftUserRightSw: 0.3 }), 1) ?? profile;
     }
     expect(profile!.world.readyWristLocal?.right).toBeDefined(); // learned despite the starved center
     expect(profile!.image.shoulderCenterX0).toBeCloseTo(0.5, 2); // while the center stays frozen
@@ -217,16 +217,16 @@ describe('adaptive calibration', () => {
   it('learns a wrist reference only after a low-speed position recurs', () => {
     const calibrator = new AdaptiveCalibrator();
     let profile: CalibrationProfile | undefined;
-    for (let time = 0; time <= 1000; time += 35) profile = calibrator.update(pose(time)) ?? profile;
+    for (let time = 0; time <= 1000; time += 35) profile = calibrator.update(pose(time), 0) ?? profile;
     expect(profile?.world.readyWristLocal?.right).toBeUndefined();
 
     // A fast lateral rally creates a gap in the low-speed evidence; returning to the same
     // position later forms a recurrent cluster instead of treating the swing finish as neutral.
     for (let time = 1035; time <= 1500; time += 35) {
       const lateral = 0.35 * Math.sin((time - 1035) / 55);
-      profile = calibrator.update(pose(time, { wristLateral: lateral })) ?? profile;
+      profile = calibrator.update(pose(time, { wristLateral: lateral }), 0) ?? profile;
     }
-    for (let time = 1535; time <= 3200; time += 35) profile = calibrator.update(pose(time)) ?? profile;
+    for (let time = 1535; time <= 3200; time += 35) profile = calibrator.update(pose(time), 0) ?? profile;
 
     expect(profile?.world.readyWristLocal?.right).toBeDefined();
     expect(profile!.world.readyWristLocal!.right!.y).toBeCloseTo(-1.25, 1);

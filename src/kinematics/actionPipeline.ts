@@ -137,6 +137,14 @@ export class ActionPipeline {
   }
 
   /**
+   * The lane zone the tracker currently believes the body occupies. Calibration uses it as
+   * context: while the zone is center no lane is held, so band displacements are stance rather
+   * than control input. One frame stale by the time the next calibration update consumes it,
+   * which is meaningless for a statistical admission decision.
+   */
+  get laneZone(): -1 | 0 | 1 { return this.lanePosition.currentZone; }
+
+  /**
    * The sprint event a blackout frame still owes the game: the last measured speed carried
    * forward with exponential damping, or nothing once the coast has run out — the final
    * stop is emitted by the caller through stopSprint, exactly once.
