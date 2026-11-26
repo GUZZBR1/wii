@@ -2,7 +2,6 @@ import type { Point3 } from '../cv/protocol';
 
 export const clamp = (value: number, min = 0, max = 1): number => Math.min(max, Math.max(min, value));
 export const midpoint = (a: Point3, b: Point3): Point3 => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 });
-export const distance2 = (a: Point3, b: Point3): number => Math.hypot(a.x - b.x, a.y - b.y);
 export const distance3 = (a: Point3, b: Point3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 export const median = (values: readonly number[]): number => {
   if (!values.length) return 0;

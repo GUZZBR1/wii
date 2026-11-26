@@ -9,12 +9,5 @@ export interface GameHudState {
   label: string;
   speed01: number;
   status: string;
-  /** Optional sport-specific primary metric; the canvas falls back to its legacy labels without it. */
-  metricLabel?: string;
-  metricValue?: string;
-  bestLabel?: string;
-  rankLabel?: string;
-  rankProgress01?: number;
-  detail?: string;
   feedback?: HudFeedback;
 }
