@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { CalibrationProfile } from '../src/cv/protocol';
 import { AdaptiveCalibrator } from '../src/cv/adaptiveCalibrator';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
-import { pose, poseWithWorldShoulderWidth, poseWithWorldTorso } from './fixtures/syntheticPose';
+import { pose, poseWithWorldShoulderWidth } from './fixtures/syntheticPose';
 
 function hideWorld(snapshot: ReturnType<typeof pose>, indices: readonly number[]) {
   return {
@@ -34,27 +34,6 @@ describe('adaptive calibration', () => {
   it('does not publish before a minimum evidence span', () => {
     const calibrator = new AdaptiveCalibrator();
     expect(feed(calibrator, [pose(0), pose(100), pose(200), pose(300)])).toBeUndefined();
-  });
-
-  it('prefers verified straight legs for vertical when available', () => {
-    const calibrator = new AdaptiveCalibrator();
-    const frames = [];
-    for (let time = 0; time <= 1000; time += 35) frames.push(pose(time, { leanRad: 0.2 }));
-    const profile = feed(calibrator, frames);
-
-    expect(Math.abs(profile!.world.leanUp0.x)).toBeLessThan(0.02);
-    expect(profile!.world.leanUp0.y).toBeCloseTo(-1, 2);
-  });
-
-  it('falls back to the trunk vertical when legs are never visible', () => {
-    const calibrator = new AdaptiveCalibrator();
-    const frames = [];
-    for (let time = 0; time <= 1000; time += 35) {
-      frames.push(hideWorld(pose(time, { leanRad: 0.2, hiddenLandmarks: [25, 26, 27, 28] }), [25, 26, 27, 28]));
-    }
-    const profile = feed(calibrator, frames);
-
-    expect(Math.abs(profile!.world.leanUp0.x)).toBeGreaterThan(0.05);
   });
 
   it.each([
@@ -131,28 +110,39 @@ describe('adaptive calibration', () => {
     expect(profile!.world.shoulderWidth).toBeLessThan(0.45);
   });
 
-  it('adapts the neutral lean as the habitual posture changes during play', () => {
+  it('adapts the neutral center only after a relocation is sustained far beyond any lane hold', () => {
     const calibrator = new AdaptiveCalibrator();
-    for (let time = 0; time <= 1400; time += 35) calibrator.update(poseWithWorldTorso(time, { leanRad: 0 }));
-    const initial = calibrator.update(poseWithWorldTorso(1435, { leanRad: 0 }));
+    for (let time = 0; time <= 1400; time += 35) calibrator.update(pose(time));
+    const initial = calibrator.update(pose(1435));
     expect(initial).toBeDefined();
-    expect(initial!.world.torsoLeanRad0).toBeCloseTo(0, 2);
+    expect(initial!.image.shoulderCenterX0).toBeCloseTo(0.5, 2);
 
-    let adapted = initial;
-    for (let time = 1470; time <= 15000; time += 35) {
-      adapted = calibrator.update(poseWithWorldTorso(time, { leanRad: 0.25 })) ?? adapted;
+    // A displaced position sustained for 20 s is indistinguishable from a long lane hold:
+    // neutral must not chase it — that ambiguity is exactly how the inverted lane came back.
+    let held = initial;
+    for (let time = 1470; time <= 21000; time += 35) {
+      held = calibrator.update(pose(time, { shiftUserRightSw: 0.3 })) ?? held;
     }
-    expect(adapted!.world.torsoLeanRad0).toBeGreaterThan(0.08);
+    expect(Math.abs(held!.image.shoulderCenterX0 - 0.5)).toBeLessThan(0.01);
+
+    // Past half a minute without any near-center posture it is a relocation, not a hold:
+    // the gate reopens and the reference moves toward the new standing position.
+    let adapted = held;
+    for (let time = 21035; time <= 55000; time += 35) {
+      adapted = calibrator.update(pose(time, { shiftUserRightSw: 0.3 })) ?? adapted;
+    }
+    // 0.3 shoulder widths toward the player's right is 0.042 normalized units toward image left.
+    expect(adapted!.image.shoulderCenterX0).toBeLessThan(0.49);
   });
 
-  it('does not recentre neutral after a short lane-style lean', () => {
+  it('does not recentre neutral after a short lane-position hold', () => {
     const calibrator = new AdaptiveCalibrator();
     let profile: CalibrationProfile | undefined;
-    for (let time = 0; time <= 2500; time += 35) profile = calibrator.update(poseWithWorldTorso(time, { leanRad: 0 })) ?? profile;
-    for (let time = 2535; time <= 4300; time += 35) profile = calibrator.update(poseWithWorldTorso(time, { leanRad: 0.25 })) ?? profile;
-    for (let time = 4335; time <= 7000; time += 35) profile = calibrator.update(poseWithWorldTorso(time, { leanRad: 0 })) ?? profile;
+    for (let time = 0; time <= 2500; time += 35) profile = calibrator.update(pose(time)) ?? profile;
+    for (let time = 2535; time <= 4300; time += 35) profile = calibrator.update(pose(time, { shiftUserRightSw: 0.3 })) ?? profile;
+    for (let time = 4335; time <= 7000; time += 35) profile = calibrator.update(pose(time)) ?? profile;
 
-    expect(Math.abs(profile!.world.torsoLeanRad0)).toBeLessThan(0.04);
+    expect(Math.abs(profile!.image.shoulderCenterX0 - 0.5)).toBeLessThan(0.005);
   });
 
   it('activates scale-dependent controls before the slower neutral lane reference converges', () => {
@@ -160,7 +150,7 @@ describe('adaptive calibration', () => {
     const lanePipeline = new ActionPipeline();
     const lanesBeforeConvergence = [];
     for (let time = 0; time <= 700; time += 35) {
-      const frame = pose(time, { leanRad: time < 350 ? 0 : 0.24 });
+      const frame = pose(time, { shiftUserRightSw: time < 350 ? 0 : 0.25 });
       lanesBeforeConvergence.push(...lanePipeline.update(frame, laneCalibrator.update(frame)).events.filter((event) => event.type === 'lane'));
     }
     expect(lanesBeforeConvergence).toHaveLength(0);
@@ -181,7 +171,7 @@ describe('adaptive calibration', () => {
     }
     const convergedEvents = [];
     for (let time = 3035; time <= 3400; time += 35) {
-      const frame = pose(time, { leanRad: 0.24 });
+      const frame = pose(time, { shiftUserRightSw: 0.25 });
       convergedEvents.push(...lanePipeline.update(frame, laneCalibrator.update(frame)).events);
     }
     expect(convergedEvents.some((event) => event.type === 'lane')).toBe(true);

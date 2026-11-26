@@ -77,7 +77,7 @@ describe('torso action pipeline integration', () => {
       const profile = { ...calibration(), readiness: { scale01: 1, neutral01 } };
       const events = [];
       for (let time = 0; time <= 500; time += 33) {
-        events.push(...pipeline.update(pose(time, { leanRad: time < 150 ? 0 : 0.24 }), profile).events);
+        events.push(...pipeline.update(pose(time, { shiftUserRightSw: time < 150 ? 0 : 0.25 }), profile).events);
       }
       return events.filter((event) => event.type === 'lane');
     };

@@ -6,15 +6,16 @@ export interface CalibrationProfile {
   completedAtMs: number;
   world: {
     shoulderWidth: number;
-    /**
-     * Standing vertical captured from verified extended legs when available, otherwise from
-     * the neutral trunk direction. Runtime lean is measured as a delta from the neutral pose.
-     */
-    leanUp0: Point3;
-    /** Lateral trunk lean of the neutral calibration pose; runtime lean is reported as the delta from it. */
-    torsoLeanRad0: number;
     /** Each wrist relative to its own shoulder; each hand has an independent optional reference. */
     readyWristLocal?: Partial<Record<Hand, Point3>>;
+  };
+  image: {
+    /**
+     * Neutral shoulder-center x in normalized image coordinates, from the player's dominant
+     * posture. Lane control measures lateral displacement against it: in raw camera coordinates
+     * the player's own right is toward image left, so displacement rightward is centerX0 − x.
+     */
+    shoulderCenterX0: number;
   };
   quality: { validFrameRatio: number; medianConfidence: number };
   /**

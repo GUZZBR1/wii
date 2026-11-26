@@ -2,9 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { OneEuroFilter } from '@wii/spatial-core';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
 import { landmarkConfidence } from '../src/kinematics/math';
-import { LaneLeanDetector, torsoLeanDeltaRad } from '../src/kinematics/postureSignals';
 import { hasMeaningfulLateralComponent, SwingDetector } from '../src/kinematics/swingDetector';
-import { calibration, pose, poseWithHipBounce, poseWithWorldShoulderWidth, poseWithWorldTorso, rollUpperBody, rotateWorldYaw } from './fixtures/syntheticPose';
+import { calibration, pose, poseWithHipBounce, poseWithWorldShoulderWidth, rotateWorldYaw } from './fixtures/syntheticPose';
 import { cadenceHarness } from './fixtures/torsoHarness';
 
 /** Feeds the pipeline with torso bounce at 150 spm between `from` and `until` — the run-in-place signal. */
@@ -202,123 +201,6 @@ describe('swing detector', () => {
   });
 });
 
-describe('world-space posture calibration', () => {
-  it('uses world torso geometry for lane lean and emits one direction while the pose is held', () => {
-    const detector = new LaneLeanDetector();
-    const profile = calibration();
-    const leanPose = pose(99, { leanRad: 0.24 });
-    expect(torsoLeanDeltaRad(leanPose, profile)).toBeCloseTo(0.24, 2);
-    expect(torsoLeanDeltaRad(rotateWorldYaw(leanPose, 0.9), profile)).toBeCloseTo(0.24, 2);
-    const signals = [0, 33, 66, 99, 132, 165, 198].map((time) => detector.update(
-      pose(time, { leanRad: time < 99 ? 0 : 0.24 }), profile,
-    )).filter(Boolean);
-    expect(signals).toEqual(['right']);
-  });
-
-  it.each([
-    [0.3, 0, 'right'], [-0.3, 0, 'left'], [0.3, 0.9, 'right'], [-0.3, 0.9, 'left'],
-  ] as const)('measures a rigid trunk roll of %s rad at yaw %s', (roll, yaw, direction) => {
-    const frame = (time: number, radians: number) => rotateWorldYaw(rollUpperBody(pose(time), radians), yaw);
-    const profile = calibration();
-    expect(torsoLeanDeltaRad(frame(0, roll), profile)).toBeCloseTo(roll, 1);
-    const detector = new LaneLeanDetector();
-    const signals = Array.from({ length: 12 }, (_, i) => detector.update(frame(i * 33, i < 4 ? 0 : roll), profile));
-    expect(signals.filter(Boolean)).toEqual([direction]);
-  });
-
-  it('does not read a body turn as lean after calibrating with a forward-tilted trunk', () => {
-    // Level camera, trunk calibrated 20° forward: the slanted trunk would lean the reference,
-    // but the stored vertical comes from the legs, which point along gravity.
-    const tilt = (20 * Math.PI) / 180;
-    const up = { x: 0, y: -Math.cos(tilt), z: Math.sin(tilt) };
-    const down = { x: 0, y: 1, z: 0 };
-    const profile = calibration();
-    const turned = rotateWorldYaw(poseWithWorldTorso(0, { up, down }), Math.PI / 4);
-    expect(torsoLeanDeltaRad(turned, profile)).toBeCloseTo(0, 2);
-    const detector = new LaneLeanDetector();
-    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
-      rotateWorldYaw(poseWithWorldTorso(i * 33, { up, down }), (i * Math.PI) / 20), profile,
-    ));
-    expect(signals.filter(Boolean)).toHaveLength(0);
-  });
-
-  it('does not read an upright body turn as lean when the camera is tilted', () => {
-    // Webcam pitched 25°: the calibrated trunk-up is tilted in camera space.
-    const tilt = (25 * Math.PI) / 180;
-    const up = { x: 0, y: -Math.cos(tilt), z: Math.sin(tilt) };
-    const profile = { ...calibration(), world: { ...calibration().world, leanUp0: up } };
-    expect(torsoLeanDeltaRad(poseWithWorldTorso(0, { up }), profile)).toBeCloseTo(0, 3);
-    // A 45° body turn measured ≈ −0.30 rad against the camera's horizontal plane.
-    expect(torsoLeanDeltaRad(poseWithWorldTorso(0, { up, yawRad: Math.PI / 4 }), profile)).toBeCloseTo(0, 2);
-    const detector = new LaneLeanDetector();
-    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
-      poseWithWorldTorso(i * 33, { up, yawRad: (i * Math.PI) / 20 }), profile,
-    ));
-    expect(signals.filter(Boolean)).toHaveLength(0);
-  });
-
-  it.each([[0.24, 'right'], [-0.24, 'left']] as const)('measures a real %s rad lean at 45° yaw with a tilted camera', (leanRad, direction) => {
-    const tilt = (25 * Math.PI) / 180;
-    const up = { x: 0, y: -Math.cos(tilt), z: Math.sin(tilt) };
-    const profile = { ...calibration(), world: { ...calibration().world, leanUp0: up } };
-    expect(torsoLeanDeltaRad(poseWithWorldTorso(0, { up, yawRad: Math.PI / 4, leanRad }), profile)).toBeCloseTo(leanRad, 2);
-    const detector = new LaneLeanDetector();
-    const signals = Array.from({ length: 10 }, (_, i) => detector.update(
-      poseWithWorldTorso(i * 33, { up, yawRad: Math.PI / 4, leanRad: i < 4 ? 0 : leanRad }), profile,
-    ));
-    expect(signals.filter(Boolean)).toEqual([direction]);
-  });
-
-  it('measures a whole-body lean where the thighs rotate with the trunk', () => {
-    // Ankle-pivot lean: trunk and thighs stay parallel, so the fixed reference must not follow.
-    const down = { x: Math.sin(0.24), y: Math.cos(0.24), z: 0 };
-    const profile = calibration();
-    expect(torsoLeanDeltaRad(poseWithWorldTorso(0, { leanRad: 0.24, down }), profile)).toBeCloseTo(0.24, 2);
-  });
-
-  it('keeps the neutral baseline when the knees leave the camera frame', () => {
-    const profile = { ...calibration(), world: { ...calibration().world, torsoLeanRad0: 0.2 } };
-    const hiddenKnees = (time: number) => withWorldConfidence(
-      withWorldConfidence(pose(time, { leanRad: 0.2 }), 25, 0, 0), 26, 0, 0,
-    );
-    expect(torsoLeanDeltaRad(hiddenKnees(0), profile)).toBeCloseTo(0, 2);
-    const detector = new LaneLeanDetector();
-    const signals = Array.from({ length: 8 }, (_, i) => detector.update(hiddenKnees(i * 33), profile));
-    expect(signals.filter(Boolean)).toHaveLength(0);
-  });
-
-  it('keeps lane lean working with a trunk-derived reference when the legs were never visible', () => {
-    // The trunk-derived reference absorbs the habitual posture at calibration; a lean AWAY
-    // from neutral must still read as a delta and emit lane changes.
-    const noLegs = (time: number, leanRad = 0) => {
-      const snapshot = pose(time, { leanRad, hiddenLandmarks: [25, 26, 27, 28] });
-      return {
-        ...snapshot,
-        worldLandmarks: snapshot.worldLandmarks.map((point, index) => (index >= 25 ? { ...point, visibility: 0, presence: 0 } : point)),
-      };
-    };
-    const profile = calibration();
-    // Neutral reads zero...
-    expect(torsoLeanDeltaRad(noLegs(0), profile)).toBeCloseTo(0, 1);
-    // ...and a real lean reads as a delta of the right size.
-    expect(torsoLeanDeltaRad(noLegs(0, 0.24), profile)).toBeCloseTo(0.24, 1);
-    const detector = new LaneLeanDetector();
-    const signals = [0, 33, 66, 99, 132, 165, 198].map((time) => detector.update(
-      noLegs(time, time < 99 ? 0 : 0.24), profile,
-    )).filter(Boolean);
-    expect(signals).toEqual(['right']);
-  });
-
-  it('waits for neutral posture before emitting a lane change after tracking reset', () => {
-    const detector = new LaneLeanDetector();
-    const profile = calibration();
-    detector.reset();
-    expect(detector.update(pose(0, { leanRad: 0.24 }), profile)).toBeUndefined();
-    for (let time = 33; time <= 500; time += 33) expect(detector.update(pose(time), profile)).toBeUndefined();
-    const signals = [533, 566, 599, 632, 665].map((time) => detector.update(pose(time, { leanRad: 0.24 }), profile)).filter(Boolean);
-    expect(signals).toEqual(['right']);
-  });
-});
 
 describe('action pipeline tracking gate', () => {
   it('keeps all discrete action signals quiet for a stationary jitter fixture', () => {
