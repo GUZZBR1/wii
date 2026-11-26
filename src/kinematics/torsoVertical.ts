@@ -12,8 +12,6 @@ export interface TorsoVerticalSample {
   oscillationAmplitude: number;
   /** Slower semi-amplitude estimate used to distinguish takeoff from sustained bounce. */
   sustainedOscillationAmplitude: number;
-  /** Which landmarks produced `rise`; shoulder-only samples are never read as a jump. */
-  source?: 'hips' | 'shoulders';
   /** Shoulder heights and the (slowly measured) shoulder width, in the same units, for the bounce detector. */
   shoulders: { left: number; right: number; width: number };
 }
@@ -157,7 +155,6 @@ export class TorsoVerticalChannel {
       oscillationAmplitude: (this.amplitudeMeanAbs ?? 0) / 0.64,
       sustainedOscillationAmplitude: (this.sustainedAmplitudeMeanAbs ?? 0) / 0.64,
       shoulders: shoulderHeights,
-      source: hips ? 'hips' : 'shoulders',
     };
   }
 

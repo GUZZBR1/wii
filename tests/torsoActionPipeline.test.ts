@@ -4,7 +4,12 @@ import { calibration, pose, poseWithHipBounce } from './fixtures/syntheticPose';
 
 const TORSO_HEIGHT = 0.4;
 
+/** Twice the old profile: real recordings put jumps at 0.5–0.9 shoulder widths of rise. */
 function jumpRise(timeMs: number): number {
+  return 2 * jumpShape(timeMs);
+}
+
+function jumpShape(timeMs: number): number {
   const t = timeMs - 3000;
   if (t < 0) return 0;
   if (t < 250) return (-0.1 * (1 - Math.cos((Math.PI * t) / 250))) / 2;

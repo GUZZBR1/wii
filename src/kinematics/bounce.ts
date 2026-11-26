@@ -1,13 +1,13 @@
 /**
  * Is the player running? Judged only by how much both shoulders bounce over one second, in shoulder
  * widths. Real recordings: standing 0.001–0.011, swinging only the arms 0.003–0.020, running in
- * place 0.045–0.078, jumping 0.10–0.29. Real running is irregular, so no rhythm is required.
+ * place 0.045–0.14, jumping 0.26–0.40. Real running is irregular, so no rhythm is required.
  */
 const WINDOW_MS = 1000;
 const MIN_SPAN_MS = 600;
 const MIN_SPREAD_SW = 0.03;
 /** A bounce this big is a jump, not a stride, and the landing is ignored for a while. */
-const JUMP_SPREAD_SW = 0.12;
+const JUMP_SPREAD_SW = 0.2;
 const JUMP_LOCKOUT_MS = 1200;
 /** Both shoulders must move together, which independent landmark jitter and one-arm waving do not. */
 const MIN_TOGETHER = 0.65;
@@ -94,6 +94,17 @@ export class BounceDetector {
   }
 
   isMoving(t: number): boolean { return t <= this.until && t > this.blockedUntil; }
+
+  /**
+   * A jump was recognised: its flight must not linger in the window or keep the run locked out.
+   * A run in progress stays confirmed while the emptied window refills; a jump from standing keeps
+   * the landing from reading as the first strides of a run.
+   */
+  forgetJump(t: number, wasRunning: boolean): void {
+    this.until = wasRunning ? t + WINDOW_MS : Number.NEGATIVE_INFINITY;
+    this.samples = [];
+    this.blockedUntil = wasRunning ? Number.NEGATIVE_INFINITY : t + JUMP_LOCKOUT_MS;
+  }
 
   reset(): void {
     this.samples = [];
