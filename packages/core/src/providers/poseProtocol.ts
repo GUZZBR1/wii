@@ -52,13 +52,29 @@ export type WorkerReply =
   | { type: 'ERROR'; stage: 'init'; fatal: boolean; message: string }
   | { type: 'ERROR'; stage: 'detect'; fatal: boolean; message: string; requestId: number; captureEpoch: number };
 
-export type AimZone = 'cross' | 'center' | 'line';
 export type SportActionEvent =
   | ActionBase & { type: 'sprint'; speed01: number; cadenceSpm: number }
   | ActionBase & { type: 'step'; side: Hand }
   | ActionBase & { type: 'jump' }
   | ActionBase & { type: 'lane'; direction: 'left' | 'right' }
-  | ActionBase & { type: 'swing'; side: 'forehand' | 'backhand'; power01: number; aimZone: AimZone; peakTimestampMs?: number };
+  /**
+   * Unconfirmed real-time notice that a wrist crossed the swing onset threshold — emitted on the
+   * crossing frame, ~100-400 ms before the swing confirms (if it ever does). Backswings and
+   * aborted motions fire it too: use it for animation, never for adjudication.
+   */
+  | ActionBase & { type: 'swing-start'; hand: Hand }
+  | ActionBase & {
+      type: 'swing';
+      side: 'forehand' | 'backhand';
+      power01: number;
+      peakTimestampMs?: number;
+      /** Frame where the onset threshold was crossed; the stroke's physical start. */
+      onsetTimestampMs?: number;
+      /** Wrist height relative to its shoulder at the speed peak, in shoulder widths, up positive. */
+      contactY: number;
+      /** Vertical wrist speed at the peak in shoulder widths/s, up positive — topspin/slice proxy. */
+      verticalSpeed: number;
+    };
 
 export interface ContinuousControls {
   /** Always neutral when cadence tracking is degraded or lost. */

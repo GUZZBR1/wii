@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SportActionEvent } from '../cv/protocol';
-import type { GameHudState } from '../games/track/TrackGame';
+import type { ProceduralAudio } from '../games/audio';
+import type { GameHudState as CoreHudState } from '../games/core/hud';
+import type { GameHudState as TrackHudState } from '../games/track/TrackGame';
+
+type GameHudState = Omit<TrackHudState, 'feedback'> & { feedback?: TrackHudState['feedback'] | CoreHudState['feedback'] };
 import { forwardKeyDown } from './keys';
 
 export type Sport = 'track' | 'tennis';
@@ -10,6 +14,7 @@ interface Props {
   sport: Sport;
   onEngine: (engine: GameEngineHandle | null) => void;
   tracking: string;
+  audio?: ProceduralAudio;
 }
 
 /** Restarting remounts the whole run, so a new game starts from a clean engine and canvas. */
@@ -18,7 +23,7 @@ export function GameCanvas(props: Props) {
   return <GameRun key={run} {...props} onRestart={() => setRun((value) => value + 1)} />;
 }
 
-function GameRun({ sport, onEngine, tracking, onRestart }: Props & { onRestart: () => void }) {
+function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRestart: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hud, setHud] = useState<GameHudState>({ score: 0, label: '00000', speed01: 0, status: 'Pronto para jogar' });
   const hudRef = useRef(setHud);
@@ -36,17 +41,18 @@ function GameRun({ sport, onEngine, tracking, onRestart }: Props & { onRestart: 
     const keydown = (event: KeyboardEvent) => {
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(event.key)) event.preventDefault();
       if (!forwardKeyDown(event.key, event.repeat)) return;
+      void audio?.unlock();
       game?.onKey(event.key);
     };
     window.addEventListener('keydown', keydown);
     const mount = async () => {
       try {
-        const Game = sport === 'track'
-          ? (await import('../games/track/TrackGame')).TrackGame
-          : (await import('../games/tennis/TennisGame')).TennisGame;
         const canvas = canvasRef.current;
         if (disposed || !canvas) return;
-        const engine: GameEngineHandle = new Game(canvas, (state) => hudRef.current(state));
+        const updateHud = (state: GameHudState) => hudRef.current(state);
+        const engine: GameEngineHandle = sport === 'track'
+          ? new (await import('../games/track/TrackGame')).TrackGame(canvas, updateHud)
+          : new (await import('../games/tennis/TennisGame')).TennisGame(canvas, updateHud, audio);
         if (disposed) { engine.dispose(); return; }
         game = engine;
         engineRef.current = engine;
@@ -64,12 +70,12 @@ function GameRun({ sport, onEngine, tracking, onRestart }: Props & { onRestart: 
       engineRef.current = null;
       onEngine(null);
     };
-  }, [sport, onEngine]);
+  }, [sport, onEngine, audio]);
 
   return <div className="game-viewport">
     <canvas ref={canvasRef} />
     <div className="game-hud"><div><span>{sport === 'track' ? 'SCORE' : 'PONTOS'}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{sport === 'track' ? 'RITMO' : 'MIRA'}</span><strong>{sport === 'track' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>
-    {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${hud.feedback.kind}`}>
+    {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${('kind' in hud.feedback ? hud.feedback.kind : hud.feedback.tone)}`}>
       <span>{hud.feedback.text}</span>
     </div>}
     {hud.banner && <div className="game-banner" role="status"><strong>{hud.banner.title}</strong>{hud.banner.detail && <span>{hud.banner.detail}</span>}</div>}
@@ -84,6 +90,6 @@ function GameRun({ sport, onEngine, tracking, onRestart }: Props & { onRestart: 
       <button type="button" ref={(button) => button?.focus()} onClick={onRestart}>Jogar de novo</button>
     </div>}
     <div className="game-ready"><i className={tracking.startsWith('TRACKING') ? 'ready' : ''} />{hud.status}</div>
-    <div className="game-controls">{sport === 'track' ? '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' : 'espaço bater  ·  ← → escolher direção'}</div>
+    <div className="game-controls">{sport === 'track' ? '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' : 'espaço bater  ·  timing define a direção'}</div>
   </div>;
 }

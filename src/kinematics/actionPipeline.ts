@@ -72,7 +72,13 @@ export class ActionPipeline {
     const results = this.swings.map(({ wrist, gate, detector, hand }) => {
       const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, wrist], 'world');
       if (tracking.state === 'lost') detector.reset();
-      const swing = tracking.state === 'tracked' ? detector.update(current, calibration) : undefined;
+      const output = tracking.state === 'tracked' ? detector.update(current, calibration) : undefined;
+      // The onset bypasses arbitration and the refractory on purpose: it is the real-time,
+      // unconfirmed channel — the game's cue to start the stroke animation now, not proof of a hit.
+      if (output?.kind === 'onset') {
+        events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'swing-start', hand });
+      }
+      const swing = output?.kind === 'confirmed' ? output : undefined;
       return { hand, lost: tracking.state === 'lost', swing };
     });
     // A held swing whose own wrist went lost is stale: discard it rather than release a
@@ -98,6 +104,7 @@ export class ActionPipeline {
         this.heldSwing = undefined;
         this.lastSwingAt = snapshot.timestampMs;
         const { confidence, peakTimestampMs, ...action } = best.swing;
+        delete (action as { kind?: unknown }).kind; // runtime-only detector discriminant, not protocol
         events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'swing', ...action, peakTimestampMs });
       }
     }

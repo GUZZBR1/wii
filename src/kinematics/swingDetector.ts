@@ -1,4 +1,4 @@
-import type { AimZone, CalibrationProfile, Hand, PoseSnapshot } from '../cv/protocol';
+import type { CalibrationProfile, Hand, PoseSnapshot } from '../cv/protocol';
 import { OneEuroFilter } from '@wii/spatial-core';
 import { clamp, distance3, landmarkConfidence } from './math';
 import { bodyLocalPoint } from './bodyFrame';
@@ -6,10 +6,25 @@ import { bodyLocalPoint } from './bodyFrame';
 export interface SwingSignal {
   side: 'forehand' | 'backhand';
   power01: number;
-  aimZone: AimZone;
   confidence: number;
   peakTimestampMs: number;
+  /** Frame where the onset threshold was crossed — the stroke's physical start. */
+  onsetTimestampMs: number;
+  /** Wrist height relative to its shoulder at the speed peak, in shoulder widths, up positive. */
+  contactY: number;
+  /** Vertical wrist speed at the peak in shoulder widths/s, up positive — topspin/slice proxy. */
+  verticalSpeed: number;
 }
+
+/**
+ * What one detector update yields. `onset` is the real-time, unconfirmed notice emitted on the
+ * frame the wrist crosses the onset threshold — backswings and aborted strokes fire it too, so it
+ * serves animation, never adjudication. `confirmed` is the measured stroke, emitted after the
+ * follow-through proves it, carrying the peak-frame measurements.
+ */
+export type SwingOutput =
+  | { kind: 'onset'; timestampMs: number }
+  | ({ kind: 'confirmed' } & SwingSignal);
 
 const MIN_LATERAL_SWING_RATIO = 0.25;
 const MIN_SWING_SPEED_BODY_WIDTHS_PER_SEC = 2;
@@ -24,10 +39,12 @@ export function hasMeaningfulLateralComponent(speedBodyWidthsPerSecond: number, 
 }
 
 interface SwingPeak {
-  x: number;
-  /** Both velocities are normalized to shoulder widths per second, not meters per second. */
+  /** Wrist height relative to the shoulder at the peak frame, in shoulder widths. */
+  y: number;
+  /** Velocities are normalized to shoulder widths per second, not meters per second. */
   speedBodyWidthsPerSecond: number;
   lateralSpeedBodyWidthsPerSecond: number;
+  verticalSpeedBodyWidthsPerSecond: number;
   confidence: number;
   timestampMs: number;
 }
@@ -50,10 +67,13 @@ export class SwingDetector {
   private lastSwingAt = Number.NEGATIVE_INFINITY;
   private readySince?: number;
 
-  update(snapshot: PoseSnapshot, calibration: CalibrationProfile): SwingSignal | undefined {
+  update(snapshot: PoseSnapshot, calibration: CalibrationProfile): SwingOutput | undefined {
     // Sem referência de punho na calibração não há como medir repouso nem mira — o detector
-    // fica mudo em vez de inventar uma referência posturada.
-    if (!calibration.world.readyWristLocal) return undefined;
+    // fica mudo em vez de inventar uma referência posturada ou conservar estado antigo.
+    if (!calibration.world.readyWristLocal) {
+      this.reset();
+      return undefined;
+    }
     const hand = this.hand;
     const wrist = snapshot.worldLandmarks[hand === 'right' ? 16 : 15];
     const shoulder = snapshot.worldLandmarks[hand === 'right' ? 12 : 11];
@@ -90,10 +110,18 @@ export class SwingDetector {
         this.pendingSwing = {
           direction,
           startedAt: snapshot.timestampMs,
-          peak: { x: current.x, speedBodyWidthsPerSecond, lateralSpeedBodyWidthsPerSecond, confidence, timestampMs: snapshot.timestampMs },
+          peak: {
+            y: current.y,
+            speedBodyWidthsPerSecond,
+            lateralSpeedBodyWidthsPerSecond,
+            verticalSpeedBodyWidthsPerSecond: vy,
+            confidence,
+            timestampMs: snapshot.timestampMs,
+          },
         };
         this.mode = 'swing';
         this.lastSwingAt = snapshot.timestampMs;
+        return { kind: 'onset', timestampMs: snapshot.timestampMs };
       }
       return undefined;
     }
@@ -106,7 +134,14 @@ export class SwingDetector {
       const lowLateralSpeed = Math.abs(lateralSpeedBodyWidthsPerSecond) < SWING_DIRECTION_EPSILON_BODY_WIDTHS_PER_SEC;
       if (sameDirection && speedBodyWidthsPerSecond > pending.peak.speedBodyWidthsPerSecond
         && hasMeaningfulLateralComponent(speedBodyWidthsPerSecond, lateralSpeedBodyWidthsPerSecond)) {
-        pending.peak = { x: current.x, speedBodyWidthsPerSecond, lateralSpeedBodyWidthsPerSecond, confidence, timestampMs: snapshot.timestampMs };
+        pending.peak = {
+          y: current.y,
+          speedBodyWidthsPerSecond,
+          lateralSpeedBodyWidthsPerSecond,
+          verticalSpeedBodyWidthsPerSecond: vy,
+          confidence,
+          timestampMs: snapshot.timestampMs,
+        };
       }
       const reversed = !sameDirection && !lowLateralSpeed;
       const decelerated = (sameDirection || lowLateralSpeed) && ageMs >= SWING_MIN_DURATION_MS
@@ -116,15 +151,16 @@ export class SwingDetector {
 
       this.enterReturn();
       const forehandDirection = hand === 'right' ? pending.direction < 0 : pending.direction > 0;
-      const aimValue = (pending.peak.x - calibration.world.readyWristLocal[hand].x) * (hand === 'right' ? -1 : 1);
-      const aimZone: AimZone = aimValue < -0.2 ? 'cross' : aimValue > 0.2 ? 'line' : 'center';
       return {
+        kind: 'confirmed',
         side: forehandDirection ? 'forehand' : 'backhand',
         power01: clamp((pending.peak.speedBodyWidthsPerSecond - MIN_SWING_SPEED_BODY_WIDTHS_PER_SEC)
           / (FULL_POWER_SWING_SPEED_BODY_WIDTHS_PER_SEC - MIN_SWING_SPEED_BODY_WIDTHS_PER_SEC)),
-        aimZone,
         confidence: pending.peak.confidence,
         peakTimestampMs: pending.peak.timestampMs,
+        onsetTimestampMs: pending.startedAt,
+        contactY: pending.peak.y,
+        verticalSpeed: pending.peak.verticalSpeedBodyWidthsPerSecond,
       };
     }
 

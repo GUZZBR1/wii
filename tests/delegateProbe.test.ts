@@ -1,0 +1,39 @@
+import { describe, expect, it } from 'vitest';
+import { GPU_PROBE_BUDGET_MS, shouldFallbackForLatency } from '@wii/spatial-core';
+
+describe('shouldFallbackForLatency', () => {
+  it('falls back when the warmed median exceeds the frame budget — the software-GL case', () => {
+    // Medido em pesquisa-pipeline-cv §7.5: GPU-delegate sobre SwiftShader entrega ~96-243 ms/frame.
+    expect(shouldFallbackForLatency([2016, 110, 96, 243, 105, 120])).toBe(true);
+  });
+
+  it('stays on GPU for genuinely accelerated inference', () => {
+    expect(shouldFallbackForLatency([300, 8, 9, 8, 10, 9])).toBe(false);
+  });
+
+  it('stays on GPU for a CPU-class median under the budget', () => {
+    // CPU nesta máquina é ~16-21 ms — abaixo do orçamento mesmo se um GPU mediano chegar perto.
+    expect(shouldFallbackForLatency([200, 18, 20, 17, 21, 19])).toBe(false);
+  });
+
+  it('discards the first inference, which carries lazy compile/allocation warmup', () => {
+    // Spike de warmup de 2 s no primeiro frame não pode derrubar um delegate saudável.
+    expect(shouldFallbackForLatency([2000, 10, 11, 10, 9, 10])).toBe(false);
+  });
+
+  it('ignores a single slow outlier frame — the median decides', () => {
+    const samples = [100, 10, GPU_PROBE_BUDGET_MS + 30, 11, 10, 12];
+    expect(shouldFallbackForLatency(samples)).toBe(false);
+  });
+
+  it('does not decide with fewer than four samples', () => {
+    expect(shouldFallbackForLatency([])).toBe(false);
+    expect(shouldFallbackForLatency([500])).toBe(false);
+    expect(shouldFallbackForLatency([500, 200, 180])).toBe(false);
+  });
+
+  it('respects the budget boundary exactly', () => {
+    expect(shouldFallbackForLatency([50, GPU_PROBE_BUDGET_MS, GPU_PROBE_BUDGET_MS, GPU_PROBE_BUDGET_MS, GPU_PROBE_BUDGET_MS])).toBe(false);
+    expect(shouldFallbackForLatency([50, GPU_PROBE_BUDGET_MS + 1, GPU_PROBE_BUDGET_MS + 1, GPU_PROBE_BUDGET_MS + 1, GPU_PROBE_BUDGET_MS + 1])).toBe(true);
+  });
+});
