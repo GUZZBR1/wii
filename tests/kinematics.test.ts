@@ -95,7 +95,7 @@ describe('swing detector', () => {
     const detector = new SwingDetector('right');
     const profile = calibration();
     expect(detector.update(pose(0), profile)).toBeUndefined();
-    expect(detector.update(pose(100, { wristLateral: -0.3 }), profile)).toBeUndefined();
+    expect(detector.update(pose(100, { wristLateral: -0.3 }), profile)).toMatchObject({ kind: 'onset' });
     expect(detector.update(pose(150, { wristLateral: 0.2 }), profile)).toMatchObject({ side: 'forehand' });
     expect(detector.update(pose(200, { wristLateral: 0 }), profile)).toBeUndefined();
     expect(detector.update(pose(400, { wristLateral: 0 }), profile)).toBeUndefined();
@@ -116,7 +116,7 @@ describe('swing detector', () => {
     const profile = calibration();
     const frames = [pose(0), pose(33), pose(66, { wristLateral: -0.11 })];
     for (let time = 99; time <= 495; time += 33) frames.push(pose(time, { wristLateral: -0.12, wristVertical: 0.3 }));
-    const signals = frames.map((frame) => detector.update(frame, profile)).filter(Boolean);
+    const signals = frames.map((frame) => detector.update(frame, profile)).filter((output) => output?.kind === 'confirmed');
     expect(signals).toMatchObject([{ side: 'forehand' }]);
   });
 
@@ -140,7 +140,7 @@ describe('swing detector', () => {
     expect(detector.update(pose(3099, { wristLateral: -0.3 }), profile)).toBeUndefined();
   });
 
-  it('classifies the peak stroke direction and maps the peak wrist position into three aim zones', () => {
+  it('classifies the peak stroke direction, robust to body yaw', () => {
     const classify = (hand: 'left' | 'right', displacement: number, rotate = false) => {
       const detector = new SwingDetector(hand);
       const profile = calibration();
@@ -149,16 +149,15 @@ describe('swing detector', () => {
         const progress = time <= 80 ? time / 80 : 1 - (time - 80) / 30;
         const snapshot = pose(time, { [hand === 'right' ? 'wristLateral' : 'leftWristLateral']: displacement * progress });
         const current = detector.update(rotate ? rotateWorldYaw(snapshot, 0.9) : snapshot, profile);
-        if (current) signal = current;
+        if (current?.kind === 'confirmed') signal = current;
       }
       return signal;
     };
-    expect(classify('right', 0.2)).toMatchObject({ side: 'backhand', aimZone: 'cross' });
-    expect(classify('right', 0.1)).toMatchObject({ aimZone: 'center' });
-    expect(classify('right', -0.2)).toMatchObject({ side: 'forehand', aimZone: 'line' });
+    expect(classify('right', 0.2)).toMatchObject({ side: 'backhand' });
+    expect(classify('right', -0.2)).toMatchObject({ side: 'forehand' });
     expect(classify('left', 0.2)).toMatchObject({ side: 'forehand' });
-    expect(classify('right', -0.2, true)).toMatchObject({ side: 'forehand', aimZone: 'line' });
-    expect(classify('left', 0.2, true)).toMatchObject({ side: 'forehand', aimZone: 'line' });
+    expect(classify('right', -0.2, true)).toMatchObject({ side: 'forehand' });
+    expect(classify('left', 0.2, true)).toMatchObject({ side: 'forehand' });
   });
 
   it('does not infer a swing from frame-to-frame shoulder-width variation', () => {
@@ -174,7 +173,7 @@ describe('swing detector', () => {
     const profile = calibration();
     detector.reset();
     for (let time = 0; time <= 240; time += 40) expect(detector.update(pose(time), profile)).toBeUndefined();
-    expect(detector.update(pose(270, { wristLateral: -0.2 }), profile)).toBeUndefined();
+    expect(detector.update(pose(270, { wristLateral: -0.2 }), profile)).toMatchObject({ kind: 'onset' });
     expect(detector.update(pose(310, { wristLateral: 0.2 }), profile)).toMatchObject({ side: 'forehand' });
   });
 });
@@ -663,7 +662,7 @@ describe('mão da raquete', () => {
     const released = pipeline.update(pose(231, { leftWristLateral: 0.2 }), profile);
     const swings = released.events.filter((event) => event.type === 'swing');
     expect(swings).toHaveLength(1);
-    expect(swings[0]).toMatchObject({ side: 'forehand', aimZone: 'line' });
+    expect(swings[0]).toMatchObject({ side: 'forehand' });
     expect(swings[0]!.type === 'swing' && swings[0]!.power01).toBeGreaterThan(0.5);
   });
 

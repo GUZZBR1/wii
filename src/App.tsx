@@ -17,6 +17,23 @@ const ACTIVITY_LABEL: Record<ActivityKind, string> = {
   swinging: 'RAQUETE',
   striking: 'LUTA',
 };
+const MUTE_STORAGE_KEY = 'wii-web-sports.muted.v1';
+
+function readMutedPreference(): boolean {
+  try {
+    return window.localStorage.getItem(MUTE_STORAGE_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+
+function writeMutedPreference(muted: boolean): void {
+  try {
+    window.localStorage.setItem(MUTE_STORAGE_KEY, muted ? '1' : '0');
+  } catch {
+    void 0;
+  }
+}
 
 export default function App() {
   const [sport, setSport] = useState<Sport>('track');
@@ -25,7 +42,7 @@ export default function App() {
   const [tracking, setTracking] = useState('SEM POSE');
   const [calibrationPhase, setCalibrationPhase] = useState<CalibrationPhase>('framing');
   const [calibrationProgress, setCalibrationProgress] = useState(0);
-  const [muted, setMuted] = useState(false);
+  const [muted, setMuted] = useState(readMutedPreference);
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const clientRef = useRef<PoseClient | undefined>(undefined);
@@ -41,6 +58,10 @@ export default function App() {
   const cameraAttemptRef = useRef(0);
 
   useEffect(() => {
+    audioRef.current.setMuted(muted);
+  }, [muted]);
+
+  useEffect(() => {
     void navigator.permissions?.query({ name: 'camera' as PermissionName }).then((permission) => {
       if (permission.state === 'granted') PoseClient.warmVisionAssets();
     }).catch(() => undefined);
@@ -49,15 +70,17 @@ export default function App() {
       clientRef.current?.dispose();
       streamRef.current?.getTracks().forEach((track) => { track.stop(); });
       streamRef.current = undefined;
+      audioRef.current.dispose();
     };
   }, []);
 
   const onEngine = useCallback((engine: GameEngineHandle | null) => { engineRef.current = engine; }, []);
   const dispatchEvent = useCallback((event: SportActionEvent) => {
     engineRef.current?.onAction(event);
-    if (event.type === 'swing') audioRef.current.hit(event.power01);
-    if (event.type === 'jump') audioRef.current.jump();
-    if (event.type === 'step') audioRef.current.step(event.side);
+    if (sportRef.current === 'track') {
+      if (event.type === 'jump') audioRef.current.jump();
+      if (event.type === 'step') audioRef.current.step(event.side);
+    }
   }, []);
 
   const recalibrate = useCallback(() => {
@@ -120,7 +143,9 @@ export default function App() {
       const visionReady = observeEarlyRejection(client.init(callbacks));
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30, max: 30 } },
+        // Sem teto de fps: a 60 fps um swing de ~250 ms ganha o dobro de amostras temporais —
+        // câmeras que só entregam 30 fps simplesmente negociam para baixo pelo `ideal`.
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 60 } },
       });
       if (stale()) { stream.getTracks().forEach((track) => { track.stop(); }); return; }
       streamRef.current = stream;
@@ -150,11 +175,15 @@ export default function App() {
 
   const toggleMute = useCallback(() => {
     void audioRef.current.unlock();
-    setMuted((value) => { audioRef.current.setMuted(!value); return !value; });
+    setMuted((value) => {
+      const next = !value;
+      writeMutedPreference(next);
+      return next;
+    });
   }, []);
 
   return <main className="stage">
-    <GameCanvas key={sport} sport={sport} onEngine={onEngine} tracking={tracking} />
+    <GameCanvas key={sport} sport={sport} onEngine={onEngine} tracking={tracking} audio={audioRef.current} />
 
     <div className="hud-dock">
       <nav className="sport-dock" aria-label="Modalidades">

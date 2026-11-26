@@ -11,7 +11,7 @@
 const indexHtml = await (await fetch('/')).text();
 const mainJs = indexHtml.match(/src="([^"]*index-[^"]+\.js)"/)[1];
 const mainSrc = await (await fetch(mainJs)).text();
-const WORKER_URL = '/' + mainSrc.match(/assets\/pose\.worker-[A-Za-z0-9_-]+\.js/)[0];
+const WORKER_URL = `/${mainSrc.match(/assets\/pose\.worker-[A-Za-z0-9_-]+\.js/)[0]}`;
 // wasm dir = versão do tasks-vision; bundle guarda só "1.2.3" → sonda HEAD cada semver único.
 const semvers = [...new Set(mainSrc.match(/\d+\.\d+\.\d+/g))];
 let WASM = null;
@@ -19,13 +19,13 @@ for (const v of semvers) {
   const probe = `/mediapipe/wasm-${v}/vision_wasm_module_internal.js`;
   const res = await fetch(probe, { method: 'HEAD' });
   // vite preview/dev respondem 200+index.html em rotas inexistentes (SPA fallback) — exige JS de verdade
-  if (res.ok && (res.headers.get('content-type') ?? '').includes('javascript')) { WASM = location.origin + `/mediapipe/wasm-${v}`; break; }
+  if (res.ok && (res.headers.get('content-type') ?? '').includes('javascript')) { WASM = `${location.origin}/mediapipe/wasm-${v}`; break; }
 }
 if (!WASM) throw new Error('dir wasm versionado não encontrado');
 // nome do modelo = sha8 do conteúdo, derivável do SHA256SUMS servido
 const sums = await (await fetch('/mediapipe/models/SHA256SUMS')).text();
 const sha8 = sums.match(/[0-9a-f]{64}/)[0].slice(0, 8);
-const MODEL = location.origin + `/mediapipe/models/pose_landmarker_lite.${sha8}.task`;
+const MODEL = `${location.origin}/mediapipe/models/pose_landmarker_lite.${sha8}.task`;
 const W = 640, H = 480, WARMUP = 8, FRAMES = 60;
 
 function drawPerson(ctx) {
@@ -101,7 +101,7 @@ async function bench(delegate, canvas, label) {
       else { out.errors.push(res.type === 'TIMEOUT' ? 'frame timeout >15s' : res.message ?? 'unknown'); }
       if (i % 10 === 0) console.log('progress', label, delegate, i, 'det:', out.detected, 'err:', out.errors.length);
       if (out.errors.length > 3) break;
-    } else if (res.type !== 'POSE') { out.errors.push('warmup: ' + (res.message ?? res.type)); break; }
+    } else if (res.type !== 'POSE') { out.errors.push(`warmup: ${res.message ?? res.type}`); break; }
   }
   out.perFrame = stats(out.times);
   out.bitmap = stats(out.bitmapMs);
