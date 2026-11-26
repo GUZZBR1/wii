@@ -7,7 +7,13 @@
       "!dist",
       "!packages/core/dist",
       "!node_modules",
-      "!public/mediapipe/wasm*"
+      "!public/mediapipe/wasm*",
+      "!!.worktrees",
+      "!!.issues",
+      "!!.omx",
+      "!!.omc",
+      "!!src/.omc",
+      "!!draw-site"
     ]
   },
   "formatter": {
