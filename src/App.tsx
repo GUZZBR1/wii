@@ -70,6 +70,7 @@ export default function App() {
       clientRef.current?.dispose();
       streamRef.current?.getTracks().forEach((track) => { track.stop(); });
       streamRef.current = undefined;
+      audioRef.current.dispose();
     };
   }, []);
 

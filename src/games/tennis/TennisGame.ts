@@ -7,6 +7,7 @@ import { advanceBall, createBall, solveOutgoing, timeAtPlane, type BallState } f
 import { adjudicateContact, type ContactOutcome } from './contactAdjudicator';
 import { adaptOpponentSkill, createOpponentAi, decideReturn, type OpponentAiState } from './opponentAi';
 import { ballAtPlannedContact, resolveScheduledOpponentReturn, type OpponentHitPlan } from './opponentReturn';
+import { advancePlayerShotToNow, crossesNetBelowCord } from './rallyPhysics';
 import { awardPoint, createScore, pointLabels, type PlayerSide, type TennisScoreState } from './tennisScore';
 
 /**
@@ -127,7 +128,7 @@ export class TennisGame {
     this.opponentMesh.add(this.opponentRacket);
 
     this.scene.add(this.ballMesh);
-    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt));
+    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, simulationTimeMs) => this.update(dt, simulationTimeMs));
     this.hudTimer = window.setInterval(() => this.publishHud(), 200);
   }
 
@@ -227,11 +228,16 @@ export class TennisGame {
     // Rewind + fast-forward: the new flight starts at the physical peak instant,
     // then advances to now — detection latency never enters the physics.
     const lagSec = Math.max(0, (now - peakMs) / 1000);
-    this.ball = advanceBall(createBall(ballAtPeak.position, outcome.outgoing, 'player'), lagSec);
+    const advancedShot = advancePlayerShotToNow(ballAtPeak, outcome.outgoing, lagSec, NET_HEIGHT);
+    this.ball = advancedShot.ball;
     this.tape = [{ tMs: now, ball: this.ball }];
     this.phase = { kind: 'rally' };
     this.opponentHitPlan = null;
     this.audio?.hit(0.4 + 0.6 * outcome.quality01);
+    if (advancedShot.netFault) {
+      this.endPoint('opponent', 'NA REDE!', now);
+      return;
+    }
 
     const spinLabel = outcome.spin > 0.4 ? ' · TOPSPIN' : outcome.spin < -0.4 ? ' · SLICE' : '';
     const dirLabel = outcome.direction === 'cross' ? 'CRUZADA' : outcome.direction === 'line' ? 'PARALELA' : 'CENTRO';
@@ -256,8 +262,7 @@ export class TennisGame {
 
   // ---------------------------------------------------------------- update
 
-  private update(dt: number): void {
-    const now = nowMs();
+  private update(dt: number, now: number): void {
     this.stepPhase(dt, now);
     this.stepAvatars(dt);
     this.stepBall(dt, now);
@@ -340,13 +345,9 @@ export class TennisGame {
     if (this.phase.kind !== 'rally') return;
 
     // Net: crossing the plane below the cord kills the ball — hitter loses.
-    if (before.position.z * after.position.z < 0 || (before.position.z !== 0 && Math.sign(after.position.z) !== Math.sign(before.position.z))) {
-      const fraction = Math.abs(before.position.z) / (Math.abs(before.position.z) + Math.abs(after.position.z) + 1e-9);
-      const yAtNet = before.position.y + fraction * (after.position.y - before.position.y);
-      if (yAtNet < NET_HEIGHT && yAtNet > -0.5) {
-        this.endPoint(before.lastHitter === 'player' ? 'opponent' : 'player', 'NA REDE!');
-        return;
-      }
+    if (crossesNetBelowCord(before, after, dt, NET_HEIGHT)) {
+      this.endPoint(before.lastHitter === 'player' ? 'opponent' : 'player', 'NA REDE!', now);
+      return;
     }
 
     // Bounce adjudication in the receiver's half.
@@ -355,12 +356,12 @@ export class TennisGame {
       const inCourt = Math.abs(after.position.x) <= COURT_HALF_WIDTH + 0.35 && Math.abs(after.position.z) <= BASELINE_Z + 0.35;
       if (after.bounces === 1) {
         if (!inCourt) {
-          this.endPoint(receiver, 'FORA!');
+          this.endPoint(receiver, 'FORA!', now);
           return;
         }
         this.audio?.bounce(0.35);
       } else if (after.bounces >= 2) {
-        this.endPoint(after.lastHitter, receiver === 'player' ? 'PONTO DO ADVERSÁRIO' : 'PONTO!');
+        this.endPoint(after.lastHitter, receiver === 'player' ? 'PONTO DO ADVERSÁRIO' : 'PONTO!', now);
         return;
       }
     }
@@ -368,7 +369,7 @@ export class TennisGame {
     // Safety valve: ball escaped the world or came to rest undecided.
     if (Math.abs(after.position.z) > 15 || Math.abs(after.position.x) > 8 || (after.velocity.x === 0 && after.velocity.y === 0 && after.velocity.z === 0)) {
       const receiver: PlayerSide = after.lastHitter === 'player' ? 'opponent' : 'player';
-      this.endPoint(receiver, 'FORA!');
+      this.endPoint(receiver, 'FORA!', now);
       return;
     }
 
@@ -417,11 +418,10 @@ export class TennisGame {
     return Math.min(1, Math.max(0, (speed - 10) / 12) * 0.7 + width * 0.3);
   }
 
-  private endPoint(winner: PlayerSide, headline: string): void {
+  private endPoint(winner: PlayerSide, headline: string, now = nowMs()): void {
     const result = awardPoint(this.score, winner);
     this.score = result.state;
     this.opponentAi = adaptOpponentSkill(this.opponentAi, winner);
-    const now = nowMs();
     this.opponentHitPlan = null;
 
     const youWon = winner === 'player';

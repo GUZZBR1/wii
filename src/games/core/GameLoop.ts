@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { collectFixedStepTimestamps } from './fixedStepTiming';
 
 export function disposeObjectTree(root: THREE.Object3D): void {
   const geometries = new Set<THREE.BufferGeometry>();
@@ -29,7 +30,7 @@ export class GameLoop {
     canvas: HTMLCanvasElement,
     readonly scene: THREE.Scene,
     readonly camera: THREE.PerspectiveCamera,
-    private readonly update: (dt: number) => void,
+    private readonly update: (dt: number, simulationTimeMs: number) => void,
   ) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: false, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
@@ -46,13 +47,9 @@ export class GameLoop {
     this.accumulator += Math.min((time - this.previousTime) / 1000, 0.1);
     this.previousTime = time;
     const fixed = 1 / 60;
-    let steps = 0;
-    while (this.accumulator >= fixed && steps < 5) {
-      this.update(fixed);
-      this.accumulator -= fixed;
-      steps += 1;
-    }
-    if (steps === 5) this.accumulator = 0;
+    const schedule = collectFixedStepTimestamps(time, this.accumulator, fixed, 5);
+    this.accumulator = schedule.remainderSeconds;
+    for (const simulationTimeMs of schedule.timestampsMs) this.update(fixed, simulationTimeMs);
     this.renderer.render(this.scene, this.camera);
   }
 
