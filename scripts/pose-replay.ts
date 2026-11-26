@@ -4,7 +4,8 @@ import { MEDIAPIPE_WASM_VERSION, POSE_MODEL_SHA8 } from '../src/cv/mediapipeAsse
 import { PoseWorkerSession } from './poseReplaySession';
 import { seekVideoTo, waitForVideoFrame } from './poseReplayVideo';
 
-const SAMPLE_STEP_MS = 100;
+/** The rate the game's detectors see: a slower sampling misses strides and cannot judge them. */
+const SAMPLE_STEP_MS = 1000 / 30;
 const MAX_CLIP_BYTES = 256 * 1024 * 1024;
 const videoInput = document.querySelector<HTMLInputElement>('#video-file')!;
 const referenceInput = document.querySelector<HTMLInputElement>('#reference-file')!;
@@ -22,7 +23,8 @@ let activeWorker: Worker | undefined;
 let currentUrl: string | undefined;
 
 function confidence(points: readonly Point3[]): number {
-  const indices = [11, 12, 23, 24];
+  // Same anchor as the live client: the shoulders.
+  const indices = [11, 12];
   if (indices.some((index) => !points[index])) return 0;
   return Math.min(...indices.map((index) => {
     const point = points[index]!;
@@ -179,7 +181,10 @@ async function run(): Promise<void> {
   for (let sequence = 0; sequence < frameCount; sequence += 1) {
     const timestampMs = sequence * SAMPLE_STEP_MS;
     await seekVideoTo(video, timestampMs / 1000);
-    const bitmap = await createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'low' });
+    // Resized exactly as the live client does it.
+    const bitmap = video.videoWidth > 640
+      ? await createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'medium' })
+      : await createImageBitmap(video);
     const reply = await session.detect(bitmap, timestampMs);
     if (!reply) {
       droppedFrameCount += 1;
