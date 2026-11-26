@@ -52,7 +52,7 @@ export class CadenceTracker {
     this.suspended = suspend;
     if (suspend) this.bounce.forgetJump(nowMs, this.ranBeforeJump);
     if (sample && !suspend) {
-      const bounce = this.bounce.update(sample.timestampMs, sample.shoulders.left, sample.shoulders.right, sample.shoulders.width);
+      const bounce = this.bounce.update(sample.timestampMs, sample.shoulders.left, sample.shoulders.right, sample.shoulders.width, sample.shoulders.head);
       // Right after a jump the window is still filling; the run it interrupted carries on meanwhile.
       this.moving = bounce.moving;
       if (bounce.rise) {

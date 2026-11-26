@@ -18,6 +18,8 @@ export function pose(timestampMs: number, options: {
   // Facing the camera, the player's right is toward image left — x decreases in the raw frame.
   const shift = (options.shiftUserRightSw ?? 0) * 0.14;
   const hipY = 0.55 - (options.hipRise ?? 0) * 0.4;
+  // The head rides on the torso, as a real one does.
+  points[0] = { ...points[0]!, x: 0.5 - shift, y: hipY - 0.48 };
   points[11] = { ...points[11]!, x: 0.43 - shift, y: hipY - 0.4 };
   points[12] = { ...points[12]!, x: 0.57 - shift, y: hipY - 0.4 };
   points[23] = { ...points[23]!, x: 0.46 - shift, y: hipY };
@@ -88,6 +90,6 @@ export function calibration(): CalibrationProfile {
 export function poseWithHipBounce(timestampMs: number, hipYOffset: number, confidence?: number) {
   const snapshot = pose(timestampMs, { confidence });
   const landmarks = snapshot.landmarks.map((point, index) =>
-    [11, 12, 23, 24].includes(index) ? { ...point, y: point.y + hipYOffset } : point);
+    [0, 11, 12, 23, 24].includes(index) ? { ...point, y: point.y + hipYOffset } : point);
   return { ...snapshot, landmarks };
 }

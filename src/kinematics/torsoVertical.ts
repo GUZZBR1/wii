@@ -12,8 +12,8 @@ export interface TorsoVerticalSample {
   oscillationAmplitude: number;
   /** Slower semi-amplitude estimate used to distinguish takeoff from sustained bounce. */
   sustainedOscillationAmplitude: number;
-  /** Shoulder heights and the (slowly measured) shoulder width, in the same units, for the bounce detector. */
-  shoulders: { left: number; right: number; width: number };
+  /** Shoulder and head heights and the (slowly measured) shoulder width, in the same units, for the bounce detector. */
+  shoulders: { left: number; right: number; width: number; head: number };
 }
 
 const MIN_TORSO_HEIGHT = 0.03;
@@ -104,7 +104,7 @@ export class TorsoVerticalChannel {
       this.widthScale = this.widthScale === undefined ? shoulderWidth : this.widthScale + (shoulderWidth - this.widthScale) * 0.03;
     }
     if (this.widthScale === undefined) return undefined;
-    const shoulderHeights = { left: leftShoulder.y * aspect, right: rightShoulder.y * aspect, width: this.widthScale };
+    const shoulderHeights = { left: leftShoulder.y * aspect, right: rightShoulder.y * aspect, width: this.widthScale, head: (l[0]?.y ?? Number.NaN) * aspect };
     const position = this.positionFilter.filter(raw, snapshot.timestampMs);
     if (this.baseline === undefined) {
       this.baseline = position;

@@ -11,6 +11,12 @@ const JUMP_LOCKOUT_MS = 1200;
 /** Both shoulders must move together, which independent landmark jitter and one-arm waving do not. */
 const MIN_TOGETHER = 0.65;
 const HOLD_MS = 300;
+/**
+ * Running carries the head along; swinging the arms hard moves the shoulders under a steadier head.
+ * Chosen on one player's recordings: 0.45 still let arms through (7%), 0.55 nearly stopped them
+ * (2%, the fallback if other people lose their run), and the lowest running windows sat near 0.71.
+ */
+const MIN_HEAD_RATIO = 0.65;
 /** A jump passes through running-sized bounces on its way up; only a run stays there. */
 const SUSTAIN_MS = 200;
 /** A noisy frame or two does not restart the wait. */
@@ -22,7 +28,7 @@ const QUIET_WINDOW_MS = 450;
 const QUIET_SPREAD_SW = 0.012;
 const MIN_STEP_INTERVAL_MS = 220;
 
-type Sample = { t: number; left: number; right: number };
+type Sample = { t: number; left: number; right: number; head: number };
 
 /** Removes the straight-line trend, so walking nearer or settling does not count as bouncing. */
 function detrend(times: readonly number[], values: readonly number[]): number[] {
@@ -53,8 +59,8 @@ export class BounceDetector {
   private lastRiseAt = Number.NEGATIVE_INFINITY;
 
   /** Heights are image y (growing downward) in the same units as the shoulder width. */
-  update(t: number, left: number, right: number, width: number): Bounce {
-    this.samples.push({ t, left, right });
+  update(t: number, left: number, right: number, width: number, head: number): Bounce {
+    this.samples.push({ t, left, right, head });
     this.samples = this.samples.filter((sample) => t - sample.t <= WINDOW_MS);
     if (t - this.samples[0]!.t < MIN_SPAN_MS) return { moving: this.isMoving(t), rise: false };
     const times = this.samples.map((sample) => sample.t);
@@ -66,7 +72,10 @@ export class BounceDetector {
     const together = ll > 0 && rr > 0 ? lr / Math.sqrt(ll * rr) : 0;
     const recent = this.samples.filter((sample) => t - sample.t <= QUIET_WINDOW_MS);
     // Old strides alone prove nothing: the body must also be moving in the latest frames.
-    const candidate = spread >= MIN_SPREAD_SW && together >= MIN_TOGETHER && moved(recent) / width >= QUIET_SPREAD_SW;
+    const h = detrend(times, this.samples.map((sample) => sample.head));
+    const headSpread = Math.sqrt(h.reduce((sum, value) => sum + value * value, 0) / h.length) / width;
+    // A head that cannot be read (NaN) does not veto: the shoulders still decide.
+    const candidate = !(headSpread < spread * MIN_HEAD_RATIO) && spread >= MIN_SPREAD_SW && together >= MIN_TOGETHER && moved(recent) / width >= QUIET_SPREAD_SW;
     if (candidate) {
       if (this.candidateSince === undefined || t - this.candidateAt > CANDIDATE_GAP_MS) this.candidateSince = t;
       this.candidateAt = t;

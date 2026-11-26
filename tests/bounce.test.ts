@@ -22,6 +22,19 @@ describe('running is judged by the size of the shoulder bounce', () => {
     })).toBe(0);
   });
 
+  it.each([[0.3, false], [1, true]])('with the head moving %f times the shoulders, running is %s', (headRatio, runs) => {
+    // Hard arm swinging shrugs both shoulders in phase; only the head tells it apart from a run.
+    const speed = maxSpeed((time) => {
+      const offset = 0.016 * Math.sin((2 * Math.PI * 2.5 * time) / 1000);
+      const base = pose(time);
+      return { ...base, landmarks: base.landmarks.map((point, index) => {
+        if (index === 11 || index === 12) return { ...point, y: point.y + offset };
+        return index === 0 ? { ...point, y: point.y + offset * headRatio } : point;
+      }) };
+    });
+    expect(speed > 0).toBe(runs);
+  });
+
   it('does not read one jump, the size real recordings show, as running', () => {
     expect(maxSpeed((time) => poseWithHipBounce(time, time > 3000 && time < 3600 ? -0.18 * Math.sin((Math.PI * (time - 3000)) / 600) : 0))).toBe(0);
   });
