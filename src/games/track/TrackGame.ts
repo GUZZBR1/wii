@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { SportActionEvent } from '../../cv/protocol';
 import { GameLoop } from '../core/GameLoop';
 import { type Feedback, awardText, SHAKE_DURATION_S, shakeOffset } from './feedback';
-import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type Pace, stumble } from './gait';
+import { adjudicationDt, applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type Pace, stumble } from './gait';
 import { HurdleFlow, type ItemKind, RUNNER_Z } from './hurdleFlow';
 import { ItemAssets } from './itemAssets';
 import { JUMP_DURATION_S, jumpHeight } from './jump';
@@ -44,6 +44,8 @@ export class TrackGame {
   private travelled = 0;
   /** Seconds actually spent moving: standing still, pauses and countdowns do not speed the run up. */
   private movingTime = 0;
+  private actionClockMs?: number;
+  private lastSprintInputAtMs?: number;
   private readonly laneHistory: Lane[] = [];
   private lastHud = '';
   private feedback?: Feedback;
@@ -121,7 +123,11 @@ export class TrackGame {
 
   onAction(event: SportActionEvent): void {
     if (event.type === 'step') this.pace = applyStep(this.pace);
-    if (event.type === 'sprint') this.pace = applySprint(this.pace, event);
+    if (event.type === 'sprint') {
+      this.actionClockMs ??= event.timestampMs;
+      this.lastSprintInputAtMs = event.timestampMs;
+      this.pace = applySprint(this.pace, event);
+    }
     if (this.result || this.gate.phase !== 'running') return;
     if (event.type === 'jump') { this.jumpTime = JUMP_DURATION_S; this.status = 'Salto!'; }
     if (event.type === 'lane') { this.lane = Math.max(-1, Math.min(1, this.lane + (event.direction === 'left' ? -1 : 1))); }
@@ -148,6 +154,7 @@ export class TrackGame {
 
   private update(dt: number): void {
     // Everything below is frozen until the gate opens: no travel, score, jump or judging.
+    if (this.actionClockMs !== undefined) this.actionClockMs += dt * 1000;
     if (this.result) return;
     this.gate.advance(dt);
     if (this.gate.phase !== 'running') return;
@@ -160,7 +167,11 @@ export class TrackGame {
     if (gait !== this.gait) this.status = GAIT_STATUS[gait];
     this.gait = gait;
 
-    this.score.advance(dt, speed);
+    const cameraInputAgeMs = this.actionClockMs !== undefined && this.lastSprintInputAtMs !== undefined
+      ? Math.max(0, this.actionClockMs - this.lastSprintInputAtMs)
+      : 0;
+    const physicsDt = adjudicationDt(this.pace, dt, cameraInputAgeMs);
+    this.score.advance(physicsDt, speed);
     this.runner.position.x += (this.lane * 1.5 - this.runner.position.x) * Math.min(1, dt * 10);
     // One leg swing per step: follow the player's cadence, or estimate it from speed for the keyboard.
     if (gait !== 'idle') this.stridePhase += dt * Math.PI * (this.pace.cadenceSpm || 70 + speed * 130) / 60;
@@ -170,13 +181,13 @@ export class TrackGame {
     this.arms[0]!.rotation.x = -stride * (gait === 'run' ? 1.1 : 0.65); this.arms[1]!.rotation.x = -this.arms[0]!.rotation.x;
     this.runner.rotation.x = gait === 'run' ? -0.16 : 0;
     if (this.jumpTime > 0) {
-      this.jumpTime = Math.max(0, this.jumpTime - dt);
+      this.jumpTime = Math.max(0, this.jumpTime - physicsDt);
       this.runner.position.y = jumpHeight(this.jumpTime);
       if (this.jumpTime === 0) this.status = GAIT_STATUS[gait];
     } else this.runner.position.y = gait === 'run' ? Math.abs(Math.sin(this.stridePhase)) * 0.14 : 0;
-    if (speed > 0) this.movingTime += dt;
+    if (speed > 0) this.movingTime += physicsDt;
     const boost = timeBoost(this.movingTime);
-    const advance = dt * speed * 22 * boost;
+    const advance = physicsDt * speed * 22 * boost;
     const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
     this.travelled += advance;
     for (const piece of this.scenery) piece.position.z = scrollZ(piece.position.z, advance, SCENERY_MIN_Z, SCENERY_MAX_Z);

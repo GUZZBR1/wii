@@ -65,14 +65,29 @@ const frames = []; // {ts, latencyMs, empty, torsoConf}
 let delegate = 'GPU';
 let readyResolve;
 const readyPromise = new Promise((r) => { readyResolve = r; });
-let inFlight = false;
+let inFlight = 0;
+let nextRequestId = 1;
 let lastTs = 0;
+let captureStarted = false;
+let invalidReason;
+const invalidate = (reason) => { invalidReason ??= reason; };
 
 worker.onmessage = (e) => {
   const m = e.data;
   if (m.type === 'READY') { delegate = m.delegate; readyResolve(); return; }
+  if (m.type === 'FALLBACK') {
+    delegate = m.to;
+    if (captureStarted) invalidate(`delegate caiu para ${m.to} durante a captura`);
+    return;
+  }
+  if (m.type === 'ERROR') {
+    if (m.requestId === inFlight) inFlight = 0;
+    invalidate(`erro do worker em ${m.stage}: ${m.message}`);
+    return;
+  }
   if (m.type === 'POSE') {
-    inFlight = false;
+    if (m.requestId !== inFlight) return;
+    inFlight = 0;
     const core = [11, 12, 23, 24];
     const lm = m.landmarks ?? [];
     const present = core.every((i) => lm[i]);
@@ -89,14 +104,20 @@ await new Promise((r) => setTimeout(r, 3000));
 
 const start = performance.now();
 const capture = async () => {
-  if (inFlight) return;
+  if (invalidReason) return;
+  if (inFlight) {
+    if (performance.now() - sentAt > 1000) invalidate('frame sem resposta terminal do worker por mais de 1 s');
+    return;
+  }
   const bitmap = await createImageBitmap(video);
   const ts = Math.max(performance.now(), lastTs + 0.01);
   lastTs = ts;
   sentAt = performance.now();
-  inFlight = true;
-  worker.postMessage({ type: 'FRAME', timestampMs: ts, bitmap }, [bitmap]);
+  const requestId = nextRequestId++;
+  inFlight = requestId;
+  worker.postMessage({ type: 'FRAME', timestampMs: ts, bitmap, requestId, captureEpoch: 1 }, [bitmap]);
 };
+captureStarted = true;
 video.requestVideoFrameCallback(function loop() {
   void capture();
   video.requestVideoFrameCallback(loop);
@@ -108,24 +129,46 @@ const tick = setInterval(() => {
   phaseEl.textContent = elapsed >= SECS ? 'fim!' : `${phase?.[1] ?? ''} — ${Math.max(0, SECS - elapsed).toFixed(0)}s`;
   const bad = frames.filter((f) => f.empty || f.torsoConf < 0.5).length;
   const span = frames.length > 1 ? (frames.at(-1).ts - frames[0].ts) / 1000 : 1;
-  liveEl.textContent = `poses/s: ${(frames.length / Math.max(1, span)).toFixed(1)}  frames: ${frames.length}  ruins: ${bad} (${(100 * bad / Math.max(1, frames.length)).toFixed(1)}%)`;
+  liveEl.textContent = invalidReason
+    ? `benchmark inválido: ${invalidReason}`
+    : `poses/s: ${(frames.length / Math.max(1, span)).toFixed(1)}  frames: ${frames.length}  ruins: ${bad} (${(100 * bad / Math.max(1, frames.length)).toFixed(1)}%)`;
   if (elapsed >= SECS) clearInterval(tick);
 }, 250);
 
 await new Promise((r) => setTimeout(r, SECS * 1000 + 500));
 worker.terminate();
-video.srcObject?.getTracks().forEach((t) => t.stop());
+video.srcObject?.getTracks().forEach((track) => { track.stop(); });
 
-// Blackout = sequência contínua de frames ruins (vazios ou confiança < 0.5 no torso) —
-// a unidade que decide se o jogo morre. Medida em tempo: primeiro frame ruim até o último.
+// Blackout cru fecha no primeiro frame bom; o blackout de gameplay segue a histerese do
+// TrackingGate e só fecha depois de três frames bons consecutivos.
 const bad = (f) => f.empty || f.torsoConf < 0.5;
-const blackouts = [];
-let openAt = null;
+const rawBlackouts = [];
+let rawOpenAt = null;
 for (const f of frames) {
-  if (bad(f) && openAt === null) openAt = f.ts;
-  if (!bad(f) && openAt !== null) { blackouts.push(f.ts - openAt); openAt = null; }
+  if (bad(f) && rawOpenAt === null) rawOpenAt = f.ts;
+  if (!bad(f) && rawOpenAt !== null) { rawBlackouts.push(f.ts - rawOpenAt); rawOpenAt = null; }
 }
-if (openAt !== null) blackouts.push(frames.at(-1).ts - openAt);
+if (rawOpenAt !== null) rawBlackouts.push(frames.at(-1).ts - rawOpenAt);
+
+const gameplayBlackouts = [];
+let gameplayOpenAt = null;
+let recoveryRun = 0;
+for (const f of frames) {
+  if (bad(f)) {
+    if (gameplayOpenAt === null) gameplayOpenAt = f.ts;
+    recoveryRun = 0;
+    continue;
+  }
+  if (gameplayOpenAt !== null) {
+    recoveryRun += 1;
+    if (recoveryRun >= 3) {
+      gameplayBlackouts.push(f.ts - gameplayOpenAt);
+      gameplayOpenAt = null;
+      recoveryRun = 0;
+    }
+  }
+}
+if (gameplayOpenAt !== null) gameplayBlackouts.push(frames.at(-1).ts - gameplayOpenAt);
 const spanS = frames.length > 1 ? (frames.at(-1).ts - frames[0].ts) / 1000 : 1;
 const minutes = spanS / 60;
 const lat = frames.map((f) => f.latencyMs).sort((a, b) => a - b);
@@ -134,24 +177,32 @@ const emptyCount = frames.filter((f) => f.empty).length;
 const report = {
   model: MODEL_KIND,
   delegate,
+  valid: invalidReason === undefined,
+  invalidReason,
   spanS: +spanS.toFixed(1),
   posesPerS: +(frames.length / spanS).toFixed(1),
   frames: frames.length,
   emptyFrames: emptyCount,
   emptyPerMin: +(emptyCount / minutes).toFixed(1),
   badFrames: frames.filter(bad).length,
-  badPct: +(100 * frames.filter(bad).length / frames.length).toFixed(1),
-  blackouts: blackouts.length,
-  blackoutsPerMin: +(blackouts.length / minutes).toFixed(1),
-  blackoutsOver133ms: blackouts.filter((d) => d > 133).length,
-  blackoutsOver800ms: blackouts.filter((d) => d > 800).length,
-  longestBlackoutMs: blackouts.length ? +Math.max(...blackouts).toFixed(0) : 0,
+  badPct: frames.length ? +(100 * frames.filter(bad).length / frames.length).toFixed(1) : 0,
+  rawBlackouts: rawBlackouts.length,
+  rawBlackoutsPerMin: +(rawBlackouts.length / minutes).toFixed(1),
+  rawBlackoutsOver133ms: rawBlackouts.filter((d) => d > 133).length,
+  rawBlackoutsOver800ms: rawBlackouts.filter((d) => d > 800).length,
+  longestRawBlackoutMs: rawBlackouts.length ? +Math.max(...rawBlackouts).toFixed(0) : 0,
+  blackouts: gameplayBlackouts.length,
+  blackoutsPerMin: +(gameplayBlackouts.length / minutes).toFixed(1),
+  blackoutsOver133ms: gameplayBlackouts.filter((d) => d > 133).length,
+  blackoutsOver800ms: gameplayBlackouts.filter((d) => d > 800).length,
+  longestBlackoutMs: gameplayBlackouts.length ? +Math.max(...gameplayBlackouts).toFixed(0) : 0,
   latencyMs: { p50: q(0.5), p90: q(0.9), p99: q(0.99) },
   ua: navigator.userAgent,
 };
 phaseEl.textContent = `fim — ${MODEL_KIND}`;
 liveEl.textContent = '';
-reportEl.textContent = `blackouts/min: ${report.blackoutsPerMin}  (>133ms: ${report.blackoutsOver133ms}, >800ms: ${report.blackoutsOver800ms})\n` +
+reportEl.textContent = `${report.valid ? '' : `BENCHMARK INVÁLIDO — NÃO COMPARAR: ${invalidReason}\n`}` +
+  `blackouts/min: ${report.blackoutsPerMin}  (>133ms: ${report.blackoutsOver133ms}, >800ms: ${report.blackoutsOver800ms})\n` +
   `frames vazios/min: ${report.emptyPerMin}  ruins: ${report.badPct}%  poses/s: ${report.posesPerS}  delegate: ${delegate}\n\n` +
   JSON.stringify(report, null, 2);
 window.DROPOUT_BENCH = report;
