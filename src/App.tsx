@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { CalibrationProfile, SportActionEvent } from './cv/protocol';
-import { AutoCalibrator, type CalibrationPhase } from './cv/autoCalibrator';
 import { HandClient } from './cv/handClient';
+import { AdaptiveCalibrator } from './cv/adaptiveCalibrator';
 import { observeEarlyRejection } from './cv/observeEarlyRejection';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { ActionPipeline } from './kinematics/actionPipeline';
@@ -18,7 +18,7 @@ import { GamesMenu, HomeMenu, TitleMenu } from './ui/WiiMenu';
 import { WiiSplash } from './ui/WiiSplash';
 import './arena.css';
 
-type Screen = 'calibration' | 'home' | 'title' | 'games' | 'play';
+type Screen = 'home' | 'title' | 'games' | 'play';
 type VisionMode = 'hand' | 'pose';
 
 const ACTIVITY_LABEL: Record<ActivityKind, string> = {
@@ -50,13 +50,11 @@ function writeMutedPreference(muted: boolean): void {
 
 export default function App({ exit }: { exit?: ReactNode }) {
   const [splash, setSplash] = useState(true);
-  const [screen, setScreen] = useState<Screen>('calibration');
+  const [screen, setScreen] = useState<Screen>('home');
   const [sport, setSport] = useState<Sport>('track');
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraStatus, setCameraStatus] = useState('Permissão da câmera ainda não solicitada');
   const [tracking, setTracking] = useState('SEM POSE');
-  const [calibrationPhase, setCalibrationPhase] = useState<CalibrationPhase>('framing');
-  const [calibrationProgress, setCalibrationProgress] = useState(0);
   const [muted, setMuted] = useState(readMutedPreference);
   const [handPanelOpen, setHandPanelOpen] = useState(false);
   const [handInput, setHandInput] = useState(HAND_IDLE);
@@ -68,7 +66,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const engineRef = useRef<GameEngineHandle | null>(null);
   const pipelineRef = useRef(new ActionPipeline());
   const contextRef = useRef(new ContextClassifier());
-  const calibratorRef = useRef(new AutoCalibrator());
+  const calibratorRef = useRef(new AdaptiveCalibrator());
   const handDetectorRef = useRef(new HandCursorDetector());
   const sportRef = useRef(sport);
   sportRef.current = sport;
@@ -99,17 +97,16 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
   const onEngine = useCallback((engine: GameEngineHandle | null) => { engineRef.current = engine; }, []);
   const dispatchEvent = useCallback((event: SportActionEvent) => {
-    if (!engineRef.current) return;
-    engineRef.current.onAction(event);
-    if (event.type === 'jump') audioRef.current.jump();
-    if (event.type === 'step') audioRef.current.step(event.side);
+    engineRef.current?.onAction(event);
+    if (sportRef.current === 'track') {
+      if (event.type === 'jump') audioRef.current.jump();
+      if (event.type === 'step') audioRef.current.step(event.side);
+    }
   }, []);
 
-  const recalibrate = useCallback(() => {
+  const resetCalibration = useCallback(() => {
     profileRef.current = undefined;
     calibratorRef.current.reset();
-    setCalibrationPhase('framing');
-    setCalibrationProgress(0);
   }, []);
 
   const stopCamera = useCallback(() => {
@@ -126,9 +123,9 @@ export default function App({ exit }: { exit?: ReactNode }) {
     handDetectorRef.current.reset();
     for (const event of pipelineRef.current.reset()) dispatchEvent(event);
     contextRef.current.reset();
-    recalibrate();
+    resetCalibration();
     drawPose(overlayRef.current, videoRef.current);
-  }, [dispatchEvent, recalibrate]);
+  }, [dispatchEvent, resetCalibration]);
 
   const poseCallbacksRef = useRef<PoseClientCallbacks | undefined>(undefined);
   poseCallbacksRef.current = {
@@ -141,15 +138,9 @@ export default function App({ exit }: { exit?: ReactNode }) {
       }
     },
     onPose: (raw) => {
+      profileRef.current = calibratorRef.current.update(raw) ?? profileRef.current;
       const result = pipelineRef.current.update(raw, profileRef.current);
       const current = result.snapshot;
-      if (!profileRef.current) {
-        const step = calibratorRef.current.update(current, { needsWrists: sportRef.current === 'tennis' });
-        profileRef.current = step.profile;
-        setCalibrationPhase(step.phase);
-        setCalibrationProgress(step.progress);
-        if (step.profile) setCameraStatus('Calibração aprovada · postura neutra salva');
-      }
       const decision = contextRef.current.update(current, profileRef.current);
       const activity = decision.confidence01 > 0.4 ? ` · ${ACTIVITY_LABEL[decision.activity]}` : '';
       setTracking(current.trackingState === 'tracked' ? `TRACKING${activity}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
@@ -222,7 +213,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     });
   }, []);
 
-  // A tela dona do modo: menus são controlados pela mão; calibração e jogo usam o corpo.
+  // Menus use hand tracking; adaptive body calibration runs continuously during play.
   useEffect(() => {
     const next = modeForScreen(screen);
     if (visionModeRef.current === next) return;
@@ -333,25 +324,10 @@ export default function App({ exit }: { exit?: ReactNode }) {
     void startCamera();
   }, [startCamera]);
 
-  // Calibrou: deixa o "Calibrado" aparecer e segue para o menu em modo de mão.
-  useEffect(() => {
-    if (screen !== 'calibration' || calibrationPhase !== 'done') return;
-    const timer = window.setTimeout(() => setScreen('home'), 1500);
-    return () => window.clearTimeout(timer);
-  }, [screen, calibrationPhase]);
-
-  const skipCalibration = () => {
-    stopCamera();
-    setScreen('home');
-  };
-
   const play = (next: Sport) => {
     void audioRef.current.unlock();
     setSport(next);
     sportRef.current = next;
-    // Um perfil vindo da corrida pode não ter referência de punhos — e sem ela o swing
-    // não dispara: o tênis refaz a calibração pedindo as mãos visíveis.
-    if (next === 'tennis' && profileRef.current && !profileRef.current.world.readyWristLocal) recalibrate();
     setHandPanelOpen(false);
     setScreen('play');
   };
@@ -376,11 +352,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
   return <div className="stage">
     {screen === 'play' && <GameCanvas key={sport} sport={sport} onEngine={onEngine} tracking={tracking} audio={audioRef.current} />}
-    {screen === 'calibration' && <section className="wii-screen">
-      <h1>Calibração do corpo</h1>
-      <p>Permita a câmera, enquadre cabeça e torso até o quadril e fique parado.</p>
-      <button type="button" className="wii-skip" onClick={skipCalibration}>Pular</button>
-    </section>}
     {screen === 'home' && <HomeMenu exit={exit} onGames={() => setScreen('title')} />}
     {screen === 'title' && <TitleMenu onStart={() => setScreen('games')} onBack={() => setScreen('home')} />}
     {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} onBack={() => setScreen('title')} />}
@@ -401,10 +372,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
     <CameraPip
       hidden={menu && handPanelOpen}
-      sport={sport}
       videoRef={videoRef} canvasRef={overlayRef} cameraOn={cameraOn} status={cameraStatus} tracking={tracking}
-      calibrationPhase={calibrationPhase} calibrationProgress={calibrationProgress}
-      onStart={() => void startCamera()} onStop={stopCamera} onRecalibrate={recalibrate}
+      onStart={() => void startCamera()} onStop={stopCamera}
     />
     {splash && <WiiSplash onDone={endSplash} />}
   </div>;
