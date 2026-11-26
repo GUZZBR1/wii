@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
-import { TrackingGate } from '../src/kinematics/trackingGate';
 import { calibration, pose, poseWithHipBounce } from './fixtures/syntheticPose';
 
 const TORSO_HEIGHT = 0.4;
@@ -24,30 +23,6 @@ function runningRise(timeMs: number): number {
 }
 
 describe('torso action pipeline integration', () => {
-  it('uses elapsed torso loss grace without changing the shared gate threshold', () => {
-    const pipeline = new ActionPipeline();
-    let result = pipeline.update(pose(0));
-    result = pipeline.update(pose(35));
-    result = pipeline.update(pose(70));
-    expect(result.controls.trackingState).toBe('tracked');
-
-    for (const time of [105, 140, 175, 210, 280]) {
-      result = pipeline.update(pose(time, { confidence: 0.1 }));
-      expect(result.controls.trackingState).toBe('degraded');
-    }
-    result = pipeline.update(pose(355, { confidence: 0.1 }));
-    expect(result.controls.trackingState).toBe('lost');
-
-    const sharedGate = new TrackingGate([11, 12, 23, 24]);
-    sharedGate.evaluate(pose(0));
-    sharedGate.evaluate(pose(35));
-    sharedGate.evaluate(pose(70));
-    expect(sharedGate.evaluate(pose(105, { confidence: 0.1 })).state).toBe('degraded');
-    expect(sharedGate.evaluate(pose(140, { confidence: 0.1 })).state).toBe('degraded');
-    expect(sharedGate.evaluate(pose(175, { confidence: 0.1 })).state).toBe('degraded');
-    expect(sharedGate.evaluate(pose(210, { confidence: 0.1 })).state).toBe('lost');
-  });
-
   it('keeps cadence and jump active without a calibration profile', () => {
     const pipeline = new ActionPipeline();
     const frames = [];

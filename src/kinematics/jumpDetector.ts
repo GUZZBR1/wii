@@ -38,9 +38,9 @@ const ARM_DWELL_MS = 160;
 const REARM_RISE_TORSO = 0.05;
 /**
  * Hard bound on time airborne. A real takeoff falls back under the rearm band well inside
- * this window; rise held above the band past it is stale signal — micro-oscillation of
- * tracking hovering over the threshold — not a flight, so the detector re-arms anyway
- * instead of swallowing every later jump.
+ * this window; rise held above the band past it is stale signal — tracking micro-oscillation
+ * hovering over the threshold — not a flight, so the detector re-arms anyway instead of
+ * swallowing every later jump.
  */
 const MAX_AIRBORNE_MS = 700;
 

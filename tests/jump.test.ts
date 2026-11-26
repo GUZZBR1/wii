@@ -162,6 +162,21 @@ describe('JumpDetector (adaptive baseline)', () => {
     expect(events[1]).toBeGreaterThan(4200);
   });
 
+  it('re-arms at the airborne timeout when rise never returns below the band', () => {
+    const detector = new JumpDetector();
+    arm(detector);
+    const update = (timestampMs: number, rise: number, velocityUp: number) => detector.update({
+      timestampMs, rise, velocityUp, oscillationAmplitude: 0, sustainedOscillationAmplitude: 0,
+    });
+
+    expect(update(2000, 0.12, 2)).toBe(false);
+    expect(update(2033, 0.12, 2)).toBe(true);
+    for (let time = 2066; time < 2733; time += 33) expect(update(time, 0.07, 0)).toBe(false);
+    expect(update(2733, 0.07, 0)).toBe(false);
+    expect(update(2766, 0.12, 2)).toBe(false);
+    expect(update(2799, 0.12, 2)).toBe(true);
+  });
+
   it.each([15, 30, 60])('fires the same jump once at %i fps', (fps) => {
     expect(feedChain(jumpProfile(0.3), { fps })).toHaveLength(1);
   });

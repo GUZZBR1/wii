@@ -1,10 +1,14 @@
 const COUNTDOWN_S = 3;
 /**
- * Seconds of continuous 'SEM POSE' the run tolerates before pausing. Brief tracking blackouts
- * — a fast jump carrying the torso out of a tight frame, a blur burst — must not freeze the
- * race; only a sustained loss means the player actually left.
+ * Continuous seconds of 'SEM POSE' the run tolerates before pausing. Production references
+ * converge on 1–2 s of sustained loss before degrading gameplay at all, and nothing — not
+ * Kinect 2010, not Meta, not Peloton — re-onboards the player after a transient: the pause
+ * exists only for the player who actually walked away. The camera pipeline already coasts
+ * the input through short bursts, so this window only starts once tracking is truly gone
+ * (the gate's own blackout window) — and 'PROCURANDO' still sees the body intermittently,
+ * so it ends the continuous-loss window instead of counting toward the pause.
  */
-const LOST_GRACE_S = 0.8;
+const LOST_GRACE_S = 1;
 
 export type RunPhase = 'countdown' | 'running' | 'paused';
 
@@ -13,7 +17,7 @@ export type RunPhase = 'countdown' | 'running' | 'paused';
  * key presses come in as calls, time comes in from the fixed-step loop.
  *
  * Losing the camera pauses only a player the camera has actually seen, so keyboard-only runs never
- * pause. A key press while paused gives up on the camera until it tracks again.
+ * pause. Returning from a pause resumes the phase the run was in — never a fresh countdown.
  */
 export class RunGate {
   private current: RunPhase = 'countdown';
@@ -22,6 +26,8 @@ export class RunGate {
   /** True while the latest tracking label is 'SEM POSE'; `lostFor` times that continuous window. */
   private poseMissing = false;
   private lostFor = 0;
+  /** The phase the pause interrupted, restored verbatim when the player comes back. */
+  private pausedFrom: RunPhase = 'running';
 
   get phase(): RunPhase {
     return this.current;
@@ -32,14 +38,12 @@ export class RunGate {
     return Math.ceil(this.remaining);
   }
 
-  /** `tracking` is the app's camera label; 'PROCURANDO' still sees the body intermittently,
-   * so it ends the continuous-loss window instead of counting toward the pause. */
   setTracking(tracking: string): void {
     if (tracking === 'TRACKING' || tracking.startsWith('TRACKING · ')) {
       this.poseMissing = false;
       this.lostFor = 0;
       this.cameraSeen = true;
-      if (this.current === 'paused') this.restart();
+      if (this.current === 'paused') this.current = this.pausedFrom;
     } else if (tracking === 'SEM POSE') {
       this.poseMissing = true;
     } else {
@@ -52,23 +56,21 @@ export class RunGate {
   resumeByKey(): boolean {
     if (this.current !== 'paused') return false;
     this.cameraSeen = false;
-    this.restart();
+    this.current = this.pausedFrom;
     return true;
   }
 
   advance(dt: number): void {
     if (this.poseMissing) {
       this.lostFor += dt;
-      if (this.lostFor >= LOST_GRACE_S && this.cameraSeen && this.current !== 'paused') this.current = 'paused';
+      if (this.lostFor >= LOST_GRACE_S && this.cameraSeen && this.current !== 'paused') {
+        this.pausedFrom = this.current;
+        this.current = 'paused';
+      }
     }
     if (this.current !== 'countdown') return;
     this.remaining -= dt;
     // Tolerance for the accumulated error of fixed steps.
     if (this.remaining <= 1e-9) this.current = 'running';
-  }
-
-  private restart(): void {
-    this.current = 'countdown';
-    this.remaining = COUNTDOWN_S;
   }
 }
