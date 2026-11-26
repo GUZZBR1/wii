@@ -40,7 +40,7 @@ const TOSS_VY = 5.4; // apex ≈ 1.49 m above the release
 const SERVE_CONTACT_X_OFFSET = 0.35;
 
 type Phase =
-  | { kind: 'player-serve'; tossTimeMs: number; idealHitMs: number }
+  | { kind: 'player-serve'; idealHitMs: number }
   | { kind: 'opponent-serve'; hitAtMs: number }
   | { kind: 'rally' }
   | { kind: 'point-over'; resumeAtMs: number }
@@ -394,7 +394,7 @@ export class TennisGame {
     this.tape = [{ tMs: now, ball: this.ball }];
     const apexSec = TOSS_VY / 9.8;
     // Ideal contact slightly past the apex on the way down — classic serve timing.
-    this.phase = { kind: 'player-serve', tossTimeMs: now, idealHitMs: now + (apexSec + 0.12) * 1000 };
+    this.phase = { kind: 'player-serve', idealHitMs: now + (apexSec + 0.12) * 1000 };
   }
 
   private stepBall(dt: number, now: number): void {
@@ -567,9 +567,6 @@ export class TennisGame {
       label: `${labels.player} × ${labels.opponent}`,
       speed01: 0,
       status: this.status,
-      metricLabel: 'GAMES',
-      metricValue: `${this.score.games.player} × ${this.score.games.opponent}`,
-      detail: this.lastHitInfo,
       feedback: this.feedback,
     });
   }

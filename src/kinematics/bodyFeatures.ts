@@ -47,8 +47,6 @@ export interface CanonicalBodyFeatures {
   landmarksLocal: readonly Vec3[];
   /** Cosines for {@link BODY_JOINTS}; 0 when the joint could not be measured this frame. */
   jointCosines: readonly number[];
-  /** Per-landmark velocity in world axes, shoulder-widths/s; zero without a valid previous frame. */
-  landmarkVelocities: readonly Vec3[];
   /**
    * Knee height along the body-local up axis (shoulder-width units); a raised knee reads higher.
    * NaN when the knee was not measurable this frame — consumers must skip non-finite values,
@@ -68,7 +66,6 @@ export interface CanonicalBodyFeatures {
 
 interface PreviousBody {
   timestampMs: number;
-  world: readonly Point3[];
   /** Filtered wrist world positions used as the base of the next velocity difference. */
   filteredWrists: { left: Vec3; right: Vec3 };
   /** Whether each wrist was usable in the previous frame (world and image confident). */
@@ -115,25 +112,6 @@ function usable(worldPoint: Point3 | undefined, imagePoint?: Point3): worldPoint
     isFinitePoint(imagePoint) &&
     landmarkConfidence(imagePoint) >= LANDMARK_MIN_CONFIDENCE
   );
-}
-
-function velocities(
-  world: readonly Point3[],
-  image: readonly Point3[],
-  previous: PreviousBody | undefined,
-  timestampMs: number,
-  scale: number,
-): Vec3[] {
-  const seconds = previous ? (timestampMs - previous.timestampMs) / 1000 : 0;
-  return world.map((point, index) => {
-    const before = previous?.world[index];
-    if (!usable(point, image[index]) || !before || !usable(before) || seconds <= 0) return ZERO;
-    return {
-      x: (point.x - before.x) / seconds / scale,
-      y: (point.y - before.y) / seconds / scale,
-      z: (point.z - before.z) / seconds / scale,
-    };
-  });
 }
 
 /** Rotates a world-axis vector into the body frame so lateral/forward mean body-relative directions. */
@@ -234,7 +212,6 @@ export class BodyFeatureExtractor {
     const previous = this.previous;
     const gapValid =
       previous !== undefined && snapshot.timestampMs - previous.timestampMs <= this.maxVelocityGapMs;
-    const landmarkVelocities = velocities(world, image, gapValid ? previous : undefined, snapshot.timestampMs, scale);
 
     // Wrist velocities follow a stricter path than the generic array: positions are OneEuro-filtered
     // before differentiation (cm-level landmark jitter otherwise amplifies into phantom speed), the
@@ -277,7 +254,6 @@ export class BodyFeatureExtractor {
       timestampMs: snapshot.timestampMs,
       landmarksLocal,
       jointCosines,
-      landmarkVelocities,
       kneeLiftLeft: usable(world[LEFT_KNEE], image[LEFT_KNEE]) ? landmarksLocal[LEFT_KNEE]!.y : NaN,
       kneeLiftRight: usable(world[RIGHT_KNEE], image[RIGHT_KNEE]) ? landmarksLocal[RIGHT_KNEE]!.y : NaN,
       wristVelocityLeft,
@@ -293,7 +269,6 @@ export class BodyFeatureExtractor {
 
     this.previous = {
       timestampMs: snapshot.timestampMs,
-      world,
       filteredWrists: {
         left: filteredLeft ?? { x: 0, y: 0, z: 0 },
         right: filteredRight ?? { x: 0, y: 0, z: 0 },

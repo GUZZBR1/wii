@@ -6,12 +6,18 @@ export function disposeObjectTree(root: THREE.Object3D): void {
   const materials = new Set<THREE.Material>();
   const textures = new Set<THREE.Texture>();
   root.traverse((object) => {
+    if (object instanceof THREE.InstancedMesh || object instanceof THREE.BatchedMesh) object.dispose();
     const mesh = object as THREE.Mesh;
     if (mesh.geometry) geometries.add(mesh.geometry);
     const meshMaterials = Array.isArray(mesh.material) ? mesh.material : mesh.material ? [mesh.material] : [];
     for (const material of meshMaterials) {
       materials.add(material);
       for (const value of Object.values(material)) if (value instanceof THREE.Texture) textures.add(value);
+      if (material instanceof THREE.ShaderMaterial && material.uniforms) {
+        for (const uniform of Object.values(material.uniforms)) {
+          if (uniform.value instanceof THREE.Texture) textures.add(uniform.value);
+        }
+      }
     }
   });
   geometries.forEach((geometry) => { geometry.dispose(); });

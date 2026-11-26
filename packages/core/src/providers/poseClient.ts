@@ -145,6 +145,8 @@ export class PoseClient {
           worldLandmarks: message.worldLandmarks,
           trackingState: 'degraded',
           bodyConfidence: this.confidence(message.landmarks),
+          frameWidth: message.frameWidth,
+          frameHeight: message.frameHeight,
         });
       }
     };
