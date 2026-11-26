@@ -92,6 +92,7 @@
   .game-banner { position: absolute; left: 0; right: 0; top: 22%; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 16px; color: #fff; text-align: center; text-shadow: 0 3px 10px #000c; pointer-events: none; z-index: 4; }
   .game-banner strong { font-size: 68px; font-weight: 800; }
   .game-banner span { font-size: 14px; font-weight: 700; }
+  .recording-prompt { position: absolute; left: 50%; bottom: 20%; transform: translateX(-50%); max-width: 90%; padding: 14px 22px; border-radius: 16px; background: #000c; color: #fff; font-size: 30px; font-weight: 800; text-align: center; pointer-events: none; z-index: 11; }
   /* uma animação por evento (a key do React reinicia) */
   .game-feedback { position: absolute; inset: 0; display: flex; justify-content: center; align-items: flex-start; pointer-events: none; z-index: 2; }
   .game-feedback span { margin-top: 18vh; color: #7be595; font-size: 34px; font-weight: 800; text-shadow: 0 2px 8px #000a; opacity: 0; animation: track-pop .9s ease-out; }

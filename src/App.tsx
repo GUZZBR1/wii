@@ -4,6 +4,7 @@ import { HandClient } from './cv/handClient';
 import { AdaptiveCalibrator } from './cv/adaptiveCalibrator';
 import { observeEarlyRejection } from './cv/observeEarlyRejection';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
+import { downloadRecording, PoseRecorder } from './cv/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
 import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
 import { HandCursorDetector } from './kinematics/handCursor';
@@ -76,6 +77,9 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const profileRef = useRef<CalibrationProfile | undefined>(undefined);
   const audioRef = useRef(new ProceduralAudio());
   const cameraAttemptRef = useRef(0);
+  /** Diagnostic recording: owned here, fed by onPose, ended by the script, G or the camera stopping. */
+  const recorderRef = useRef<PoseRecorder | undefined>(undefined);
+  const [recordingPrompt, setRecordingPrompt] = useState<string>();
 
   useEffect(() => {
     audioRef.current.setMuted(muted);
@@ -111,6 +115,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
   const stopCamera = useCallback(() => {
     cameraAttemptRef.current += 1;
+    recorderRef.current = undefined;
+    setRecordingPrompt(undefined);
     poseClientRef.current?.pauseCapture();
     handClientRef.current?.pauseCapture();
     streamRef.current?.getTracks().forEach((track) => { track.stop(); });
@@ -128,6 +134,37 @@ export default function App({ exit }: { exit?: ReactNode }) {
     drawPose(overlayRef.current, videoRef.current);
   }, [dispatchEvent, resetCalibration]);
 
+  const finishRecording = useCallback(() => {
+    const recorder = recorderRef.current;
+    recorderRef.current = undefined;
+    setRecordingPrompt(undefined);
+    const delegate = poseClientRef.current?.delegate;
+    if (!recorder?.frameCount || !delegate) return;
+    void downloadRecording(recorder, delegate).catch((error: unknown) => {
+      setCameraStatus(error instanceof Error ? error.message : 'Não foi possível salvar a gravação.');
+    });
+  }, []);
+
+  // G starts/stops a recording during a camera run. Detectors and calibration restart with it,
+  // so replaying the file from a cold start reproduces what happened live.
+  useEffect(() => {
+    if (screen !== 'play' || sport !== 'track' || !cameraOn) return;
+    const toggle = (event: KeyboardEvent) => {
+      if (event.key.toLowerCase() !== 'g' || event.repeat) return;
+      if (recorderRef.current) { finishRecording(); return; }
+      for (const stop of pipelineRef.current.reset()) dispatchEvent(stop);
+      resetCalibration();
+      recorderRef.current = new PoseRecorder();
+      setRecordingPrompt('Gravando…');
+    };
+    window.addEventListener('keydown', toggle);
+    return () => {
+      window.removeEventListener('keydown', toggle);
+      recorderRef.current = undefined;
+      setRecordingPrompt(undefined);
+    };
+  }, [screen, sport, cameraOn, dispatchEvent, resetCalibration, finishRecording]);
+
   const poseCallbacksRef = useRef<PoseClientCallbacks | undefined>(undefined);
   poseCallbacksRef.current = {
     onStatus: (status, detail) => {
@@ -139,6 +176,11 @@ export default function App({ exit }: { exit?: ReactNode }) {
       }
     },
     onPose: (raw) => {
+      if (recorderRef.current) {
+        const current = recorderRef.current.push(raw);
+        if (current) setRecordingPrompt(`${current.segment.prompt} · ${Math.ceil(current.remainingMs / 1000)}`);
+        else finishRecording();
+      }
       // Implicit calibration: every observed frame is evidence. The current profile is a
       // continuously improving estimate, never a mode the player has to enter or watch.
       profileRef.current = calibratorRef.current.update(raw, pipelineRef.current.laneZone) ?? profileRef.current;
@@ -360,6 +402,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
     {screen === 'home' && <HomeMenu exit={exit} onGames={() => setScreen('title')} />}
     {screen === 'title' && <TitleMenu onStart={() => setScreen('games')} onBack={() => setScreen('home')} />}
     {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} onBack={() => setScreen('title')} />}
+
+    {recordingPrompt && <div className="recording-prompt" role="status">● {recordingPrompt}</div>}
 
     {screen === 'play' && <div className="hud-dock">
       <button type="button" className="dock-btn" onClick={() => setScreen('games')}>‹ Jogos</button>

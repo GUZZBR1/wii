@@ -1,0 +1,56 @@
+import { AdaptiveCalibrator } from '../../src/cv/adaptiveCalibrator';
+import type { CalibrationProfile, PoseSnapshot } from '../../src/cv/protocol';
+import { segmentAt, TRACK_RECORDING_SCRIPT, type SegmentKind } from '../../src/cv/recordingScript';
+import { ActionPipeline } from '../../src/kinematics/actionPipeline';
+
+export interface SegmentScore {
+  kind: SegmentKind;
+  frames: number;
+  steps: number;
+  jumps: number;
+  /** Share of frames with the runner moving. */
+  moving01: number;
+  /** Seconds into the segment until the first moving frame / the first still frame. */
+  firstMovingS?: number;
+  firstStillS?: number;
+  /** Share of frames, after the first 500 ms, in the lane the segment asks for. */
+  lane01?: number;
+}
+
+const LANE: Partial<Record<SegmentKind, -1 | 0 | 1>> = { left: -1, center: 0, right: 1 };
+
+/** Replays frames in the same order as App.onPose and scores each scripted segment. */
+export function replayTrack(frames: readonly PoseSnapshot[]): SegmentScore[] {
+  const pipeline = new ActionPipeline();
+  const calibrator = new AdaptiveCalibrator();
+  let profile: CalibrationProfile | undefined;
+  const scores = TRACK_RECORDING_SCRIPT.map(({ kind }) => ({ kind, frames: 0, steps: 0, jumps: 0, moving: 0, laneFrames: 0, laneHits: 0 } as {
+    kind: SegmentKind; frames: number; steps: number; jumps: number; moving: number; laneFrames: number; laneHits: number; firstMovingS?: number; firstStillS?: number;
+  }));
+  const first = frames[0]?.timestampMs ?? 0;
+  for (const snapshot of frames) {
+    profile = calibrator.update(snapshot, pipeline.laneZone) ?? profile;
+    const { events, controls } = pipeline.update(snapshot, profile);
+    const current = segmentAt(snapshot.timestampMs - first);
+    if (!current) break;
+    const score = scores[current.index]!;
+    const intoMs = current.segment.seconds * 1000 - current.remainingMs;
+    score.frames += 1;
+    score.steps += events.filter((event) => event.type === 'step').length;
+    score.jumps += events.filter((event) => event.type === 'jump').length;
+    if (controls.sprintSpeed01 > 0) {
+      score.moving += 1;
+      score.firstMovingS ??= intoMs / 1000;
+    } else score.firstStillS ??= intoMs / 1000;
+    const wanted = LANE[score.kind];
+    if (wanted !== undefined && intoMs >= 500) {
+      score.laneFrames += 1;
+      if (controls.laneZone === wanted) score.laneHits += 1;
+    }
+  }
+  return scores.map(({ moving, laneFrames, laneHits, ...score }) => ({
+    ...score,
+    moving01: score.frames ? moving / score.frames : 0,
+    ...(laneFrames ? { lane01: laneHits / laneFrames } : {}),
+  }));
+}

@@ -7,3 +7,6 @@ dist/
 .vercel/
 public/mediapipe/wasm*/
 .vercel
+
+# Gravações locais de pontos do corpo (dados pessoais)
+tests/recordings/
