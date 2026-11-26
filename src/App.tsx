@@ -96,6 +96,7 @@ export default function App() {
     setTracking('SEM POSE');
     setCameraStatus('Câmera desligada');
     for (const event of pipelineRef.current.reset()) dispatchEvent(event);
+    engineRef.current?.setLaneZone?.(undefined);
     contextRef.current.reset();
     resetCalibration();
     drawPose(overlayRef.current, videoRef.current);
@@ -122,6 +123,7 @@ export default function App() {
         const activity = decision.confidence01 > 0.4 ? ` · ${ACTIVITY_LABEL[decision.activity]}` : '';
         setTracking(current.trackingState === 'tracked' ? `TRACKING${activity}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
         drawPose(overlayRef.current, videoRef.current, current);
+        engineRef.current?.setLaneZone?.(result.controls.laneZone);
         for (const event of result.events) dispatchEvent(event);
       },
     };

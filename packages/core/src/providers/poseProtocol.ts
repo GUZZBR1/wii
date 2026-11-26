@@ -62,7 +62,6 @@ export type SportActionEvent =
   | ActionBase & { type: 'sprint'; speed01: number; cadenceSpm: number }
   | ActionBase & { type: 'step'; side: Hand }
   | ActionBase & { type: 'jump' }
-  | ActionBase & { type: 'lane'; direction: 'left' | 'right' }
   /**
    * Unconfirmed real-time notice that a wrist crossed the swing onset threshold — emitted on the
    * crossing frame, ~100-400 ms before the swing confirms (if it ever does). Backswings and
@@ -90,6 +89,14 @@ export interface ContinuousControls {
   sprintSpeed01: number;
   cadenceSpm: number;
   trackingState: TrackingState;
+  /**
+   * Authoritative body lane zone from camera input: the position the player's torso actually
+   * occupies, not a step to interpret. Undefined while the camera has no opinion (unready
+   * calibration or untracked torso) — keyboard lane control owns the lane in the meantime.
+   * Because the zone is restated every frame, it survives countdowns, pauses and remounts
+   * without the dropped-step desync that relative lane events had.
+   */
+  laneZone?: -1 | 0 | 1;
 }
 
 interface ActionBase {

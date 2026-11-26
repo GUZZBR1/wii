@@ -75,15 +75,15 @@ describe('torso action pipeline integration', () => {
     const run = (neutral01: number) => {
       const pipeline = new ActionPipeline();
       const profile = { ...calibration(), readiness: { scale01: 1, neutral01 } };
-      const events = [];
+      let zone: number | undefined;
       for (let time = 0; time <= 500; time += 33) {
-        events.push(...pipeline.update(pose(time, { shiftUserRightSw: time < 150 ? 0 : 0.25 }), profile).events);
+        zone = pipeline.update(pose(time, { shiftUserRightSw: time < 150 ? 0 : 0.25 }), profile).controls.laneZone ?? zone;
       }
-      return events.filter((event) => event.type === 'lane');
+      return zone;
     };
 
-    expect(run(0)).toHaveLength(0);
-    expect(run(1)).toHaveLength(1);
+    expect(run(0)).toBeUndefined();
+    expect(run(1)).toBe(1);
   });
 
   it('keeps swing quiet until the online body scale is trustworthy', () => {

@@ -146,15 +146,17 @@ describe('adaptive calibration', () => {
   });
 
   it('activates scale-dependent controls before the slower neutral lane reference converges', () => {
-    const laneCalibrator = new AdaptiveCalibrator();
-    const lanePipeline = new ActionPipeline();
-    const lanesBeforeConvergence = [];
+    // Quietness probe: even a displaced player gets no lane zone while neutral has not converged.
+    const probeCalibrator = new AdaptiveCalibrator();
+    const probePipeline = new ActionPipeline();
+    const zonesBeforeConvergence: (number | undefined)[] = [];
     for (let time = 0; time <= 700; time += 35) {
-      const frame = pose(time, { shiftUserRightSw: time < 350 ? 0 : 0.25 });
-      lanesBeforeConvergence.push(...lanePipeline.update(frame, laneCalibrator.update(frame)).events.filter((event) => event.type === 'lane'));
+      const frame = pose(time, { shiftUserRightSw: 0.25 });
+      zonesBeforeConvergence.push(probePipeline.update(frame, probeCalibrator.update(frame)).controls.laneZone);
     }
-    expect(lanesBeforeConvergence).toHaveLength(0);
+    expect(zonesBeforeConvergence.every((zone) => zone === undefined)).toBe(true);
 
+    // Scale-dependent swings come online much earlier than the neutral lane reference.
     const swingCalibrator = new AdaptiveCalibrator();
     const swingPipeline = new ActionPipeline();
     for (let time = 0; time <= 1300; time += 35) {
@@ -165,16 +167,41 @@ describe('adaptive calibration', () => {
     const swingEvents = swingPipeline.update(swingFrame, swingCalibrator.update(swingFrame)).events;
     expect(swingEvents.some((event) => event.type === 'swing-start')).toBe(true);
 
-    for (let time = 770; time <= 3000; time += 35) {
+    // With a clean centered bootstrap the lane zone activates once neutral converges.
+    const laneCalibrator = new AdaptiveCalibrator();
+    const lanePipeline = new ActionPipeline();
+    for (let time = 0; time <= 3000; time += 35) {
       const frame = pose(time);
       lanePipeline.update(frame, laneCalibrator.update(frame));
     }
-    const convergedEvents = [];
+    let convergedZone: number | undefined;
     for (let time = 3035; time <= 3400; time += 35) {
       const frame = pose(time, { shiftUserRightSw: 0.25 });
-      convergedEvents.push(...lanePipeline.update(frame, laneCalibrator.update(frame)).events);
+      convergedZone = lanePipeline.update(frame, laneCalibrator.update(frame)).controls.laneZone ?? convergedZone;
     }
-    expect(convergedEvents.some((event) => event.type === 'lane')).toBe(true);
+    expect(convergedZone).toBe(1);
+  });
+
+  it('keeps publishing wrist references while the neutral center is starved off-center', () => {
+    // Regression: a tennis player standing off-center provides no near-center posture evidence,
+    // but scale and wrist learning must not freeze with the center — only the center freezes.
+    // The wrists stay hidden until the rolling window has fully aged out the centered bootstrap,
+    // so the reference can only mature while the center is genuinely starved.
+    const calibrator = new AdaptiveCalibrator();
+    let profile: CalibrationProfile | undefined;
+    for (let time = 0; time <= 1000; time += 35) {
+      profile = calibrator.update(pose(time, { hiddenLandmarks: [15, 16] })) ?? profile;
+    }
+    for (let time = 1035; time <= 9100; time += 35) {
+      profile = calibrator.update(pose(time, { shiftUserRightSw: 0.3, hiddenLandmarks: [15, 16] })) ?? profile;
+    }
+    expect(profile!.world.readyWristLocal?.right).toBeUndefined(); // no wrist evidence yet at all
+
+    for (let time = 9135; time <= 12500; time += 35) {
+      profile = calibrator.update(pose(time, { shiftUserRightSw: 0.3 })) ?? profile;
+    }
+    expect(profile!.world.readyWristLocal?.right).toBeDefined(); // learned despite the starved center
+    expect(profile!.image.shoulderCenterX0).toBeCloseTo(0.5, 2); // while the center stays frozen
   });
 
   it('does not infer a wrist reference from one short dwell', () => {

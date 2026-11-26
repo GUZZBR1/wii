@@ -8,7 +8,7 @@ type GameHudState = Omit<TrackHudState, 'feedback'> & { feedback?: TrackHudState
 import { forwardKeyDown } from './keys';
 
 export type Sport = 'track' | 'tennis';
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; dispose(): void }
 
 interface Props {
   sport: Sport;

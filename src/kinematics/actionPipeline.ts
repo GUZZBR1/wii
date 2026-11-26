@@ -80,13 +80,14 @@ export class ActionPipeline {
     }
 
     // Lane control reads the same image torso core as the vertical channel, so it shares the
-    // torso gate. Nothing resets on blackout or unready calibration: the zone is a position,
-    // not a gesture in flight — resetting it would desync the game's lane, while freezing it
-    // lets the filter re-converge within a frame when updates resume and emit any real change.
+    // torso gate. The zone is published as a continuous authoritative position, not a step
+    // event: the game re-reads it every frame, so countdowns, pauses and remounts cannot drop
+    // it, and a frozen zone never desyncs — when updates resume the filter re-converges within
+    // a frame and the restated zone corrects whatever the runner did in the meantime.
     const laneReady = calibration !== undefined && (calibration.readiness?.neutral01 ?? 1) >= 0.65;
     if (laneReady && torsoTracking.state === 'tracked') {
-      const lane = this.lanePosition.update(current, calibration);
-      if (lane) events.push({ ...this.eventBase(snapshot, torsoTracking.confidence), id: this.nextId++, type: 'lane', direction: lane });
+      const zone = this.lanePosition.update(current, calibration);
+      if (zone !== undefined) controls = { ...controls, laneZone: zone };
     }
 
     const swingScaleReady = calibration !== undefined && (calibration.readiness?.scale01 ?? 1) >= 0.5;

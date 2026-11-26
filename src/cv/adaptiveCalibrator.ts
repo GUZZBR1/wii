@@ -1,6 +1,7 @@
 import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from './protocol';
 import { OneEuroFilter } from '@wii/spatial-core';
 import { bodyLocalPoint } from '../kinematics/bodyFrame';
+import { EXIT_LANE_SW } from '../kinematics/postureSignals';
 import { clamp, distance3, isFinitePoint, landmarkConfidence, median, midpoint } from '../kinematics/math';
 
 const CORE = [11, 12, 23, 24] as const;
@@ -65,10 +66,6 @@ function blend(a: number, b: number, alpha: number): number {
   return a + (b - a) * alpha;
 }
 
-function clamp01(value: number): number {
-  return Math.max(0, Math.min(1, value));
-}
-
 function confident(point: Point3 | undefined): point is Point3 {
   return isFinitePoint(point) && landmarkConfidence(point) >= MIN_CONFIDENCE;
 }
@@ -88,7 +85,9 @@ function scalarMode(
   }
   const [bestBin] = [...bins.entries()].sort((a, b) => b[1] - a[1])[0]!;
   const center = bestBin * binWidth;
-  const cluster = samples.filter((sample) => Math.abs(sample.value - center) <= clusterRadius);
+  // Zero-confidence samples are gated-out control input, not posture: they must not pull the
+  // median even when they fall inside the winning bin's image-space cluster.
+  const cluster = samples.filter((sample) => sample.confidence > 0 && Math.abs(sample.value - center) <= clusterRadius);
   const value = median(cluster.map((sample) => sample.value));
   const clusterWeight = cluster.reduce((sum, sample) => sum + sample.confidence, 0);
   return {
@@ -268,8 +267,9 @@ export class AdaptiveCalibrator {
     const priorCenterX = this.published?.image.shoulderCenterX0;
     // Neutral evidence is posture near the center, full stop: a held lane position is control
     // input, not posture, and contributes nothing — otherwise a long hold would recentre the
-    // reference and the return to center would read as the opposite lane. The weight fades out
-    // between 0.08 and 0.15 shoulder widths of deviation, so genuine small offsets still adapt.
+    // reference and the return to center would read as the opposite lane. Admission cuts off
+    // at the lane-exit threshold: any displacement beyond it can be an active lane (the zone
+    // hysteresis holds lanes down to EXIT_LANE_SW), so even shallow holds are fully gated.
     const deviations = this.coreObservations.map((sample) => ({
       sample,
       deviationSw: priorCenterX === undefined ? 0 : Math.abs(sample.shoulderCenterX - priorCenterX) / sample.imageShoulderWidth,
@@ -277,23 +277,26 @@ export class AdaptiveCalibrator {
     // Escape hatch: if almost nothing counts as neutral evidence for a long stretch, the player
     // is not holding a lane — nobody holds one for half a minute — they physically moved, and
     // the gate reference is what is wrong. Admission reopens and the change-point blend hurries.
-    const admitted = deviations.filter(({ deviationSw }) => deviationSw < 0.08).length;
+    const admitted = deviations.filter(({ deviationSw }) => deviationSw < EXIT_LANE_SW).length;
     const admissionRatio = deviations.length > 0 ? admitted / deviations.length : 1;
     if (priorCenterX === undefined || admissionRatio >= 0.1) this.centerStarvedSince = undefined;
     else this.centerStarvedSince ??= now;
     const relocating = this.centerStarvedSince !== undefined && now - this.centerStarvedSince >= CENTER_RELOCATION_MS;
     const centerSamples = deviations.map(({ sample, deviationSw }) => {
-      const postureWeight = clamp01((0.15 - deviationSw) / 0.07);
+      const postureWeight = deviationSw < EXIT_LANE_SW ? 1 : 0;
       return { value: sample.shoulderCenterX, confidence: sample.confidence * (relocating ? 1 : postureWeight) };
     });
-    // No posture evidence means no estimate at all: with every near-center sample gated out,
+    // No posture evidence means no center estimate: with every near-center sample gated out,
     // a zero-weight mode would still report the held lane position as neutral and the blend
-    // would chase it. Freezing the reference is the correct behavior during a long hold.
+    // would chase it. But only the center freezes — scale and wrist references have their own
+    // evidence and keep publishing, or a tennis player standing off-center would never learn
+    // a wrist reference. The neutral readiness freezes with the center it describes.
     const centerEvidence = centerSamples.reduce((sum, sample) => sum + sample.confidence, 0);
-    if (centerEvidence < MIN_CENTER_EVIDENCE) return undefined;
-    const neutralMode = scalarMode(centerSamples, CENTER_BIN, CENTER_CLUSTER_RADIUS);
-    if (!neutralMode) return undefined;
-    const shoulderCenterX0 = neutralMode.value;
+    const freezeCenter = centerEvidence < MIN_CENTER_EVIDENCE;
+    if (freezeCenter && !this.published) return undefined;
+    const neutralMode = freezeCenter ? undefined : scalarMode(centerSamples, CENTER_BIN, CENTER_CLUSTER_RADIUS);
+    if (!freezeCenter && !neutralMode) return undefined;
+    const shoulderCenterX0 = freezeCenter ? this.published!.image.shoulderCenterX0 : neutralMode!.value;
 
     const readyWristLocal: Partial<Record<Hand, Point3>> = {};
     for (const hand of ['left', 'right'] as const) {
@@ -304,11 +307,14 @@ export class AdaptiveCalibrator {
     const coverage = this.coreCoverage();
     const widthMad = median(this.coreObservations.map((sample) => Math.abs(sample.shoulderWidth - shoulderWidth)));
     const scaleDispersion01 = clamp(1 - widthMad / (shoulderWidth * 0.12));
-    const localDispersion01 = clamp(1 - neutralMode.dispersion / 0.02);
+    const localDispersion01 = neutralMode ? clamp(1 - neutralMode.dispersion / 0.02) : 0;
+    const freshNeutral01 = neutralMode
+      ? clamp(coverage.coveredMs / 2500) * clamp(coverage.ratio / CORE_COVERAGE_RATIO)
+        * (0.15 + 0.7 * neutralMode.strength01 + 0.15 * localDispersion01)
+      : (this.published?.readiness?.neutral01 ?? 0);
     const readiness = {
       scale01: clamp(coverage.spanMs / MIN_PUBLISH_SPAN_MS) * clamp(coverage.ratio / CORE_COVERAGE_RATIO) * scaleDispersion01,
-      neutral01: clamp(coverage.coveredMs / 2500) * clamp(coverage.ratio / CORE_COVERAGE_RATIO)
-        * (0.15 + 0.7 * neutralMode.strength01 + 0.15 * localDispersion01),
+      neutral01: freshNeutral01,
     };
     return {
       version: 3,
