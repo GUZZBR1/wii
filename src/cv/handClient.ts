@@ -1,4 +1,5 @@
-import { HandClient as CoreHandClient, type HandClientAssets, type HandSnapshot } from '@wii/spatial-core';
+import { type Delegate, HandClient as CoreHandClient, type HandClientAssets, type HandClientCallbacks, type HandSnapshot } from '@wii/spatial-core';
+import { preferredDelegate } from './delegate';
 import { HAND_MODEL_SHA8, MEDIAPIPE_WASM_VERSION } from './mediapipeAssets';
 
 export type { HandClientCallbacks } from '@wii/spatial-core';
@@ -20,6 +21,10 @@ export class HandClient extends CoreHandClient {
 
   constructor(assets: HandClientAssets = defaultHandAssets()) {
     super(assets);
+  }
+
+  override init(callbacks: HandClientCallbacks, preferred: Delegate = preferredDelegate()): Promise<void> {
+    return super.init(callbacks, preferred);
   }
 
   static warmVisionAssets(): void {

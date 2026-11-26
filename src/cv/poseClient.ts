@@ -1,5 +1,6 @@
 import { PoseClient as CorePoseClient } from '@wii/spatial-core';
 import type { Delegate, PoseClientAssets, PoseClientCallbacks as CoreCallbacks } from '@wii/spatial-core';
+import { preferredDelegate } from './delegate';
 import { MEDIAPIPE_WASM_VERSION, POSE_FULL_MODEL_SHA8, POSE_MODEL_SHA8 } from './mediapipeAssets';
 
 export type { PoseClientCallbacks } from '@wii/spatial-core';
@@ -15,21 +16,20 @@ function defaultPoseAssets(): PoseClientAssets {
 }
 
 export class PoseClient extends CorePoseClient {
-  /** `?pose=cpu` keeps pose off a weak GPU that is already busy drawing the 3D game. */
-  override init(callbacks: CoreCallbacks, preferred: Delegate = new URLSearchParams(location.search).get('pose') === 'cpu' ? 'CPU' : 'GPU'): Promise<void> {
-    return super.init(callbacks, preferred);
-  }
-
   constructor(assets: PoseClientAssets = defaultPoseAssets()) {
     super(assets);
   }
 
+  override init(callbacks: CoreCallbacks, preferred: Delegate = preferredDelegate()): Promise<void> {
+    return super.init(callbacks, preferred);
+  }
+
   static warmVisionAssets(): void {
-    const { wasmBaseUrl, modelUrl } = defaultPoseAssets();
+    const { wasmBaseUrl, modelUrl, cpuModelUrl } = defaultPoseAssets();
     const urls = [
       `${wasmBaseUrl}/vision_wasm_module_internal.js`,
       `${wasmBaseUrl}/vision_wasm_module_internal.wasm`,
-      modelUrl,
+      preferredDelegate() === 'CPU' && cpuModelUrl ? cpuModelUrl : modelUrl,
     ];
     for (const url of urls) {
       void fetch(url)
