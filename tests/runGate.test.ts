@@ -48,6 +48,17 @@ describe('run gate', () => {
     expect(gate.phase).toBe('paused');
   });
 
+  it('pauses and resumes when the app includes the detected activity in its tracking label', () => {
+    const gate = new RunGate();
+    gate.setTracking('TRACKING · CORRIDA');
+    run(gate, 3);
+    gate.setTracking('SEM POSE');
+    expect(gate.phase).toBe('paused');
+
+    gate.setTracking('TRACKING · CORRIDA');
+    expect([gate.phase, gate.count]).toEqual(['countdown', 3]);
+  });
+
   it('lets a key leave the pause and stops waiting for the camera', () => {
     const gate = new RunGate();
     expect(gate.resumeByKey()).toBe(false);
