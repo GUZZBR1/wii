@@ -25,7 +25,11 @@ export class LanePositionTracker {
     const leftShoulder = snapshot.landmarks[11];
     const rightShoulder = snapshot.landmarks[12];
     if (!leftShoulder || !rightShoulder) return undefined;
-    const width = Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y);
+    // x is normalized by frame width and y by frame height independently, so a raw hypot would
+    // mix units: in landscape frames the y contribution is over-weighted and the measured width
+    // would inflate as the shoulders tilt in-plane — exactly while the player leans to dodge.
+    const aspect = snapshot.frameHeight / snapshot.frameWidth;
+    const width = Math.hypot(leftShoulder.x - rightShoulder.x, (leftShoulder.y - rightShoulder.y) * aspect);
     if (width < MIN_SHOULDER_WIDTH) return undefined;
     const centerX = (leftShoulder.x + rightShoulder.x) / 2;
     const displacement = (calibration.image.shoulderCenterX0 - centerX) / width;

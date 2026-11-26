@@ -186,7 +186,8 @@ export class AdaptiveCalibrator {
     const shoulderCenter = midpoint(leftShoulder, rightShoulder);
     const hipCenter = midpoint(leftHip, rightHip);
     const torsoHeight = Math.abs(hipCenter.y - shoulderCenter.y);
-    const imageShoulderWidth = Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y);
+    const aspect = snapshot.frameHeight / snapshot.frameWidth;
+    const imageShoulderWidth = Math.hypot(leftShoulder.x - rightShoulder.x, (leftShoulder.y - rightShoulder.y) * aspect);
     const shoulderWidth = distance3(worldLeftShoulder, worldRightShoulder);
     if (torsoHeight < 0.03 || imageShoulderWidth < 0.03 || shoulderWidth < 0.03) return undefined;
 

@@ -49,6 +49,8 @@ function cloneSnapshot(snapshot: PoseSnapshot): PoseSnapshot {
     worldLandmarks: snapshot.worldLandmarks.map(clonePoint),
     trackingState: snapshot.trackingState,
     bodyConfidence: snapshot.bodyConfidence,
+    frameWidth: snapshot.frameWidth,
+    frameHeight: snapshot.frameHeight,
   };
 }
 

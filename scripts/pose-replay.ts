@@ -37,6 +37,8 @@ function snapshotFromReply(reply: Extract<WorkerReply, { type: 'POSE' }>): PoseS
     worldLandmarks: reply.worldLandmarks,
     trackingState: 'degraded',
     bodyConfidence: confidence(reply.landmarks),
+    frameWidth: reply.frameWidth,
+    frameHeight: reply.frameHeight,
   };
 }
 

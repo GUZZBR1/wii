@@ -16,6 +16,8 @@ const lostPose = (timestampMs: number) => ({
   worldLandmarks: [],
   trackingState: 'lost' as const,
   bodyConfidence: 0,
+  frameWidth: 1280,
+  frameHeight: 720,
 });
 
 describe('pose recording and replay', () => {

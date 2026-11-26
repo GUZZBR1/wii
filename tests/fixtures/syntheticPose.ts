@@ -50,7 +50,7 @@ export function pose(timestampMs: number, options: {
   world[26] = { ...world[26]!, x: -0.1, y: 0.45 };
   world[27] = { ...world[27]!, x: 0.1, y: 0.9 };
   world[28] = { ...world[28]!, x: -0.1, y: 0.9 };
-  return { timestampMs, landmarks: points, worldLandmarks: world, trackingState: 'tracked', bodyConfidence: options.confidence ?? 0.95 };
+  return { timestampMs, landmarks: points, worldLandmarks: world, trackingState: 'tracked', bodyConfidence: options.confidence ?? 0.95, frameWidth: 1280, frameHeight: 720 };
 }
 
 export function rotateWorldYaw(snapshot: ReturnType<typeof pose>, radians: number) {

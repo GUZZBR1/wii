@@ -86,6 +86,34 @@ describe('LanePositionTracker', () => {
   });
 });
 
+describe('aspect-corrected shoulder width', () => {
+  it('measures the same normalized displacement when the shoulders tilt in-plane', () => {
+    // x and y are normalized by frame width and height independently, so a raw hypot would let a
+    // tilted shoulder line measure wider than a horizontal one — deflating sensitivity exactly
+    // while the player leans. The aspect-corrected width must be tilt-invariant.
+    const measure = (tiltDeg: number) => {
+      const tracker = new LanePositionTracker();
+      // settle the filter at center
+      for (let time = 0; time <= 1000; time += 33) tracker.update(pose(time), calibration());
+      const tilt = (tiltDeg * Math.PI) / 180;
+      const snapshot = pose(1100, { shiftUserRightSw: 0.3 });
+      const landmarks = snapshot.landmarks.map((point, index) => {
+        if (index !== 11 && index !== 12) return point;
+        // rotate each shoulder around the shoulder center within the image plane
+        const cx = (snapshot.landmarks[11]!.x + snapshot.landmarks[12]!.x) / 2;
+        const cy = (snapshot.landmarks[11]!.y + snapshot.landmarks[12]!.y) / 2;
+        const dx = point.x - cx;
+        const dy = point.y - cy;
+        return { ...point, x: cx + dx * Math.cos(tilt) - dy * Math.sin(tilt) * (720 / 1280), y: cy + (dx * Math.sin(tilt) * (1280 / 720)) + dy * Math.cos(tilt) };
+      });
+      return tracker.update({ ...snapshot, landmarks }, calibration());
+    };
+    expect(measure(0)).toBe(measure(15));
+    expect(measure(0)).toBe(measure(25));
+    expect(measure(0)).toBe(1); // the displacement is deep enough to be in the right lane at any tilt
+  });
+});
+
 describe('lane position control through the real pipeline and calibrator', () => {
   function drivePipeline(timeline: { atMs: number; shiftSw: number; rampMs?: number }[], totalMs: number) {
     const calibrator = new AdaptiveCalibrator();

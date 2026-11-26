@@ -53,6 +53,9 @@ export type WorkerReply =
       timestampMs: number;
       landmarks: Point3[];
       worldLandmarks: Point3[];
+      /** Pixel dimensions of the frame the normalized landmarks were measured on. */
+      frameWidth: number;
+      frameHeight: number;
     }
   | { type: 'FALLBACK'; from: 'GPU'; to: 'CPU'; reason: string }
   | { type: 'ERROR'; stage: 'init'; fatal: boolean; message: string }
