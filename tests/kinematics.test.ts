@@ -32,6 +32,15 @@ describe('1-Euro filter', () => {
     const moved = filter.filter(1, 200);
     expect(moved).toBeGreaterThan(outputs.at(-1)!);
   });
+
+  it('ignores a non-finite sample instead of poisoning every later output', () => {
+    const filter = new OneEuroFilter({ minCutoff: 1, beta: 0.5, derivativeCutoff: 1 });
+    expect(filter.filter(0, 0)).toBe(0);
+    expect(filter.filter(Number.NaN, 33)).toBe(0);
+    const after = filter.filter(0.5, 66);
+    expect(Number.isFinite(after)).toBe(true);
+    expect(after).toBeGreaterThan(0);
+  });
 });
 
 describe('landmark confidence', () => {
@@ -203,6 +212,20 @@ describe('swing detector', () => {
 });
 
 describe('world-space posture calibration', () => {
+  it('treats a frame with non-finite coordinates as no lean evidence, not a right lean', () => {
+    const profile = calibration();
+    const base = pose(0);
+    const nanPose = { ...base, worldLandmarks: base.worldLandmarks.map((point, index) => (index === 11 ? { ...point, x: Number.NaN } : point)) };
+    expect(torsoLeanDeltaRad(nanPose, profile)).toBe(0);
+
+    const detector = new LaneLeanDetector();
+    const signals: unknown[] = [];
+    for (let time = 0; time <= 99; time += 33) signals.push(detector.update(pose(time), profile));
+    signals.push(detector.update({ ...nanPose, timestampMs: 132 }, profile));
+    for (let time = 165; time <= 396; time += 33) signals.push(detector.update(pose(time, { leanRad: 0.24 }), profile));
+    expect(signals.filter(Boolean)).toEqual(['right']);
+  });
+
   it('uses world torso geometry for lane lean and emits one direction while the pose is held', () => {
     const detector = new LaneLeanDetector();
     const profile = calibration();

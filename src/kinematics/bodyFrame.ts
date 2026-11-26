@@ -16,7 +16,7 @@ function dot(a: Point3, b: Point3): number {
 
 function normalize(vector: Point3): Point3 | undefined {
   const magnitude = Math.hypot(vector.x, vector.y, vector.z);
-  if (magnitude < EPSILON) return undefined;
+  if (!Number.isFinite(magnitude) || magnitude < EPSILON) return undefined;
   return { x: vector.x / magnitude, y: vector.y / magnitude, z: vector.z / magnitude };
 }
 
