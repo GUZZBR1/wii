@@ -6,10 +6,12 @@ import { SWING_MAX_DURATION_MS, SwingDetector, type SwingSignal } from './swingD
 import { TorsoVerticalChannel } from './torsoVertical';
 import { TrackingGate } from './trackingGate';
 
+const TORSO_LOST_GRACE_MS = 250;
+
 export class ActionPipeline {
   private readonly bodyGate = new TrackingGate();
   /** One gate and one vertical channel for the torso core: cadence and jump read the same frame's sample. */
-  private readonly torsoGate = new TrackingGate([11, 12, 23, 24]);
+  private readonly torsoGate = new TrackingGate([11, 12, 23, 24], 'image', { lostAfterMs: TORSO_LOST_GRACE_MS });
   private readonly torsoChannel = new TorsoVerticalChannel();
   private readonly laneGate = new TrackingGate([11, 12, 23, 24], 'world');
   private readonly cadence = new CadenceTracker();
@@ -33,9 +35,6 @@ export class ActionPipeline {
     const events: SportActionEvent[] = [];
     let controls: ContinuousControls = { sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'lost' };
 
-    // The torso channel is self-referencing — cadence and jump read the channel's own adaptive
-    // baseline and never consult the profile — so it runs the moment the torso gate tracks,
-    // calibration or not. Only lane lean and swings wait for the profile.
     const torsoTracking = this.torsoGate.evaluate(snapshot);
     controls = { ...controls, trackingState: torsoTracking.state };
     if (torsoTracking.state === 'tracked') {
@@ -57,26 +56,21 @@ export class ActionPipeline {
       }
     }
 
-    if (!calibration) {
-      // Without a profile the lane and swing gates produce nothing — reset them so a
-      // late-arriving profile does not inherit state built on uncalibrated frames.
-      this.laneGate.reset();
-      this.lean.reset();
-      this.swings.forEach(({ gate, detector }) => { gate.reset(); detector.reset(); });
-      this.heldSwing = undefined;
-      return { snapshot: current, events, controls, kinematicsMs: performance.now() - start };
-    }
-
     const laneTracking = this.laneGate.evaluate(snapshot);
-    if (laneTracking.state === 'tracked') {
+    const laneReady = calibration !== undefined && (calibration.readiness?.neutral01 ?? 1) >= 0.65;
+    if (!laneReady) this.lean.reset();
+    else if (laneTracking.state === 'tracked') {
       const lane = this.lean.update(current, calibration);
       if (lane) events.push({ ...this.eventBase(snapshot, laneTracking.confidence), id: this.nextId++, type: 'lane', direction: lane });
     } else if (laneTracking.state === 'lost') this.lean.reset();
 
+    const swingScaleReady = calibration !== undefined && (calibration.readiness?.scale01 ?? 1) >= 0.5;
+    if (!swingScaleReady) this.heldSwing = undefined;
     const results = this.swings.map(({ wrist, gate, detector, hand }) => {
       const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, wrist], 'world');
-      if (tracking.state === 'lost') detector.reset();
-      const output = tracking.state === 'tracked' ? detector.update(current, calibration) : undefined;
+      if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
+      else if (tracking.state === 'degraded') detector.interruptRearm();
+      const output = calibration && swingScaleReady && tracking.state === 'tracked' ? detector.update(current, calibration) : undefined;
       // The onset bypasses arbitration and the refractory on purpose: it is the real-time,
       // unconfirmed channel — the game's cue to start the stroke animation now, not proof of a hit.
       if (output?.kind === 'onset') {

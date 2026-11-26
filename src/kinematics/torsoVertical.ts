@@ -30,13 +30,10 @@ const MAX_ADAPTIVE_FREEZE_MS = 1200;
  * Shared vertical channel for the torso: image-space hip-midpoint height normalized by the
  * frame's own torso height (so camera distance drift cancels out), lightly smoothed — the
  * passband must keep 2.5–3.5 Hz running oscillation, so the usual 1 Hz One Euro would eat
- * most of the signal — with a slow adaptive baseline. MediaPipe already One-Euro-filters the
- * landmarks internally, so this second filter is redundant at rest; it stays because the
- * cadence and jump thresholds downstream were all measured on this filtered chain — cutting
- * it would shift rise and velocity well past the values those gates were tuned on. Feeding anything but
- * genuine torso motion (e.g. hallucinated leg geometry) is impossible by construction: only
- * [11,12,23,24] image landmarks are read. Frames without a confident torso core produce no
- * sample and do not advance any filter state.
+ * most of the signal — with a slow adaptive baseline. Feeding anything but genuine torso
+ * motion (e.g. hallucinated leg geometry) is impossible by construction: only [11,12,23,24]
+ * image landmarks are read. Frames without a confident torso core produce no sample and do
+ * not advance any filter state.
  */
 export class TorsoVerticalChannel {
   private readonly baselineTauMs: number;
