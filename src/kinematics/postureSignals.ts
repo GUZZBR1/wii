@@ -30,7 +30,7 @@ export class LanePositionTracker {
     // would inflate as the shoulders tilt in-plane — exactly while the player leans to dodge.
     const aspect = snapshot.frameHeight / snapshot.frameWidth;
     const width = Math.hypot(leftShoulder.x - rightShoulder.x, (leftShoulder.y - rightShoulder.y) * aspect);
-    if (width < MIN_SHOULDER_WIDTH) return undefined;
+    if (!Number.isFinite(width) || width < MIN_SHOULDER_WIDTH) return undefined;
     const centerX = (leftShoulder.x + rightShoulder.x) / 2;
     const displacement = (calibration.image.shoulderCenterX0 - centerX) / width;
     const u = this.filter.filter(displacement, snapshot.timestampMs);

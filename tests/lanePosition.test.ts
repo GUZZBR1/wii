@@ -84,6 +84,21 @@ describe('LanePositionTracker', () => {
     }
     expect([...zones]).toEqual([0]);
   });
+
+  it('treats a frame with non-finite shoulder coordinates as unreadable without poisoning the filter', () => {
+    const tracker = new LanePositionTracker();
+    const profile = calibration();
+    const base = pose(0);
+    const nanPose = { ...base, landmarks: base.landmarks.map((point, index) => (index === 11 ? { ...point, x: Number.NaN } : point)) };
+
+    for (let time = 0; time <= 99; time += 33) expect(tracker.update(pose(time), profile)).toBe(0);
+    expect(tracker.update({ ...nanPose, timestampMs: 132 }, profile)).toBeUndefined();
+    let zone = 0;
+    for (let time = 165; time <= 396; time += 33) {
+      zone = tracker.update(pose(time, { shiftUserRightSw: 0.3 }), profile) ?? zone;
+    }
+    expect(zone).toBe(1);
+  });
 });
 
 describe('aspect-corrected shoulder width', () => {

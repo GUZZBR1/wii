@@ -31,6 +31,15 @@ describe('1-Euro filter', () => {
     const moved = filter.filter(1, 200);
     expect(moved).toBeGreaterThan(outputs.at(-1)!);
   });
+
+  it('ignores a non-finite sample instead of poisoning every later output', () => {
+    const filter = new OneEuroFilter({ minCutoff: 1, beta: 0.5, derivativeCutoff: 1 });
+    expect(filter.filter(0, 0)).toBe(0);
+    expect(filter.filter(Number.NaN, 33)).toBe(0);
+    const after = filter.filter(0.5, 66);
+    expect(Number.isFinite(after)).toBe(true);
+    expect(after).toBeGreaterThan(0);
+  });
 });
 
 describe('landmark confidence', () => {
@@ -200,7 +209,6 @@ describe('swing detector', () => {
     expect(detector.update(pose(950, { wristLateral: -0.3 }), profile)).toBeUndefined();
   });
 });
-
 
 describe('action pipeline tracking gate', () => {
   it('keeps all discrete action signals quiet for a stationary jitter fixture', () => {
