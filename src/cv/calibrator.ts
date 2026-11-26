@@ -10,6 +10,9 @@ const VALID_SIGNAL_MS = 1500;
 /** Callback gaps up to this still count as continuous signal — short FPS dips on common
  * webcams (~130 ms at 15 fps per lost frame, ~400 ms at 5 fps) must not erase coverage. */
 const MAX_SIGNAL_GAP_MS = 500;
+/** A leg-derived vertical is useful only while the lower-body pose stays near its first
+ * extended stance; otherwise a changed stance must not replace the torso's neutral reference. */
+const MAX_STANCE_CHANGE_RAD = 0.2;
 
 interface CoverageSample {
   timestampMs: number;
@@ -27,6 +30,13 @@ function normalize(vector: Point3): Point3 | undefined {
   const magnitude = Math.hypot(vector.x, vector.y, vector.z);
   if (!Number.isFinite(magnitude) || magnitude < 1e-6) return undefined;
   return { x: vector.x / magnitude, y: vector.y / magnitude, z: vector.z / magnitude };
+}
+
+function hasStableStance(stance: readonly { up: Point3 }[]): boolean {
+  const reference = stance[0]?.up;
+  if (!reference) return false;
+  const minimumDot = Math.cos(MAX_STANCE_CHANGE_RAD);
+  return stance.every(({ up }) => reference.x * up.x + reference.y * up.y + reference.z * up.z >= minimumDot);
 }
 
 function coveredDurationMs(
@@ -175,7 +185,7 @@ export class Calibrator {
     if (collectedValidMs < collectionSpanMs * COVERAGE_RATIO) return null;
 
     const stanceValidMs = observedDurationMs(coverageSamples, collectionStart, last, 'stanceValid');
-    const stanceVerified = stanceValidMs >= collectionSpanMs * COVERAGE_RATIO;
+    const stanceVerified = stanceValidMs >= collectionSpanMs * COVERAGE_RATIO && hasStableStance(stance);
     const verticalSource = stanceVerified ? stance.map((sample) => sample.up) : valid.map((sample) => sample.trunkUp);
     const upMedian = normalize({
       x: median(verticalSource.map((up) => up.x)),

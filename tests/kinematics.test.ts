@@ -1106,6 +1106,24 @@ it('não reinicia o assentamento quando os tornozelos aparecem e passam a defini
   expect(Math.abs(profile!.world.leanUp0.x)).toBeLessThan(0.02);
 });
 
+it('ignora uma mudança de inclinação das pernas ao definir a vertical durante a coleta', () => {
+  const auto = new AutoCalibrator();
+  const tiltedDown = { x: 0.5, y: Math.sqrt(0.75), z: 0 };
+  const steps = Array.from({ length: 21 }, (_, index) => {
+    const time = index * 100;
+    const snapshot = index < 10
+      ? poseWithWorldTorso(time)
+      : poseWithWorldTorso(time, { down: tiltedDown, shinDown: tiltedDown });
+    return auto.update(snapshot);
+  });
+
+  const profile = steps.at(-1)?.profile;
+  expect(steps.at(-1)?.phase).toBe('done');
+  expect(profile).toBeDefined();
+  expect(profile!.world.leanUp0.x).toBeCloseTo(0, 2);
+  expect(profile!.world.leanUp0.y).toBeCloseTo(-1, 2);
+});
+
 it('não zera a calibração de corrida quando os joelhos entram e se mexem na borda do quadro', () => {
   const auto = new AutoCalibrator();
   const steps = Array.from({ length: 61 }, (_, index) => {
