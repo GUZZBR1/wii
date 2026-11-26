@@ -19,7 +19,8 @@ describe('CameraPip visibility', () => {
     );
 
     expect(markup).toContain('<aside');
-    expect(markup).toContain('hidden=""');
+    expect(markup).toContain('cam-pip is-hidden');
+    expect(markup).not.toContain('hidden=""');
     expect(markup).toContain('<video');
   });
 });
