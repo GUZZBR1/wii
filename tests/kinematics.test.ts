@@ -666,7 +666,8 @@ describe('mão da raquete', () => {
     expect(held.events.filter((event) => event.type === 'swing')).toHaveLength(0);
     // Both wrists vanish: the held swing's own basis is gone — it must be dropped, not released.
     const lost = (time: number) => withWorldConfidence(withWorldConfidence(pose(time, { wristLateral: 0.05 }), 15, 0, 0), 16, 0, 0);
-    const swings = [165, 198, 231, 264].flatMap((time) => pipeline.update(lost(time), profile).events).filter((event) => event.type === 'swing');
+    const frames = Array.from({ length: 10 }, (_, index) => 165 + index * 33);
+    const swings = frames.flatMap((time) => pipeline.update(lost(time), profile).events).filter((event) => event.type === 'swing');
     expect(swings).toHaveLength(0);
   });
 });

@@ -99,13 +99,13 @@ export class ActionPipeline {
         events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'swing-start', hand });
       }
       const swing = output?.kind === 'confirmed' ? output : undefined;
-      return { hand, lost: tracking.state === 'lost', swing };
+      return { hand, tracked: tracking.state === 'tracked', swing };
     });
-    // A held swing whose own wrist went lost is stale: discard it rather than release a
-    // "tracked" hit into a dead pose. Losing only the rival is different — it resolves the
-    // arbitration and the held swing goes out.
+    // A held swing whose own wrist is no longer tracked is stale: discard it rather than
+    // release a "tracked" hit into a dead pose. Losing only the rival is different — it
+    // resolves the arbitration and the held swing goes out.
     const held = this.heldSwing;
-    if (held && results.some((result) => result.hand === held.hand && result.lost)) this.heldSwing = undefined;
+    if (held && results.some((result) => result.hand === held.hand && !result.tracked)) this.heldSwing = undefined;
     // The strongest swing wins, not the first to confirm: confirmations inside the 400 ms
     // refractory are discarded at admission, and while a wrist still has a swing in flight
     // the rival's confirmation waits for it — bounded by the rival's own max duration.
