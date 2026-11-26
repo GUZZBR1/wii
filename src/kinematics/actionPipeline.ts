@@ -1,5 +1,6 @@
 import type { CalibrationProfile, ContinuousControls, Hand, PoseSnapshot, SportActionEvent, TrackingState } from '../cv/protocol';
 import { CadenceTracker } from './cadenceTracker';
+import { upsideDown } from './framing';
 import { JumpDetector } from './jumpDetector';
 import { LanePositionTracker } from './postureSignals';
 import { SWING_MAX_DURATION_MS, SwingDetector, type SwingSignal } from './swingDetector';
@@ -45,6 +46,8 @@ export class ActionPipeline {
 
   update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number } {
     const start = performance.now();
+    // An impossible skeleton is a frame without a player, so every gate treats it as a blackout.
+    if (upsideDown(snapshot)) snapshot = { ...snapshot, landmarks: [], worldLandmarks: [] };
     const body = this.bodyGate.evaluate(snapshot);
     const current = { ...snapshot, trackingState: body.state, bodyConfidence: body.confidence };
     const events: SportActionEvent[] = [];

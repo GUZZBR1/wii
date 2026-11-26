@@ -6,6 +6,7 @@ import { observeEarlyRejection } from './cv/observeEarlyRejection';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { downloadRecording, PoseRecorder } from './cv/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
+import { headOutOfFrame } from './kinematics/framing';
 import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
 import { HandCursorDetector } from './kinematics/handCursor';
 import { ProceduralAudio } from './games/audio';
@@ -80,6 +81,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   /** Diagnostic recording: owned here, fed by onPose, ended by the script, G or the camera stopping. */
   const recorderRef = useRef<PoseRecorder | undefined>(undefined);
   const [recordingPrompt, setRecordingPrompt] = useState<string>();
+  const [headCut, setHeadCut] = useState(false);
 
   useEffect(() => {
     audioRef.current.setMuted(muted);
@@ -117,6 +119,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     cameraAttemptRef.current += 1;
     recorderRef.current = undefined;
     setRecordingPrompt(undefined);
+    setHeadCut(false);
     poseClientRef.current?.pauseCapture();
     handClientRef.current?.pauseCapture();
     streamRef.current?.getTracks().forEach((track) => { track.stop(); });
@@ -185,6 +188,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
         if (current) setRecordingPrompt(`${current.segment.prompt} · ${Math.ceil(current.remainingMs / 1000)}`);
         else finishRecording();
       }
+      setHeadCut(headOutOfFrame(raw));
       // Implicit calibration: every observed frame is evidence. The current profile is a
       // continuously improving estimate, never a mode the player has to enter or watch.
       profileRef.current = calibratorRef.current.update(raw, pipelineRef.current.laneZone) ?? profileRef.current;
@@ -407,6 +411,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     {screen === 'title' && <TitleMenu onStart={() => setScreen('games')} onBack={() => setScreen('home')} />}
     {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} onBack={() => setScreen('title')} />}
 
+    {screen === 'play' && headCut && <div className="framing-hint" role="alert">Sua cabeça saiu do quadro · incline a câmera para cima ou afaste-se</div>}
     {recordingPrompt && <div className="recording-prompt" role="status">● {recordingPrompt}</div>}
 
     {screen === 'play' && <div className="hud-dock">
