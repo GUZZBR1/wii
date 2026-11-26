@@ -740,6 +740,30 @@ describe('action pipeline (upper-body only)', () => {
     expect(events.filter((event) => event.type === 'jump' && event.timestampMs < 3000)).toHaveLength(0);
   });
 
+  it('restarts swing re-arm continuity across an explicitly degraded wrist frame', () => {
+    const pipeline = new ActionPipeline();
+    const profile = { ...calibration(), world: { ...calibration().world, readyWristLocal: undefined } };
+    const events: import('../src/cv/protocol').SportActionEvent[] = [];
+    const feed = (time: number, lateral = 0, degraded = false) => {
+      const base = pose(time, { wristLateral: lateral });
+      const frame = degraded ? withWorldConfidence(base, 16, 0, 0) : base;
+      events.push(...pipeline.update(frame, profile).events);
+    };
+
+    [0, 33, 66].forEach((time) => { feed(time); });
+    feed(99, -0.3);
+    feed(132, 0.2);
+    for (let time = 165; time <= 599; time += 33) feed(time);
+    feed(998, 0, true);
+    for (let time = 1031; time <= 1331; time += 33) feed(time);
+    feed(1364, -0.3);
+    expect(events.filter((event) => event.type === 'swing-start' && event.timestampMs === 1364)).toHaveLength(0);
+
+    for (let time = 1397; time <= 2200; time += 33) feed(time);
+    feed(2233, -0.3);
+    expect(events.some((event) => event.type === 'swing-start' && event.timestampMs === 2233)).toBe(true);
+  });
+
   it('keeps swings available without readyWristLocal; lanes, cadence and jump still work', () => {
     const pipeline = new ActionPipeline();
     const noWristProfile = {

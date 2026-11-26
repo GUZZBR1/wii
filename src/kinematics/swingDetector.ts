@@ -187,6 +187,9 @@ export class SwingDetector {
     return undefined;
   }
 
+  /** Explicitly rejected/degraded samples break re-arm continuity even when no valid sample reaches this detector. */
+  interruptRearm(): void { this.readySince = undefined; this.lowSpeedSince = undefined; }
+
   /** A swing in flight that has not confirmed yet: the arbiter may hold a rival's confirmation for it. */
   hasPending(): boolean { return this.pendingSwing !== undefined; }
 
