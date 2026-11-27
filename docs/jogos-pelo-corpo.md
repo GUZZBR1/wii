@@ -91,16 +91,17 @@ Neste estado:
 
 ### Detector de raquetada (`src/kinematics/swingDetector.ts`)
 
-Um golpe é o pulso **percorrer muito, de lado, em pouco tempo**: pelo menos 1,7 largura de ombro em
-200 ms, medido na imagem em relação ao meio dos ombros. A largura usada como régua só diminui devagar,
-porque o tronco girando faz os ombros "encolherem". A volta do braço no sentido contrário é ignorada
-por 0,7 s.
+Um golpe é o pulso **percorrer muito em pouco tempo**: 1,9 largura de ombro em 270 ms, de lado ou de
+lado e subindo (pelo menos 0,8 de lado), medido na imagem em relação ao meio dos ombros. A largura usada
+como régua só diminui devagar, porque o tronco girando faz os ombros "encolherem". Descer o braço não
+conta, e a volta no sentido contrário é ignorada por 0,8 s.
 
-Na primeira gravação real, o detector anterior (eixos presos aos ombros e espera por uma pose de
-repouso) não reconheceu **nenhum dos 3 forehands** do roteiro. O atual lê os 12 golpes rápidos visíveis
-no traçado do pulso, cada um para o lado certo, e nada na volta do braço nem com o pulso fora do quadro;
-qualquer limite de 1,6 a 2,0 dá o mesmo resultado. **É uma gravação de uma pessoa**, e quem bate com
-suavidade pode não ser reconhecido.
+Medido em duas gravações de uma pessoa:
+- **golpes exagerados:** os 12 visíveis são lidos, mais uma leitura com o pulso saindo do quadro;
+- **golpes compactos, jogando:** 5 de 8 visíveis (um dos perdidos vem antes de a calibração ficar pronta).
+  A regra anterior não lia nenhum.
+
+Quem bate mais curto ou devagar ainda pode não ser reconhecido.
 
 ## 5. Peças compartilhadas
 

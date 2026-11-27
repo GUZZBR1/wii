@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { createSkyDome } from '../track/scenery';
 import { BASELINE_Z, COURT_HALF_WIDTH, LINE_WIDTH, NET_HALF_WIDTH, NET_HEIGHT, SERVICE_LINE_Z } from './court';
 
@@ -141,6 +142,30 @@ function addTrees(scene: THREE.Scene): void {
   }
 }
 
+/** The scenery never moves: one mesh per material keeps draw calls from competing with the camera. */
+function mergeStatic(scene: THREE.Scene): void {
+  const byMaterial = new Map<THREE.Material, THREE.Mesh[]>();
+  for (const child of scene.children) {
+    if (!(child instanceof THREE.Mesh) || child instanceof THREE.InstancedMesh || Array.isArray(child.material)) continue;
+    byMaterial.set(child.material, [...(byMaterial.get(child.material) ?? []), child]);
+  }
+  for (const [material, meshes] of byMaterial) {
+    if (meshes.length < 2) continue;
+    const parts = meshes.map((mesh) => {
+      mesh.updateMatrix();
+      return mesh.geometry.clone().applyMatrix4(mesh.matrix);
+    });
+    const merged = mergeGeometries(parts);
+    for (const part of parts) part.dispose();
+    if (!merged) continue;
+    for (const mesh of meshes) {
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+    }
+    scene.add(new THREE.Mesh(merged, material));
+  }
+}
+
 export function buildTennisStadium(scene: THREE.Scene): void {
   const sky = createSkyDome();
   scene.add(sky.mesh);
@@ -153,4 +178,5 @@ export function buildTennisStadium(scene: THREE.Scene): void {
   addWalls(scene);
   addStands(scene);
   addTrees(scene);
+  mergeStatic(scene);
 }

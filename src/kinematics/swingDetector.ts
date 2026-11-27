@@ -25,15 +25,17 @@ export type SwingOutput =
   | ({ kind: 'confirmed' } & SwingSignal);
 
 /*
- * A stroke is the wrist travelling far sideways in very little time. Measured in the image against
- * the shoulder midpoint, in shoulder widths. On the first real tennis recording (one player) the
- * strokes covered more than 2 widths inside the window, while returning the arm, preparing slowly
- * and taking the wrist out of frame stayed under 1.6; any threshold from 1.6 to 2.0 read the same.
+ * A stroke is the wrist travelling far in very little time, mostly sideways or sideways and up.
+ * Measured in the image against the shoulder midpoint, in shoulder widths. Two recordings of one
+ * player: exaggerated arm sweeps, and the compact low-to-chest stroke used while actually playing,
+ * which covers too little sideways distance to count without its rise. Downward motion does not
+ * count: that is the arm settling back.
  */
-const STROKE_TRAVEL = 1.7;
-const STROKE_WINDOW_MS = 200;
+const STROKE_TRAVEL = 1.9;
+const MIN_SIDEWAYS_TRAVEL = 0.8;
+const STROKE_WINDOW_MS = 270;
 /** After a stroke, the arm coming back the other way is not a second stroke. */
-const RETURN_IGNORE_MS = 700;
+const RETURN_IGNORE_MS = 800;
 const REFRACTORY_MS = 400;
 /** Twisting the trunk collapses the apparent shoulder width, so the ruler only shrinks slowly. */
 const RULER_HALF_LIFE_MS = 3000;
@@ -115,8 +117,17 @@ export class SwingDetector {
       };
     }
 
-    const travel = this.samples.reduce((most, kept) => (Math.abs(sample.x - kept.x) > Math.abs(most) ? sample.x - kept.x : most), 0);
-    if (Math.abs(travel) < STROKE_TRAVEL) return undefined;
+    let travel = 0;
+    let reach = 0;
+    for (const kept of this.samples) {
+      const sideways = sample.x - kept.x;
+      const distance = Math.hypot(sideways, Math.max(0, sample.y - kept.y));
+      if (Math.abs(sideways) >= MIN_SIDEWAYS_TRAVEL && distance > reach) {
+        reach = distance;
+        travel = sideways;
+      }
+    }
+    if (reach < STROKE_TRAVEL) return undefined;
     const direction = Math.sign(travel) as -1 | 1;
     if (this.last) {
       const since = time - this.last.time;

@@ -35,16 +35,30 @@ describe('swing detector', () => {
   });
 
   it('reads two strokes with a slow return between them', () => {
-    const outputs = run([...rest(0.5), ...ramp(0.5, -0.5, 5), ...ramp(-0.5, 0.5, 30), ...ramp(0.5, -0.5, 5), ...rest(-0.5)]);
+    const outputs = run([...rest(0.5), ...ramp(0.5, -0.5, 5), ...ramp(-0.5, 0.5, 70), ...ramp(0.5, -0.5, 5), ...rest(-0.5)]);
     expect(strokes(outputs).map((s) => s.side)).toEqual(['forehand', 'forehand']);
   });
 
   it('stays quiet for slow preparation, short flicks and vertical motion', () => {
-    expect(strokes(run([...rest(0.5), ...ramp(0.5, -0.5, 30)]))).toHaveLength(0);
+    expect(strokes(run([...rest(0.5), ...ramp(0.5, -0.5, 90)]))).toHaveLength(0);
     expect(strokes(run([...rest(0.08), ...ramp(0.08, -0.08, 3), ...rest(-0.08)]))).toHaveLength(0);
     const detector = new SwingDetector('right');
     const vertical = Array.from({ length: 12 }, (_, i) => detector.update(pose(i * 33, { wristVertical: i % 2 })));
     expect(vertical.filter(Boolean)).toHaveLength(0);
+  });
+
+  it('counts a compact stroke that rises, but not the same sideways distance alone or falling', () => {
+    // 1.5 shoulder widths sideways; the rise adds 1.5 more.
+    const stroke = (rise: number) => {
+      const detector = new SwingDetector('right');
+      return strokes(Array.from({ length: 20 }, (_, i) => {
+        const t = Math.min(1, Math.max(0, (i - 7) / 6));
+        return detector.update(pose(i * 33, { wristLateral: 0.1 - 0.21 * t, wristVertical: rise * t }));
+      })).length;
+    };
+    expect(stroke(0.6)).toBe(1);
+    expect(stroke(0)).toBe(0);
+    expect(stroke(-0.6)).toBe(0);
   });
 
   it('does not read a jump across a tracking hole as a stroke', () => {

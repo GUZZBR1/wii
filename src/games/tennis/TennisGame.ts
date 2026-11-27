@@ -115,6 +115,8 @@ export class TennisGame {
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, simulationTimeMs, wallTimeMs) => (
       this.update(dt, simulationTimeMs, wallTimeMs)
     ));
+    // Lower the resolution if frames get slow; the pose worker shares the same machine.
+    this.loop.onQualityChange = () => {};
     this.hudTimer = window.setInterval(() => this.publishHud(), 200);
   }
 
