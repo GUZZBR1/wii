@@ -7,7 +7,7 @@ import type { GameHudState as TrackHudState } from '../games/track/TrackGame';
 type GameHudState = Omit<TrackHudState, 'feedback'> & { feedback?: TrackHudState['feedback'] | CoreHudState['feedback']; finished?: { title: string; detail: string }; framing?: boolean };
 
 const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }> = {
-  sprint: { score: 'DISTÂNCIA', speed: 'INTENSIDADE', controls: 'espaço várias vezes para correr' },
+  sprint: { score: 'DISTÂNCIA', speed: 'INTENSIDADE', controls: 'corra no lugar, mexendo os braços' },
   track: { score: 'SCORE', speed: 'RITMO', controls: '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' },
   tennis: { score: 'PONTOS', speed: 'MIRA', controls: 'espaço bater  ·  timing define a direção' },
 };

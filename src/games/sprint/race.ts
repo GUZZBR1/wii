@@ -23,10 +23,6 @@ export const TOP_SPEED = 8;
 /** How fast the speed catches up: quicker to build than to lose, so a missed stride costs little. */
 const GAIN_TAU_S = 0.5;
 const LOSS_TAU_S = 1.4;
-/** A keyboard tap adds this much effort, which fades; tapping fast keeps it high. */
-const TAP_EFFORT = 0.22;
-const TAP_FADE_PER_S = 0.9;
-
 export interface Rival { name: string; pace: number; distance: number; finishS?: number }
 export type Phase = 'framing' | 'warmup' | 'countdown' | 'racing' | 'finished';
 
@@ -49,7 +45,6 @@ export class Race {
   finishS?: number;
   readonly rivals: Rival[] = RIVALS.map((rival) => ({ ...rival, distance: 0 }));
   private effort = 0;
-  private taps = 0;
 
   /** The camera's latest reading, 0–1. */
   setEffort(effort01: number): void {
@@ -59,15 +54,8 @@ export class Race {
   /** Undefined means the picture is good. */
   setFraming(advice: string | undefined): void { this.advice = advice; }
 
-  tap(): void {
-    // A keyboard player has nothing to frame or warm up.
-    if (this.phase === 'framing' || this.phase === 'warmup') { this.phase = 'countdown'; return; }
-    if (this.phase === 'racing') this.taps = Math.min(1, this.taps + TAP_EFFORT);
-  }
-
   get effort01(): number {
-    const camera = this.effort < REST_EFFORT ? 0 : Math.min(1, this.effort / this.reference);
-    return Math.max(camera, this.taps);
+    return this.effort < REST_EFFORT ? 0 : Math.min(1, this.effort / this.reference);
   }
 
   step(dt: number): void {
@@ -95,7 +83,6 @@ export class Race {
       return;
     }
     this.elapsedS += dt;
-    this.taps = Math.max(0, this.taps - TAP_FADE_PER_S * dt);
     for (const rival of this.rivals) {
       // A short acceleration off the blocks, then a steady pace.
       rival.distance += rival.pace * Math.min(1, this.elapsedS / 1.2) * dt;

@@ -68,12 +68,6 @@ describe('100 m race', () => {
     expect(race.effort01).toBeLessThan(0.4);
   });
 
-  it('lets a keyboard player skip straight to the countdown', () => {
-    const race = new Race();
-    race.tap();
-    expect(race.phase).toBe('countdown');
-  });
-
   it('never moves a player who does nothing', () => {
     expect(finish(0).distance).toBe(0);
   });
@@ -96,11 +90,4 @@ describe('100 m race', () => {
     expect(race.speed).toBeGreaterThan(speed * 0.7);
   });
 
-  it('can be run on the keyboard by tapping', () => {
-    const race = started();
-    let frame = 0;
-    run(race, 6, () => { if (frame++ % 12 === 0) race.tap(); });
-    expect(race.distance).toBeGreaterThan(20);
-    expect(race.effort01).toBeLessThanOrEqual(1);
-  });
 });

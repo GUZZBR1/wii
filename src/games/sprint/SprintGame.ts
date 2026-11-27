@@ -135,9 +135,8 @@ export class SprintGame {
     if (this.race.advice !== null) this.race.setFraming(NO_BODY_ADVICE);
   }
 
-  onKey(key: string): void {
-    if ([' ', 'arrowup', 'w'].includes(key.toLowerCase())) this.race.tap();
-  }
+  /** The 100 m is played with the body only. */
+  onKey(): void {}
 
   private update(dt: number): void {
     const before = this.race.distance;
@@ -165,7 +164,7 @@ export class SprintGame {
     const banner = race.phase === 'framing'
       ? race.advice === undefined
         ? { title: 'Ótimo!', detail: 'Fique aí' }
-        : { title: 'Ajuste a câmera', detail: race.advice ?? 'Ligue a câmera, ou aperte espaço para jogar no teclado' }
+        : { title: 'Ajuste a câmera', detail: race.advice ?? 'Ligue a câmera para correr' }
       : race.phase === 'warmup'
       ? { title: 'CORRA COM TUDO!', detail: `Aquecimento: estou aprendendo o seu máximo · ${Math.ceil(race.warmupLeft)}` }
       : race.phase === 'countdown' ? { title: String(Math.ceil(race.countdown)), detail: 'Pare. Corra quando zerar' } : undefined;
@@ -176,7 +175,7 @@ export class SprintGame {
       score: metres,
       label: `${metres} m`,
       speed01: Math.round(race.effort01 * 100) / 100,
-      status: race.phase === 'racing' ? `${race.place}º lugar · ${race.elapsedS.toFixed(1)} s` : race.phase === 'finished' ? 'Chegada!' : 'Corra no lugar com a câmera, ou aperte espaço várias vezes',
+      status: race.phase === 'racing' ? `${race.place}º lugar · ${race.elapsedS.toFixed(1)} s` : race.phase === 'finished' ? 'Chegada!' : 'Corra no lugar, mexendo os braços',
       banner,
       finished,
       framing: race.phase === 'framing' || race.phase === 'warmup',

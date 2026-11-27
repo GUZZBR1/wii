@@ -59,7 +59,7 @@ No Vercel, use a raiz do repositório como Root Directory, `npm run build` como 
 
 | Ação | Webcam | Teclado |
 | --- | --- | --- |
-| 100 metros | Corra no lugar bombeando os braços | Espaço várias vezes |
+| 100 metros | Corra no lugar bombeando os braços | Não há: só com o corpo |
 | Correr (obstáculos) | Ande ou corra no lugar | Seta para baixo alterna andar / correr / parar |
 | Pular | Salto vertical | Espaço ou seta para cima |
 | Trocar de raia | Incline o tronco ou dê um passo ao lado | Setas esquerda/direita |

@@ -29,7 +29,8 @@ Fases:
    não houver movimento, usa uma referência padrão.
 3. **Contagem** de 3 s.
 4. **Prova** contra três adversários de ritmo fixo. A velocidade segue a intensidade com embalo
-   (ganha em 0,5 s, perde em 1,4 s). Espaço repetido joga sem câmera.
+   (ganha em 0,5 s, perde em 1,4 s). **Só se joga com o corpo**: a prova não tem teclado, então o tracking
+   precisa funcionar para quem chega; não há saída alternativa.
 
 ### Medidor de intensidade
 
