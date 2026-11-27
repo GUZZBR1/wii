@@ -30,6 +30,7 @@
   .ring-arrow.left { left: 3%; }
   .ring-arrow.right { right: 3%; }
   .ring-arrow:hover { box-shadow: 0 0 0 5px #34beed55, 0 5px 14px rgba(26, 110, 168, .35); }
+  .channel-ring.is-gesture-controlled .channel { transition: none; }
 
   .wii-bar { position: relative; flex: 0 0 clamp(130px, 25vh, 210px); text-align: center; }
   .wii-bar svg { position: absolute; inset: 0; width: 100%; height: 100%; }
@@ -62,6 +63,7 @@
   .game-card.is-front:hover, .game-card.is-front:focus-visible { box-shadow: 0 14px 34px #0b4a6e99, 0 0 0 8px #ffffffcc; }
   .game-card.tennis .scene { background: linear-gradient(90deg, #0000 49.6%, #fff 49.6% 50.4%, #0000 50.4%) 50% 100% / 100% 40% no-repeat, linear-gradient(#0000 68%, #fff 68% 70%, #0000 70%), linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #3f8f4b 42% 48%, #3f78b5 48%); }
   .game-card.athletics .scene { background: linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #4e9e52 42% 52%, #0000 52%), repeating-linear-gradient(#c8603f 0 13%, #fff 13% 14%); }
+  .game-card.boxing .scene { background: radial-gradient(circle at 38% 58%, #d64545 0 9%, #0000 9.5%), radial-gradient(circle at 62% 58%, #2f6fd0 0 9%, #0000 9.5%), repeating-linear-gradient(#0000 0 8%, #fff 8% 9.5%, #0000 9.5% 14%) 50% 70% / 100% 40% no-repeat, linear-gradient(#26313b 0 52%, #d9c9a3 52%); }
   .games-goal-panel { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 24px; padding: 24px; }
   .games-goal-panel h2 { margin: 0; color: #fff; font-size: clamp(24px, 4vw, 38px); text-align: center; text-shadow: 0 2px 8px #0b4a6e99; }
   .games-goals { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; }
@@ -72,6 +74,7 @@
   .game-card { animation: game-drop 1.15s both; }
   .game-card:nth-of-type(1) { animation-delay: .12s; }
   .game-card:nth-of-type(2) { animation-delay: .26s; }
+  .game-card:nth-of-type(3) { animation-delay: .4s; }
   .games-footer, .games-ring .ring-arrow { animation: games-fade .5s ease-out 1s both; }
   .games-footer { width: 100%; display: grid; grid-template-columns: 1fr 3fr 1fr; align-items: center; gap: 12px; padding: 0 4vw 24px; }
   .games-hint { grid-column: 2; margin: 0; text-align: center; color: #fff; font-size: 18px; font-weight: 700; text-shadow: 0 1px 3px #0b4a6e99; }
@@ -93,11 +96,25 @@
   .game-speed strong { color: var(--blue-deep); font-size: 22px; }
   .game-ready, .game-controls { position: absolute; z-index: 3; border-radius: 999px; background: #ffffffe0; box-shadow: var(--shadow); font-size: 12px; font-weight: 700; }
   .game-ready { top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 10px 18px; white-space: nowrap; }
+  /* In boxing the middle of the screen is the opponent. */
+  .boxing-hud ~ .game-ready { top: auto; bottom: 56px; transform: translateX(-50%); }
   .game-ready i { width: 9px; height: 9px; background: var(--orange); border-radius: 50%; margin-right: 8px; display: inline-block; }
   .game-ready i.ready { background: var(--green); }
   .game-controls { left: 15px; bottom: 12px; max-width: calc(100vw - 260px); padding: 6px 14px; }
 
   /* corrida: combo, contagem/pausa e feedback */
+  .boxing-hud { position: absolute; left: 18px; right: 18px; top: 15px; display: flex; align-items: flex-start; gap: 12px; pointer-events: none; z-index: 3; }
+  .boxing-card { padding: 6px 14px; border: 3px solid var(--blue); border-radius: 18px; background: var(--gloss); box-shadow: var(--shadow); }
+  .boxing-fighter { flex: 1; min-width: 0; }
+  .boxing-name { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 4px; }
+  .boxing-label { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 1px; }
+  .boxing-value { font-size: 22px; }
+  .boxing-bar { display: flex; height: 12px; overflow: hidden; border-radius: 999px; background: #0b4a6e33; }
+  .boxing-fill { background: #d64545; transition: width .2s; }
+  .boxing-clock { display: flex; flex-direction: column; align-items: center; white-space: nowrap; }
+  .opponent .boxing-name { flex-direction: row-reverse; }
+  .opponent .boxing-bar { justify-content: flex-end; }
+  .opponent .boxing-fill { background: #2f6fd0; }
   .game-hud em { color: #23823f; font-style: normal; font-weight: 800; font-size: 14px; }
   .game-banner { position: absolute; left: 0; right: 0; top: 22%; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 16px; color: #fff; text-align: center; text-shadow: 0 3px 10px #000c; pointer-events: none; z-index: 4; }
   .game-banner strong { font-size: 68px; font-weight: 800; }
@@ -153,6 +170,10 @@
   .game-over.finish h2 { color: var(--blue); }
   .game-goals { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; margin: 0; padding: 0; border: 0; z-index: 9; }
   .game-goals button[aria-pressed='true'] { background: var(--blue); color: #fff; }
+  .boxing-setup { flex-direction: column; align-items: center; gap: 8px; }
+  .boxing-select-row { display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .boxing-select-row > span { padding: 0 4px; color: #fff; font-size: 11px; font-weight: 800; letter-spacing: 1px; text-shadow: 0 2px 8px #000c; }
+  .boxing-training-card { flex: 1; display: flex; flex-direction: column; align-items: center; white-space: nowrap; }
   .game-over h3 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
   .game-over p { margin: 0; }
   .game-over ol { margin: 0 0 14px; padding: 0; list-style: none; }
@@ -181,9 +202,20 @@
   .hand-cursor.synced .track { stroke: var(--green); stroke-width: 3; }
   .hand-icon { position: absolute; left: -17.5px; top: -1.25px; width: 40px; height: 50px; fill: #fff; stroke: var(--blue-deep); stroke-width: 2.5; stroke-linejoin: round; filter: drop-shadow(0 3px 4px #4a606e66); }
   .hand-cursor.pinching .hand-icon { fill: #c9f1fb; }
+  .hand-cursor.rotating .hand-body { opacity: .58; scale: .82; transition-duration: .12s; }
+  .hand-cursor.rotation-candidate .hand-ring .track { stroke: var(--orange); }
+  .hand-cursor.rotating .hand-ring .fill, .hand-cursor.braking .hand-ring .fill { opacity: 1; stroke: var(--orange); stroke-dasharray: 10 12; animation: hand-orbit 1s linear infinite; }
+  .hand-cursor.braking .hand-icon { fill: #ffe4c2; }
+  .hand-rotation-badge { left: -38px; top: 32px; background: var(--blue-deep); font-size: 15px; }
+  .hand-cursor.braking .hand-rotation-badge { background: var(--orange); }
   .hand-pulse { position: absolute; left: -18px; top: -18px; width: 36px; height: 36px; border: 3px solid var(--blue-deep); border-radius: 999px; animation: hand-pulse .8s ease-out infinite; }
   .hand-badge { position: absolute; left: 18px; top: 34px; width: 24px; height: 24px; display: grid; place-items: center; border-radius: 999px; background: var(--orange); color: #fff; font-size: 14px; font-weight: 800; }
   .hand-flash { position: absolute; left: -24px; top: -24px; width: 48px; height: 48px; border: 4px solid var(--blue); border-radius: 999px; background: #34beed55; animation: hand-flash .4s ease-out forwards; }
+  .hand-debug { position: absolute; left: 12px; bottom: 12px; z-index: 130; width: min(360px, calc(100vw - 24px)); max-height: 48vh; overflow: auto; padding: 10px 12px; border: 2px solid var(--blue-deep); border-radius: 12px; background: #fffffff0; box-shadow: var(--shadow); font-size: 11px; line-height: 1.35; pointer-events: none; }
+  .hand-debug strong { display: block; margin-bottom: 5px; color: var(--blue-deep); text-transform: uppercase; letter-spacing: .8px; }
+  .hand-debug dl { display: grid; grid-template-columns: 105px 1fr; gap: 2px 8px; margin: 0; }
+  .hand-debug dt { color: var(--muted); font-weight: 700; }
+  .hand-debug dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
   /* pip da câmera */
   .cam-pip { position: absolute; right: 14px; bottom: 14px; width: 230px; z-index: 10; overflow: hidden; border: 3px solid var(--blue); border-radius: 18px; background: var(--gloss); box-shadow: 0 10px 28px #2a4a5c66; }
@@ -255,10 +287,11 @@
   .wii-half.left { clip-path: inset(0 50% 0 0); --open: -50%; }
   .wii-half.right { clip-path: inset(0 0 0 50%); --open: 50%; }
   .wii-half span { color: transparent; background: linear-gradient(#34beed 25%, #1a8fc4 75%); -webkit-background-clip: text; background-clip: text; font: 700 clamp(90px, 22vw, 260px)/1 Arial, sans-serif; letter-spacing: -.04em; animation: wii-come .6s cubic-bezier(.2, .9, .3, 1.15) .5s backwards, wii-near .6s ease-in 1.5s forwards; }
-  @media (prefers-reduced-motion: reduce) { .menu { animation: none; } .wii-btn, .channel { transition: none; } .hand-body { transition: none; } .hand-cursor.searching .track, .hand-cursor.syncing .track, .hand-pulse { animation: none; } .hand-flash { animation-name: hand-flash-still; } }
+  @media (prefers-reduced-motion: reduce) { .menu { animation: none; } .wii-btn, .channel { transition: none; } .hand-body { transition: none; } .hand-cursor.searching .track, .hand-cursor.syncing .track, .hand-pulse, .hand-cursor.rotating .hand-ring .fill, .hand-cursor.braking .hand-ring .fill { animation: none; } .hand-flash { animation-name: hand-flash-still; } }
 }
 @keyframes menu-in { from { opacity: 0; transform: scale(.97); } }
 @keyframes hand-blink-ring { 50% { opacity: .3; } }
+@keyframes hand-orbit { to { stroke-dashoffset: -22; } }
 @keyframes hand-pulse { from { opacity: .9; transform: scale(.5); } to { opacity: 0; transform: scale(1.25); } }
 @keyframes hand-flash { from { opacity: 1; scale: .4; } to { opacity: 0; scale: 1.5; } }
 @keyframes hand-flash-still { 0%, 60% { opacity: 1; } 100% { opacity: 0; } }

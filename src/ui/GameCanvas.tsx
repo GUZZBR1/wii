@@ -3,6 +3,9 @@ import type { Hand, SportActionEvent } from '../cv/protocol';
 import type { AthleticsHudState } from '../games/athletics/AthleticsGame';
 import type { Goal } from '../games/athletics/race';
 import type { ProceduralAudio } from '../games/audio';
+import type { BoxingScoreboard } from '../games/boxing/BoxingGame';
+import { BOXING_MODES, type BoxingMode } from '../games/boxing/boxingModes';
+import { DEFAULT_OPPONENT_PROFILE_ID, OPPONENT_PROFILES, type OpponentProfileId } from '../games/boxing/opponentProfiles';
 import type { ArmMotion } from '../kinematics/armMotion';
 import type { SwingTracking } from '../kinematics/actionPipeline';
 import { type GestureSample, RestartGesture } from '../games/core/restartGesture';
@@ -16,16 +19,22 @@ type GameHudState = Omit<TrackHudState, 'feedback'> & {
   framing?: boolean;
   energy?: AthleticsHudState['energy'];
   runners?: AthleticsHudState['runners'];
+  boxing?: BoxingScoreboard;
 };
 import { forwardKeyDown } from './keys';
 
-export type Sport = 'track' | 'athletics' | 'tennis';
+export type Sport = 'track' | 'athletics' | 'tennis' | 'boxing';
 const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }> = {
   track: { score: 'SCORE', speed: 'RITMO', controls: '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' },
   athletics: { score: 'TEMPO', speed: 'INTENSIDADE', controls: 'corra no lugar, mexendo os braços' },
   tennis: { score: 'PONTOS', speed: 'MIRA', controls: 'raquetada no tempo da bola: cedo cruza, tarde vai reto' },
+  boxing: { score: 'HP', speed: 'RITMO', controls: 'W A S D mover  ·  E socar  ·  segure Q para defender  ·  ← → esquivar' },
 };
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setSwingTracking?(tracking: SwingTracking): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; dispose(): void }
+const BOXING_TRAINING_CONTROLS = {
+  bag: 'E ou socos no ritmo  ·  W A S D mover',
+  dodge: '← → esquivar  ·  A / D circular para sair da linha  ·  W / S ajustar distância',
+} as const;
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setSwingTracking?(tracking: SwingTracking): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; setDodgeZone?(zone: -1 | 0 | 1 | undefined): void; setGuard?(guard: boolean | undefined): void; setDepthMove?(move: -1 | 0 | 1 | undefined): void; setDepthSpeed?(speed: number | undefined): void; setLateralDash?(dash: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
 
 interface Props {
   sport: Sport;
@@ -48,10 +57,16 @@ export function GameCanvas(props: Props) {
   const [run, setRun] = useState(0);
   const racketHandRef = useRef<Hand>('right');
   const rememberRacketHand = useCallback((hand: Hand) => { racketHandRef.current = hand; }, []);
+  const [boxingMode, setBoxingMode] = useState<BoxingMode>('fight');
+  const [boxingOpponent, setBoxingOpponent] = useState<OpponentProfileId>(DEFAULT_OPPONENT_PROFILE_ID);
   // The warm-up opens the first match only; playing again goes straight to the court.
   return <GameRun
-    key={run}
+    key={`${run}-${boxingMode}-${boxingOpponent}`}
     {...props}
+    boxingMode={boxingMode}
+    onBoxingMode={setBoxingMode}
+    boxingOpponent={boxingOpponent}
+    onBoxingOpponent={setBoxingOpponent}
     tutorial={run === 0}
     initialRacketHand={racketHandRef.current}
     onRacketHand={rememberRacketHand}
@@ -59,7 +74,14 @@ export function GameCanvas(props: Props) {
   />;
 }
 
-function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, initialRacketHand, onRacketHand, tutorial, onRestart }: Props & { onRestart: () => void; tutorial: boolean }) {
+function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, initialRacketHand, onRacketHand, tutorial, onRestart, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent }: Props & {
+  onRestart: () => void;
+  tutorial: boolean;
+  boxingMode: BoxingMode;
+  onBoxingMode: (mode: BoxingMode) => void;
+  boxingOpponent: OpponentProfileId;
+  onBoxingOpponent: (opponent: OpponentProfileId) => void;
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hud, setHud] = useState<GameHudState>({ score: 0, label: '00000', speed01: 0, status: 'Pronto para jogar' });
   const hudRef = useRef(setHud);
@@ -119,7 +141,12 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
       void audio?.unlock();
       game?.onKey(event.key);
     };
+    const keyup = (event: KeyboardEvent) => game?.onKeyUp?.(event.key);
+    // A key released while the window is unfocused never reports it.
+    const blur = () => { for (const key of ['ArrowDown', 'q', 'w', 'a', 's', 'd']) game?.onKeyUp?.(key); };
     window.addEventListener('keydown', keydown);
+    window.addEventListener('keyup', keyup);
+    window.addEventListener('blur', blur);
     const mount = async () => {
       try {
         const canvas = canvasRef.current;
@@ -129,12 +156,18 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
           ? new (await import('../games/track/TrackGame')).TrackGame(canvas, updateHud)
           : sport === 'athletics'
             ? new (await import('../games/athletics/AthleticsGame')).AthleticsGame(canvas, updateHud, audio, goal)
-            : new (await import('../games/tennis/TennisGame')).TennisGame(canvas, updateHud, audio, {
-              tutorial: tutorialRef.current,
-              initialRacketHand: racketHandRef.current,
-              onRacketHand: (hand) => racketHandCallbackRef.current?.(hand),
-              onStrokeTravel: (travel) => travelRef.current?.(travel),
-            });
+            : sport === 'tennis'
+              ? new (await import('../games/tennis/TennisGame')).TennisGame(canvas, updateHud, audio, {
+                tutorial: tutorialRef.current,
+                initialRacketHand: racketHandRef.current,
+                onRacketHand: (hand) => racketHandCallbackRef.current?.(hand),
+                onStrokeTravel: (travel) => travelRef.current?.(travel),
+              })
+              : new (await import('../games/boxing/BoxingGame')).BoxingGame(canvas, updateHud, audio, undefined, {
+                mode: boxingMode,
+                opponent: boxingOpponent,
+                motionRng: Math.random,
+              });
         if (disposed) { engine.dispose(); return; }
         game = engine;
         engineRef.current = engine;
@@ -148,11 +181,15 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
     return () => {
       disposed = true;
       window.removeEventListener('keydown', keydown);
+      window.removeEventListener('keyup', keyup);
+      window.removeEventListener('blur', blur);
       game?.dispose();
       engineRef.current = null;
       onEngine(null);
     };
-  }, [sport, onEngine, audio, goal]);
+  }, [sport, onEngine, audio, goal, boxingMode, boxingOpponent]);
+
+  const boxingControls = hud.boxing?.training ? BOXING_TRAINING_CONTROLS[hud.boxing.training.kind] : HUD_TEXT.boxing.controls;
 
   return <div className={`game-viewport ${sport}${hud.framing ? ' is-framing' : ''}`}>
     <canvas ref={canvasRef} />
@@ -165,7 +202,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
           <td>{hud.tennis?.points[side]}</td>
         </tr>
       ))}</tbody>
-    </table> : sport !== 'tennis' && <div className="game-hud"><div><span>{HUD_TEXT[sport].score}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{HUD_TEXT[sport].speed}</span><strong>{Math.round(hud.speed01 * 100)}%</strong></div></div>}
+    </table> : sport === 'boxing' ? hud.boxing && <BoxingHud {...hud.boxing} /> : sport !== 'tennis' && <div className="game-hud"><div><span>{HUD_TEXT[sport].score}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{HUD_TEXT[sport].speed}</span><strong>{Math.round(hud.speed01 * 100)}%</strong></div></div>}
     {hud.tennis?.winner && <section className="game-over tennis-result" aria-label="Resultado da partida">
       <h2>{hud.tennis.winner === 'player' ? 'Você venceu!' : 'Adversário venceu'}</h2>
       <p>{hud.tennis.games.player} × {hud.tennis.games.opponent} games</p>
@@ -173,6 +210,16 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
       {leaveBar}
       <button type="button" onClick={onRestart}>Jogar de novo</button>
     </section>}
+    {sport === 'boxing' && hud.boxing?.selectionOpen && <fieldset className="game-goals boxing-setup" aria-label="Configuração do boxe">
+      <div className="boxing-select-row">
+        <span>MODO</span>
+        {BOXING_MODES.map((mode) => <button key={mode.id} type="button" className="dock-btn" aria-pressed={mode.id === boxingMode} onClick={() => onBoxingMode(mode.id)}>{mode.label}</button>)}
+      </div>
+      {boxingMode === 'fight' && <div className="boxing-select-row">
+        <span>ADVERSÁRIO</span>
+        {OPPONENT_PROFILES.map((profile) => <button key={profile.id} type="button" className="dock-btn" aria-pressed={profile.id === boxingOpponent} onClick={() => onBoxingOpponent(profile.id)}>{profile.label}</button>)}
+      </div>}
+    </fieldset>}
     {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${('kind' in hud.feedback ? hud.feedback.kind : hud.feedback.tone)}`}>
       <span>{hud.feedback.text}</span>
     </div>}
@@ -206,6 +253,40 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
       <button type="button" ref={(button) => button?.focus()} onClick={onRestart}>Jogar de novo</button>
     </div>}
     <div className="game-ready"><i className={tracking.startsWith('TRACKING') ? 'ready' : ''} />{hud.status}</div>
-    <div className="game-controls">{HUD_TEXT[sport].controls}</div>
+    <div className="game-controls">{sport === 'boxing' ? boxingControls : HUD_TEXT[sport].controls}</div>
+  </div>;
+}
+
+function BoxingHud({ playerHp, opponentHp, maxHp, round, rounds, secondsLeft, training }: BoxingScoreboard) {
+  if (training) {
+    const card = (label: string, value: string | number) => <div className="boxing-card boxing-training-card">
+      <span className="boxing-label">{label}</span>
+      <strong className="boxing-value">{value}</strong>
+    </div>;
+    if (training.kind === 'bag') {
+      return <div className="boxing-hud training">
+        {card('PRECISÃO', `${Math.round((training.precision01 ?? 0) * 100)}%`)}
+        {card('COMBO', `${training.combo ?? 0}x`)}
+        {card('PONTOS', training.score)}
+      </div>;
+    }
+    return <div className="boxing-hud training">
+      {card('GOLPES RESTANTES', training.attacksRemaining ?? 0)}
+      {card('ERROS RESTANTES', training.hitsRemaining ?? 0)}
+      {card('PONTOS', training.score)}
+    </div>;
+  }
+
+  const fighter = (name: string, hp: number, side: 'player' | 'opponent') => <div className={`boxing-card boxing-fighter ${side}`}>
+    <p className="boxing-name"><span className="boxing-label">{name}</span><strong className="boxing-value">{hp}</strong></p>
+    <div className="boxing-bar" aria-hidden="true"><div className="boxing-fill" style={{ width: `${(100 * hp) / maxHp}%` }} /></div>
+  </div>;
+  return <div className="boxing-hud">
+    {fighter('VOCÊ', playerHp, 'player')}
+    <div className="boxing-card boxing-clock">
+      <span className="boxing-label">ROUND {round}/{rounds}</span>
+      <strong className="boxing-value">{Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}</strong>
+    </div>
+    {fighter('CPU', opponentHp, 'opponent')}
   </div>;
 }

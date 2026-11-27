@@ -19,9 +19,12 @@ import { CameraPip } from './ui/CameraPip';
 import { GameCanvas, type GameEngineHandle, type Sport } from './ui/GameCanvas';
 import type { Goal } from './games/athletics/race';
 import { HandCursor } from './ui/HandCursor';
+import { HandDebugOverlay } from './ui/HandDebugOverlay';
 import { PerfMeter } from './ui/PerfMeter';
-import { HAND_IDLE } from './ui/handCursorTypes';
+import { HAND_IDLE, type HandCursorInput } from './ui/handCursorTypes';
+import type { CarouselStepResult } from './ui/carouselController';
 import { drawPose } from './ui/PoseOverlay';
+import { EXIT_DODGE_SW } from './kinematics/postureSignals';
 import { GamesMenu, HomeMenu } from './ui/WiiMenu';
 import { WiiSplash } from './ui/WiiSplash';
 import './arena.css';
@@ -66,6 +69,9 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const [tracking, setTracking] = useState('SEM POSE');
   const [muted, setMuted] = useState(readMutedPreference);
   const [handInput, setHandInput] = useState(HAND_IDLE);
+  const handInputRef = useRef<HandCursorInput>(HAND_IDLE);
+  const homeRotationGateRef = useRef(false);
+  const carouselDebugRef = useRef<CarouselStepResult | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const poseClientRef = useRef<PoseClient | undefined>(undefined);
@@ -98,6 +104,11 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const recorderRef = useRef<PoseRecorder | undefined>(undefined);
   const [recordingPrompt, setRecordingPrompt] = useState<string>();
 
+  const publishHandInput = useCallback((next: HandCursorInput) => {
+    handInputRef.current = next;
+    setHandInput(next);
+  }, []);
+
   useEffect(() => {
     audioRef.current.setMuted(muted);
   }, [muted]);
@@ -119,7 +130,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const onEngine = useCallback((engine: GameEngineHandle | null) => { engineRef.current = engine; }, []);
   const dispatchEvent = useCallback((event: SportActionEvent) => {
     engineRef.current?.onAction(event);
-    if (sportRef.current !== 'tennis') {
+    if (sportRef.current === 'track' || sportRef.current === 'athletics') {
       // Only the track has jumps; athletics still hears its steps.
       if (event.type === 'jump' && sportRef.current === 'track') audioRef.current.jump();
       if (event.type === 'step') audioRef.current.step(event.side);
@@ -149,14 +160,18 @@ export default function App({ exit }: { exit?: ReactNode }) {
     setCameraOn(false);
     setTracking('SEM POSE');
     setCameraStatus('Câmera desligada');
-    setHandInput(HAND_IDLE);
+    publishHandInput(HAND_IDLE);
     handDetectorRef.current.reset();
     for (const event of pipelineRef.current.reset()) dispatchEvent(event);
     engineRef.current?.resetLaneZone?.();
+    engineRef.current?.setGuard?.(undefined);
+    engineRef.current?.setDepthMove?.(undefined);
+    engineRef.current?.setDepthSpeed?.(undefined);
+    engineRef.current?.setLateralDash?.(undefined);
     contextRef.current.reset();
     resetCalibration();
     drawPose(overlayRef.current, videoRef.current);
-  }, [dispatchEvent, resetCalibration]);
+  }, [dispatchEvent, publishHandInput, resetCalibration]);
 
   const finishRecording = useCallback(() => {
     const recorder = recorderRef.current;
@@ -222,7 +237,10 @@ export default function App({ exit }: { exit?: ReactNode }) {
       setHeadCut(headWarningRef.current.update(raw));
       // Implicit calibration: every observed frame is evidence. The current profile is a
       // continuously improving estimate, never a mode the player has to enter or watch.
-      profileRef.current = calibratorRef.current.update(raw, pipelineRef.current.laneZone) ?? profileRef.current;
+      const calibrated = sportRef.current === 'boxing'
+        ? calibratorRef.current.update(raw, pipelineRef.current.dodgeZone, EXIT_DODGE_SW)
+        : calibratorRef.current.update(raw, pipelineRef.current.laneZone);
+      profileRef.current = calibrated ?? profileRef.current;
       const result = pipelineRef.current.update(raw, profileRef.current);
       const current = result.snapshot;
       const decision = contextRef.current.update(current, profileRef.current);
@@ -241,6 +259,11 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setTossHand?.(raisedTossHand(current), raw.timestampMs);
       engineRef.current?.setArmMotions?.(result.armMotions);
       engineRef.current?.setSwingTracking?.(result.swingTracking);
+      engineRef.current?.setDodgeZone?.(result.controls.dodgeZone);
+      engineRef.current?.setGuard?.(result.controls.guard);
+      engineRef.current?.setDepthMove?.(result.controls.ringDepthMove);
+      engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01);
+      engineRef.current?.setLateralDash?.(result.controls.lateralDash);
       for (const event of result.events) dispatchEvent(event);
     },
   };
@@ -266,11 +289,13 @@ export default function App({ exit }: { exit?: ReactNode }) {
       const state = handDetectorRef.current.update({
         timestampMs: snapshot.timestampMs,
         landmarks: primary?.landmarks ?? [],
+        worldLandmarks: primary?.worldLandmarks,
         handedness: primary?.handedness,
         handednessScore: primary?.handednessScore,
         aspectY,
+        rotationEnabled: screenRef.current === 'home' && homeRotationGateRef.current,
       });
-      setHandInput({
+      publishHandInput({
         visible: state.visible,
         x: state.x * window.innerWidth,
         y: state.y * window.innerHeight,
@@ -279,11 +304,22 @@ export default function App({ exit }: { exit?: ReactNode }) {
         pinching: state.pinching,
         pinchRelease: state.pinchRelease,
         backProgress: state.backProgress,
+        capturedAtMs: snapshot.timestampMs,
+        rotationPhase: state.rotationPhase,
+        rotationAngularVelocity: state.rotationAngularVelocity,
+        rotationDirection: state.rotationDirection,
+        rotationFilteredAngularVelocity: state.rotationFilteredAngularVelocity,
+        rotationRawAngularVelocity: state.rotationRawAngularVelocity,
+        rotationCurvature: state.rotationCurvature,
+        rotationHandShape: state.rotationHandShape,
+        rotationRejectReason: state.rotationRejectReason,
+        rotationDtMs: state.rotationDtMs,
+        rotationOrientation: state.rotationOrientation,
       });
     }, (error) => {
       if (!stale()) setCameraStatus(error.message);
     });
-  }, [stopCamera]);
+  }, [publishHandInput, stopCamera]);
 
   const startPoseCapture = useCallback(async (video: HTMLVideoElement, attempt: number) => {
     const stale = () => cameraAttemptRef.current !== attempt;
@@ -318,7 +354,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     if (visionModeRef.current === next) return;
     visionModeRef.current = next;
     handDetectorRef.current.reset();
-    setHandInput(HAND_IDLE);
+    publishHandInput(HAND_IDLE);
     const video = videoRef.current;
     if (!cameraOn || !video || !streamRef.current) return;
 
@@ -339,7 +375,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
         }
       });
     }
-  }, [screen, cameraOn, startHandCapture, startPoseCapture]);
+  }, [screen, cameraOn, startHandCapture, startPoseCapture, publishHandInput]);
 
   const startCamera = useCallback(async () => {
     stopCamera();
@@ -445,7 +481,15 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
   return <div className="stage">
     {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} crossedPose={crossedPoseRef} onExit={() => setScreen('games')} onStrokeTravel={onStrokeTravel} />}
-    {screen === 'home' && <HomeMenu exit={exit} onGames={() => setScreen('games')} />}
+    {screen === 'home' && (
+      <HomeMenu
+        exit={exit}
+        onGames={() => setScreen('games')}
+        handInputRef={handInputRef}
+        rotationGateRef={homeRotationGateRef}
+        carouselDebugRef={carouselDebugRef}
+      />
+    )}
     {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} />}
 
     {screen === 'play' && headCut && <div className="framing-hint" role="alert">Sua cabeça saiu do quadro · incline a câmera para cima ou afaste-se</div>}
@@ -458,6 +502,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     </div>}
 
     <HandCursor input={handInput} active={menu && cameraOn} onBack={handBack} />
+    {menu && cameraOn && <HandDebugOverlay input={handInput} carouselRef={carouselDebugRef} />}
 
     <CameraPip
       videoRef={videoRef} canvasRef={overlayRef} cameraOn={cameraOn} status={cameraStatus} tracking={tracking}

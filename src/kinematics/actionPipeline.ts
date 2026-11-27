@@ -1,9 +1,11 @@
 import type { CalibrationProfile, ContinuousControls, Hand, PoseSnapshot, SportActionEvent, TrackingState } from '../cv/protocol';
+import { LateralDashTracker, PunchInFlight } from './boxingLocomotion';
 import { CadenceTracker } from './cadenceTracker';
 import { upsideDown } from './framing';
 import { IntensityMeter } from './intensity';
 import { JumpDetector } from './jumpDetector';
-import { LanePositionTracker } from './postureSignals';
+import { DodgeZoneTracker, LanePositionTracker, RingDepthTracker } from './postureSignals';
+import { isGuardingPose, PunchDetector } from './punchDetector';
 import { type ArmMotion, ArmMotionDetector } from './armMotion';
 import { SWING_MAX_DURATION_MS, SwingDetector, type SwingSignal } from './swingDetector';
 import { TorsoVerticalChannel } from './torsoVertical';
@@ -39,9 +41,19 @@ export class ActionPipeline {
   private readonly jump = new JumpDetector();
   private readonly intensity = new IntensityMeter();
   private readonly lanePosition = new LanePositionTracker();
+  private readonly dodge = new DodgeZoneTracker();
+  /** Boxing's footwork measures the whole torso, which the shared torso gate no longer requires. */
+  private readonly footworkGate = new TrackingGate([11, 12, 23, 24]);
+  private readonly ringDepth = new RingDepthTracker();
+  private readonly lateralDash = new LateralDashTracker();
+  private readonly punchInFlight = new PunchInFlight();
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
     { hand, wrist, gate: new TrackingGate([], 'world'), detector: new SwingDetector(hand) }
+  ));
+  /** One detector per arm. No cross-hand arbitration: a one-two is two real punches. */
+  private readonly punches = ([['right', 14, 16], ['left', 13, 15]] as const).map(([hand, elbow, wrist]) => (
+    { hand, elbow, wrist, gate: new TrackingGate([], 'world'), detector: new PunchDetector(hand) }
   ));
   private lastSwingAt = Number.NEGATIVE_INFINITY;
   private readonly arms = [new ArmMotionDetector('right'), new ArmMotionDetector('left')];
@@ -185,6 +197,39 @@ export class ActionPipeline {
       }
     }
 
+    const footworkTracked = this.footworkGate.evaluate(snapshot).state === 'tracked';
+    if (calibration && swingScaleReady && footworkTracked) {
+      controls = { ...controls, guard: isGuardingPose(current, calibration) };
+    }
+
+    for (const { hand, elbow, wrist, gate, detector } of this.punches) {
+      const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, elbow, wrist], 'world');
+      if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
+      else if (tracking.state === 'degraded') detector.interruptRearm();
+      if (!calibration || !swingScaleReady || tracking.state !== 'tracked') continue;
+      const output = detector.update(current, calibration);
+      if (output?.kind === 'onset') {
+        this.punchInFlight.start(hand, snapshot.timestampMs);
+        events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'punch-start', hand });
+      } else if (output?.kind === 'confirmed') {
+        const { power01, confidence, peakTimestampMs, onsetTimestampMs } = output;
+        this.punchInFlight.end(hand);
+        events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'punch', hand, power01, peakTimestampMs, onsetTimestampMs });
+      }
+    }
+
+    // Boxing's footwork signals need the calibrated neutral, and read the torso the vertical channel does.
+    if (calibration && (calibration.readiness?.neutral01 ?? 1) >= 0.65 && footworkTracked) {
+      const dodge = this.dodge.update(current, calibration);
+      if (dodge !== undefined) controls = { ...controls, dodgeZone: dodge };
+      // Read after the punch detectors, so the frame of a punch onset is already frozen.
+      const punching = this.punchInFlight.active(snapshot.timestampMs);
+      const depth = this.ringDepth.update(current, calibration, punching);
+      if (depth !== undefined) controls = { ...controls, ringDepthMove: depth, ringDepth01: this.ringDepth.approach01 };
+      const dash = this.lateralDash.update(current, punching);
+      if (dash !== undefined) controls = { ...controls, lateralDash: dash };
+    }
+
     return { snapshot: current, events, controls, kinematicsMs: performance.now() - start, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked, pending }) => ({ hand, tracked, pending, arbitrating: this.heldSwing?.hand === hand })) } };
   }
 
@@ -195,6 +240,8 @@ export class ActionPipeline {
    * which is meaningless for a statistical admission decision.
    */
   get laneZone(): -1 | 0 | 1 { return this.lanePosition.currentZone; }
+
+  get dodgeZone(): -1 | 0 | 1 { return this.dodge.currentZone; }
 
   /**
    * The sprint event a blackout frame still owes the game: the last measured speed carried
@@ -225,7 +272,7 @@ export class ActionPipeline {
   /** Returns the events the game still needs, such as stopping a sprint in progress. */
   reset(): SportActionEvent[] {
     const stopped = this.stopSprint(performance.now(), 0, 'lost');
-    this.bodyGate.reset(); this.torsoGate.reset(); this.swings.forEach(({ gate }) => { gate.reset(); });
+    this.bodyGate.reset(); this.torsoGate.reset(); this.swings.forEach(({ gate }) => { gate.reset(); }); this.punches.forEach(({ gate }) => { gate.reset(); });
     this.resetDetectors();
     this.coast = undefined;
     return stopped;
@@ -241,5 +288,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.dodge.reset(); this.footworkGate.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.punchInFlight.reset(); this.punches.forEach(({ detector }) => { detector.reset(); }); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }
