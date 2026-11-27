@@ -138,6 +138,9 @@
   .tennis-practice { top: 40%; }
   .tennis-practice h2 { color: var(--ink); }
   .tennis-practice p { margin-bottom: 10px; }
+  .tennis-practice .practice-count { font-size: 34px; font-weight: 800; color: var(--blue-deep); }
+  /* The framing screen already says what to fix; the head warning would repeat it on top. */
+  .game-viewport.is-framing ~ .framing-hint { display: none; }
   .game-over.finish h2 { color: var(--blue); }
   .game-goals { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; margin: 0; padding: 0; border: 0; z-index: 9; }
   .game-goals button[aria-pressed='true'] { background: var(--blue); color: #fff; }

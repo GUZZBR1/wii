@@ -7,7 +7,10 @@ export function createAthlete(shirt: number, facing: number) {
   torso.position.y = 0.88;
   root.add(torso);
   const fabric = new THREE.MeshStandardMaterial({ color: shirt });
-  const skin = new THREE.MeshStandardMaterial({ color: 0xd99a72 });
+  // Mii palette and proportions, the same as the athletics runner: big head, sweatband.
+  const skin = new THREE.MeshStandardMaterial({ color: 0xf2c29a });
+  const hair = new THREE.MeshStandardMaterial({ color: 0x4a2f22 });
+  const band = new THREE.MeshStandardMaterial({ color: 0x2f9be8 });
   const shorts = new THREE.MeshStandardMaterial({ color: 0x26334b });
   const shoe = new THREE.MeshStandardMaterial({ color: 0xf7f6eb });
   const add = (parent: THREE.Group, geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z = 0) => {
@@ -16,8 +19,9 @@ export function createAthlete(shirt: number, facing: number) {
     parent.add(mesh);
   };
   add(torso, new THREE.CapsuleGeometry(0.29, 0.32, 4, 10), fabric, 0, 0.3);
-  add(torso, new THREE.SphereGeometry(0.24, 12, 8), skin, 0, 0.88);
-  add(torso, new THREE.SphereGeometry(0.244, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2), shorts, 0, 0.94);
+  add(torso, new THREE.SphereGeometry(0.33, 16, 12), skin, 0, 0.95);
+  add(torso, new THREE.SphereGeometry(0.336, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2.4), hair, 0, 1.0);
+  add(torso, new THREE.CylinderGeometry(0.338, 0.338, 0.09, 20, 1, true), band, 0, 1.04);
   const legs = [-1, 1].map((side) => {
     const leg = new THREE.Group();
     leg.position.set(side * 0.15, 0.83, 0);

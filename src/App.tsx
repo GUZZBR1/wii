@@ -34,6 +34,8 @@ const ACTIVITY_LABEL: Record<ActivityKind, string> = {
   striking: 'LUTA',
 };
 const MUTE_STORAGE_KEY = 'wii-web-sports.muted.v1';
+/** Confirmed swings in the opening practice before the tennis match starts. */
+const PRACTICE_SWINGS = 3;
 
 const inHandMenu = (screen: Screen) => screen === 'home' || screen === 'title' || screen === 'games';
 const modeForScreen = (screen: Screen): VisionMode => (inHandMenu(screen) ? 'hand' : 'pose');
@@ -107,6 +109,20 @@ export default function App({ exit }: { exit?: ReactNode }) {
   }
 
   const [headCut, setHeadCut] = useState(false);
+
+  // Tennis opens with a short practice, as a warm-up: a few confirmed swings and the match starts.
+  const practiceDone = tennisPractice && practiceHits >= PRACTICE_SWINGS;
+  useEffect(() => {
+    if (!practiceDone) return;
+    const timer = window.setTimeout(() => {
+      practiceRef.current = false;
+      pipelineRef.current.resetSwings();
+      setPracticeHits(0);
+      setPracticeHint(undefined);
+      setTennisPractice(false);
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [practiceDone]);
 
   useEffect(() => {
     audioRef.current.setMuted(muted);
@@ -443,7 +459,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const play = (next: Sport, distance: Goal = 100) => {
     setGoal(distance);
     void audioRef.current.unlock();
-    if (practiceRef.current) changeTennisPractice(false);
+    if (practiceRef.current !== (next === 'tennis')) changeTennisPractice(next === 'tennis');
     setSport(next);
     sportRef.current = next;
     setHandPanelOpen(false);
@@ -475,11 +491,11 @@ export default function App({ exit }: { exit?: ReactNode }) {
     {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} onBack={() => setScreen('title')} />}
 
     {screen === 'play' && tennisPractice && <section className="game-over tennis-practice" aria-label="Treino de rebatidas">
-      <h2>Treino de rebatidas</h2>
-      <p>Centralize o tronco e deixe espaço dos lados para mover o braço.</p>
+      <h2>{practiceDone ? 'Pronto! Vamos jogar' : 'Aquecimento'}</h2>
+      <p>Faça {PRACTICE_SWINGS} rebatidas de lado a lado para começar a partida.</p>
       <p role="status">{cameraOn ? practiceHint ?? 'Posicione-se diante da câmera' : 'Ative a câmera para treinar'}</p>
-      <p aria-live="polite">Rebatidas confirmadas: {practiceHits}</p>
-      <button type="button" onClick={() => changeTennisPractice(false)}>Jogar</button>
+      <p aria-live="polite" className="practice-count">{Math.min(practiceHits, PRACTICE_SWINGS)} de {PRACTICE_SWINGS}</p>
+      <button type="button" onClick={() => changeTennisPractice(false)}>Pular</button>
     </section>}
     {screen === 'play' && !tennisPractice && headCut && <div className="framing-hint" role="alert">Sua cabeça saiu do quadro · incline a câmera para cima ou afaste-se</div>}
     {screen === 'play' && keepPhotos && <div className="photo-notice">● guardando fotos dos últimos 20 s · E salva</div>}

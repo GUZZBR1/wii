@@ -9,6 +9,7 @@ import {
   mapWallTimestampToSimulationMs,
   MAX_FRAME_DELTA_SECONDS,
 } from '../core/fixedStepTiming';
+import { RestartGesture } from '../core/restartGesture';
 import { createAthlete } from './athlete';
 import { advanceBall, createBall, solveOutgoing, timeAtPlane, type BallState } from './ballistics';
 import { adjudicateContact, type ContactOutcome } from './contactAdjudicator';
@@ -88,12 +89,13 @@ export class TennisGame {
   private lastWallTimeMs = Number.NEGATIVE_INFINITY;
   private pauseBoundaryWallTimeMs = Number.NEGATIVE_INFINITY;
   private opponentAi: OpponentAiState = createOpponentAi();
-  private status = 'Espaço ou raquetada para sacar';
+  private status = 'Faça uma raquetada para sacar';
   private feedback: { id: number; text: string; tone: 'good' | 'bad' | 'neutral' } | undefined;
   private feedbackCounter = 0;
   private faults = 0;
   private servingFlight = false;
   private pendingPoint?: { deadAt: number; winner: PlayerSide; label: string };
+  private readonly restart = new RestartGesture();
 
   private get serveX(): number {
     return serviceSide(this.score.points) * (this.score.server === 'player' ? 1.65 : -1.65);
@@ -201,17 +203,10 @@ export class TennisGame {
     });
   }
 
-  onKey(key: string): void {
-    if (key !== ' ' && key !== 'Spacebar') return;
-    this.swingAnimT = 0;
-    this.resolveSwing({
-      side: 'forehand',
-      power01: 0.65,
-      verticalSpeed: 0.6,
-      contactY: 0,
-      peakTimestampMs: nowMs(),
-    });
-  }
+  /** Played with the body only. */
+  onKey(): void {}
+
+  setHandsRaised(raised: boolean): void { this.restart.setHandsRaised(raised); }
 
   // ---------------------------------------------------------------- swing resolution
 
@@ -376,12 +371,13 @@ export class TennisGame {
     }
   }
 
-  private stepPhase(_dt: number, now: number): void {
+  private stepPhase(dt: number, now: number): void {
     switch (this.phase.kind) {
       case 'point-over':
         if (now >= this.phase.resumeAtMs) this.startPoint(now);
         break;
       case 'match-over':
+        this.restart.step(dt);
         break;
       case 'player-serve': {
         // Toss missed and the ball came back down: re-toss quietly, no penalty.
@@ -652,6 +648,7 @@ export class TennisGame {
         server: this.score.server,
         winner: this.score.matchWinner,
         secondServe: this.faults === 1,
+        restart01: Math.round(this.restart.progress01 * 20) / 20,
       },
     });
   }

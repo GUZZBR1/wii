@@ -1,3 +1,6 @@
+import { RestartGesture } from '../core/restartGesture';
+
+export { RESTART_AFTER_S, RESTART_HOLD_S } from '../core/restartGesture';
 /**
  * One athletics race, with no rendering. Before the start the player is framed and then runs flat out for a few
  * seconds, which sets what "full effort" means for that body, camera and angle. In the race the speed
@@ -18,10 +21,6 @@ export const FRAMING_PATIENCE_S = 15;
 export const NO_BODY_ADVICE = 'Apareça na câmera';
 /** A warm-up the camera barely registered is repeated, with advice, this many times. */
 export const WARMUP_RETRIES = 2;
-/** After the finish, holding both hands up this long runs again: no mouse needed. */
-export const RESTART_HOLD_S = 1.5;
-/** The result is shown this long before hands count; arms are still up from running. */
-export const RESTART_AFTER_S = 2;
 /** A reading older than this is not believed: a camera that froze without an error stops the runner. */
 export const EFFORT_EXPIRES_S = 0.5;
 /** Camera readings under this are rest, not slow running. */
@@ -60,11 +59,7 @@ export class Race {
   /** Warm-ups repeated because the camera did not register any running. */
   retries = 0;
   private handsHidden = false;
-  private handsUp = false;
-  private sinceFinishS = 0;
-  /** The hands must have been seen down after the finish before raising them means anything. */
-  private restartArmed = false;
-  private heldS = 0;
+  private readonly restart = new RestartGesture();
   elapsedS = 0;
   distance = 0;
   speed = 0;
@@ -93,10 +88,10 @@ export class Race {
     this.handsHidden = handsHidden;
   }
 
-  setHandsRaised(raised: boolean): void { this.handsUp = raised; }
+  setHandsRaised(raised: boolean): void { this.restart.setHandsRaised(raised); }
 
   /** How far the raise-both-hands gesture is, 0–1; 1 asks for a new race. */
-  get restart01(): number { return Math.min(1, this.heldS / RESTART_HOLD_S); }
+  get restart01(): number { return this.restart.progress01; }
 
   /** What the energy bar shows: the raw reading while warming up, the player's own share afterwards. */
   get energy01(): number {
@@ -151,9 +146,7 @@ export class Race {
       if (rival.distance >= this.goal) rival.finishS ??= this.elapsedS;
     }
     if (this.phase === 'finished') {
-      this.sinceFinishS += dt;
-      if (this.sinceFinishS >= RESTART_AFTER_S && !this.handsUp) this.restartArmed = true;
-      this.heldS = this.restartArmed && this.handsUp ? this.heldS + dt : 0;
+      this.restart.step(dt);
       this.speed *= Math.exp(-dt / GAIN_TAU_S);
       this.distance += this.speed * dt;
       return;

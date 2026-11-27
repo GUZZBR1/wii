@@ -20,7 +20,7 @@ export type Sport = 'track' | 'athletics' | 'tennis';
 const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }> = {
   track: { score: 'SCORE', speed: 'RITMO', controls: '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' },
   athletics: { score: 'TEMPO', speed: 'INTENSIDADE', controls: 'corra no lugar, mexendo os braços' },
-  tennis: { score: 'PONTOS', speed: 'MIRA', controls: 'espaço bater  ·  timing define a direção' },
+  tennis: { score: 'PONTOS', speed: 'MIRA', controls: 'raquetada no tempo da bola: cedo cruza, tarde vai reto' },
 };
 export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort01: number): void; setHandsRaised?(raised: boolean): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; dispose(): void }
 
@@ -51,7 +51,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, onRestart }: Pr
   useEffect(() => { engineRef.current?.setTracking?.(tracking); }, [tracking]);
 
   // The 100 m asks for a new run with the body: both hands held up.
-  const restartByBody = (hud.finished?.restart01 ?? 0) >= 1;
+  const restartByBody = Math.max(hud.finished?.restart01 ?? 0, hud.tennis?.winner ? hud.tennis.restart01 : 0) >= 1;
   const restartRef = useRef(onRestart);
   restartRef.current = onRestart;
   useEffect(() => { if (restartByBody) restartRef.current(); }, [restartByBody]);
@@ -112,6 +112,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, onRestart }: Pr
     {hud.tennis?.winner && <section className="game-over tennis-result" aria-label="Resultado da partida">
       <h2>{hud.tennis.winner === 'player' ? 'Você venceu!' : 'Adversário venceu'}</h2>
       <p>{hud.tennis.games.player} × {hud.tennis.games.opponent} games</p>
+      <div className="restart-gesture"><b style={{ width: `${hud.tennis.restart01 * 100}%` }} /><span>Levante as duas mãos para jogar de novo</span></div>
       <button type="button" onClick={onRestart}>Jogar de novo</button>
     </section>}
     {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${('kind' in hud.feedback ? hud.feedback.kind : hud.feedback.tone)}`}>

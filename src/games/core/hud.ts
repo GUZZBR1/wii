@@ -16,5 +16,7 @@ export interface GameHudState {
     server: "player" | "opponent";
     winner: "player" | "opponent" | null;
     secondServe: boolean;
+    /** The raise-both-hands gesture after the match, 0–1. */
+    restart01: number;
   };
 }

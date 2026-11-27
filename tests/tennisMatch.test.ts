@@ -70,3 +70,29 @@ it('accepts a confirmed return from before the second bounce', () => {
     game.dispose();
   }
 });
+
+it('plays again when both hands are held up after the match, and not before they come down', () => {
+  const huds: { tennis?: { restart01: number } }[] = [];
+  const game = new TennisGame(document.createElement('canvas'), (hud) => { huds.push(hud as never); });
+  const state = game as unknown as {
+    phase: { kind: string };
+    stepPhase(dt: number, now: number): void;
+    publishHud(): void;
+  };
+  try {
+    state.phase = { kind: 'match-over' };
+    const steps = (seconds: number) => { for (let i = 0; i < seconds * 60; i += 1) state.stepPhase(1 / 60, 0); };
+    game.setHandsRaised(true); // still swinging after the last point
+    steps(5);
+    state.publishHud();
+    expect(huds.at(-1)!.tennis!.restart01).toBe(0);
+    game.setHandsRaised(false);
+    steps(2);
+    game.setHandsRaised(true);
+    steps(1.6);
+    state.publishHud();
+    expect(huds.at(-1)!.tennis!.restart01).toBe(1);
+  } finally {
+    game.dispose();
+  }
+});
