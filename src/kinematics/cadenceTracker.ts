@@ -79,8 +79,8 @@ export class CadenceTracker {
       this.walking = walk.walking;
       if (walk.walking && walk.spm > 0) {
         const spm = Math.min(MAX_WALK_SPM, Math.max(MIN_WALK_SPM, walk.spm));
-        // Eased so one uneven step does not jerk the runner.
-        this.walkSpm += (spm - this.walkSpm) * 0.15;
+        // Eased so a change of pace does not jerk the runner.
+        this.walkSpm += (spm - this.walkSpm) * 0.08;
       }
       if (walk.step && !this.moving) {
         this.lastStepSide = this.lastStepSide === 'left' ? 'right' : 'left';

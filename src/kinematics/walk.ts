@@ -1,3 +1,5 @@
+import { median } from './math';
+
 /**
  * Walking in place barely lifts the shoulders (0.010 shoulder widths on real recordings, less than
  * swinging the arms) but shifts the weight from foot to foot: the shoulders sway side to side, one
@@ -10,6 +12,8 @@ const TURN_SW = 0.1;
 /** Between two turns, a wider travel is a step into another lane, not weight shifting. */
 const MAX_SWAY_SW = 0.35;
 const MIN_TURN_GAP_MS = 250;
+/** The pace is the middle of the last few steps: one early or late turn must not change the speed. */
+const PACE_STEPS = 5;
 const MAX_TURN_GAP_MS = 1000;
 /** Consecutive well-spaced turn intervals needed before it counts. */
 const MIN_INTERVALS = 3;
@@ -36,6 +40,7 @@ export class WalkDetector {
   private intervals = 0;
   private smooth?: Point;
   private lastGap?: number;
+  private gaps: number[] = [];
   private vertical: { t: number; y: number }[] = [];
 
   /** `x` is the shoulder midpoint and `y` the head (or shoulders), in the shoulder width's units. */
@@ -63,11 +68,12 @@ export class WalkDetector {
       this.lastGap = gap <= MAX_TURN_GAP_MS ? gap : undefined;
       this.intervals = regular ? this.intervals + 1 : 0;
       step = regular && this.intervals >= MIN_INTERVALS;
+      this.gaps = regular ? [...this.gaps, gap].slice(-PACE_STEPS) : [];
       this.lastTurn = turn;
     }
     const walking = this.intervals >= MIN_INTERVALS && this.lastTurn !== undefined
       && t - this.lastTurn.t <= MAX_TURN_GAP_MS && spread < MAX_VERTICAL_SW;
-    return { walking, step: step && walking, spm: walking && this.lastGap ? 60_000 / this.lastGap : 0 };
+    return { walking, step: step && walking, spm: walking && this.gaps.length ? 60_000 / median(this.gaps) : 0 };
   }
 
   reset(): void {
@@ -76,5 +82,6 @@ export class WalkDetector {
     this.intervals = 0;
     this.vertical = [];
     this.smooth = this.lastGap = undefined;
+    this.gaps = [];
   }
 }
