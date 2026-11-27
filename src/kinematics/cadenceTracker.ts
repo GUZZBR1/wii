@@ -68,6 +68,12 @@ const STRIDE_MAX_INTERVAL_MS = 60_000 / STRIDE_MIN_SPM;
 const STRIDE_MIN_INTERVAL_MS = 60_000 / 260;
 /** Fastest-to-slowest ratio the corroborating strides may span — uneven bobbing is wider. */
 const STRIDE_REGULARITY = 1.6;
+/**
+ * A short sequence can average a slower bob down into the band when frame quantization lands in
+ * its favor, so averaging alone earns nothing: either the latest strides each read in band, or
+ * the longer window has to agree — its quantization error shrinks with every stride added.
+ */
+const STRIDES_EXTENDED = 5;
 const SPEED_BY_CADENCE = [[40, 0.1], [100, 0.3], [137.5, 0.55], [200, 1]] as const;
 
 export function speedFromCadence(spm: number): number {
@@ -163,15 +169,19 @@ export class CadenceTracker {
     if (this.moving) this.lastStrideAt = nowMs;
     if (this.moving || this.lateralActive) this.lastMovingAt = nowMs;
     // Corroboration judges the latest strides alone, never the whole speed history: a slow or
-    // uneven start must not delay the verdict once the rhythm is real. The pace test uses the
-    // mean across the sequence — the span over the strides — because a single frame-quantized
-    // interval can land a frame either side of the true stride; the irregularity ratio stays a
-    // separate check on the individual intervals.
+    // uneven start must not delay the verdict once the rhythm is real. The fast path takes them
+    // each in band; when admission rests on the average instead, the extended window must agree
+    // — the span over more strides absorbs the frame quantization a short one cannot.
+    const inBand = (interval: number) => interval >= STRIDE_MIN_INTERVAL_MS && interval <= STRIDE_MAX_INTERVAL_MS;
+    const meanOf = (list: readonly number[]) => list.reduce((sum, interval) => sum + interval, 0) / list.length;
+    const regular = (list: readonly number[]) => Math.max(...list) <= Math.min(...list) * STRIDE_REGULARITY;
     const recentStrides = this.intervals.slice(-STRIDES_CORROBORATING);
-    const meanStride = recentStrides.reduce((sum, interval) => sum + interval, 0) / recentStrides.length;
+    const extendedStrides = this.intervals.slice(-STRIDES_EXTENDED);
     const strideEvidence = recentStrides.length >= STRIDES_CORROBORATING
-      && meanStride >= STRIDE_MIN_INTERVAL_MS && meanStride <= STRIDE_MAX_INTERVAL_MS
-      && Math.max(...recentStrides) <= Math.min(...recentStrides) * STRIDE_REGULARITY;
+      && regular(recentStrides)
+      && inBand(meanOf(recentStrides))
+      && (recentStrides.every(inBand)
+        || (extendedStrides.length >= STRIDES_EXTENDED && inBand(meanOf(extendedStrides)) && regular(extendedStrides)));
     if ((!this.moving && !this.lateralActive && nowMs - this.lastMovingAt >= RUN_TRUST_HOLD_MS)
       || nowMs - this.lastStrideAt >= LATERAL_BRIDGE_CAP_MS) this.trusted = false;
     else if (!this.trusted && this.moving && nowMs - this.movingSince >= RUN_TRUST_MS

@@ -89,6 +89,15 @@ describe('effort-gate trust in the cadence tracker', () => {
     expect(firstOpen).toBeGreaterThan(2000);
   });
 
+  it('never opens for a borderline bob whose quantization averages into the band', () => {
+    // A centered bob every 524 ms (~115 bpm) sampled every 50 ms: short windows can average
+    // exactly onto the 500 ms band edge, but the extended window never agrees it is running.
+    const frames50 = Array.from({ length: 160 }, (_, i) => i * 50);
+    const bob524 = (t: number) => 0.016 * Math.sin((2 * Math.PI * (1000 / 524) * t) / 1000);
+    const results = drive(frames50, bob524, () => 0);
+    expect(results.every((r) => !r.running)).toBe(true);
+  });
+
   it('never opens for a slow bob however long it persists', () => {
     // Feet planted, no sway: a small torso bob every 800 ms (~75 bpm) is not a stride.
     const slowBob = (t: number) => 0.016 * Math.sin((2 * Math.PI * 1.25 * t) / 1000);
@@ -115,8 +124,8 @@ describe('effort-gate trust in the cadence tracker', () => {
         bounce: witnessBounce.update(sample.timestampMs, sample.shoulders.left, sample.shoulders.right, sample.shoulders.width, sample.shoulders.head),
       };
     };
-    for (const t of times) feedWithWitness(poseWithHipBounce(t, bounce(t), undefined, sway(t)));
-    expect(times.map((t) => feedWithWitness(poseWithHipBounce(t, bounce(t), undefined, sway(t))).result).at(-1)!.running).toBe(true);
+    const runResults = times.map((t) => feedWithWitness(poseWithHipBounce(t, bounce(t), undefined, sway(t))).result);
+    expect(runResults.at(-1)!.running).toBe(true);
     // Stand still long enough for the verdict to close and the stride history to expire.
     let t = times.at(-1)!;
     for (t += 33; t <= times.at(-1)! + 5200; t += 33) feedWithWitness(poseWithHipBounce(t, 0, undefined, 0));
