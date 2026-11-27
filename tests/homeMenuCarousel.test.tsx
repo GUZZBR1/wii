@@ -103,6 +103,28 @@ describe('HomeMenu rotational carousel integration', () => {
     expect(carouselDebugRef.current).toBeUndefined();
   });
 
+  it('cancels the carousel rAF when camera hand input becomes unavailable', () => {
+    mockReducedMotion();
+    const raf = mockRaf();
+    const input: HandCursorInput = { ...HAND_IDLE, visible: true, synced: true };
+    const rendered = renderHome(input);
+    expect(raf.callbacks.size).toBe(1);
+    rendered.handInputRef.current = HAND_IDLE;
+    act(() => {
+      rendered.root.render(createElement(HomeMenu, {
+        onGames: vi.fn(),
+        exit: null,
+        handInputRef: rendered.handInputRef,
+        rotationGateRef: rendered.rotationGateRef,
+        carouselDebugRef: rendered.carouselDebugRef,
+      }));
+    });
+    expect(raf.callbacks.size).toBe(0);
+    act(() => {
+      rendered.root.unmount();
+    });
+  });
+
   it('does not move the wheel or suppress transitions when hand input is idle', () => {
     mockReducedMotion();
     const raf = mockRaf();

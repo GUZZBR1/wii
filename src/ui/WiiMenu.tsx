@@ -87,6 +87,8 @@ export function HomeMenu({ onGames, exit, handInputRef, rotationGateRef, carouse
   controllerRef.current ??= new CarouselController({ slotCount: SLOTS.length, reducedMotion });
   const controller = controllerRef.current;
   const front = positiveModulo(Math.round(turn), SLOTS.length);
+  // A câmera desligada/sem mão sincronizada estaciona o loop: mouse e CSS continuam independentes dele.
+  const handRotationAvailable = handInputRef.current.visible && handInputRef.current.synced;
 
   useEffect(() => {
     controller.setReducedMotion(reducedMotion);
@@ -113,7 +115,7 @@ export function HomeMenu({ onGames, exit, handInputRef, rotationGateRef, carouse
   }, []);
 
   useEffect(() => {
-    if (!ring || zoom !== undefined) return;
+    if (!ring || zoom !== undefined || !handRotationAvailable) return;
     const ringElement = ringRef.current;
     if (!ringElement) return;
     let rafId: number | undefined;
@@ -146,7 +148,7 @@ export function HomeMenu({ onGames, exit, handInputRef, rotationGateRef, carouse
       ringElement.classList.remove('is-gesture-controlled');
       if (carouselDebugRef) carouselDebugRef.current = undefined;
     };
-  }, [ring, zoom, controller, paintTurn, handInputRef, rotationGateRef, carouselDebugRef]);
+  }, [ring, zoom, handRotationAvailable, controller, paintTurn, handInputRef, rotationGateRef, carouselDebugRef]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { introduced = true; setRing(true); }, ring ? 0 : GRID_MS);
