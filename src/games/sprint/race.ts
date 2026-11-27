@@ -8,6 +8,9 @@ export const COUNTDOWN_S = 3;
 export const WARMUP_S = 5;
 /** The picture has to stay good this long before the warm-up starts. */
 export const FRAMED_S = 1;
+/** Nobody gets stuck: with a body in view, an imperfect picture is accepted after this long. */
+export const FRAMING_PATIENCE_S = 15;
+export const NO_BODY_ADVICE = 'Apareça na câmera';
 /** Camera readings under this are rest, not slow running. */
 const REST_EFFORT = 0.05;
 /** A warm-up this weak means the player did not try: keep the default reference instead. */
@@ -36,6 +39,7 @@ export class Race {
   /** What the camera asks the player to change; null until it has said anything. */
   advice: string | undefined | null = null;
   private framedFor = 0;
+  private seenFor = 0;
   /** The camera reading that counts as this player's full effort. */
   reference = DEFAULT_REFERENCE;
   private readonly warmup: number[] = [];
@@ -69,7 +73,8 @@ export class Race {
   step(dt: number): void {
     if (this.phase === 'framing') {
       this.framedFor = this.advice === undefined ? this.framedFor + dt : 0;
-      if (this.framedFor >= FRAMED_S) this.phase = 'warmup';
+      if (this.advice !== null && this.advice !== NO_BODY_ADVICE) this.seenFor += dt;
+      if (this.framedFor >= FRAMED_S || this.seenFor >= FRAMING_PATIENCE_S) this.phase = 'warmup';
       return;
     }
     if (this.phase === 'warmup') {

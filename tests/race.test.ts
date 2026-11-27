@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COUNTDOWN_S, FRAMED_S, Race, RACE_METRES, WARMUP_S } from '../src/games/sprint/race';
+import { COUNTDOWN_S, FRAMED_S, FRAMING_PATIENCE_S, NO_BODY_ADVICE, Race, RACE_METRES, WARMUP_S } from '../src/games/sprint/race';
 
 const run = (race: Race, seconds: number, each?: () => void) => {
   for (let i = 0; i < Math.round(seconds * 60); i += 1) { each?.(); race.step(1 / 60); }
@@ -28,11 +28,20 @@ describe('100 m race', () => {
     race.setEffort(1);
     run(race, 10);
     race.setFraming('Incline a câmera para cima');
-    run(race, 10);
+    run(race, 5);
     expect([race.phase, race.distance]).toEqual(['framing', 0]);
     race.setFraming(undefined);
     run(race, FRAMED_S);
     expect(race.phase).toBe('warmup');
+  });
+
+  it('never traps a visible player on the framing screen, but waits for an absent one', () => {
+    const [seen, absent] = [new Race(), new Race()];
+    seen.setFraming('Incline a câmera para cima');
+    absent.setFraming(NO_BODY_ADVICE);
+    run(seen, FRAMING_PATIENCE_S + 0.1);
+    run(absent, FRAMING_PATIENCE_S * 3);
+    expect([seen.phase, absent.phase]).toEqual(['warmup', 'framing']);
   });
 
   it('holds everyone on the blocks during the countdown', () => {

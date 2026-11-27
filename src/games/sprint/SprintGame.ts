@@ -3,7 +3,7 @@ import { GameLoop } from '../core/GameLoop';
 import { biomeAt } from '../track/biomes';
 import { createSkyDome, SCENERY_MAX_Z, SCENERY_MIN_Z, SceneryPool } from '../track/scenery';
 import { scrollZ } from '../track/scroll';
-import { Race, RACE_METRES } from './race';
+import { NO_BODY_ADVICE, Race, RACE_METRES } from './race';
 
 export interface SprintHudState {
   score: number;
@@ -132,7 +132,7 @@ export class SprintGame {
     // A player the camera lost stops pushing; momentum fades on its own.
     if (tracking !== 'SEM POSE') return;
     this.race.setEffort(0);
-    if (this.race.advice !== null) this.race.setFraming('Apareça na câmera');
+    if (this.race.advice !== null) this.race.setFraming(NO_BODY_ADVICE);
   }
 
   onKey(key: string): void {
