@@ -1,4 +1,5 @@
 import type { Delegate, PoseSnapshot, WorkerReply, WorkerRequest } from './poseProtocol';
+import { VideoFramePump } from './videoFramePump';
 
 export interface PoseClientCallbacks {
   onPose(snapshot: PoseSnapshot): void;
@@ -19,15 +20,11 @@ export class PoseClient {
   private ready = false;
   private activeDelegate?: Delegate;
   private initPromise?: Promise<void>;
-  private inFlight?: { requestId: number; captureEpoch: number };
+  private inFlight?: { requestId: number; captureEpoch: number; resolve(): void };
+  private readonly capturePump = new VideoFramePump();
   private nextRequestId = 1;
   private captureEpoch = 0;
   private capturing = false;
-  private lastTimestamp = 0;
-  private callbackId?: number;
-  private rafId?: number;
-  private lastVideoTime = -1;
-  private video?: HTMLVideoElement;
   private callbacks?: PoseClientCallbacks;
   private resolveInitialization?: () => void;
   private rejectInitialization?: (error: Error) => void;
@@ -62,38 +59,21 @@ export class PoseClient {
     this.callbacks = callbacks;
     if (!this.worker || !this.ready || this.capturing) return;
     this.captureEpoch += 1;
+    const captureEpoch = this.captureEpoch;
     this.capturing = true;
-    this.video = video;
-    this.lastVideoTime = -1;
     this.callbacks?.onStatus('ready', `MediaPipe pronto · ${this.activeDelegate} · capturando`);
-    const schedule = () => {
-      if (!this.capturing) return;
-      const supportsVideoFrameCallback = typeof (video as HTMLVideoElement & { requestVideoFrameCallback?: unknown }).requestVideoFrameCallback === 'function';
-      if (supportsVideoFrameCallback) {
-        this.callbackId = video.requestVideoFrameCallback((now) => {
-          schedule();
-          void this.capture(video, now);
-        });
-      } else {
-        this.rafId = requestAnimationFrame(() => {
-          schedule();
-          if (video.currentTime !== this.lastVideoTime) {
-            this.lastVideoTime = video.currentTime;
-            void this.capture(video, performance.now());
-          }
-        });
-      }
-    };
-    schedule();
+    if (!this.capturing || captureEpoch !== this.captureEpoch || !this.worker || !this.ready) return;
+    this.capturePump.start(video, {
+      onFrame: (timestampMs) => this.capture(video, timestampMs),
+      onError: (error) => {
+        if (this.capturing) this.callbacks?.onStatus('error', error.message);
+      },
+    });
   }
 
   pauseCapture(): void {
     this.capturing = false;
-    if (this.callbackId !== undefined) this.video?.cancelVideoFrameCallback?.(this.callbackId);
-    this.callbackId = undefined;
-    if (this.rafId !== undefined) cancelAnimationFrame(this.rafId);
-    this.rafId = undefined;
-    this.video = undefined;
+    this.capturePump.stop();
   }
 
   dispose(): void {
@@ -103,7 +83,9 @@ export class PoseClient {
     this.worker = undefined;
     this.ready = false;
     this.activeDelegate = undefined;
+    const pendingFrame = this.inFlight;
     this.inFlight = undefined;
+    pendingFrame?.resolve();
     this.initPromise = undefined;
     this.completeInitialization(new Error('PoseClient was disposed before initialization completed.'));
     this.callbacks = undefined;
@@ -199,14 +181,16 @@ export class PoseClient {
     else resolve?.();
   }
 
-  private async capture(video: HTMLVideoElement, now: number): Promise<void> {
+  private async capture(video: HTMLVideoElement, timestampMs: number): Promise<void> {
     if (this.inFlight || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) return;
     const requestId = this.nextRequestId++;
     const captureEpoch = this.captureEpoch;
     const frameRequest = { requestId, captureEpoch };
-    this.inFlight = frameRequest;
-    const timestampMs = Math.max(now, this.lastTimestamp + 0.01);
-    this.lastTimestamp = timestampMs;
+    let resolveFrame!: () => void;
+    const frameProcessed = new Promise<void>((resolve) => {
+      resolveFrame = resolve;
+    });
+    this.inFlight = { ...frameRequest, resolve: resolveFrame };
     // Owned by this thread until postMessage transfers it; cleared at that commit point.
     let bitmap: ImageBitmap | VideoFrame | undefined;
     try {
@@ -222,12 +206,11 @@ export class PoseClient {
       }
       this.worker.postMessage({ type: 'FRAME', ...frameRequest, timestampMs, bitmap } satisfies WorkerRequest, [bitmap]);
       bitmap = undefined;
+      await frameProcessed;
     } catch (error) {
       bitmap?.close();
       this.releaseFrame(requestId, captureEpoch);
-      if (this.capturing && captureEpoch === this.captureEpoch) {
-        this.callbacks?.onStatus('error', error instanceof Error ? error.message : String(error));
-      }
+      throw error;
     }
   }
 
@@ -243,7 +226,10 @@ export class PoseClient {
   }
 
   private releaseFrame(requestId: number, captureEpoch: number): void {
-    if (this.inFlight?.requestId === requestId && this.inFlight.captureEpoch === captureEpoch) this.inFlight = undefined;
+    const pendingFrame = this.inFlight;
+    if (pendingFrame?.requestId !== requestId || pendingFrame.captureEpoch !== captureEpoch) return;
+    this.inFlight = undefined;
+    pendingFrame.resolve();
   }
 
   private confidence(points: PoseSnapshot['landmarks']): number {

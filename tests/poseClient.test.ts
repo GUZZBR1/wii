@@ -65,6 +65,32 @@ describe('PoseClient capture sessions', () => {
     FakeWorker.instance = undefined;
   });
 
+  it('does not start the frame scheduler if a ready callback pauses reentrantly', async () => {
+    const bitmap = { close: vi.fn() } as unknown as ImageBitmap;
+    vi.stubGlobal('Worker', FakeWorker);
+    vi.stubGlobal('location', { origin: 'http://localhost' });
+    vi.stubGlobal('window', { setTimeout, clearTimeout });
+    vi.stubGlobal('HTMLMediaElement', { HAVE_CURRENT_DATA: 2 });
+    const createImageBitmapMock = vi.fn(async () => bitmap);
+    vi.stubGlobal('createImageBitmap', createImageBitmapMock);
+
+    const client = new PoseClient();
+    const onStatus = vi.fn((_status: string, detail: string) => {
+      if (detail.endsWith('capturando')) client.pauseCapture();
+    });
+    await client.init({ onPose: vi.fn(), onStatus });
+    const worker = FakeWorker.instance!;
+    const video = makeVideo();
+
+    client.beginCapture(video, { onPose: vi.fn(), onStatus });
+    video.fireFrame(10);
+    await flushCapture();
+
+    expect(createImageBitmapMock).not.toHaveBeenCalled();
+    expect(worker.sent.filter((message) => message.type === 'FRAME')).toHaveLength(0);
+    client.dispose();
+  });
+
   it('discards an old pose after restart and releases backpressure for the new session', async () => {
     const bitmap = { close: vi.fn() } as unknown as ImageBitmap;
     vi.stubGlobal('Worker', FakeWorker);
@@ -103,6 +129,7 @@ describe('PoseClient capture sessions', () => {
       landmarks: visibleLandmarks(),
       worldLandmarks: visibleLandmarks(),
     });
+    await flushCapture();
 
     expect(oldOnPose).not.toHaveBeenCalled();
     expect(newOnPose).not.toHaveBeenCalled();
@@ -202,6 +229,7 @@ describe('PoseClient capture sessions', () => {
       requestId: oldFrame.requestId, captureEpoch: oldFrame.captureEpoch,
       message: 'GPU falhou; próxima captura será processada em CPU.',
     });
+    await flushCapture();
     expect(onStatus).not.toHaveBeenCalled();
 
     video.fireFrame(20);
@@ -225,6 +253,7 @@ describe('PoseClient capture sessions', () => {
       requestId: newFrame.requestId, captureEpoch: newFrame.captureEpoch,
       message: 'GPU falhou; próxima captura será processada em CPU.',
     });
+    await flushCapture();
     expect(onStatus).toHaveBeenCalledWith('fallback', 'GPU falhou; próxima captura será processada em CPU.');
     video.fireFrame(30);
     await flushCapture();
