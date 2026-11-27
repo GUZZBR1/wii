@@ -4,8 +4,8 @@ Este é o registro vivo das rodadas de melhoria arquitetural solicitadas para o 
 
 ## Estado da iniciativa
 
-- **Base de implementação desta rodada:** `origin/main` em `799abca` (`refactor/canonical-frame-capture`, worktree isolada).
-- **Levantamento do estado ativo:** PR42 em `98ea424`; usado para localizar mudanças recentes e worktrees em andamento, sem copiar arquivos locais não revisados.
+- **Base atual da branch:** `origin/main` em `241a8c3`, com PR42 (#42), boxe (#44), rotação do menu (#46) e polimento do menu (#47) já integrados; trabalho na worktree isolada `refactor/canonical-frame-capture`.
+- **Levantamento do estado ativo:** PR42 e worktrees/orquestrações locais foram comparados; mudanças locais não revisadas foram preservadas e não copiadas.
 - **Estado do checkout compartilhado:** alterações locais fora desta worktree são preservadas e não fazem parte desta rodada.
 - **Skills aplicadas:** `codebase-design` e `domain-modeling`.
 - **Glossário/ADRs anteriores:** não existem nesta base. Criar o glossário quando um termo de domínio precisar ser resolvido; registrar decisões arquiteturais com trade-offs duradouros em `docs/adr/`.
@@ -29,7 +29,7 @@ flowchart LR
   Kinematics --> Events[SportActionEvent / ContinuousControls]
   Events --> GameCanvas[src/ui/GameCanvas.tsx]
   GameCanvas --> Games[src/games: Track and Tennis]
-  Games --> Loop[src/games/core/GameLoop.ts]
+  Games[Track, Athletics, Tennis, Boxing] --> Loop[src/games/core/GameLoop.ts]
 ```
 
 `src/app/App.tsx` is the website router and page shell; `src/App.tsx` is the camera and arena coordinator. The similar names describe separate modules and are an ongoing source of navigation cost.
@@ -38,14 +38,14 @@ flowchart LR
 
 | State or rule | Current owner | Readers and important constraints |
 | --- | --- | --- |
-| Camera stream, UI mode, camera attempt | `src/App.tsx` | Starts/stops the browser stream and chooses hand or pose capture. Attempt and mode refs invalidate late async work. |
+| Camera stream, UI mode, camera attempt and vision activation | `src/App.tsx` | Starts/stops the browser stream and chooses hand or pose capture. `cameraAttemptRef` invalidates physical camera sessions; `visionActivationRef` invalidates detector activations, including hand→pose→hand. |
 | Pose worker, request IDs, capture epoch | `packages/core/src/providers/poseClient.ts` | Owns the pose Worker, frame correlation, capture callbacks and pose protocol. `VideoFramePump` owns scheduling and single-flight; the pose bitmap is transferred to the worker. |
 | Hand worker, capture and in-flight frame | `packages/core/src/providers/handClient.ts` | Owns the hand Worker, worker request correlation, resizing and live capture. `processFrame` closes rejected bitmaps and transfers accepted ones; the shared pump owns scheduling and single-flight. |
 | App hand adapter | `src/cv/handClient.ts` | Supplies versioned local asset URLs and asset warming. It no longer implements a second capture scheduler. |
-| Alternate provider switching | `packages/core/src/runtime/spatialRuntime.ts` | Owns a provider generation. It delegates live capture to providers that support it; processFrame-only adapters use the shared pump. It is exported and tested, but no production caller was found. |
+| Alternate provider switching | `packages/core/src/runtime/spatialRuntime.ts` | Owns a provider generation. It delegates live capture to providers that support it; each processFrame-only hand activation owns a separate pump. It is exported and tested, but no production caller was found. |
 | Calibration and action history | `src/App.tsx`, `src/cv/adaptiveCalibrator.ts`, `src/kinematics/*` | The coordinator owns long-lived instances; pure detectors own their local filters and timing windows. `adaptiveCalibrator.ts` consumes kinematics helpers; the reverse type dependency was removed in round 2 by importing contracts from `@wii/spatial-core`. |
 | Three.js renderer and fixed-step clock | `src/games/core/GameLoop.ts` | Game instances own their scene objects and dispose them through shared helpers. |
-| Rules and match state | `src/games/track/*`, `src/games/tennis/*` | Pure rules have direct deterministic tests; rendering is owned by each game class. |
+| Rules and match state | `src/games/track/*`, `src/games/athletics/*`, `src/games/tennis/*`, `src/games/boxing/*` | Pure rules have direct deterministic tests; rendering is owned by each game class. Cross-game imports remain in the backlog for a dedicated ownership pass. |
 | Website and menu state | React modules under `src/app`, `src/components`, `src/pages`, `src/ui` | Local UI state stays in React. The language provider owns selected language. |
 | Browser persistence | `src/lib/quality.ts`, `src/App.tsx`, `src/i18n.tsx`, `src/components/SiteHeader.tsx`, legacy `TrackGame.ts` | Local storage holds quality preference, mute, language, theme and obstacle-course records. There is no server-side user store. |
 
@@ -67,9 +67,9 @@ flowchart LR
 | --- | --- |
 | Donos | `App` continua dono do `MediaStream` e da modalidade. Cada provider continua dono do Worker, dos IDs de requisição e do protocolo. O novo pump é dono apenas do agendamento e do backpressure de captura. `SpatialRuntime` continua dono da geração de provider. |
 | Leitores/escritores | `PoseClient`, o adaptador de `HandClient` e `SpatialRuntime` iniciam/param captura. Apenas o pump registra/cancela rVFC/rAF e mantém o slot de processamento agendado. |
-| Vida útil | Um pump vive com seu cliente ou runtime. `pauseCapture` cancela callbacks agendados; `dispose` também encerra o cliente/worker. Pausar e retomar no mesmo worker não zera a sequência temporal. |
+| Vida útil | Um pump vive com cada cliente, ou com uma ativação de adaptador legado do runtime. `pauseCapture` cancela callbacks agendados; `dispose` também encerra o cliente/worker. Pausar e retomar no mesmo worker não zera a sequência temporal. |
 | Buffers | O pump não cria nem retém `ImageBitmap`. O provider/adaptador cria a cópia, fecha-a se a sessão ficar obsoleta e transfere a propriedade ao Worker no `postMessage`; após transferência, o buffer não é mutável nem fechável pelo chamador. |
-| Invalidação | O pump usa uma geração privada para callbacks de scheduler. `cameraAttemptRef`, `PoseClient.captureEpoch`, o contador de sessão da mão e `SpatialRuntime.generation` mantêm seus significados atuais; nenhum substitui os demais. |
+| Invalidação | O pump usa uma geração privada para callbacks de scheduler. `cameraAttemptRef`, `PoseClient.captureEpoch`, o contador de sessão da mão e `SpatialRuntime.generation` mantêm seus significados atuais; cada ativação legada recebe um pump próprio, então trabalho pendente de um adapter não bloqueia o seguinte. |
 | Ponto de commit | O frame é aceito pelo Worker quando `postMessage(FRAME, [bitmap])` retorna. O slot do pump só fica livre quando o resultado/erro desse frame foi resolvido ou quando o cliente é descartado. |
 | Ordenação/progresso | Um frame em processamento por pump; não há fila. O próximo frame de vídeo é agendado, mas descartado enquanto o slot estiver ocupado. Erro de cópia/processamento reporta erro e libera o slot para quadros futuros. |
 | Exceções | Falhas de `createImageBitmap` e de processamento chegam ao callback de erro. Erros fatais do Worker continuam sendo tratados pelo cliente. O pump não converte erro fatal em retry silencioso. |
@@ -163,6 +163,24 @@ flowchart LR
 - Suíte completa com gravações locais existentes: `npm test` — 54 arquivos e 446 testes Vitest aprovados; os cinco testes Node de qualidade também passaram. Os JSON foram ligados temporariamente à worktree e o link foi removido ao terminar.
 - `npm run build`, `npm run lint`, `npm run check:articles`, `npx biome lint src/App.tsx tests/appVisionMode.test.tsx src/kinematics` e `git diff --check` passaram. O lint global mantém 28 avisos CSS existentes; os arquivos alterados não geram avisos isolados. O build mantém o aviso de chunks acima de 500 kB.
 - Revisão independente final não encontrou achados após a correção do caso em que o init de Pose rejeita sem publicar status.
+
+## Rodada 5 — isolamento de trabalho legado por geração
+
+### Invariantes
+
+| Item | Decisão/estado observado |
+| --- | --- |
+| Donos | `SpatialRuntime` escolhe e invalida providers por `generation`; cada pump serializa o trabalho de uma única ativação de adaptador legado. |
+| Trabalho em voo | Adaptadores `processFrame` antigos não têm contrato de cancelamento. O runtime ignora seu resultado depois da troca e não espera a Promise antiga para avançar uma geração nova. |
+| Commit | Cada ativação hand que usa somente `processFrame` cria um pump novo; `disposeActive()` para e solta a referência ao pump corrente. Uma conclusão antiga só libera o slot de seu próprio pump. |
+| Buffer | A cópia criada pelo runtime continua sob o contrato de posse de `processFrame`; se a geração ficar obsoleta antes da chamada, o bitmap é fechado pelo runtime. |
+
+### Mudança e verificação
+
+- A revisão independente encontrou que o pump compartilhado mantinha `inFlight` depois de `stop()`. Um adapter antigo com Promise pendente bloqueava para sempre o adapter da próxima geração.
+- O teste determinístico reproduziu a falha sem sleeps: mantém `processFrame` antigo pendente, troca hand→pose→hand e confirma que o novo adapter recebe seu primeiro quadro. O resultado antigo é resolvido depois e continua sem ser publicado.
+- O teste falhou antes da correção e passou após criar um pump por ativação legada. `npm test -- tests/spatialRuntime.test.ts tests/videoFramePump.test.ts`: 12 testes passaram; os cinco testes Node de qualidade passaram.
+- A garantia de um único quadro em voo continua dentro de cada pump, inclusive ao reiniciar o mesmo pump; gerações diferentes deixam de compartilhar o slot.
 
 ## Ciclo de melhoria
 

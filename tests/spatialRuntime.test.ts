@@ -371,4 +371,44 @@ describe('SpatialRuntime context switching', () => {
     expect(onObservation).not.toHaveBeenCalled();
     runtime.dispose();
   });
+
+  it('starts a fresh legacy-adapter pump when a new hand provider replaces pending work', async () => {
+    const video = makeVideo();
+    const firstHand = new FakeHandClient();
+    const pendingOldResult = deferred<HandSnapshot | undefined>();
+    firstHand.frameResult = pendingOldResult.promise;
+    const secondHand = new FakeHandClient();
+    const newSnapshot = handSnapshot(20);
+    secondHand.frameResult = Promise.resolve(newSnapshot);
+    const clients = [firstHand, secondHand];
+    const poseClient = new FakePoseClient();
+    const { runtime, onObservation } = makeRuntime(
+      video,
+      () => clients.shift()!,
+      () => poseClient,
+    );
+    const bitmaps = [
+      { close: vi.fn() } as unknown as ImageBitmap,
+      { close: vi.fn() } as unknown as ImageBitmap,
+    ];
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmaps.shift()!));
+
+    await runtime.activate('hand');
+    video.fireFrame(10);
+    await flushAsyncFrame();
+    expect(firstHand.frames).toHaveLength(1);
+
+    await runtime.activate('pose');
+    await runtime.activate('hand');
+    video.fireFrame(20);
+    await flushAsyncFrame();
+
+    expect(secondHand.frames).toHaveLength(1);
+    expect(onObservation).toHaveBeenCalledWith({ source: 'hand', snapshot: newSnapshot });
+
+    pendingOldResult.resolve(handSnapshot(10));
+    await flushAsyncFrame();
+    expect(onObservation).toHaveBeenCalledTimes(1);
+    runtime.dispose();
+  });
 });

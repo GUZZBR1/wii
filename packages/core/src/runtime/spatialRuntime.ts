@@ -67,7 +67,7 @@ export class SpatialRuntime {
   private readonly callbacks: SpatialRuntimeCallbacks;
   private readonly createHandClient: () => HandProviderClient;
   private readonly createPoseClient?: () => PoseProviderClient;
-  private readonly handFramePump = new VideoFramePump();
+  private handFramePump?: VideoFramePump;
   private active?: ActiveProvider;
   private generation = 0;
   private activation?: { context: PerceptionContext; generation: number; promise: Promise<boolean> };
@@ -224,7 +224,9 @@ export class SpatialRuntime {
     }
 
     // Keep existing processFrame-only provider adapters working through the same scheduler.
-    this.handFramePump.start(this.video, {
+    const pump = new VideoFramePump();
+    this.handFramePump = pump;
+    pump.start(this.video, {
       onFrame: async (timestampMs) => {
         if (!this.isCurrent(active, generation) || this.video.videoWidth <= 0 || this.video.videoHeight <= 0) return;
         let bitmap: ImageBitmap | undefined;
@@ -249,7 +251,8 @@ export class SpatialRuntime {
   }
 
   private disposeActive(): void {
-    this.handFramePump.stop();
+    this.handFramePump?.stop();
+    this.handFramePump = undefined;
     const active = this.active;
     this.active = undefined;
     if (!active) return;
