@@ -61,12 +61,18 @@ describe('swing detector', () => {
     expect(stroke(-0.6)).toBe(0);
   });
 
+  it('keeps a stroke through one blurred frame in the middle of it', () => {
+    const detector = new SwingDetector('right');
+    const outputs = fast(0.5, -0.5).map((value, frame) => detector.update(pose(frame * 33, { wristLateral: value, hiddenLandmarks: frame === 10 ? [16] : [] })));
+    expect(strokes(outputs)).toMatchObject([{ side: 'forehand' }]);
+  });
+
   it('does not read a jump across a tracking hole as a stroke', () => {
     const detector = new SwingDetector('right');
     detector.update(pose(0, { wristLateral: 0.5 }));
     expect(detector.update(pose(3000, { wristLateral: -0.5 }))).toBeUndefined();
-    expect(detector.update(pose(3033, { wristLateral: -0.5, hiddenLandmarks: [16] }))).toBeUndefined();
-    expect(detector.update(pose(3066, { wristLateral: 0.5 }))).toBeUndefined();
+    for (let time = 3033; time <= 3400; time += 33) expect(detector.update(pose(time, { wristLateral: -0.5, hiddenLandmarks: [16] }))).toBeUndefined();
+    expect(detector.update(pose(3433, { wristLateral: 0.5 }))).toBeUndefined();
   });
 
   it('reports contact height and vertical speed of a rising stroke', () => {

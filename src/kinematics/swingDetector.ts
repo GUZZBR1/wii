@@ -8,7 +8,7 @@ export interface SwingSignal {
   peakTimestampMs: number;
   /** Frame where the onset threshold was crossed — the stroke's physical start. */
   onsetTimestampMs: number;
-  /** Wrist height relative to its shoulder at the speed peak, in shoulder widths, up positive. */
+  /** Highest wrist position of the stroke relative to the shoulders, in shoulder widths, up positive. */
   contactY: number;
   /** Vertical wrist speed at the peak in shoulder widths/s, up positive — topspin/slice proxy. */
   verticalSpeed: number;
@@ -40,8 +40,8 @@ const REFRACTORY_MS = 400;
 /** Twisting the trunk collapses the apparent shoulder width, so the ruler only shrinks slowly. */
 const RULER_HALF_LIFE_MS = 3000;
 const MIN_WRIST_CONFIDENCE = 0.5;
-const FULL_POWER_SPEED = 30;
-const MIN_POWER_SPEED = 8;
+const FULL_POWER_SPEED = 22;
+const MIN_POWER_SPEED = 4;
 export const SWING_MAX_DURATION_MS = 300;
 
 interface Sample { x: number; y: number; time: number }
@@ -50,6 +50,8 @@ interface PendingSwing {
   direction: -1 | 1;
   startedAt: number;
   peak: { time: number; speed: number; verticalSpeed: number; y: number; confidence: number };
+  /** Fastest sideways-and-up speed seen: the power of the stroke. */
+  force: number;
 }
 
 export class SwingDetector {
@@ -68,10 +70,10 @@ export class SwingDetector {
     const previous = this.samples.at(-1);
     // A hole in the samples says nothing about how fast the wrist moved across it.
     if (previous && time - previous.time > STROKE_WINDOW_MS) this.forget();
-    if (!wrist || !left || !right || landmarkConfidence(wrist) < MIN_WRIST_CONFIDENCE) {
-      this.forget();
-      return undefined;
-    }
+    // One blurred frame in the middle of a stroke is skipped, not a reason to drop the stroke; a real
+    // hole is caught above by its length.
+    const worldWrist = snapshot.worldLandmarks[this.hand === 'right' ? 16 : 15];
+    if (!wrist || !left || !right || !worldWrist || landmarkConfidence(wrist, worldWrist) < MIN_WRIST_CONFIDENCE) return undefined;
     const aspect = snapshot.frameHeight && snapshot.frameWidth ? snapshot.frameHeight / snapshot.frameWidth : 0.75;
     const apparent = Math.hypot(left.x - right.x, (left.y - right.y) * aspect);
     const faded = this.ruler ? this.ruler.width * 0.5 ** ((time - this.ruler.time) / RULER_HALF_LIFE_MS) : 0;
@@ -91,12 +93,14 @@ export class SwingDetector {
     const vx = (sample.x - before.x) / seconds;
     const vy = (sample.y - before.y) / seconds;
     const speed = Math.abs(vx);
+    const force = Math.hypot(vx, Math.max(0, vy));
     // Same landmarks the pipeline's gate reads, so a swing never claims more than the gate saw.
     const world = [11, 12, this.hand === 'right' ? 16 : 15].map((index) => snapshot.worldLandmarks[index]);
     const confidence = landmarkConfidence(...world.flatMap((point) => (point ? [point] : [])));
 
     const pending = this.pending;
     if (pending) {
+      if (Math.sign(vx) === pending.direction) pending.force = Math.max(pending.force, force);
       if (Math.sign(vx) === pending.direction && speed > pending.peak.speed) {
         pending.peak = { time, speed, verticalSpeed: vy, y: sample.y, confidence };
       }
@@ -106,11 +110,12 @@ export class SwingDetector {
       return {
         kind: 'confirmed',
         side: this.sideOf(pending.direction),
-        power01: clamp((pending.peak.speed - MIN_POWER_SPEED) / (FULL_POWER_SPEED - MIN_POWER_SPEED)),
+        power01: clamp((pending.force - MIN_POWER_SPEED) / (FULL_POWER_SPEED - MIN_POWER_SPEED)),
         confidence: pending.peak.confidence,
         peakTimestampMs: pending.peak.time,
         onsetTimestampMs: pending.startedAt,
-        contactY: pending.peak.y,
+        // Where the stroke finished: high above the shoulders, or down by the waist.
+        contactY: Math.max(pending.peak.y, sample.y),
         verticalSpeed: pending.peak.verticalSpeed,
       };
     }
@@ -132,7 +137,7 @@ export class SwingDetector {
       if (since < REFRACTORY_MS || (direction !== this.last.direction && since < RETURN_IGNORE_MS)) return undefined;
     }
     this.last = { direction, time };
-    this.pending = { direction, startedAt: time, peak: { time, speed, verticalSpeed: vy, y: sample.y, confidence } };
+    this.pending = { direction, force, startedAt: time, peak: { time, speed, verticalSpeed: vy, y: sample.y, confidence } };
     return { kind: 'onset', timestampMs: time, side: this.sideOf(direction) };
   }
 

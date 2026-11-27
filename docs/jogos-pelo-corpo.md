@@ -95,6 +95,9 @@ Neste estado:
 - forehand e backhand **aparecem diferentes**: o boneco fica ao lado da bola e recua a raquete para o lado
   dela, o golpe sai do lado reconhecido, o rastro é amarelo (forehand) ou azul (backhand) e o nome aparece;
 - saque em três tempos: bola na mão, lançamento e golpe por cima;
+- a **altura** em que o golpe termina muda a bola: acima da cabeça sai alta, abaixo do peito sai rasante;
+- um quadro borrado no meio do golpe é pulado. Antes ele apagava o golpe, e a volta do braço era lida
+  como backhand;
 - reinício pelas mãos.
 
 ### Detector de raquetada (`src/kinematics/swingDetector.ts`)

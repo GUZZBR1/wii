@@ -275,7 +275,8 @@ export class TennisGame {
     if (outcome.smash) this.setFeedback('SMASH!', 'good');
     else if (outcome.quality01 > 0.85) this.setFeedback('NO PONTO!', 'good');
     if (this.fastServe) this.setFeedback('SAQUE FORTE!', 'good');
-    this.status = isServe ? 'Saque diagonal' : `${dirLabel}${spinLabel}`;
+    const heightLabel = outcome.height === 'high' ? ' · ALTA' : outcome.height === 'low' ? ' · RASANTE' : '';
+    this.status = isServe ? 'Saque diagonal' : `${dirLabel}${heightLabel}${spinLabel}`;
   }
 
   /** Ball state at the given timestamp, reconstructed from the tape of the current flight. */

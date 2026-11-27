@@ -134,7 +134,9 @@ export class ActionPipeline {
       const swingLandmarks = worldHipsVisible ? [11, 12, 23, 24, wrist] : [11, 12, wrist];
       const tracking = gate.evaluate(snapshot, swingLandmarks, 'world');
       if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
-      const output = swingScaleReady && tracking.state === 'tracked' ? detector.update(current) : undefined;
+      // A degraded gate still feeds the detector, which skips weak frames itself: the gate stays degraded
+      // for a good half second after one blurred frame, which is a whole stroke.
+      const output = swingScaleReady && tracking.state !== 'lost' ? detector.update(current) : undefined;
       // The onset bypasses arbitration and the refractory on purpose: it is the real-time,
       // unconfirmed channel — the game's cue to start the stroke animation now, not proof of a hit.
       if (output?.kind === 'onset') {

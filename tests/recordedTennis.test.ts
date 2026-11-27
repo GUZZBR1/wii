@@ -56,6 +56,9 @@ const STROKES: Record<string, { forehand: number[]; backhand: number[] }> = {
   },
   // Compact strokes made while playing. 0.7 s (before the body scale is ready), 2.7 s and 18.8 s are visible and still missed;
   // the first recording also gains one reading at 39.6 s, while taking the wrist out of frame.
+  // A blurred frame mid-stroke used to drop the stroke and read the return as a backhand. The one at
+  // 17.5 s may still be missed.
+  './recordings/errors/tenis-erro-CPU-1795787950019.json': { forehand: [3.0, 9.1, 14.6], backhand: [] },
   './recordings/errors/tenis-erro-CPU-1795786567000.json': { forehand: [5.9, 7.4, 9.4, 11.9, 17.5], backhand: [] },
 };
 

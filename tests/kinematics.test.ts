@@ -284,12 +284,11 @@ describe('action pipeline tracking gate', () => {
     [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
     pipeline.update(withWorldConfidence(pose(99, { wristLateral: -0.3 }), 11, 0.6, 0.6), profile);
     pipeline.update(withWorldConfidence(pose(132, { wristLateral: -0.3 }), 16, 0.1, 0.1), profile);
-    pipeline.update(pose(165, { wristLateral: 0.2 }), profile);
-    pipeline.update(pose(198, { wristLateral: 0.2 }), profile);
-    const recovery = pipeline.update(pose(231, { wristLateral: 0.2 }), profile);
-    const swing = recovery.events.find((event) => event.type === 'swing');
+    const events = [pose(165, { wristLateral: 0.2 }), pose(198, { wristLateral: 0.2 }), pose(231, { wristLateral: 0.2 })]
+      .flatMap((frame) => pipeline.update(frame, profile).events);
+    const swing = events.find((event) => event.type === 'swing');
     expect(swing).toMatchObject({ type: 'swing', confidence: 0.6 });
-    expect(swing?.timestampMs).toBe(231);
+    expect(swing?.timestampMs).toBe(165);
     expect(swing?.type === 'swing' ? swing.peakTimestampMs : undefined).toBe(99);
   });
 
@@ -313,11 +312,10 @@ describe('action pipeline tracking gate', () => {
     [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
     pipeline.update(pose(99, { wristLateral: -0.3 }), profile);
     pipeline.update(withWorldConfidence(pose(132, { wristLateral: -0.3 }), 16, 0.1, 0.1), profile);
-    pipeline.update(pose(165, { wristLateral: 0.2 }), profile);
-    pipeline.update(pose(198, { wristLateral: 0.2 }), profile);
-    const recovery = pipeline.update(withWorldConfidence(pose(231, { wristLateral: 0.2 }), 11, 0.6, 0.6), profile);
-    const swing = recovery.events.find((event) => event.type === 'swing');
-    expect(swing).toMatchObject({ type: 'swing', confidence: 0.95, timestampMs: 231, peakTimestampMs: 99 });
+    const events = [pose(165, { wristLateral: 0.2 }), pose(198, { wristLateral: 0.2 }), withWorldConfidence(pose(231, { wristLateral: 0.2 }), 11, 0.6, 0.6)]
+      .flatMap((frame) => pipeline.update(frame, profile).events);
+    const swing = events.find((event) => event.type === 'swing');
+    expect(swing).toMatchObject({ type: 'swing', confidence: 0.95, timestampMs: 165, peakTimestampMs: 99 });
   });
 
   it('uses landmark presence as well as visibility to gate a swing', () => {
