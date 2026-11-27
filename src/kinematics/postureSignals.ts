@@ -126,6 +126,7 @@ export class RingDepthTracker {
   private speed?: number;
   /** When the size first left the dead band; speed stays 0 until that has lasted DEPTH_HOLD_MS. */
   private outsideSinceMs?: number;
+  private outsideSign = 0;
   private pending?: { move: -1 | 1; sinceMs: number };
   /** The profile has no torso reference: derived from the first readings against its width. */
   private torso?: { widthReference: number; samples: number[] };
@@ -142,8 +143,10 @@ export class RingDepthTracker {
     const torsoHeight = imageSpan(midpoint(leftShoulder, rightShoulder), midpoint(leftHip, rightHip), snapshot);
     if (!Number.isFinite(torsoHeight) || torsoHeight < MIN_TORSO_HEIGHT) return undefined;
     if (punching) {
-      // A step still waiting out its hold must not count the punch as time held.
+      // A step or a speed still waiting out its hold must not count the punch as time held; a speed
+      // already established carries on after it.
       this.pending = undefined;
+      if (!this.speed) this.outsideSinceMs = undefined;
       return this.move;
     }
     if (this.torso?.widthReference !== reference) this.torso = { widthReference: reference, samples: [] };
@@ -153,8 +156,10 @@ export class RingDepthTracker {
     const offset = ratio - 1;
     // A brief change of apparent size (a lean, a turn) must not walk the player: same dwell as the step.
     const outside = Math.abs(offset) > DEPTH_DEAD_BAND;
-    if (!outside) this.outsideSinceMs = undefined;
-    else this.outsideSinceMs ??= snapshot.timestampMs;
+    // Jumping across the band to the other side is a new direction, with its own dwell.
+    if (!outside || Math.sign(offset) !== this.outsideSign) this.outsideSinceMs = undefined;
+    this.outsideSign = outside ? Math.sign(offset) : 0;
+    if (outside) this.outsideSinceMs ??= snapshot.timestampMs;
     this.speed = !outside || snapshot.timestampMs - this.outsideSinceMs! < DEPTH_HOLD_MS
       ? 0
       : Math.sign(offset) * clamp((Math.abs(offset) - DEPTH_DEAD_BAND) / (DEPTH_FULL_SPEED - DEPTH_DEAD_BAND));
@@ -174,5 +179,5 @@ export class RingDepthTracker {
   /** Signed approach speed -1..1 as of the last unfrozen reading, positive toward the camera. */
   get approach01(): number | undefined { return this.speed; }
 
-  reset(): void { this.filter.reset(); this.move = 0; this.speed = undefined; this.outsideSinceMs = undefined; this.pending = undefined; this.torso = undefined; }
+  reset(): void { this.filter.reset(); this.move = 0; this.speed = undefined; this.outsideSinceMs = undefined; this.outsideSign = 0; this.pending = undefined; this.torso = undefined; }
 }

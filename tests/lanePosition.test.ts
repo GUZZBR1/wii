@@ -324,6 +324,18 @@ describe('RingDepthTracker', () => {
     expect(new Set(speeds)).toEqual(new Set([0]));
   });
 
+  it('does not count a punch freeze as time spent stepped away', () => {
+    const tracker = new RingDepthTracker();
+    const speeds: number[] = [];
+    for (let time = 0; time <= 2000; time += 33) {
+      const leaning = time >= 500 && time < 1200; // short lean, a 500 ms punch, short lean again
+      const punching = time >= 600 && time < 1100;
+      tracker.update(scaled(time, leaning ? 0.75 : 1), profile(), punching);
+      speeds.push(tracker.approach01 ?? 0);
+    }
+    expect(new Set(speeds)).toEqual(new Set([0]));
+  });
+
   it('has no opinion without a reference width', () => {
     expect(new RingDepthTracker().update(pose(0), calibration())).toBeUndefined();
   });
