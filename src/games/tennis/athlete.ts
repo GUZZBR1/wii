@@ -54,20 +54,39 @@ export function createAthlete(shirt: number, facing: number) {
   const grip = group(racketHand, 0, 0, 0);
   grip.rotation.z = -1.1;
 
+  // The streak the racket head leaves behind during a stroke.
+  const swoosh = add(root, new THREE.RingGeometry(0.75, 1.25, 32, 1, 0, Math.PI * 1.1), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }), 0, 0.95);
+  swoosh.rotation.x = -Math.PI / 2;
+  swoosh.visible = false;
+  const swooshPaint = swoosh.material as THREE.MeshBasicMaterial;
+
   return {
     root, grip,
     animate(stride: number, speed: number, swing: number, direction: number) {
       const step = Math.sin(stride * 9) * Math.min(1, Math.abs(speed) / 3);
-      const arc = Math.sin(Math.PI * swing);
-      // Sweep from one side of the body to the other over the stroke; at rest the angle is zero.
-      const sweep = swing < 1 ? Math.cos(Math.PI * swing) * direction : 0;
-      torso.rotation.set(0, sweep * 0.9, -speed * 0.04);
+      const swinging = swing < 1;
+      // Fast through the ball, slower on the follow-through.
+      const eased = 1 - (1 - swing) ** 2;
+      // Angle around the body, 0 straight ahead: starts behind on the stroke side and wraps across.
+      const angle = (2.3 - 4.2 * eased) * direction;
+      torso.rotation.set(0, swinging ? -angle * 0.4 : 0, -speed * 0.04);
       torso.position.y = 0.6 + Math.abs(step) * 0.07;
       legs[0]!.rotation.x = step * 0.7;
       legs[1]!.rotation.x = -step * 0.7;
       freeHand.position.set(-0.46, 0.2 + step * 0.08, -0.06 - step * 0.12);
-      racketHand.position.set(0.46 + arc * 0.28 * direction, 0.2 + arc * 0.3, -0.06 - arc * 0.45);
-      grip.rotation.set(-arc * 0.9, sweep * 1.1, -1.1);
+      if (swinging) {
+        racketHand.position.set(Math.sin(angle) * 0.62, 0.22 + eased * 0.3, -Math.cos(angle) * 0.62);
+        // Lay the racket out radially, pointing away from the body.
+        racketHand.rotation.set(0, -angle, 0);
+        grip.rotation.set(-Math.PI / 2, 0, 0);
+      } else {
+        racketHand.position.set(0.46, 0.2, -0.06);
+        racketHand.rotation.set(0, 0, 0);
+        grip.rotation.set(0, 0, -1.1);
+      }
+      swoosh.visible = swinging;
+      swooshPaint.opacity = 0.55 * Math.sin(Math.PI * swing);
+      swoosh.rotation.z = Math.PI / 2 - angle - (direction > 0 ? 0 : Math.PI * 1.1);
     },
   };
 }

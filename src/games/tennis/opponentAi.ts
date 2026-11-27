@@ -51,8 +51,8 @@ export const DEFAULT_OPPONENT_AI_CONFIG: OpponentAiConfig = {
   minWidthScale: 0.25,
   shallowTargetZ: 3.5,
   deepTargetZ: 8.5,
-  slowFlightSeconds: 1.15,
-  fastFlightSeconds: 0.75,
+  slowFlightSeconds: 1.6,
+  fastFlightSeconds: 1.15,
 };
 
 export interface OpponentAiState {

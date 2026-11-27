@@ -11,9 +11,10 @@ import {
 } from '../core/fixedStepTiming';
 import { RestartGesture } from '../core/restartGesture';
 import { createAthlete, createRacket } from './athlete';
+import { createTennisEffects } from './effects';
 import { buildTennisStadium } from './stadium';
 import { advanceBall, createBall, solveOutgoing, timeAtPlane, type BallState } from './ballistics';
-import { adjudicateContact, type ContactOutcome } from './contactAdjudicator';
+import { adjudicateContact, DEFAULT_GEOMETRY, type ContactOutcome } from './contactAdjudicator';
 import { adaptOpponentSkill, createOpponentAi, decideReturn, type OpponentAiState } from './opponentAi';
 import { ballAtPlannedContact, resolveScheduledOpponentReturn, type OpponentHitPlan } from './opponentReturn';
 import { crossesNetBelowCord } from './rallyPhysics';
@@ -72,6 +73,10 @@ export class TennisGame {
   private opponentMotion = 0;
   private swingDirection = 1;
   private readonly loop: GameLoop;
+  private readonly effects: ReturnType<typeof createTennisEffects>;
+  private readonly crowd: THREE.Object3D[];
+  private cheerS = 0;
+  private renderedAtMs = 0;
   private readonly hudTimer: number;
 
   private ball: BallState | null = null;
@@ -106,7 +111,8 @@ export class TennisGame {
     private readonly onHud: (state: GameHudState) => void,
     private readonly audio?: ProceduralAudio,
   ) {
-    buildTennisStadium(this.scene);
+    this.crowd = buildTennisStadium(this.scene).crowd;
+    this.effects = createTennisEffects(this.scene);
     this.player.grip.add(createRacket(0x2563c9));
     this.opponent.grip.add(createRacket(0xcf3d3d));
     this.ballShadow.rotation.x = -Math.PI / 2;
@@ -191,7 +197,7 @@ export class TennisGame {
       movementPenalty01: 0,
       swing,
       timingErrorOverrideMs: swing.peakTimestampMs - this.phase.idealHitMs,
-      geometry: { reachRadius: 2.2, playerZ: BASELINE_Z + 1, maxTimingMs: 320 },
+      geometry: { reachRadius: 2.2, playerZ: BASELINE_Z + 1, maxTimingMs: 600 },
     });
     this.applyPlayerOutcome(outcome, ballAtPeak, swing.peakTimestampMs, now, true, wallNow);
   }
@@ -235,7 +241,8 @@ export class TennisGame {
     this.wallToSimulationOffsetMs = now - wallNow;
     this.phase = { kind: 'rally' };
     this.opponentHitPlan = null;
-    this.audio?.hit(0.4 + 0.6 * outcome.quality01);
+    this.audio?.racket(0.4 + 0.6 * outcome.quality01);
+    this.effects.impact(ballAtPeak.position, outcome.quality01);
     for (let elapsed = 0; elapsed < lagSec && this.phase.kind === 'rally';) {
       const dt = Math.min(1 / 60, lagSec - elapsed);
       elapsed += dt;
@@ -326,13 +333,13 @@ export class TennisGame {
           // The serve is not a return: always in, modest pace, slight lateral variety.
           const from = { x: this.serveX, y: 2.2, z: -BASELINE_Z - 0.35 };
           const targetX = Math.sign(this.serveX) * (1.2 + Math.random() * 1.3);
-          const velocity = solveOutgoing(from, { x: targetX, z: 3.5 + Math.random() }, 1.05);
+          const velocity = solveOutgoing(from, { x: targetX, z: 3.5 + Math.random() }, 1.5);
           this.ball = createBall(from, velocity, 'opponent');
           this.tape = [{ tMs: now, ball: this.ball }];
           this.opponentSwingT = 0;
           this.servingFlight = true;
           this.phase = { kind: 'rally' };
-          this.audio?.hit(0.5);
+          this.audio?.racket(0.5);
           this.status = 'Saque do adversário — prepare-se';
         }
         break;
@@ -447,7 +454,8 @@ export class TennisGame {
       this.tape = [{ tMs: now, ball: this.ball }];
       this.servingFlight = false;
       this.opponentSwingT = 0;
-      this.audio?.hit(0.45);
+      this.audio?.racket(0.4);
+      this.effects.impact(this.ball.position, 0.1);
     }
   }
 
@@ -500,6 +508,20 @@ export class TennisGame {
     }
     this.ball = null;
     this.tape = [];
+    this.callScore(result);
+    if (youWon) {
+      this.cheerS = 1.8;
+      this.audio?.cheer(result.gameWonBy ? 1.6 : 1);
+    }
+  }
+
+  private callScore(result: { gameWonBy?: unknown; matchWonBy?: unknown }): void {
+    if (result.matchWonBy) this.audio?.say('Fim de jogo');
+    else if (result.gameWonBy) this.audio?.say('Game');
+    else {
+      const labels = pointLabels(this.score);
+      this.audio?.say(`${labels.player} a ${labels.opponent}`.replace('AD', 'vantagem'));
+    }
   }
 
   private stepAvatars(dt: number): void {
@@ -530,11 +552,16 @@ export class TennisGame {
 
   private stepAnimations(dt: number): void {
     this.bounceAge += dt;
-    this.swingAnimT = Math.min(1, this.swingAnimT + dt / 0.28);
-    this.opponentSwingT = Math.min(1, this.opponentSwingT + dt / 0.28);
+    this.swingAnimT = Math.min(1, this.swingAnimT + dt / 0.45);
+    this.opponentSwingT = Math.min(1, this.opponentSwingT + dt / 0.45);
   }
 
   private render(): void {
+    const at = nowMs();
+    const dt = Math.min(0.05, Math.max(0, (at - this.renderedAtMs) / 1000));
+    this.renderedAtMs = at;
+    this.cheerS = Math.max(0, this.cheerS - dt);
+    for (const part of this.crowd) part.position.y = this.cheerS > 0 ? Math.abs(Math.sin(at / 90)) * 0.22 : 0;
     if (this.ball) {
       this.ballMesh.visible = true;
       this.ballMesh.position.set(this.ball.position.x, Math.max(0.18, this.ball.position.y), this.ball.position.z);
@@ -562,6 +589,15 @@ export class TennisGame {
     const follow = this.playerX * 0.45;
     this.camera.position.set(follow, 4.4 + portrait * 3, 16.2 + portrait * 8);
     this.camera.lookAt(follow * 0.5, 0.2, 0);
+    const ball = this.ball;
+    const incoming = ball && this.phase.kind === 'rally' && ball.lastHitter === 'opponent' && ball.velocity.z > 0.5;
+    this.effects.timing(
+      this.playerX,
+      DEFAULT_GEOMETRY.contactPlaneZ,
+      incoming ? (DEFAULT_GEOMETRY.contactPlaneZ - ball.position.z) / ball.velocity.z : undefined,
+      DEFAULT_GEOMETRY.maxTimingMs / 1000,
+    );
+    this.effects.step(dt, ball && this.phase.kind === 'rally' ? this.ballMesh.position : undefined, this.camera);
   }
 
   // ---------------------------------------------------------------- hud & lifecycle

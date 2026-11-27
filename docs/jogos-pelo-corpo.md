@@ -87,6 +87,9 @@ Neste estado:
 - abre com **três rebatidas de aquecimento** (`App.tsx`), que dizem o que a câmera não está vendo;
 - estádio de grama com arquibancadas, torcida e árvores (`stadium.ts`), e câmera baixa atrás do jogador;
 - tenistas no estilo Mii, com mãos soltas e raquete grande (`athlete.ts`);
+- janela de acerto generosa (±0,5 s) e bola lenta, com um **anel no chão que fecha** quando é hora de bater;
+- golpe com arco e rastro, clarão e tremida no impacto, som de raquete, torcida que pula e aplaude e placar
+  falado pelo navegador (`effects.ts`, `audio.ts`);
 - reinício pelas mãos.
 
 ### Detector de raquetada (`src/kinematics/swingDetector.ts`)

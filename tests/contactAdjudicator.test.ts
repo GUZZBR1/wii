@@ -55,23 +55,23 @@ describe('adjudicateContact — whiffs', () => {
   });
 
   it('whiffs early and late outside the timing window', () => {
-    // Slow ball (7 u/s) so the ±290 ms offsets stay inside the pass margin — isolating timing.
-    expect(adjudicateContact(query({ ballAtPeak: incoming({ z: 7.2 - 7 * 0.29, vz: 7 }) }))).toMatchObject({
+    // Slow ball (7 u/s) so the ±510 ms offsets stay inside the pass margin — isolating timing.
+    expect(adjudicateContact(query({ ballAtPeak: incoming({ z: 7.2 - 7 * 0.51, vz: 7 }) }))).toMatchObject({
       kind: 'whiff',
       reason: 'early',
     });
-    expect(adjudicateContact(query({ ballAtPeak: incoming({ z: 7.2 + 7 * 0.29, vz: 7 }) }))).toMatchObject({
+    expect(adjudicateContact(query({ ballAtPeak: incoming({ z: 7.2 + 4 * 0.51, vz: 4 }) }))).toMatchObject({
       kind: 'whiff',
       reason: 'late',
     });
   });
 
   it('whiffs when the ball is beyond the lateral reach even with perfect timing', () => {
-    expect(adjudicateContact(query({ ballAtPeak: incoming({ x: 1.4 }), playerX: 0 }))).toMatchObject({
+    expect(adjudicateContact(query({ ballAtPeak: incoming({ x: 2.4 }), playerX: 0 }))).toMatchObject({
       kind: 'whiff',
       reason: 'out-of-reach',
     });
-    expect(adjudicateContact(query({ ballAtPeak: incoming({ x: 1.1 }), playerX: 0 })).kind).toBe('contact');
+    expect(adjudicateContact(query({ ballAtPeak: incoming({ x: 2.1 }), playerX: 0 })).kind).toBe('contact');
   });
 
   it('dead-balls after the second bounce and after passing the player', () => {
@@ -96,9 +96,9 @@ describe('adjudicateContact — contacts', () => {
   });
 
   it('early forehand pulls cross, late forehand pushes line — continuously', () => {
-    // ±0.1 s at 14 u/s ≈ 1.4 m off-plane.
-    const early = adjudicateContact(query({ ballAtPeak: incoming({ z: 7.2 - 1.4 }) }));
-    const late = adjudicateContact(query({ ballAtPeak: incoming({ z: 7.2 + 1.4 }) }));
+    // ±0.12 s at 14 u/s ≈ 1.7 m off-plane.
+    const early = adjudicateContact(query({ ballAtPeak: incoming({ z: 7.2 - 1.7 }) }));
+    const late = adjudicateContact(query({ ballAtPeak: incoming({ z: 7.2 + 1.7 }) }));
     expect(early).toMatchObject({ kind: 'contact', direction: 'cross' });
     expect(late).toMatchObject({ kind: 'contact', direction: 'line' });
     if (early.kind !== 'contact' || late.kind !== 'contact') return;
@@ -108,7 +108,7 @@ describe('adjudicateContact — contacts', () => {
 
   it('mirrors the timing-direction mapping for the backhand, like real tennis', () => {
     const earlyBackhand = adjudicateContact(
-      query({ ballAtPeak: incoming({ z: 7.2 - 1.4 }), swing: swing({ side: 'backhand' }) }),
+      query({ ballAtPeak: incoming({ z: 7.2 - 1.7 }), swing: swing({ side: 'backhand' }) }),
     );
     if (earlyBackhand.kind !== 'contact') throw new Error('expected contact');
     // Early on the backhand side sends the ball the opposite way than early on the forehand.

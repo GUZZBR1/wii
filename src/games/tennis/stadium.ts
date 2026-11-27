@@ -99,7 +99,7 @@ function addWalls(scene: THREE.Scene): void {
 }
 
 /** Raked side stands with a roof and a crowd of Mii heads, one draw call per part. */
-function addStands(scene: THREE.Scene): void {
+function addStands(scene: THREE.Scene): THREE.Object3D[] {
   const concrete = new THREE.MeshStandardMaterial({ color: 0x2c6a4c });
   const roof = new THREE.MeshStandardMaterial({ color: WALL_DARK });
   const seats: THREE.Vector3[] = [];
@@ -126,6 +126,7 @@ function addStands(scene: THREE.Scene): void {
     heads.setColorAt(i, color.setHex(SKIN[(i * 7) % SKIN.length]!));
   });
   scene.add(heads, bodies);
+  return [heads, bodies];
 }
 
 /** A dense row of round, two-tone trees behind the back wall. */
@@ -166,7 +167,7 @@ function mergeStatic(scene: THREE.Scene): void {
   }
 }
 
-export function buildTennisStadium(scene: THREE.Scene): void {
+export function buildTennisStadium(scene: THREE.Scene): { crowd: THREE.Object3D[] } {
   const sky = createSkyDome();
   scene.add(sky.mesh);
   scene.fog = new THREE.Fog(sky.bottomColor, 34, 85);
@@ -176,7 +177,8 @@ export function buildTennisStadium(scene: THREE.Scene): void {
   scene.add(sun);
   addCourt(scene);
   addWalls(scene);
-  addStands(scene);
+  const crowd = addStands(scene);
   addTrees(scene);
   mergeStatic(scene);
+  return { crowd };
 }
