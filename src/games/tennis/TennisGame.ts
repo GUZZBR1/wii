@@ -185,7 +185,8 @@ export class TennisGame {
   onAction(event: SportActionEvent): void {
     if (event.type === 'swing-start') {
       // The ball is still in the hand: nothing to strike yet.
-      if (this.holdingServe()) return;
+      const wallNow = nowMs();
+      if (this.holdingServe(this.simulationTimestampAt(wallNow, wallNow))) return;
       // The arm that threw the ball coming down is not the serve.
       if (this.phase.kind === 'player-serve' && event.hand === this.tossedWith) return;
       // A right-hander's forehand starts on the right, the backhand across the body; mirrored for the left.
@@ -216,12 +217,15 @@ export class TennisGame {
   /** Played with the body only. */
   onKey(): void {}
 
-  setHandsRaised(raised: boolean): void {
-    this.restart.setHandsRaised(raised);
-    this.skipTutorial.setHandsRaised(raised);
+  setHandsRaised(raised: boolean, atMs: number | null): void {
+    this.restart.setHandsRaised(raised, atMs);
+    this.skipTutorial.setHandsRaised(raised, atMs);
   }
 
-  setTracking(tracking: string): void { this.seen = tracking.startsWith('TRACKING'); }
+  setTracking(tracking: string): void {
+    this.seen = tracking.startsWith('TRACKING');
+    if (tracking === 'SEM POSE') this.setHandsRaised(false, null);
+  }
 
   setFraming(advice: string | undefined): void { this.framingAdvice = advice; }
 
@@ -229,7 +233,7 @@ export class TennisGame {
    * First of the two serving gestures: lifting the free hand throws the ball at once, like letting a
    * real one go. Only the free hand counts, so a racket stroke can never be read as a toss.
    */
-  setTossHand(hand: Hand | undefined): void {
+  setTossHand(hand: Hand | undefined, atMs = nowMs()): void {
     if (this.tutorial) {
       this.tutorialToss(hand);
       return;
@@ -239,18 +243,20 @@ export class TennisGame {
       return;
     }
     // The hand has to come up during this serve: one left up from before does not throw.
-    if (!this.tossArmed || !this.holdingServe()) return;
+    const wallNow = nowMs();
+    const now = Math.max(this.lastSimulationTimeMs, this.simulationTimestampAt(wallNow, wallNow));
+    if (!this.tossArmed || !this.holdingServe(now) || isBeforeOrAtPauseBoundary(atMs, this.pauseBoundaryWallTimeMs)) return;
     this.tossArmed = false;
-    const now = Math.max(this.lastSimulationTimeMs, nowMs());
+    const tossAtMs = Math.max(this.lastSimulationTimeMs, this.simulationTimestampAt(atMs, wallNow));
     this.tossedWith = hand;
-    this.tossAtMs = now;
-    this.phase = { kind: 'player-serve', idealHitMs: now + SERVE_IDEAL_MS };
+    this.tossAtMs = Math.min(now, tossAtMs);
+    this.phase = { kind: 'player-serve', idealHitMs: this.tossAtMs + SERVE_IDEAL_MS };
     this.status = 'Agora bata com a raquete!';
     this.setFeedback('BATA!', 'good');
   }
 
-  private holdingServe(): boolean {
-    return this.phase.kind === 'player-serve' && Math.max(this.lastSimulationTimeMs, nowMs()) < this.tossAtMs;
+  private holdingServe(simulationTimeMs: number): boolean {
+    return this.phase.kind === 'player-serve' && simulationTimeMs < this.tossAtMs;
   }
 
   setArmMotions(motions: readonly ArmMotion[]): void {
@@ -271,7 +277,7 @@ export class TennisGame {
     let lateS: number;
     if (this.phase.kind === 'player-serve') {
       // Serving: a movement made after the throw, once the best moment has gone by.
-      if (this.holdingServe() || now < this.phase.idealHitMs + HELP_AFTER_S * 1000) return;
+      if (this.holdingServe(now) || now < this.phase.idealHitMs + HELP_AFTER_S * 1000) return;
       lateS = (now - this.phase.idealHitMs) / 1000;
       if (nowMs() - motion.atMs > (now - this.tossAtMs - 300)) return;
     } else {
@@ -332,11 +338,13 @@ export class TennisGame {
     this.tossedWith = undefined;
     this.audio?.milestone();
     this.setFeedback('PRONTO! VAMOS JOGAR', 'good');
-    this.phase = { kind: 'point-over', resumeAtMs: Math.max(this.lastSimulationTimeMs, nowMs()) + 1800 };
+    const wallNow = nowMs();
+    const now = Math.max(this.lastSimulationTimeMs, this.simulationTimestampAt(wallNow, wallNow));
+    this.phase = { kind: 'point-over', resumeAtMs: now + 1800 };
   }
 
-  private stepTutorial(dt: number): void {
-    this.skipTutorial.step(dt);
+  private stepTutorial(dt: number, wallNow: number): void {
+    this.skipTutorial.step(dt, wallNow);
     if (this.skipTutorial.progress01 >= 1) this.tutorial!.skip();
     this.tutorial!.tick(dt, this.seen);
     if (this.ball) {
@@ -393,7 +401,7 @@ export class TennisGame {
     wallNow: number,
   ): void {
     if (this.phase.kind !== 'player-serve') return;
-    if (this.holdingServe()) {
+    if (this.holdingServe(now)) {
       this.setFeedback('LANCE A BOLA COM A MÃO LIVRE', 'neutral');
       return;
     }
@@ -513,7 +521,7 @@ export class TennisGame {
     this.lastWallTimeMs = wallNow;
     const dt = elapsedSimulationSeconds(this.lastSimulationTimeMs, now, fixedDt);
     this.lastSimulationTimeMs = now;
-    this.stepPhase(dt, now);
+    this.stepPhase(dt, now, wallNow);
     this.stepAvatars(dt);
     this.helpWithMotion(now);
     this.stepBall(dt, now);
@@ -530,16 +538,16 @@ export class TennisGame {
     }
   }
 
-  private stepPhase(dt: number, now: number): void {
+  private stepPhase(dt: number, now: number, wallNow = nowMs()): void {
     switch (this.phase.kind) {
       case 'tutorial':
-        this.stepTutorial(dt);
+        this.stepTutorial(dt, wallNow);
         break;
       case 'point-over':
         if (now >= this.phase.resumeAtMs) this.startPoint(now);
         break;
       case 'match-over':
-        this.restart.step(dt);
+        this.restart.step(dt, wallNow);
         break;
       case 'player-serve': {
         // Toss missed and the ball came back down: re-toss quietly, no penalty.
@@ -841,7 +849,7 @@ export class TennisGame {
     this.player.root.position.set(this.playerX, 0, playerServing ? BASELINE_Z + 0.45 : PLAYER_HOME_Z);
     this.opponent.root.visible = this.phase.kind !== 'tutorial';
     this.opponent.root.position.set(this.opponentX, 0, opponentServing ? -BASELINE_Z - 0.45 : OPPONENT_HOME_Z);
-    const serving = this.phase.kind === 'player-serve' ? (nowMs() < this.tossAtMs ? 'hold' : 'toss') : undefined;
+    const serving = this.phase.kind === 'player-serve' ? (this.holdingServe(this.lastSimulationTimeMs) ? 'hold' : 'toss') : undefined;
     const struck = this.serveStroke && this.swingAnimT < 1;
     this.player.animate(this.playerStride, this.playerMotion, this.swingAnimT, this.swingDirection, this.readySide, struck ? 'strike' : serving, this.swingLift);
     const opponentToss = this.phase.kind === 'opponent-serve' ? 'toss' : this.opponentServed && this.opponentSwingT < 1 ? 'strike' : undefined;
@@ -899,7 +907,7 @@ export class TennisGame {
         server: this.score.server,
         winner: this.score.matchWinner,
         secondServe: this.faults === 1,
-        restart01: Math.round(this.restart.progress01 * 20) / 20,
+        restart01: Math.floor(this.restart.progress01 * 20) / 20,
       },
     });
   }

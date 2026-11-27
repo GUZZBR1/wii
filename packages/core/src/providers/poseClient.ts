@@ -126,15 +126,19 @@ export class PoseClient {
         this.activeDelegate = message.to;
         this.callbacks?.onStatus('fallback', 'GPU indisponível; usando CPU.');
       } else if (message.type === 'ERROR') {
-        if (message.stage === 'detect') {
+        // A fatal error belongs to the current worker, even after its frame was acknowledged.
+        if (message.stage === 'detect' && !message.fatal) {
           if (this.inFlight?.requestId !== message.requestId || this.inFlight.captureEpoch !== message.captureEpoch) return;
           this.releaseFrame(message.requestId, message.captureEpoch);
-          if (!message.fatal && message.captureEpoch !== this.captureEpoch) return;
+          if (message.captureEpoch !== this.captureEpoch) return;
         }
-        this.callbacks?.onStatus(message.fatal ? 'error' : 'fallback', message.message);
         if (message.fatal) {
+          const callbacks = this.callbacks;
           this.completeInitialization(new Error(message.message));
           this.dispose();
+          callbacks?.onStatus('error', message.message);
+        } else {
+          this.callbacks?.onStatus('fallback', message.message);
         }
       } else if (message.type === 'POSE') {
         if (this.inFlight?.requestId !== message.requestId || this.inFlight.captureEpoch !== message.captureEpoch) return;

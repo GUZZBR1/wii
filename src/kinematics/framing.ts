@@ -1,4 +1,5 @@
 import type { Hand, PoseSnapshot } from '../cv/protocol';
+import { landmarkConfidence, visibleImagePoint } from './math';
 
 /** The warning waits this long: a head that dips out during a hop or a stride is not worth a word. */
 const HEAD_OUT_AFTER_MS = 1500;
@@ -35,6 +36,7 @@ export class HeadWarning {
 export function upsideDown(snapshot: PoseSnapshot): boolean {
   const [leftShoulder, rightShoulder, leftHip, rightHip] = [11, 12, 23, 24].map((index) => snapshot.landmarks[index]);
   if (!leftShoulder || !rightShoulder || !leftHip || !rightHip) return false;
+  if (landmarkConfidence(leftShoulder, rightShoulder, leftHip, rightHip) < 0.5) return false;
   return leftHip.y + rightHip.y < leftShoulder.y + rightShoulder.y;
 }
 
@@ -60,10 +62,7 @@ export function framingAdvice(snapshot: PoseSnapshot): string | undefined {
 
 /** The arm pump needs both wrists in the picture. */
 export function handsHidden(snapshot: PoseSnapshot): boolean {
-  return [15, 16].some((index) => {
-    const wrist = snapshot.landmarks[index];
-    return !wrist || (wrist.visibility ?? 0) < 0.3 || wrist.y > 1;
-  });
+  return [15, 16].some((index) => !visibleImagePoint(snapshot.landmarks[index], 0.3));
 }
 
 /**

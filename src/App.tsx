@@ -12,6 +12,8 @@ import { ActionPipeline } from './kinematics/actionPipeline';
 import { framingAdvice, handsHidden, armsCrossed, handsRaised, raisedTossHand, HeadWarning } from './kinematics/framing';
 import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
 import { HandCursorDetector } from './kinematics/handCursor';
+import { visibleImagePoint } from './kinematics/math';
+import type { GestureSample } from './games/core/restartGesture';
 import { ProceduralAudio } from './games/audio';
 import { CameraPip } from './ui/CameraPip';
 import { GameCanvas, type GameEngineHandle, type Sport } from './ui/GameCanvas';
@@ -89,7 +91,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   /** Capture-to-game delay of the last pose, shown by `?fps`. */
   const poseDelayRef = useRef(0);
   const [headCut, setHeadCut] = useState(false);
-  const [crossed, setCrossed] = useState(false);
+  const crossedPoseRef = useRef<GestureSample | null>(null);
   const recentFramesRef = useRef<PoseSnapshot[]>([]);
   const photoTrailRef = useRef(new PhotoTrail());
   const [keepPhotos] = useState(() => new URLSearchParams(window.location.search).has('fotos'));
@@ -137,6 +139,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
     recorderRef.current = undefined;
     setRecordingPrompt(undefined);
     setHeadCut(false);
+    crossedPoseRef.current = null;
+    engineRef.current?.setHandsRaised?.(false, null);
     headWarningRef.current.reset();
     recentFramesRef.current = [];
     photoTrailRef.current.clear();
@@ -220,7 +224,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
         else finishRecording();
       }
       setHeadCut(headWarningRef.current.update(raw));
-      setCrossed(armsCrossed(raw));
       // Implicit calibration: every observed frame is evidence. The current profile is a
       // continuously improving estimate, never a mode the player has to enter or watch.
       profileRef.current = calibratorRef.current.update(raw, pipelineRef.current.laneZone) ?? profileRef.current;
@@ -231,10 +234,15 @@ export default function App({ exit }: { exit?: ReactNode }) {
       setTracking(current.trackingState === 'tracked' ? `TRACKING${activity}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
       drawPose(overlayRef.current, videoRef.current, current);
       engineRef.current?.setLaneZone?.(result.controls.laneZone);
-      engineRef.current?.setEffort?.(result.effort01, result.effortSampleAtMs);
+      engineRef.current?.setEffort?.(result.rawEffort, result.effortSampleAtMs);
       engineRef.current?.setFraming?.(framingAdvice(raw), handsHidden(raw));
-      engineRef.current?.setHandsRaised?.(handsRaised(raw));
-      engineRef.current?.setTossHand?.(raisedTossHand(raw));
+      const gestureAtMs = current.trackingState === 'tracked'
+        && [11, 12].every((index) => visibleImagePoint(current.landmarks[index], 0.5))
+        ? raw.timestampMs : null;
+      const wristsVisible = [15, 16].every((index) => visibleImagePoint(current.landmarks[index], 0.5));
+      crossedPoseRef.current = gestureAtMs === null ? null : { active: wristsVisible && armsCrossed(current), atMs: gestureAtMs };
+      engineRef.current?.setHandsRaised?.(gestureAtMs !== null && wristsVisible && handsRaised(current), gestureAtMs);
+      engineRef.current?.setTossHand?.(raisedTossHand(current), raw.timestampMs);
       engineRef.current?.setArmMotions?.(result.armMotions);
       for (const event of result.events) dispatchEvent(event);
     },
@@ -453,7 +461,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} armsCrossed={crossed} onExit={() => setScreen('games')} onStrokeTravel={onStrokeTravel} />}
+    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} crossedPose={crossedPoseRef} onExit={() => setScreen('games')} onStrokeTravel={onStrokeTravel} />}
     {screen === 'home' && <HomeMenu exit={exit} onGames={() => setScreen('title')} />}
     {screen === 'title' && <TitleMenu onStart={() => setScreen('games')} onBack={() => setScreen('home')} />}
     {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} onBack={() => setScreen('title')} />}

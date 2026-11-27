@@ -1,5 +1,5 @@
-import type { PoseSnapshot } from '../cv/protocol';
-import { landmarkConfidence } from './math';
+import type { Point3, PoseSnapshot } from '../cv/protocol';
+import { landmarkConfidence, visibleImagePoint } from './math';
 
 /** One frame of the upper body, in image units scaled so x and y share the shoulder width's units. */
 export interface TorsoVerticalSample {
@@ -20,9 +20,8 @@ const WIDTH_FOLLOW = 0.03;
 const BROKEN_WIDTH_RATIO = 0.6;
 const BROKEN_PATIENCE_MS = 400;
 
-/** Wrist height in width units, NaN when it is not in view. */
-function wristHeight(wrist: PoseSnapshot['landmarks'][number] | undefined, aspect: number): number {
-  return wrist && (wrist.visibility ?? 0) >= 0.3 ? wrist.y * aspect : Number.NaN;
+function imageHeight(point: Point3 | undefined, aspect: number, confidence: number): number {
+  return visibleImagePoint(point, confidence) ? point.y * aspect : Number.NaN;
 }
 
 /**
@@ -61,10 +60,10 @@ export class TorsoVerticalChannel {
         left: leftShoulder.y * aspect,
         right: rightShoulder.y * aspect,
         width: this.widthScale,
-        head: (l[0]?.y ?? Number.NaN) * aspect,
+        head: imageHeight(l[0], aspect, CORE_MIN_CONFIDENCE),
         x,
-        leftWrist: wristHeight(l[15], aspect),
-        rightWrist: wristHeight(l[16], aspect),
+        leftWrist: imageHeight(l[15], aspect, 0.3),
+        rightWrist: imageHeight(l[16], aspect, 0.3),
       },
     };
   }

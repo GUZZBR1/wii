@@ -505,19 +505,20 @@ describe('action pipeline (upper-body only)', () => {
   });
 });
 
-it('keeps the effort timestamp through low confidence and collapsed shoulders', () => {
+it('keeps the effort timestamp through low confidence and collapsed shoulders until a new velocity is measured', () => {
   const pipeline = new ActionPipeline();
-  for (const time of [0, 33, 66]) pipeline.update(pose(time));
-  const dim = pipeline.update(pose(99, { confidence: 0.4 }));
+  for (const time of [0, 33, 66, 99]) pipeline.update(pose(time));
+  const dim = pipeline.update(pose(132, { confidence: 0.4 }));
   expect(dim.snapshot.trackingState).toBe('tracked');
-  expect(dim.effortSampleAtMs).toBe(66);
+  expect(dim.effortSampleAtMs).toBe(99);
 
-  const collapsed = pose(132);
+  const collapsed = pose(165);
   const landmarks = [...collapsed.landmarks];
   landmarks[12] = { ...landmarks[11]! };
-  expect(pipeline.update({ ...collapsed, landmarks }).effortSampleAtMs).toBe(66);
+  expect(pipeline.update({ ...collapsed, landmarks }).effortSampleAtMs).toBe(99);
 
-  const recovered = pipeline.update(pose(165, { wristVertical: 0.3 }));
-  expect(recovered.effortSampleAtMs).toBe(165);
-  expect(recovered.effort01).toBe(0);
+  const recovered = pipeline.update(pose(198, { wristVertical: 0.3 }));
+  expect(recovered.effortSampleAtMs).toBe(99);
+  expect(recovered.rawEffort).toBe(0);
+  expect(pipeline.update(pose(231, { wristVertical: 0.3 })).effortSampleAtMs).toBe(231);
 });

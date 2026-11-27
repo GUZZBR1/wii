@@ -102,16 +102,16 @@ export class AthleticsGame {
   /** Played with the body only. */
   onKey(): void {}
 
-  setEffort(effort01: number, sampleAtMs?: number | null): void { this.race.setEffort(effort01, sampleAtMs); }
+  setEffort(effort: number, sampleAtMs?: number | null): void { this.race.setEffort(effort, sampleAtMs); }
 
   setFraming(advice: string | undefined, handsHidden?: boolean): void { this.race.setFraming(advice, handsHidden); }
 
-  setHandsRaised(raised: boolean): void { this.race.setHandsRaised(raised); }
+  setHandsRaised(raised: boolean, atMs: number | null): void { this.race.setHandsRaised(raised, atMs); }
 
   setTracking(tracking: string): void {
     // A player the camera lost stops pushing; momentum fades on its own.
     if (tracking !== 'SEM POSE') return;
-    this.race.setHandsRaised(false);
+    this.race.setHandsRaised(false, null);
     if (this.race.advice !== null) this.race.setFraming(NO_BODY_ADVICE);
   }
 
@@ -135,7 +135,7 @@ export class AthleticsGame {
     const { race } = this;
     race.rivals.forEach((rival, i) => { this.draw(this.rivals[i]!, rival.distance, this.rivalSpeeds[i]!, dt); });
     // While warming up the Mii runs on the spot, at the speed the player shows.
-    const shown = race.phase === 'warmup' ? race.energy01 * WARMUP_STRIDE_SPEED : race.speed;
+    const shown = race.phase === 'warmup' ? race.effort01 * WARMUP_STRIDE_SPEED : race.speed;
     const at = this.draw(this.player, race.distance, shown, dt);
     this.chasePosition.set(at.x - at.tangentX * 6, 3.2, at.z - at.tangentZ * 6);
     this.chaseTarget.set(at.x + at.tangentX * 5, 1.1, at.z + at.tangentZ * 5);
@@ -152,7 +152,7 @@ export class AthleticsGame {
       this.rivalSpeeds = race.rivals.map((rival, i) => (rival.distance - before[i]!) / Math.max(dt, 1e-6));
       for (const split of race.splits.slice(splits)) this.announce(split);
     }
-    const shown = race.phase === 'warmup' ? race.energy01 * WARMUP_STRIDE_SPEED : race.speed;
+    const shown = race.phase === 'warmup' ? race.effort01 * WARMUP_STRIDE_SPEED : race.speed;
     if (shown > 0.2) this.player.stridePhase += strideStep(dt, shown);
     this.rivals.forEach((rival, i) => { if (this.rivalSpeeds[i]! > 0.2) rival.stridePhase += strideStep(dt, this.rivalSpeeds[i]!); });
     this.playCues();
@@ -207,7 +207,7 @@ export class AthleticsGame {
           ? { title: 'Ótimo!', detail: 'Fique aí' }
           : { title: 'Ajuste a câmera', detail: race.advice ?? 'Ligue a câmera para correr' }
         : race.phase === 'warmup'
-          ? { title: 'CORRA COM TUDO!', detail: `${race.retries ? 'Não senti você correr. De novo' : 'Aquecimento: encha a barra'} · ${Math.ceil(race.warmupLeft)}` }
+          ? { title: 'CORRA COM TUDO!', detail: `${race.retries ? 'Não senti você correr. De novo' : 'Aquecimento: mantenha o ritmo até o fim'} · ${Math.ceil(race.warmupLeft)}` }
           : race.phase === 'countdown' ? { title: String(Math.ceil(race.countdown)), detail: 'Pare. Corra quando zerar' } : undefined;
     const record = this.record?.isNew ? 'Novo recorde pessoal!' : this.record ? `Recorde pessoal: ${formatTime(this.record.best)}` : '';
     const finished = race.finishS !== undefined
@@ -215,7 +215,7 @@ export class AthleticsGame {
         title: race.place === 1 ? 'VOCÊ VENCEU!' : `${race.place}º lugar`,
         detail: [`${formatTime(race.finishS)} nos ${race.goal} m`, record].filter(Boolean).join(' · '),
         standings: race.standings.map((runner) => ({ name: runner.name, time: formatTime(runner.timeS), you: runner.you })),
-        restart01: Math.round(race.restart01 * 20) / 20,
+        restart01: Math.floor(race.restart01 * 20) / 20,
       }
       : undefined;
     const state: AthleticsHudState = {
@@ -223,7 +223,7 @@ export class AthleticsGame {
       label: formatTime(race.elapsedS),
       speed01: Math.round(race.effort01 * 100) / 100,
       // Coarse steps, so a steady run does not republish the HUD every tick.
-      energy: finished ? undefined : { value01: Math.round(race.energy01 * 20) / 20, label: 'SUA ENERGIA', coaching: race.coaching },
+      energy: finished ? undefined : { value01: Math.round(race.energy01 * 20) / 20, label: race.phase === 'warmup' || race.phase === 'framing' ? 'SINAL DA CORRIDA' : 'SUA ENERGIA', coaching: race.coaching },
       runners: race.phase === 'racing' ? [
         { name: 'Você', progress01: metres / race.goal, you: true },
         ...race.rivals.map((rival) => ({ name: rival.name, progress01: Math.min(1, Math.floor(rival.distance) / race.goal), you: false })),

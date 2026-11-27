@@ -27,7 +27,7 @@ Para voltar ao menu pela tela de resultado, **cruza os antebraços em X** diante
 webcam ─▶ PoseClient (Worker, MediaPipe Pose Lite na CPU) ─▶ App.onPose
             └─ ActionPipeline (src/kinematics/actionPipeline.ts)
                  ├─ TorsoVerticalChannel: ombros, cabeça e pulsos no mesmo quadro
-                 │    ├─ IntensityMeter  ─▶ effort01   ─▶ Atletismo
+                 │    ├─ IntensityMeter  ─▶ rawEffort   ─▶ Atletismo
                  │    └─ (obstáculos: corrida, caminhada, pulo, raia)
                  └─ SwingDetector (um por pulso) ─▶ swing ─▶ Tênis
             framingAdvice / handsHidden / handsRaised (src/kinematics/framing.ts) ─▶ os dois jogos
@@ -50,12 +50,12 @@ Estádio de 400 m, Mii, abertura e câmera de perseguição vêm do PR 41 (GUZZB
 | Fase | O que acontece |
 | --- | --- |
 | Enquadramento | Pede para inclinar a câmera, afastar, chegar perto ou centralizar. Segue com 1 s de imagem boa, ou após 15 s com o corpo visível. |
-| Aquecimento | 5 s "corra com tudo". O Mii corre no lugar. A leitura alta vira o 100% daquela pessoa e câmera. Se quase nada for lido, repete até duas vezes dizendo "mostre as mãos" ou "mexa mais os braços"; depois usa um padrão. |
+| Aquecimento | 5 s "corra com tudo". O Mii corre no lugar. A barra enche quando o sinal atinge o mínimo para calibrar. A calibração exige 1,5 s de sinal válido entre quadros recentes nos últimos 3 s. Um valor alto desse intervalo define a referência daquela pessoa e câmera. Se quase nada for lido, repete até duas vezes dizendo "mostre as mãos" ou "mexa mais os braços"; depois usa um padrão. |
 | Contagem | 3, 2, 1 com som. |
 | Prova | Três rivais (Bia, Caio, Davi) de ritmo fixo, um pouco mais lento nas distâncias maiores. Parcial com som a cada 100 m. |
 | Chegada | Colocação, tempos de todos, recorde pessoal por distância (no navegador). |
 
-**Velocidade:** a intensidade dividida pelo máximo do aquecimento com 15% de folga. Igualar o
+**Velocidade:** a intensidade dividida pelo percentil 80 das leituras dos últimos 3 s do aquecimento, com 15% de folga. Igualar o
 aquecimento dá cerca de 7,4 m/s (100 m em uns 14 s); passar dele ainda rende. Ganha velocidade em
 0,5 s e perde em 1,4 s, então uma leitura falha custa pouco.
 
@@ -66,7 +66,8 @@ correndo com o último valor.
 
 Uma medida só: **o quanto a pessoa se move por segundo**. Soma a velocidade vertical dos pulsos (em
 relação aos ombros) e a da cabeça, em larguras de ombro. Cresce com o ritmo **e** com o tamanho do
-movimento, sem degraus. Sem mãos na imagem, usa só a cabeça, com peso maior.
+movimento. Se cabeça e ombros se movem na mesma direção, o balanço comum também conta, inclusive
+quando o movimento dos braços é pequeno ou os pulsos saem do quadro.
 
 Nas gravações, em larguras de ombro por segundo: parado 0,02–0,3; andando até 0,7; correndo 1,2–2,8.
 

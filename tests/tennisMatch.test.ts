@@ -76,20 +76,24 @@ it('plays again when both hands are held up after the match, and not before they
   const game = new TennisGame(document.createElement('canvas'), (hud) => { huds.push(hud as never); });
   const state = game as unknown as {
     phase: { kind: string };
-    stepPhase(dt: number, now: number): void;
+    stepPhase(dt: number, now: number, wallTimeMs: number): void;
     publishHud(): void;
   };
   try {
     state.phase = { kind: 'match-over' };
-    const steps = (seconds: number) => { for (let i = 0; i < seconds * 60; i += 1) state.stepPhase(1 / 60, 0); };
-    game.setHandsRaised(true); // still swinging after the last point
-    steps(5);
+    let atMs = 0;
+    const hold = (raised: boolean, seconds: number) => {
+      for (let i = 0; i < seconds * 60; i += 1) {
+        atMs += 1000 / 60;
+        game.setHandsRaised(raised, atMs);
+        state.stepPhase(1 / 60, atMs, atMs);
+      }
+    };
+    hold(true, 5); // still swinging after the last point
     state.publishHud();
     expect(huds.at(-1)!.tennis!.restart01).toBe(0);
-    game.setHandsRaised(false);
-    steps(2);
-    game.setHandsRaised(true);
-    steps(1.6);
+    hold(false, 2);
+    hold(true, 1.6);
     state.publishHud();
     expect(huds.at(-1)!.tennis!.restart01).toBe(1);
   } finally {
@@ -133,6 +137,25 @@ it.each([0, 1])('serves the opponent diagonally into the box, never a fault (poi
     expect(state.faults).toBe(0);
     expect(state.ball.bounces).toBe(1);
   } finally {
+    game.dispose();
+  }
+});
+
+it('tosses into the simulation after a long pause in rendering', () => {
+  const { game, state } = match();
+  const timing = state as unknown as { lastSimulationTimeMs: number; lastWallTimeMs: number; wallToSimulationOffsetMs: number };
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(11_000);
+  try {
+    timing.lastSimulationTimeMs = 1000;
+    timing.lastWallTimeMs = 11_000;
+    timing.wallToSimulationOffsetMs = -10_000;
+    state.startPoint(1000);
+    game.setTossHand(undefined);
+    game.setTossHand('left');
+    state.stepBall(1 / 60, 1017);
+    expect(state.ball.velocity.y).toBeGreaterThan(0);
+  } finally {
+    clock.mockRestore();
     game.dispose();
   }
 });

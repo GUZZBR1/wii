@@ -113,7 +113,7 @@ describe('athletics race', () => {
 
   it('measures effort against what this player and camera can show', () => {
     // The same flat-out run read low by a badly placed camera is still full speed.
-    for (const best of [0.4, 0.8]) {
+    for (const best of [0.16, 0.4, 0.8, 1]) {
       const race = started(best);
       feed(race, best);
       expect(race.effort01).toBeCloseTo(1 / HEADROOM, 5);
@@ -143,11 +143,59 @@ describe('athletics race', () => {
     expect(race.phase).toBe('countdown');
   });
 
+  it('requires sustained fresh movement rather than held camera readings', () => {
+    const race = new Race();
+    race.setFraming(undefined);
+    run(race, FRAMED_S);
+
+    for (let frame = 0; frame < 300; frame += 1) {
+      const timeMs = (frame * 1000) / 60;
+      if (frame === 140 || frame === 165) race.setEffort(0.8, timeMs);
+      race.step(1 / 60, timeMs);
+    }
+    expect([race.phase, race.retries]).toEqual(['warmup', 1]);
+  });
+
+  it.each([15, 30])('calibrates from sustained camera samples at %i fps', (fps) => {
+    const race = new Race();
+    race.setFraming(undefined);
+    run(race, FRAMED_S);
+
+    for (let frame = 0; frame < 300; frame += 1) {
+      const timeMs = (frame * 1000) / 60;
+      if (frame % (60 / fps) === 0) race.setEffort(0.3, timeMs);
+      race.step(1 / 60, timeMs);
+    }
+
+    expect([race.phase, race.retries]).toEqual(['countdown', 0]);
+    expect(race.effort01).toBeCloseTo(1 / HEADROOM);
+  });
+
+  it('does not restart from one raised pose followed by silence', () => {
+    const race = new Race();
+    race.phase = 'finished';
+    let timeMs = 0;
+    for (let frame = 0; frame < 150; frame += 1) {
+      timeMs += 1000 / 60;
+      race.setHandsRaised(false, timeMs);
+      race.step(1 / 60, timeMs);
+    }
+    race.setHandsRaised(true, timeMs);
+    for (let frame = 0; frame < 120; frame += 1) {
+      timeMs += 1000 / 60;
+      race.step(1 / 60, timeMs);
+    }
+    expect(race.restart01).toBe(0);
+  });
+
   it('fills the bar and stays quiet while the player is running', () => {
     const race = new Race();
     race.setFraming(undefined);
     run(race, FRAMED_S);
-    feed(race, 0.7);
+    expect(race.energy01).toBe(0);
+    feed(race, 0.06);
+    expect(race.energy01).toBeCloseTo(0.5);
+    feed(race, 0.16);
     run(race, 3);
     expect([race.energy01, race.coaching]).toEqual([1, undefined]);
   });
@@ -162,20 +210,20 @@ describe('athletics race', () => {
 
   it('runs again only when hands are lowered and then held up after the result', () => {
     const race = started();
+    let atMs = 0;
+    const hold = (raised: boolean, seconds: number) => run(race, seconds, () => {
+      atMs += 1000 / 60;
+      race.setHandsRaised(raised, atMs);
+    });
     feed(race, 0.9);
-    race.setHandsRaised(true); // still pumping across the line
-    run(race, 90);
+    hold(true, 90); // still pumping across the line
     expect(race.restart01).toBe(0);
-    race.setHandsRaised(false);
-    run(race, RESTART_AFTER_S);
-    race.setHandsRaised(true);
-    run(race, RESTART_HOLD_S / 2);
+    hold(false, RESTART_AFTER_S);
+    hold(true, RESTART_HOLD_S / 2);
     expect(race.restart01).toBeCloseTo(0.5, 1);
-    race.setHandsRaised(false);
-    run(race, 0.1);
+    hold(false, 0.1);
     expect(race.restart01).toBe(0);
-    race.setHandsRaised(true);
-    run(race, RESTART_HOLD_S + 0.1);
+    hold(true, RESTART_HOLD_S + 0.1);
     expect(race.restart01).toBe(1);
   });
 

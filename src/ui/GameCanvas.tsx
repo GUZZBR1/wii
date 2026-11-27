@@ -1,10 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { type RefObject, useEffect, useRef, useState } from 'react';
 import type { Hand, SportActionEvent } from '../cv/protocol';
 import type { AthleticsHudState } from '../games/athletics/AthleticsGame';
 import type { Goal } from '../games/athletics/race';
 import type { ProceduralAudio } from '../games/audio';
 import type { ArmMotion } from '../kinematics/armMotion';
-import { RestartGesture } from '../games/core/restartGesture';
+import { type GestureSample, RestartGesture } from '../games/core/restartGesture';
 import type { GameHudState as CoreHudState } from '../games/core/hud';
 import type { GameHudState as TrackHudState } from '../games/track/TrackGame';
 
@@ -24,7 +24,7 @@ const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }
   athletics: { score: 'TEMPO', speed: 'INTENSIDADE', controls: 'corra no lugar, mexendo os braços' },
   tennis: { score: 'PONTOS', speed: 'MIRA', controls: 'raquetada no tempo da bola: cedo cruza, tarde vai reto' },
 };
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort01: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean): void; setTossHand?(hand: Hand | undefined): void; setArmMotions?(motions: readonly ArmMotion[]): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; dispose(): void }
 
 interface Props {
   sport: Sport;
@@ -34,7 +34,7 @@ interface Props {
   /** Race distance for athletics, picked in the menu. */
   goal?: Goal;
   /** The player is holding their arms crossed; on a result screen that leads back to the menu. */
-  armsCrossed?: boolean;
+  crossedPose?: RefObject<GestureSample | null>;
   onExit?: () => void;
   /** Receives the stroke length the tennis warm-up settles on. */
   onStrokeTravel?: (travel: number) => void;
@@ -47,7 +47,7 @@ export function GameCanvas(props: Props) {
   return <GameRun key={run} {...props} tutorial={run === 0} onRestart={() => setRun((value) => value + 1)} />;
 }
 
-function GameRun({ sport, onEngine, tracking, audio, goal = 100, armsCrossed = false, onExit, onStrokeTravel, tutorial, onRestart }: Props & { onRestart: () => void; tutorial: boolean }) {
+function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, tutorial, onRestart }: Props & { onRestart: () => void; tutorial: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hud, setHud] = useState<GameHudState>({ score: 0, label: '00000', speed01: 0, status: 'Pronto para jogar' });
   const hudRef = useRef(setHud);
@@ -66,8 +66,6 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, armsCrossed = f
 
   // Same rules as playing again: only after the result has been seen, and from arms that were down.
   const over = Boolean(hud.finished || hud.tennis?.winner);
-  const crossedRef = useRef(armsCrossed);
-  crossedRef.current = armsCrossed;
   const travelRef = useRef(onStrokeTravel);
   travelRef.current = onStrokeTravel;
   const tutorialRef = useRef(tutorial);
@@ -80,8 +78,9 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, armsCrossed = f
     let last = performance.now();
     const timer = window.setInterval(() => {
       const now = performance.now();
-      gesture.setHandsRaised(crossedRef.current);
-      gesture.step((now - last) / 1000);
+      const pose = crossedPose?.current;
+      gesture.setHandsRaised(pose?.active ?? false, pose?.atMs ?? null);
+      gesture.step((now - last) / 1000, now);
       last = now;
       setLeave01(gesture.progress01);
       if (gesture.progress01 >= 1) {
@@ -90,7 +89,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, armsCrossed = f
       }
     }, 100);
     return () => window.clearInterval(timer);
-  }, [over]);
+  }, [over, crossedPose]);
   const leaveBar = <div className="restart-gesture"><b style={{ width: `${leave01 * 100}%` }} /><span>Cruze os braços em X para voltar ao menu</span></div>;
 
   useEffect(() => {

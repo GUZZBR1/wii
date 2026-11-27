@@ -27,8 +27,9 @@ export const EFFORT_EXPIRES_S = 0.5;
 const REST_EFFORT = 0.05;
 /** A warm-up this weak was not understood: repeat it, then fall back to the default reference. */
 const MIN_TRIED_EFFORT = 0.12;
-/** However gentle the warm-up, full speed never costs less than this reading. */
-const MIN_REFERENCE = 0.25;
+/** Require at least half of the three-second sampling window at a usable signal. */
+const MIN_ACTIVE_WARMUP_S = 1.5;
+const MAX_WARMUP_SAMPLE_GAP_MS = 250;
 const DEFAULT_REFERENCE = 0.6;
 /** Room above the warm-up: matching it is fast, and pushing harder still makes a difference. */
 export const HEADROOM = 1.15;
@@ -56,6 +57,9 @@ export class Race {
   /** The camera reading that counts as this player's full effort. */
   reference = DEFAULT_REFERENCE;
   private readonly warmup: number[] = [];
+  private warmupSampleAtMs?: number;
+  private warmupLastActiveAtMs?: number;
+  private warmupActiveS = 0;
   /** Warm-ups repeated because the camera did not register any running. */
   retries = 0;
   private handsHidden = false;
@@ -74,9 +78,9 @@ export class Race {
     this.rivals = RIVALS.map((rival) => ({ ...rival, pace: rival.pace * GOAL_PACE[goal], distance: 0 }));
   }
 
-  /** The camera's latest reading, 0–1. */
-  setEffort(effort01: number, sampleAtMs?: number | null): void {
-    this.effort = Number.isFinite(effort01) ? Math.min(1, Math.max(0, effort01)) : 0;
+  /** The camera's latest raw effort, which can exceed 1. */
+  setEffort(effort: number, sampleAtMs?: number | null): void {
+    this.effort = Number.isFinite(effort) ? Math.max(0, effort) : 0;
     if (sampleAtMs === null) this.effortAgeS = Infinity;
     else if (sampleAtMs === undefined || sampleAtMs !== this.effortSampleAtMs) this.effortAgeS = 0;
     this.effortSampleAtMs = sampleAtMs;
@@ -91,14 +95,14 @@ export class Race {
     this.handsHidden = handsHidden;
   }
 
-  setHandsRaised(raised: boolean): void { this.restart.setHandsRaised(raised); }
+  setHandsRaised(raised: boolean, atMs: number | null): void { this.restart.setHandsRaised(raised, atMs); }
 
   /** How far the raise-both-hands gesture is, 0–1; 1 asks for a new race. */
   get restart01(): number { return this.restart.progress01; }
 
-  /** What the energy bar shows: the raw reading while warming up, the player's own share afterwards. */
+  /** Shows whether the camera detects enough motion to calibrate, then shows race effort. */
   get energy01(): number {
-    return this.phase === 'framing' || this.phase === 'warmup' ? Math.min(1, this.reading / DEFAULT_REFERENCE) : this.effort01;
+    return this.phase === 'framing' || this.phase === 'warmup' ? Math.min(1, this.reading / MIN_TRIED_EFFORT) : this.effort01;
   }
 
   /** What to do when the bar will not fill; undefined while it is filling. */
@@ -124,17 +128,20 @@ export class Race {
     if (this.phase === 'warmup') {
       this.warmupLeft -= dt;
       // The first seconds are getting up to pace.
-      if (this.warmupLeft < WARMUP_S - 2) this.warmup.push(this.reading);
+      if (this.warmupLeft < WARMUP_S - 2) this.sampleWarmup();
       if (this.warmupLeft <= 1e-9) {
         // Near the top of what was read, ignoring one-off spikes.
         const peak = [...this.warmup].sort((a, b) => a - b)[Math.floor(this.warmup.length * 0.8)] ?? 0;
-        if (peak < MIN_TRIED_EFFORT && this.retries < WARMUP_RETRIES) {
+        const ready = this.warmupActiveS >= MIN_ACTIVE_WARMUP_S && peak >= MIN_TRIED_EFFORT;
+        if (!ready && this.retries < WARMUP_RETRIES) {
           this.retries += 1;
           this.warmupLeft = WARMUP_S;
           this.warmup.length = 0;
+          this.warmupSampleAtMs = this.warmupLastActiveAtMs = undefined;
+          this.warmupActiveS = 0;
           return;
         }
-        this.reference = peak < MIN_TRIED_EFFORT ? DEFAULT_REFERENCE : Math.max(MIN_REFERENCE, peak);
+        this.reference = ready ? peak : DEFAULT_REFERENCE;
         this.phase = 'countdown';
       }
       return;
@@ -151,7 +158,7 @@ export class Race {
       if (rival.distance >= this.goal) rival.finishS ??= this.elapsedS;
     }
     if (this.phase === 'finished') {
-      this.restart.step(dt);
+      this.restart.step(dt, wallTimeMs);
       this.speed *= Math.exp(-dt / GAIN_TAU_S);
       this.distance += this.speed * dt;
       return;
@@ -169,6 +176,26 @@ export class Race {
       this.finishS = crossed;
       this.phase = 'finished';
     }
+  }
+
+  private sampleWarmup(): void {
+    const atMs = this.effortSampleAtMs === undefined ? (WARMUP_S - this.warmupLeft) * 1000 : this.effortSampleAtMs;
+    if (atMs === null || this.effortAgeS > MAX_WARMUP_SAMPLE_GAP_MS / 1000) {
+      this.warmupLastActiveAtMs = undefined;
+      return;
+    }
+    if (this.warmupSampleAtMs !== undefined && atMs <= this.warmupSampleAtMs) return;
+    this.warmupSampleAtMs = atMs;
+
+    const reading = this.reading;
+    this.warmup.push(reading);
+    if (reading < MIN_TRIED_EFFORT) {
+      this.warmupLastActiveAtMs = undefined;
+      return;
+    }
+    const gapMs = this.warmupLastActiveAtMs === undefined ? Infinity : atMs - this.warmupLastActiveAtMs;
+    if (gapMs <= MAX_WARMUP_SAMPLE_GAP_MS) this.warmupActiveS += gapMs / 1000;
+    this.warmupLastActiveAtMs = atMs;
   }
 
   /** Everyone, fastest first; a rival still running is given the time its pace will take. */

@@ -12,7 +12,7 @@ function level({ hz = 0, armSw = 0, bounceSw = 0, hands = true, jitterSw = 0 }) 
     const y = bounceSw * WIDTH * Math.sin((2 * Math.PI * hz * 2 * t) / 1000);
     value = meter.update(t, {
       head: 0.3 + y + noise(), shoulders: 0.5 + y, width: WIDTH,
-      leftWrist: hands ? 0.8 + swing + noise() : Number.NaN, rightWrist: hands ? 0.8 - swing + noise() : Number.NaN,
+      leftWrist: hands ? 0.8 + y + swing + noise() : Number.NaN, rightWrist: hands ? 0.8 + y - swing + noise() : Number.NaN,
     });
   }
   return value;
@@ -39,6 +39,28 @@ describe('running intensity', () => {
 
   it('reads the body when the hands are out of view', () => {
     expect(level({ hz: 1.4, bounceSw: 0.12, hands: false })).toBeGreaterThan(0.3);
+  });
+
+  it('keeps detecting a compact run with or without quiet hands in view', () => {
+    const options = { hz: 1.4, bounceSw: 0.12 };
+    expect(level(options)).toBeCloseTo(level({ ...options, hands: false }));
+  });
+
+  it('discards old speed when stationary frames return after a tracking gap', () => {
+    const meter = new IntensityMeter();
+    const still = { head: 0.3, shoulders: 0.5, width: WIDTH, leftWrist: 0.8, rightWrist: 0.8 };
+    let effort = 0;
+    for (let t = 0; t <= 3000; t += 20) {
+      const swing = 0.15 * Math.sin(t / 90);
+      effort = meter.update(t, { ...still, leftWrist: still.leftWrist + swing, rightWrist: still.rightWrist - swing });
+    }
+    expect(effort).toBeGreaterThan(0.5);
+
+    const fading = meter.update(3300);
+    expect(meter.update(3600, still)).toBeLessThan(fading);
+    expect(meter.sampleAtMs).toBe(3000);
+    expect(meter.update(3633, still)).toBe(0);
+    expect(meter.sampleAtMs).toBe(3633);
   });
 
   it('fades instead of dropping when the player cannot be read', () => {

@@ -28,6 +28,46 @@ function runningRise(timeMs: number): number {
 }
 
 describe('torso action pipeline integration', () => {
+  it.each([{ visibility: 1, presence: 0, offset: 0.7 }, { visibility: 1, presence: 1, offset: 1.3 }])(
+    'ignores a moving wrist with low presence or outside the frame (%j)',
+    ({ visibility, presence, offset }) => {
+      const pipeline = new ActionPipeline();
+      for (let t = 0; t <= 3000; t += 33) {
+        const snapshot = pose(t);
+        const landmarks = snapshot.landmarks.map((point, i) => i === 15
+          ? { ...point, y: offset + Math.sin(t / 70) * 0.2, visibility, presence }
+          : point);
+        expect(pipeline.update({ ...snapshot, landmarks }).rawEffort).toBe(0);
+      }
+    },
+  );
+
+  it('distinguishes running intensity when hidden hips are estimated above the shoulders', () => {
+    const measure = (amplitude: number) => {
+      const pipeline = new ActionPipeline();
+      const results = [];
+      for (let timeMs = 0; timeMs <= 3000; timeMs += 33) {
+        const snapshot = pose(timeMs);
+        const swing = amplitude * Math.sin((2 * Math.PI * 1.5 * timeMs) / 1000);
+        const landmarks = snapshot.landmarks.map((point, index) => {
+          if (index >= 23) return { ...point, y: 0.1, visibility: 0, presence: 0 };
+          if (index === 15 || index === 16) return { ...point, y: point.y + (index === 15 ? swing : -swing) };
+          return point;
+        });
+        results.push(pipeline.update({ ...snapshot, landmarks }));
+      }
+      return results.at(-1)!;
+    };
+
+    const still = measure(0);
+    const easy = measure(0.08);
+    const hard = measure(0.16);
+    expect(still.rawEffort).toBe(0);
+    expect(easy.rawEffort).toBeGreaterThan(0.12);
+    expect(hard.rawEffort).toBeGreaterThan(easy.rawEffort + 0.1);
+    expect(hard.effortSampleAtMs).toBe(hard.snapshot.timestampMs);
+  });
+
   it('keeps cadence and jump active without a calibration profile', () => {
     const pipeline = new ActionPipeline();
     const frames = [];

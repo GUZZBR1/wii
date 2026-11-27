@@ -1,16 +1,16 @@
 /**
- * How hard the player is running, 0–1: simply how much they move per second. Vertical speed of the
+ * Raw running effort: simply how much they move per second. Vertical speed of the
  * wrists (relative to the shoulders) plus that of the head, in shoulder widths, so distance to the
- * camera cancels out. It grows with both the pace and the size of the movement, with no thresholds,
- * counts or switching between signals, which made earlier meters saturate, jump or ignore compact arms.
+ * camera cancels out. It grows with both the pace and the size of the movement. A bounce shared
+ * by the head and shoulders also registers when arm movement is small or the wrists are out of view.
  *
  * Real recordings, shoulder widths per second: standing 0.02–0.3, walking up to 0.7, running 1.2–2.8.
  * Chosen on one player; each race also learns the player's own maximum in the warm-up.
  */
 const REST_SPEED = 0.35;
-const FULL_SPEED = 3.5;
-/** With no hand in view the body is the only evidence, and it moves far less than the arms. */
-const BODY_ONLY_GAIN = 3;
+const REFERENCE_SPEED = 3.5;
+/** The torso moves less than the arms, so give a confirmed bounce more weight. */
+const BOUNCE_GAIN = 3;
 /** Landmark jitter is fast and tiny: smoothing the positions removes most of its apparent speed. */
 const POSITION_SMOOTHING_MS = 80;
 const AVERAGE_MS = 1000;
@@ -27,41 +27,53 @@ export class IntensityMeter {
   private speeds: { t: number; value: number }[] = [];
   private level = 0;
   private at?: number;
+  private measuredAtMs: number | null = null;
+
+  get sampleAtMs(): number | null { return this.measuredAtMs; }
 
   /** One frame; `body` is undefined when the player cannot be read, and the level then fades. */
   update(t: number, body?: Body): number {
-    if (body) this.measure(t, body);
-    else this.previous = undefined;
-    this.speeds = this.speeds.filter((speed) => t - speed.t <= AVERAGE_MS);
-    const mean = body && this.speeds.length ? this.speeds.reduce((sum, speed) => sum + speed.value, 0) / this.speeds.length : 0;
-    const raw = Math.min(1, Math.max(0, (mean - REST_SPEED) / (FULL_SPEED - REST_SPEED)));
+    const speed = body ? this.measure(t, body) : undefined;
+    if (!body) this.previous = undefined;
+    if (speed === undefined) {
+      this.speeds.length = 0;
+    } else {
+      // Start the new motion estimate without carrying faded effort into fresh measurements.
+      if (this.speeds.length === 0) this.level = 0;
+      this.measuredAtMs = t;
+      this.speeds.push({ t, value: speed });
+      this.speeds = this.speeds.filter((sample) => t - sample.t <= AVERAGE_MS);
+    }
+    const mean = this.speeds.length ? this.speeds.reduce((sum, sample) => sum + sample.value, 0) / this.speeds.length : 0;
+    const raw = Math.max(0, (mean - REST_SPEED) / (REFERENCE_SPEED - REST_SPEED));
     const dt = this.at === undefined ? 0 : Math.max(0, t - this.at);
     this.at = t;
     this.level += (raw - this.level) * (1 - Math.exp(-dt / (raw > this.level ? ATTACK_MS : RELEASE_MS)));
     return this.level;
   }
 
-  private measure(t: number, { head, shoulders, width, leftWrist, rightWrist }: Body): void {
-    const positions = [head, leftWrist - shoulders, rightWrist - shoulders];
+  private measure(t: number, { head, shoulders, width, leftWrist, rightWrist }: Body): number | undefined {
+    const positions = [head, shoulders, leftWrist - shoulders, rightWrist - shoulders];
     const previous = this.previous;
     const dt = previous ? t - previous.t : 0;
     if (!previous || dt <= 0 || dt > MAX_FRAME_GAP_MS) {
       this.previous = { t, positions };
-      return;
+      return undefined;
     }
     const alpha = 1 - Math.exp(-dt / POSITION_SMOOTHING_MS);
     const smoothed = positions.map((now, i) => {
       const before = previous.positions[i]!;
       return Number.isFinite(before) ? before + (now - before) * alpha : now;
     });
-    const speeds = smoothed.map((now, i) => Math.abs(now - previous.positions[i]!) / width / (dt / 1000));
-    const [body, ...hands] = speeds;
+    const velocity = smoothed.map((now, i) => (now - previous.positions[i]!) / width / (dt / 1000));
+    const [headVelocity = Number.NaN, shoulderVelocity = Number.NaN, ...hands] = velocity;
     const seen = hands.filter(Number.isFinite);
-    const bodySpeed = Number.isFinite(body!) ? body! : 0;
-    const value = seen.length ? seen.reduce((sum, speed) => sum + speed, 0) / seen.length + bodySpeed : bodySpeed * BODY_ONLY_GAIN;
-    this.speeds.push({ t, value });
+    const headSpeed = Number.isFinite(headVelocity) ? Math.abs(headVelocity) : 0;
+    const armSpeed = seen.length ? seen.reduce((sum, speed) => sum + Math.abs(speed), 0) / seen.length : 0;
+    const bounce = headVelocity * shoulderVelocity > 0 ? Math.min(headSpeed, Math.abs(shoulderVelocity)) : 0;
     this.previous = { t, positions: smoothed };
+    return Number.isFinite(headVelocity) || seen.length > 0 ? Math.max(headSpeed + armSpeed, bounce * BOUNCE_GAIN) : undefined;
   }
 
-  reset(): void { this.previous = this.at = undefined; this.speeds = []; this.level = 0; }
+  reset(): void { this.previous = this.at = undefined; this.measuredAtMs = null; this.speeds = []; this.level = 0; }
 }
