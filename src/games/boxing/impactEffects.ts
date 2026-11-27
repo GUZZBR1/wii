@@ -17,6 +17,23 @@ const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
 const HIDDEN_Y = -1000;
 const GOLDEN_ANGLE = 2.399963229728653;
 
+/** A soft round dot, built from raw pixels so it needs no DOM canvas. */
+function createSparkTexture(): THREE.DataTexture {
+  const size = 32;
+  const pixels = new Uint8Array(size * size * 4).fill(255);
+  for (let y = 0; y < size; y += 1) {
+    for (let x = 0; x < size; x += 1) {
+      const radius = Math.hypot(x + 0.5 - size / 2, y + 0.5 - size / 2) / (size / 2);
+      pixels[(y * size + x) * 4 + 3] = Math.round(255 * Math.max(0, Math.min(1, (1 - radius) * 2.5)));
+    }
+  }
+  const texture = new THREE.DataTexture(pixels, size, size);
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  texture.needsUpdate = true;
+  return texture;
+}
+
 /**
  * A fixed-capacity spark pool. All buffers and slots are allocated up front; hits only overwrite
  * slots, and `update` mutates the same typed arrays in place. Dead sparks are parked below the arena.
@@ -34,7 +51,9 @@ export function createImpactSparkPool(capacity = 48): ImpactSparkPool {
   geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   const material = new THREE.PointsMaterial({
-    size: 0.075,
+    // Without a map a point is a hard square, huge when it bursts right in front of the camera.
+    map: createSparkTexture(),
+    size: 0.055,
     vertexColors: true,
     transparent: true,
     opacity: 0.9,

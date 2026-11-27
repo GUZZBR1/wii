@@ -39,6 +39,14 @@ describe('createImpactSparkPool', () => {
     }
   });
 
+  it('draws sparks as round dots, not as square points', () => {
+    const material = createImpactSparkPool().root.material as THREE.PointsMaterial;
+    const { data, width, height } = (material.map as THREE.DataTexture).image;
+    const alphaAt = (x: number, y: number) => data![(y * width + x) * 4 + 3];
+    expect(alphaAt(width / 2, height / 2)).toBe(255);
+    expect(alphaAt(0, 0)).toBe(0);
+  });
+
   it('releases its single geometry and material through disposeObjectTree', () => {
     const pool = createImpactSparkPool(4);
     let disposals = 0;

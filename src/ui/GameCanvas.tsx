@@ -68,7 +68,7 @@ type RunProps = Props & {
 };
 
 function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent, onRestart }: RunProps) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const viewportRef = useRef<HTMLDivElement>(null);
   const [hud, setHud] = useState<GameHudState>({ score: 0, label: '00000', speed01: 0, status: 'Pronto para jogar' });
   const hudRef = useRef(setHud);
   hudRef.current = setHud;
@@ -79,7 +79,12 @@ function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, o
   useEffect(() => { engineRef.current?.setTracking?.(tracking); }, [tracking]);
 
   useEffect(() => {
-    if (!canvasRef.current) return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    // Every engine gets its own canvas. A WebGL context outlives its renderer, and on one that had
+    // already been used the boxing shadows turned every lit surface black (seen on Direct3D 11).
+    const canvas = document.createElement('canvas');
+    viewport.prepend(canvas);
     let game: GameEngineHandle | undefined;
     let disposed = false;
     const keydown = (event: KeyboardEvent) => {
@@ -96,8 +101,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, o
     window.addEventListener('blur', blur);
     const mount = async () => {
       try {
-        const canvas = canvasRef.current;
-        if (disposed || !canvas) return;
+        if (disposed) return;
         const updateHud = (state: GameHudState) => hudRef.current(state);
         const engine: GameEngineHandle = sport === 'track'
           ? new (await import('../games/track/TrackGame')).TrackGame(canvas, updateHud)
@@ -125,6 +129,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, o
       window.removeEventListener('keyup', keyup);
       window.removeEventListener('blur', blur);
       game?.dispose();
+      canvas.remove();
       engineRef.current = null;
       onEngine(null);
     };
@@ -132,8 +137,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, o
 
   const boxingControls = hud.boxing?.training ? BOXING_TRAINING_CONTROLS[hud.boxing.training.kind] : HUD_TEXT.boxing.controls;
 
-  return <div className="game-viewport">
-    <canvas ref={canvasRef} />
+  return <div ref={viewportRef} className="game-viewport">
     {sport === 'boxing'
       ? hud.boxing && <BoxingHud {...hud.boxing} />
       : <div className="game-hud"><div><span>{HUD_TEXT[sport].score}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{sport !== 'tennis' ? 'RITMO' : 'MIRA'}</span><strong>{sport !== 'tennis' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>}
