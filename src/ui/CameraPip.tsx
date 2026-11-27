@@ -18,7 +18,7 @@ interface Props {
 
 function guidance(sport: Sport, phase: Props['calibrationPhase'], progress: number): string {
   if (phase === 'framing') {
-    return sport === 'track'
+    return sport !== 'tennis'
       ? 'Enquadre a cabeça e o torso até o quadril'
       : 'Enquadre a cabeça e o torso até o quadril, com as mãos visíveis';
   }

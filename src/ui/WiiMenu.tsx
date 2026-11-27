@@ -3,6 +3,7 @@ import type { Sport } from './GameCanvas';
 
 const SPORTS: { id: Sport; name: string; hint: string }[] = [
   { id: 'track', name: 'Corrida', hint: 'Corra no lugar, salte e troque de raia' },
+  { id: 'athletics', name: 'Atletismo HD', hint: 'Uma volta de 400 m no estádio Resort' },
   { id: 'tennis', name: 'Tênis', hint: 'Balance o braço para rebater' },
 ];
 
