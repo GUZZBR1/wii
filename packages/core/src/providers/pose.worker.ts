@@ -6,6 +6,7 @@ import type { Delegate, Point3, WorkerFrame, WorkerReply, WorkerRequest } from '
 let landmarker: PoseLandmarker | undefined;
 let wasmBaseUrl = '';
 let modelUrl = '';
+let cpuModelUrl = '';
 let delegate: Delegate = 'GPU';
 let attemptedFallback = false;
 let wasmLoaderInstance = 0;
@@ -36,7 +37,8 @@ async function createTask(nextDelegate: Delegate): Promise<void> {
     vision.wasmLoaderPath = loaderUrl.href;
   }
   wasmLoaderInstance += 1;
-  const response = await fetch(modelUrl);
+  const activeModelUrl = nextDelegate === 'CPU' && cpuModelUrl ? cpuModelUrl : modelUrl;
+  const response = await fetch(activeModelUrl);
   if (!response.ok) throw new Error(`Pose model request failed (${response.status})`);
   const modelBytes = new Uint8Array(await response.arrayBuffer());
   landmarker = await PoseLandmarker.createFromOptions(vision, {
@@ -45,8 +47,8 @@ async function createTask(nextDelegate: Delegate): Promise<void> {
     numPoses: 1,
     outputSegmentationMasks: false,
     minPoseDetectionConfidence: 0.5,
-    minPosePresenceConfidence: 0.5,
-    minTrackingConfidence: 0.5,
+    minPosePresenceConfidence: 0.38,
+    minTrackingConfidence: 0.38,
   });
   delegate = nextDelegate;
 }
@@ -140,6 +142,7 @@ self.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
   if (data.type === 'INIT') {
     wasmBaseUrl = data.wasmBaseUrl;
     modelUrl = data.modelUrl;
+    cpuModelUrl = data.cpuModelUrl ?? data.modelUrl;
     try {
       try {
         await createTask(data.delegate);

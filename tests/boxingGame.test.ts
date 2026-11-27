@@ -69,7 +69,7 @@ describe('BoxingGame', () => {
   it('lets a body lean dodge the telegraphed punch', () => {
     const { game, run, read } = start();
     run(1); // the windup has aimed at the center
-    game.setLaneZone(1);
+    game.setDodgeZone(1);
     run(0.8);
     expect(read().label).toBe('100 × 100');
     expect(read().feedback?.text).toBe('ESQUIVOU!');
@@ -197,7 +197,7 @@ describe('BoxingGame', () => {
 function dodgeFirst() {
   const fight = start();
   fight.run(1);
-  fight.game.setLaneZone(1);
+  fight.game.setDodgeZone(1);
   fight.run(0.7);
   return fight;
 }
@@ -323,13 +323,13 @@ describe('BoxingGame footwork', () => {
 
   it('circles only on a lean that is held, and stops when the camera loses its opinion', () => {
     const fight = start();
-    fight.game.setLaneZone(1);
+    fight.game.setDodgeZone(1);
     fight.run(0.3);
     expect(spots(fight.game).playerPos.x).toBe(0);
     fight.run(0.5);
     const { x } = spots(fight.game).playerPos;
     expect(x).toBeGreaterThan(0.1);
-    fight.game.setLaneZone(undefined);
+    fight.game.setDodgeZone(undefined);
     fight.run(0.5);
     expect(spots(fight.game).playerPos.x).toBe(x);
   });

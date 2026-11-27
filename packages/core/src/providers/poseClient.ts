@@ -8,12 +8,11 @@ export interface PoseClientCallbacks {
 export interface PoseClientAssets {
   wasmBaseUrl: string;
   modelUrl: string;
+  cpuModelUrl?: string;
 }
 
 /** Widest video sent as a raw VideoFrame; wider video is downscaled on the bitmap path. */
-const MAX_DIRECT_FRAME_WIDTH = 640;
-/** Bitmap copy width on the CPU delegate, where inference cost makes smaller input worthwhile. */
-const CPU_BITMAP_WIDTH = 320;
+const MAX_FRAME_WIDTH = 640;
 
 export class PoseClient {
   private worker?: Worker;
@@ -130,15 +129,19 @@ export class PoseClient {
         this.activeDelegate = message.to;
         this.callbacks?.onStatus('fallback', 'GPU indisponível; usando CPU.');
       } else if (message.type === 'ERROR') {
-        if (message.stage === 'detect') {
+        // A fatal error belongs to the current worker, even after its frame was acknowledged.
+        if (message.stage === 'detect' && !message.fatal) {
           if (this.inFlight?.requestId !== message.requestId || this.inFlight.captureEpoch !== message.captureEpoch) return;
           this.releaseFrame(message.requestId, message.captureEpoch);
-          if (!message.fatal && message.captureEpoch !== this.captureEpoch) return;
+          if (message.captureEpoch !== this.captureEpoch) return;
         }
-        this.callbacks?.onStatus(message.fatal ? 'error' : 'fallback', message.message);
         if (message.fatal) {
+          const callbacks = this.callbacks;
           this.completeInitialization(new Error(message.message));
           this.dispose();
+          callbacks?.onStatus('error', message.message);
+        } else {
+          this.callbacks?.onStatus('fallback', message.message);
         }
       } else if (message.type === 'POSE') {
         if (this.inFlight?.requestId !== message.requestId || this.inFlight.captureEpoch !== message.captureEpoch) return;
@@ -209,10 +212,9 @@ export class PoseClient {
     try {
       // Synchronous when possible: no await means no session change can slip in before the post.
       bitmap = this.directFrame(video, timestampMs)
-        ?? await createImageBitmap(video, {
-          resizeWidth: this.activeDelegate === 'CPU' ? CPU_BITMAP_WIDTH : MAX_DIRECT_FRAME_WIDTH,
-          resizeQuality: 'low',
-        });
+        ?? (video.videoWidth > MAX_FRAME_WIDTH
+          ? await createImageBitmap(video, { resizeWidth: MAX_FRAME_WIDTH, resizeQuality: 'medium' })
+          : await createImageBitmap(video));
       if (!this.capturing || captureEpoch !== this.captureEpoch || !this.worker) {
         bitmap.close();
         this.releaseFrame(requestId, captureEpoch);
@@ -231,8 +233,7 @@ export class PoseClient {
 
   /** Undefined when the video needs downscaling or VideoFrame cannot be built from it. */
   private directFrame(video: HTMLVideoElement, timestampMs: number): VideoFrame | undefined {
-    const maxWidth = this.activeDelegate === 'CPU' ? CPU_BITMAP_WIDTH : MAX_DIRECT_FRAME_WIDTH;
-    if (typeof VideoFrame === 'undefined' || !(video.videoWidth <= maxWidth)) return undefined;
+    if (typeof VideoFrame === 'undefined' || !(video.videoWidth <= MAX_FRAME_WIDTH)) return undefined;
     try {
       // VideoFrame timestamps are integer microseconds.
       return new VideoFrame(video, { timestamp: Math.round(timestampMs * 1000) });
@@ -246,13 +247,16 @@ export class PoseClient {
   }
 
   private confidence(points: PoseSnapshot['landmarks']): number {
-    const indices = [11, 12, 23, 24];
+    // Upper-body shoulders [11, 12] anchor presence: running arms and high knees routinely
+    // self-occlude the hips [23, 24] in a front-facing webcam without losing the player.
+    const indices = [11, 12];
     if (indices.some((index) => !points[index])) return 0;
     return Math.min(...indices.map((index) => {
       const point = points[index]!;
       const visibility = point.visibility ?? point.presence ?? 0;
       const presence = point.presence ?? point.visibility ?? 0;
-      return Math.min(visibility, presence);
+      const score = Math.min(visibility, presence);
+      return Number.isFinite(score) ? score : 0;
     }));
   }
 }

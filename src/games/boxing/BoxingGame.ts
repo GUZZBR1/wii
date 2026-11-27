@@ -272,7 +272,7 @@ export class BoxingGame {
   }
 
   /** Same authority rule as the track: a changed body zone applies absolutely, keys hold until then. */
-  setLaneZone(zone: Zone | undefined): void {
+  setDodgeZone(zone: Zone | undefined): void {
     this.lean = zone ?? 0;
     if (zone === undefined) return;
     if (zone !== this.cameraZone) this.zone = zone;

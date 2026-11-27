@@ -34,6 +34,7 @@ export interface WorkerInit {
   type: 'INIT';
   wasmBaseUrl: string;
   modelUrl: string;
+  cpuModelUrl?: string;
   delegate: Delegate;
 }
 
@@ -79,9 +80,13 @@ export type SportActionEvent =
    * crossing frame, ~100-400 ms before the swing confirms (if it ever does). Backswings and
    * aborted motions fire it too: use it for animation, never for adjudication.
    */
-  | ActionBase & { type: 'swing-start'; hand: Hand }
+  | ActionBase & { type: 'swing-start'; hand: Hand; side: 'forehand' | 'backhand' }
   | ActionBase & {
       type: 'swing';
+      /** How far the wrist travelled, in shoulder widths. */
+      travel?: number;
+      /** The wrist that made the stroke. */
+      hand: Hand;
       side: 'forehand' | 'backhand';
       power01: number;
       peakTimestampMs?: number;
@@ -125,6 +130,8 @@ export interface ContinuousControls {
    * without the dropped-step desync that relative lane events had.
    */
   laneZone?: -1 | 0 | 1;
+  /** Boxing's lean-to-dodge reading, apart from lane control. */
+  dodgeZone?: -1 | 0 | 1;
   /**
    * Both fists are currently raised in front of the upper body. Restated every frame like the lane
    * zone; undefined while the camera has no opinion, which consumers must read as not guarding.

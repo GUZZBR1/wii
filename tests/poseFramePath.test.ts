@@ -92,7 +92,7 @@ describe('PoseClient frame transport', () => {
     await video.fireFrame(10);
 
     expect(FakeVideoFrame.created).toHaveLength(0);
-    expect(createBitmap).toHaveBeenCalledWith(video, { resizeWidth: 640, resizeQuality: 'low' });
+    expect(createBitmap).toHaveBeenCalledWith(video, { resizeWidth: 640, resizeQuality: 'medium' });
     expect(worker.transfers.at(-1)).toEqual([bitmap]);
     client.dispose();
   });
@@ -117,25 +117,12 @@ describe('PoseClient frame transport', () => {
     client.dispose();
   });
 
-  it('downscales a 640-wide camera on CPU instead of sending it whole', async () => {
-    const { client, video } = await start(640, 'CPU');
+  it('sends the CPU delegate the same input as the GPU one', async () => {
+    // Athletics and tennis are tuned on CPU at this width.
+    const { client, video } = await start(1280, 'CPU');
     await video.fireFrame(10);
 
-    expect(FakeVideoFrame.created).toHaveLength(0);
-    expect(createBitmap).toHaveBeenCalledWith(video, { resizeWidth: 320, resizeQuality: 'low' });
-    client.dispose();
-  });
-
-  it.each([
-    ['READY on CPU', 'CPU' as const, false],
-    ['a mid-session FALLBACK', 'GPU' as const, true],
-  ])('copies bitmaps at 320 wide after %s', async (_name, delegate, fallsBack) => {
-    vi.stubGlobal('VideoFrame', undefined);
-    const { client, video, worker } = await start(1280, delegate);
-    if (fallsBack) worker.reply({ type: 'FALLBACK', from: 'GPU', to: 'CPU', reason: 'slow' });
-    await video.fireFrame(10);
-
-    expect(createBitmap).toHaveBeenCalledWith(video, { resizeWidth: 320, resizeQuality: 'low' });
+    expect(createBitmap).toHaveBeenCalledWith(video, { resizeWidth: 640, resizeQuality: 'medium' });
     client.dispose();
   });
 });

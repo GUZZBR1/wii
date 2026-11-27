@@ -1,74 +1,88 @@
-import { useEffect, useRef, useState } from 'react';
-import type { SportActionEvent } from '../cv/protocol';
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
+import type { Hand, SportActionEvent } from '../cv/protocol';
 import type { AthleticsHudState } from '../games/athletics/AthleticsGame';
-import { GOALS, type Goal } from '../games/athletics/race';
+import type { Goal } from '../games/athletics/race';
 import type { ProceduralAudio } from '../games/audio';
 import type { BoxingScoreboard } from '../games/boxing/BoxingGame';
 import { BOXING_MODES, type BoxingMode } from '../games/boxing/boxingModes';
 import { DEFAULT_OPPONENT_PROFILE_ID, OPPONENT_PROFILES, type OpponentProfileId } from '../games/boxing/opponentProfiles';
+import type { ArmMotion } from '../kinematics/armMotion';
+import type { SwingTracking } from '../kinematics/actionPipeline';
+import { type GestureSample, RestartGesture } from '../games/core/restartGesture';
 import type { GameHudState as CoreHudState } from '../games/core/hud';
 import type { GameHudState as TrackHudState } from '../games/track/TrackGame';
 
 type GameHudState = Omit<TrackHudState, 'feedback'> & {
+  tennis?: CoreHudState['tennis'];
   feedback?: TrackHudState['feedback'] | CoreHudState['feedback'];
-  finish?: AthleticsHudState['finish'];
+  finished?: AthleticsHudState['finished'];
+  framing?: boolean;
+  energy?: AthleticsHudState['energy'];
+  runners?: AthleticsHudState['runners'];
   boxing?: BoxingScoreboard;
 };
 import { forwardKeyDown } from './keys';
 
 export type Sport = 'track' | 'athletics' | 'tennis' | 'boxing';
-const HUD_TEXT: Record<Sport, { score: string; controls: string }> = {
-  track: { score: 'SCORE', controls: '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' },
-  athletics: { score: 'TEMPO', controls: '↑ / espaço acelerar  ·  ↓ desacelerar' },
-  tennis: { score: 'PONTOS', controls: 'espaço bater  ·  timing define a direção' },
-  boxing: { score: 'HP', controls: 'W A S D mover  ·  E socar  ·  segure Q para defender  ·  ← → esquivar' },
+const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }> = {
+  track: { score: 'SCORE', speed: 'RITMO', controls: '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' },
+  athletics: { score: 'TEMPO', speed: 'INTENSIDADE', controls: 'corra no lugar, mexendo os braços' },
+  tennis: { score: 'PONTOS', speed: 'MIRA', controls: 'raquetada no tempo da bola: cedo cruza, tarde vai reto' },
+  boxing: { score: 'HP', speed: 'RITMO', controls: 'W A S D mover  ·  E socar  ·  segure Q para defender  ·  ← → esquivar' },
 };
 const BOXING_TRAINING_CONTROLS = {
   bag: 'E ou socos no ritmo  ·  W A S D mover',
   dodge: '← → esquivar  ·  A / D circular para sair da linha  ·  W / S ajustar distância',
 } as const;
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; resetLaneZone?(): void; setGuard?(guard: boolean | undefined): void; setDepthMove?(move: -1 | 0 | 1 | undefined): void; setDepthSpeed?(speed: number | undefined): void; setLateralDash?(dash: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setSwingTracking?(tracking: SwingTracking): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; setDodgeZone?(zone: -1 | 0 | 1 | undefined): void; setGuard?(guard: boolean | undefined): void; setDepthMove?(move: -1 | 0 | 1 | undefined): void; setDepthSpeed?(speed: number | undefined): void; setLateralDash?(dash: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
 
 interface Props {
   sport: Sport;
   onEngine: (engine: GameEngineHandle | null) => void;
   tracking: string;
   audio?: ProceduralAudio;
+  /** Race distance for athletics, picked in the menu. */
+  goal?: Goal;
+  /** The player is holding their arms crossed; on a result screen that leads back to the menu. */
+  crossedPose?: RefObject<GestureSample | null>;
+  onExit?: () => void;
+  /** Receives the stroke length the tennis warm-up settles on. */
+  onStrokeTravel?: (travel: number) => void;
+  initialRacketHand?: Hand;
+  onRacketHand?: (hand: Hand) => void;
 }
 
 /** Restarting remounts the whole run, so a new game starts from a clean engine and canvas. */
 export function GameCanvas(props: Props) {
   const [run, setRun] = useState(0);
-  const [goal, setGoal] = useState<Goal>(400);
+  const racketHandRef = useRef<Hand>('right');
+  const rememberRacketHand = useCallback((hand: Hand) => { racketHandRef.current = hand; }, []);
   const [boxingMode, setBoxingMode] = useState<BoxingMode>('fight');
   const [boxingOpponent, setBoxingOpponent] = useState<OpponentProfileId>(DEFAULT_OPPONENT_PROFILE_ID);
-  return (
-    <GameRun
-      key={`${run}-${goal}-${boxingMode}-${boxingOpponent}`}
-      {...props}
-      goal={goal}
-      onGoal={setGoal}
-      boxingMode={boxingMode}
-      onBoxingMode={setBoxingMode}
-      boxingOpponent={boxingOpponent}
-      onBoxingOpponent={setBoxingOpponent}
-      onRestart={() => setRun((value) => value + 1)}
-    />
-  );
+  // The warm-up opens the first match only; playing again goes straight to the court.
+  return <GameRun
+    key={`${run}-${boxingMode}-${boxingOpponent}`}
+    {...props}
+    boxingMode={boxingMode}
+    onBoxingMode={setBoxingMode}
+    boxingOpponent={boxingOpponent}
+    onBoxingOpponent={setBoxingOpponent}
+    tutorial={run === 0}
+    initialRacketHand={racketHandRef.current}
+    onRacketHand={rememberRacketHand}
+    onRestart={() => setRun((value) => value + 1)}
+  />;
 }
 
-type RunProps = Props & {
-  goal: Goal;
-  onGoal: (goal: Goal) => void;
+function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, initialRacketHand, onRacketHand, tutorial, onRestart, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent }: Props & {
+  onRestart: () => void;
+  tutorial: boolean;
   boxingMode: BoxingMode;
   onBoxingMode: (mode: BoxingMode) => void;
   boxingOpponent: OpponentProfileId;
   onBoxingOpponent: (opponent: OpponentProfileId) => void;
-  onRestart: () => void;
-};
-
-function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent, onRestart }: RunProps) {
-  const viewportRef = useRef<HTMLDivElement>(null);
+}) {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hud, setHud] = useState<GameHudState>({ score: 0, label: '00000', speed01: 0, status: 'Pronto para jogar' });
   const hudRef = useRef(setHud);
   hudRef.current = setHud;
@@ -78,16 +92,50 @@ function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, o
 
   useEffect(() => { engineRef.current?.setTracking?.(tracking); }, [tracking]);
 
+  // The 100 m asks for a new run with the body: both hands held up.
+  const restartByBody = Math.max(hud.finished?.restart01 ?? 0, hud.tennis?.winner ? hud.tennis.restart01 : 0) >= 1;
+  const restartRef = useRef(onRestart);
+  restartRef.current = onRestart;
+  useEffect(() => { if (restartByBody) restartRef.current(); }, [restartByBody]);
+
+  // Same rules as playing again: only after the result has been seen, and from arms that were down.
+  const over = Boolean(hud.finished || hud.tennis?.winner);
+  const travelRef = useRef(onStrokeTravel);
+  travelRef.current = onStrokeTravel;
+  const racketHandRef = useRef(initialRacketHand);
+  racketHandRef.current = initialRacketHand;
+  const racketHandCallbackRef = useRef(onRacketHand);
+  racketHandCallbackRef.current = onRacketHand;
+  const tutorialRef = useRef(tutorial);
+  const exitRef = useRef(onExit);
+  exitRef.current = onExit;
+  const [leave01, setLeave01] = useState(0);
   useEffect(() => {
-    const viewport = viewportRef.current;
-    if (!viewport) return;
-    // Every engine gets its own canvas. A WebGL context outlives its renderer, and on one that had
-    // already been used the boxing shadows turned every lit surface black (seen on Direct3D 11).
-    const canvas = document.createElement('canvas');
-    viewport.prepend(canvas);
+    if (!over) { setLeave01(0); return; }
+    const gesture = new RestartGesture();
+    let last = performance.now();
+    const timer = window.setInterval(() => {
+      const now = performance.now();
+      const pose = crossedPose?.current;
+      gesture.setHandsRaised(pose?.active ?? false, pose?.atMs ?? null);
+      gesture.step((now - last) / 1000, now);
+      last = now;
+      setLeave01(gesture.progress01);
+      if (gesture.progress01 >= 1) {
+        window.clearInterval(timer);
+        exitRef.current?.();
+      }
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [over, crossedPose]);
+  const leaveBar = <div className="restart-gesture"><b style={{ width: `${leave01 * 100}%` }} /><span>Cruze os braços em X para voltar ao menu</span></div>;
+
+  useEffect(() => {
+    if (!canvasRef.current) return;
     let game: GameEngineHandle | undefined;
     let disposed = false;
     const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || (event.target instanceof HTMLElement && event.target.closest('button, input, select, textarea, a'))) return;
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(event.key)) event.preventDefault();
       if (!forwardKeyDown(event.key, event.repeat)) return;
       void audio?.unlock();
@@ -101,19 +149,25 @@ function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, o
     window.addEventListener('blur', blur);
     const mount = async () => {
       try {
-        if (disposed) return;
+        const canvas = canvasRef.current;
+        if (disposed || !canvas) return;
         const updateHud = (state: GameHudState) => hudRef.current(state);
         const engine: GameEngineHandle = sport === 'track'
           ? new (await import('../games/track/TrackGame')).TrackGame(canvas, updateHud)
           : sport === 'athletics'
             ? new (await import('../games/athletics/AthleticsGame')).AthleticsGame(canvas, updateHud, audio, goal)
             : sport === 'tennis'
-              ? new (await import('../games/tennis/TennisGame')).TennisGame(canvas, updateHud, audio)
+              ? new (await import('../games/tennis/TennisGame')).TennisGame(canvas, updateHud, audio, {
+                tutorial: tutorialRef.current,
+                initialRacketHand: racketHandRef.current,
+                onRacketHand: (hand) => racketHandCallbackRef.current?.(hand),
+                onStrokeTravel: (travel) => travelRef.current?.(travel),
+              })
               : new (await import('../games/boxing/BoxingGame')).BoxingGame(canvas, updateHud, audio, undefined, {
-                  mode: boxingMode,
-                  opponent: boxingOpponent,
-                  motionRng: Math.random,
-                });
+                mode: boxingMode,
+                opponent: boxingOpponent,
+                motionRng: Math.random,
+              });
         if (disposed) { engine.dispose(); return; }
         game = engine;
         engineRef.current = engine;
@@ -130,7 +184,6 @@ function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, o
       window.removeEventListener('keyup', keyup);
       window.removeEventListener('blur', blur);
       game?.dispose();
-      canvas.remove();
       engineRef.current = null;
       onEngine(null);
     };
@@ -138,13 +191,25 @@ function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, o
 
   const boxingControls = hud.boxing?.training ? BOXING_TRAINING_CONTROLS[hud.boxing.training.kind] : HUD_TEXT.boxing.controls;
 
-  return <div ref={viewportRef} className="game-viewport">
-    {sport === 'boxing'
-      ? hud.boxing && <BoxingHud {...hud.boxing} />
-      : <div className="game-hud"><div><span>{HUD_TEXT[sport].score}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{sport !== 'tennis' ? 'RITMO' : 'MIRA'}</span><strong>{sport !== 'tennis' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>}
-    {sport === 'athletics' && (hud.score === 0 || hud.finish) && <fieldset className="game-goals" aria-label="Distância da prova">
-      {GOALS.map((meters) => <button key={meters} type="button" className="dock-btn" aria-pressed={meters === goal} onClick={() => onGoal(meters)}>{meters} m</button>)}
-    </fieldset>}
+  return <div className={`game-viewport ${sport}${hud.framing ? ' is-framing' : ''}`}>
+    <canvas ref={canvasRef} />
+    {hud.tennis ? <table className="tennis-score" aria-label="Placar do tênis">
+      <thead><tr><th scope="col">Tênis</th><th scope="col">Games</th><th scope="col">Pontos</th></tr></thead>
+      <tbody>{(['player', 'opponent'] as const).map((side) => (
+        <tr key={side}>
+          <th scope="row">{side === 'player' ? 'Você' : 'Adversário'}{hud.tennis?.server === side && <span className="tennis-server" role="img" aria-label={hud.tennis.secondServe ? 'Segundo saque' : 'Sacando'}>●</span>}</th>
+          <td>{hud.tennis?.games[side]}</td>
+          <td>{hud.tennis?.points[side]}</td>
+        </tr>
+      ))}</tbody>
+    </table> : sport === 'boxing' ? hud.boxing && <BoxingHud {...hud.boxing} /> : sport !== 'tennis' && <div className="game-hud"><div><span>{HUD_TEXT[sport].score}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{HUD_TEXT[sport].speed}</span><strong>{Math.round(hud.speed01 * 100)}%</strong></div></div>}
+    {hud.tennis?.winner && <section className="game-over tennis-result" aria-label="Resultado da partida">
+      <h2>{hud.tennis.winner === 'player' ? 'Você venceu!' : 'Adversário venceu'}</h2>
+      <p>{hud.tennis.games.player} × {hud.tennis.games.opponent} games</p>
+      <div className="restart-gesture"><b style={{ width: `${hud.tennis.restart01 * 100}%` }} /><span>Levante as duas mãos para jogar de novo</span></div>
+      {leaveBar}
+      <button type="button" onClick={onRestart}>Jogar de novo</button>
+    </section>}
     {sport === 'boxing' && hud.boxing?.selectionOpen && <fieldset className="game-goals boxing-setup" aria-label="Configuração do boxe">
       <div className="boxing-select-row">
         <span>MODO</span>
@@ -159,6 +224,24 @@ function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, o
       <span>{hud.feedback.text}</span>
     </div>}
     {hud.banner && <div className="game-banner" role="status"><strong>{hud.banner.title}</strong>{hud.banner.detail && <span>{hud.banner.detail}</span>}</div>}
+    {hud.runners && <div className="race-progress">{hud.runners.map((runner) => (
+      <div key={runner.name} className={runner.you ? 'you' : ''}><span>{runner.name}</span><i><b style={{ width: `${runner.progress01 * 100}%` }} /></i></div>
+    ))}</div>}
+    {hud.energy && <div className="energy">
+      {hud.energy.coaching && <strong role="status">{hud.energy.coaching}</strong>}
+      <span>{hud.energy.label}</span>
+      <i><b style={{ width: `${hud.energy.value01 * 100}%` }} /></i>
+    </div>}
+    {hud.finished && <div className="game-over" role="dialog" aria-label="Fim da prova">
+      <h2>{hud.finished.title}</h2>
+      <p><strong>{hud.finished.detail}</strong></p>
+      <ol>{hud.finished.standings.map((runner, index) => (
+        <li key={runner.name} className={runner.you ? 'current' : ''}><span>{index + 1}º {runner.name}</span><span>{runner.time}</span></li>
+      ))}</ol>
+      <div className="restart-gesture"><b style={{ width: `${hud.finished.restart01 * 100}%` }} /><span>Levante as duas mãos para correr de novo</span></div>
+      {leaveBar}
+      <button type="button" onClick={onRestart}>Correr de novo</button>
+    </div>}
     {hud.result && <div className="game-over" role="dialog" aria-label="Fim de corrida">
       <h2>Você perdeu!</h2>
       <p>Sua melhor marca nesta corrida: <strong>{hud.result.points}</strong> pontos</p>
@@ -168,11 +251,6 @@ function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, o
         <li key={index} className={hud.result?.position === index + 1 ? 'current' : ''}><span>{index + 1}º</span><span>{points}</span></li>
       ))}</ol>
       <button type="button" ref={(button) => button?.focus()} onClick={onRestart}>Jogar de novo</button>
-    </div>}
-    {hud.finish && <div className="game-over finish" role="dialog" aria-label="Fim de prova">
-      <h2>{hud.finish.title}</h2>
-      <p>{hud.finish.detail}</p>
-      <button type="button" ref={(button) => button?.focus()} onClick={onRestart}>Correr de novo</button>
     </div>}
     <div className="game-ready"><i className={tracking.startsWith('TRACKING') ? 'ready' : ''} />{hud.status}</div>
     <div className="game-controls">{sport === 'boxing' ? boxingControls : HUD_TEXT[sport].controls}</div>

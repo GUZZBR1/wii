@@ -246,6 +246,14 @@ export class TrackGame {
 
     const cameraInputAgeMs = this.lastSprintInputAtMs !== undefined ? Math.max(0, wallTimeMs - this.lastSprintInputAtMs) : 0;
     const physicsDt = adjudicationDt(this.pace, dt, cameraInputAgeMs);
+    // Keep visual scroll alive while camera input is actively coasting ('degraded' within the
+    // stale budget) so transient single-frame occlusion bursts never freeze the track on screen,
+    // while hurdle collision adjudication still respects physicsDt.
+    const visualDt = physicsDt > 0
+      ? physicsDt
+      : this.pace.owner === 'camera' && this.pace.cameraTracking === 'degraded' && cameraInputAgeMs <= 400
+        ? dt
+        : 0;
     this.score.advance(physicsDt, speed);
     this.runner.position.x += (this.lane * 1.5 - this.runner.position.x) * Math.min(1, dt * 10);
     // Lean into the lane change, upright again on arrival.
@@ -271,13 +279,14 @@ export class TrackGame {
     if (speed > 0) this.movingTime += physicsDt;
     const boost = timeBoost(this.movingTime);
     const advance = physicsDt * speed * 22 * boost;
+    const visualAdvance = visualDt * speed * 22 * boost;
     const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
-    this.travelled += advance;
+    this.travelled += visualAdvance;
     const { map } = this.trackMaterial;
-    if (map) map.offset.y = (map.offset.y + advance / SURFACE_TILE) % 1;
-    for (const stripe of this.stripes) stripe.position.z = scrollZ(stripe.position.z, advance, SCENERY_MIN_Z, SCENERY_MAX_Z);
-    this.sceneryPool.update(advance, this.applyBiome().props);
-    this.dustPool.update(dt, advance);
+    if (map) map.offset.y = (map.offset.y + visualAdvance / SURFACE_TILE) % 1;
+    for (const stripe of this.stripes) stripe.position.z = scrollZ(stripe.position.z, visualAdvance, SCENERY_MIN_Z, SCENERY_MAX_Z);
+    this.sceneryPool.update(visualAdvance, this.applyBiome().props);
+    this.dustPool.update(dt, visualAdvance);
     this.shadow.position.x = this.runner.position.x;
     // The shadow shrinks as the runner rises, which is what reads as height.
     this.shadow.scale.setScalar(1 / (1 + this.runner.position.y * 0.6));
