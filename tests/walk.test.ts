@@ -21,6 +21,15 @@ describe('walking from the side-to-side weight shift', () => {
     expect(results.flatMap((r) => r.events).filter((event) => event.type === 'step').length).toBeGreaterThan(3);
   });
 
+  it('walks faster when the weight shifts faster, without ever reading as running', () => {
+    const speedAt = (cycleMs: number) => {
+      const last = drive((time) => pose(time, { shiftUserRightSw: 0.1 * Math.sin((2 * Math.PI * time) / cycleMs) }), 9000).at(-1)!;
+      return last.controls.sprintSpeed01;
+    };
+    expect(speedAt(900)).toBeGreaterThan(speedAt(1500));
+    expect(gaitFor(speedAt(750), 'idle')).toBe('walk');
+  });
+
   it('stops soon after the sway stops', () => {
     const results = drive((time) => pose(time, { shiftUserRightSw: time < 4000 ? sway(time) : 0 }), 7000);
     expect(results.filter((r) => r.time > 5500).every((r) => r.controls.sprintSpeed01 === 0)).toBe(true);

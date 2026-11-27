@@ -11,8 +11,9 @@ const MAX_STEP_INTERVAL_MS = 900;
 /** One missed or doubled rise must not swing the speed: the median of these decides. */
 const STEPS_AVERAGED = 7;
 const ESTABLISHED_RUN_MS = 1000;
-/** Walking is a single steady pace: the camera can tell that it happens, not how fast. */
-const WALK_SPM = 100;
+/** Walking pace follows the weight shifts, held below the game's running threshold (137.5 steps/min). */
+const MIN_WALK_SPM = 70;
+const MAX_WALK_SPM = 130;
 /**
  * Steps/min to game speed, interpolated. Anchors follow the CADENCE-Adults studies (100 steps/min is a
  * moderate walk; walking turns into running around 135-140). Those were measured moving forward, not in place.
@@ -37,6 +38,7 @@ export class CadenceTracker {
   private readonly bounce = new BounceDetector();
   private readonly walk = new WalkDetector();
   private walking = false;
+  private walkSpm = MIN_WALK_SPM;
   private intervals: number[] = [];
   private lastStepAt = Number.NEGATIVE_INFINITY;
   private lastStepSide: 'left' | 'right' = 'right';
@@ -74,6 +76,11 @@ export class CadenceTracker {
       const { left, right, width, x } = sample.shoulders;
       const walk = this.walk.update(sample.timestampMs, x, (left + right) / 2, width);
       this.walking = walk.walking;
+      if (walk.walking && walk.spm > 0) {
+        const spm = Math.min(MAX_WALK_SPM, Math.max(MIN_WALK_SPM, walk.spm));
+        // Eased so one uneven step does not jerk the runner.
+        this.walkSpm += (spm - this.walkSpm) * 0.15;
+      }
       if (walk.step && !this.moving) {
         this.lastStepSide = this.lastStepSide === 'left' ? 'right' : 'left';
         step = this.lastStepSide;
@@ -85,7 +92,7 @@ export class CadenceTracker {
     this.movingSince = this.moving ? Math.min(this.movingSince, nowMs) : Number.POSITIVE_INFINITY;
     // Running wins: its bounce also sways.
     if (!this.moving) return this.walking
-      ? { cadenceSpm: WALK_SPM, speed01: speedFromCadence(WALK_SPM), step }
+      ? { cadenceSpm: this.walkSpm, speed01: speedFromCadence(this.walkSpm), step }
       : { cadenceSpm: 0, speed01: 0, step };
     const cadenceSpm = this.intervals.length ? 60_000 / median(this.intervals) : DEFAULT_SPM;
     return { cadenceSpm, speed01: speedFromCadence(cadenceSpm), step };
@@ -95,6 +102,7 @@ export class CadenceTracker {
     this.bounce.reset();
     this.walk.reset();
     this.walking = false;
+    this.walkSpm = MIN_WALK_SPM;
     this.intervals = [];
     this.lastStepAt = Number.NEGATIVE_INFINITY;
     this.lastStepSide = 'right';

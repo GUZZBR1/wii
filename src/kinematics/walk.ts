@@ -22,7 +22,8 @@ const VERTICAL_WINDOW_MS = 1000;
 
 type Point = { t: number; x: number };
 
-export interface Walk { walking: boolean; step: boolean }
+/** `spm` is the pace of the latest weight shifts, in steps per minute; 0 while not walking. */
+export interface Walk { walking: boolean; step: boolean; spm: number }
 
 export class WalkDetector {
   private high?: Point;
@@ -63,7 +64,7 @@ export class WalkDetector {
     }
     const walking = this.intervals >= MIN_INTERVALS && this.lastTurn !== undefined
       && t - this.lastTurn.t <= MAX_TURN_GAP_MS && spread < MAX_VERTICAL_SW;
-    return { walking, step: step && walking };
+    return { walking, step: step && walking, spm: walking && this.lastGap ? 60_000 / this.lastGap : 0 };
   }
 
   reset(): void {
