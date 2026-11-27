@@ -18,9 +18,9 @@ export function CameraPip(props: Props) {
   }, [props.cameraOn]);
 
   return <aside
-    className={expanded ? 'cam-pip expanded' : 'cam-pip'}
+    className={props.hidden ? 'cam-pip is-hidden' : expanded ? 'cam-pip expanded' : 'cam-pip'}
     aria-hidden={props.hidden || undefined}
-    hidden={props.hidden}
+    inert={props.hidden || undefined}
   >
     <div className="cam-feed">
       <video ref={props.videoRef} autoPlay muted playsInline />
