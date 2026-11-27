@@ -11,6 +11,22 @@ const SCRIPT_MS = TRACK_RECORDING_SCRIPT.reduce((total, segment) => total + segm
 // above the picture in 189 of its 297 running frames and the tracker lost the body (37 empty, 54 upside down).
 const recordings = import.meta.glob('./recordings/*.json', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 
+/**
+ * Floors per recording, a little under what the detector scored when they were set: percent of frames
+ * with the runner moving where it should (run, runJump) and where it should not. Raise them when the
+ * detector improves; lowering one is accepting a regression. The recordings are personal and local, so
+ * these only guard on a machine that has them.
+ */
+interface Floor { run: number; arms: number; side: number; stop: number; runJump?: number }
+const FLOORS: Record<string, Floor> = {
+  'corrida-CPU-1795731825430': { run: 85, arms: 3, side: 20, stop: 12 },
+  'corrida-CPU-1795734053676': { run: 95, arms: 3, side: 5, stop: 5 },
+  'corrida-CPU-1795735134733': { run: 95, arms: 3, side: 5, stop: 5 },
+  'corrida-CPU-1795736477645': { run: 95, arms: 3, side: 5, stop: 5, runJump: 90 },
+  // Badly framed (see above): kept to notice changes, not as a target.
+  'corrida-GPU-1795733551309': { run: 20, arms: 3, side: 5, stop: 5 },
+};
+
 describe('recording script and replay', () => {
   it('records every scripted frame, then reports the end', () => {
     const recorder = new PoseRecorder();
@@ -35,7 +51,17 @@ describe.skipIf(Object.keys(recordings).length === 0)('scoreboard for real recor
     const seconds = (recording.lastTimestampMs - recording.firstTimestampMs) / 1000;
     console.log(`${name} · ${recording.source.delegate} · ${(frames.length / seconds).toFixed(1)} fps`);
     console.table(replayTrack(frames));
-    console.log('SUMMARY', JSON.stringify(summarize(frames)));
+    const summary = summarize(frames);
+    console.log('SUMMARY', JSON.stringify(summary));
     expect(frames.length).toBeGreaterThan(0);
+    // A new recording has no floor yet: it is printed, then judged by whoever adds it.
+    const floor = FLOORS[name.split('/').at(-1)!.replace('.json', '')];
+    if (!floor) return;
+    expect(summary.still, 'standing still moved the runner').toBeLessThanOrEqual(2);
+    expect(summary.arms, 'arms alone moved the runner').toBeLessThanOrEqual(floor.arms);
+    expect(summary.side, 'changing lanes moved the runner').toBeLessThanOrEqual(floor.side);
+    expect(summary.stop, 'the runner kept going after the stop').toBeLessThanOrEqual(floor.stop);
+    expect(summary.run, 'running was missed').toBeGreaterThanOrEqual(floor.run);
+    if (floor.runJump !== undefined) expect(summary.runJump, 'running was lost around jumps').toBeGreaterThanOrEqual(floor.runJump);
   });
 });
