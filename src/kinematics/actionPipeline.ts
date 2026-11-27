@@ -1,4 +1,5 @@
 import type { CalibrationProfile, ContinuousControls, Hand, PoseSnapshot, SportActionEvent, TrackingState } from '../cv/protocol';
+import { LateralDashTracker, PunchInFlight } from './boxingLocomotion';
 import { CadenceTracker } from './cadenceTracker';
 import { JumpDetector } from './jumpDetector';
 import { LanePositionTracker, RingDepthTracker } from './postureSignals';
@@ -30,6 +31,8 @@ export class ActionPipeline {
   private readonly jump = new JumpDetector();
   private readonly lanePosition = new LanePositionTracker();
   private readonly ringDepth = new RingDepthTracker();
+  private readonly lateralDash = new LateralDashTracker();
+  private readonly punchInFlight = new PunchInFlight();
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
     { hand, wrist, gate: new TrackingGate([], 'world'), detector: new SwingDetector(hand) }
@@ -83,19 +86,6 @@ export class ActionPipeline {
         this.torsoChannel.reset();
         this.coast = undefined;
       }
-    }
-
-    // Lane control reads the same image torso core as the vertical channel, so it shares the
-    // torso gate. The zone is published as a continuous authoritative position, not a step
-    // event: the game re-reads it every frame, so countdowns, pauses and remounts cannot drop
-    // it, and a frozen zone never desyncs — when updates resume the filter re-converges within
-    // a frame and the restated zone corrects whatever the runner did in the meantime.
-    const laneReady = calibration !== undefined && (calibration.readiness?.neutral01 ?? 1) >= 0.65;
-    if (laneReady && torsoTracking.state === 'tracked') {
-      const zone = this.lanePosition.update(current, calibration);
-      if (zone !== undefined) controls = { ...controls, laneZone: zone };
-      const depth = this.ringDepth.update(current, calibration);
-      if (depth !== undefined) controls = { ...controls, ringDepthMove: depth };
     }
 
     const swingScaleReady = calibration !== undefined && (calibration.readiness?.scale01 ?? 1) >= 0.5;
@@ -152,11 +142,30 @@ export class ActionPipeline {
       if (!calibration || !swingScaleReady || tracking.state !== 'tracked') continue;
       const output = detector.update(current, calibration);
       if (output?.kind === 'onset') {
+        this.punchInFlight.start(hand, snapshot.timestampMs);
         events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'punch-start', hand });
       } else if (output?.kind === 'confirmed') {
         const { power01, confidence, peakTimestampMs, onsetTimestampMs } = output;
+        this.punchInFlight.end(hand);
         events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'punch', hand, power01, peakTimestampMs, onsetTimestampMs });
       }
+    }
+
+    // Lane control reads the same image torso core as the vertical channel, so it shares the
+    // torso gate. The zone is published as a continuous authoritative position, not a step
+    // event: the game re-reads it every frame, so countdowns, pauses and remounts cannot drop
+    // it, and a frozen zone never desyncs — when updates resume the filter re-converges within
+    // a frame and the restated zone corrects whatever the runner did in the meantime.
+    const laneReady = calibration !== undefined && (calibration.readiness?.neutral01 ?? 1) >= 0.65;
+    if (laneReady && torsoTracking.state === 'tracked') {
+      const zone = this.lanePosition.update(current, calibration);
+      if (zone !== undefined) controls = { ...controls, laneZone: zone };
+      // Read after the punch detectors, so the frame of a punch onset is already frozen.
+      const punching = this.punchInFlight.active(snapshot.timestampMs);
+      const depth = this.ringDepth.update(current, calibration, punching);
+      if (depth !== undefined) controls = { ...controls, ringDepthMove: depth, ringDepth01: this.ringDepth.approach01 };
+      const dash = this.lateralDash.update(current, punching);
+      if (dash !== undefined) controls = { ...controls, lateralDash: dash };
     }
 
     return { snapshot: current, events, controls, kinematicsMs: performance.now() - start };
@@ -212,5 +221,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.ringDepth.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.punches.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.punchInFlight.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.punches.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }

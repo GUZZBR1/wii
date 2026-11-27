@@ -288,12 +288,14 @@ describe('RingDepthTracker', () => {
     const width = Math.abs(first.landmarks[11]!.x - first.landmarks[12]!.x);
     return { ...base, image: { ...base.image, shoulderWidth0: width } };
   };
-  /** The same pose with the shoulders `ratio` times as wide as the calibrated ones. */
+  /** The same pose with the whole torso `ratio` times the calibrated size, as a step in depth does. */
   const scaled = (timeMs: number, ratio: number) => {
     const snapshot = pose(timeMs);
-    const center = (snapshot.landmarks[11]!.x + snapshot.landmarks[12]!.x) / 2;
+    const core = [11, 12, 23, 24];
+    const mean = (axis: 'x' | 'y') => core.reduce((sum, index) => sum + snapshot.landmarks[index]![axis], 0) / core.length;
+    const [x, y] = [mean('x'), mean('y')];
     const landmarks = snapshot.landmarks.map((point, index) => (
-      index === 11 || index === 12 ? { ...point, x: center + (point.x - center) * ratio } : point
+      core.includes(index) ? { ...point, x: x + (point.x - x) * ratio, y: y + (point.y - y) * ratio } : point
     ));
     return { ...snapshot, landmarks };
   };
@@ -312,7 +314,7 @@ describe('RingDepthTracker', () => {
     }
   });
 
-  it('ignores a standing player and the brief foreshortening of a punch', () => {
+  it('ignores a standing player and a brief change of apparent size', () => {
     expect(new Set(drive((t) => (t % 66 === 0 ? 1.05 : 0.95), 2000))).toEqual(new Set([0]));
     expect(new Set(drive((t) => (t > 500 && t < 700 ? 0.7 : 1), 2000))).toEqual(new Set([0]));
   });
