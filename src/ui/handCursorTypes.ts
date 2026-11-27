@@ -21,6 +21,8 @@ export type HandCursorInput = {
   pinchRelease: boolean;
   /** 0..1 do gesto sustentado de voltar/fechar. */
   backProgress: number;
+  /** Timestamp de captura no relógio de alta resolução do navegador; usado para expirar amostras paradas. */
+  capturedAtMs?: number;
   /** Fase da máquina rotacional; IDLE quando o gesto está desligado ou ausente. */
   rotationPhase: RotationalFlickPhase;
   /** Velocidade arbitrada pronta para o carrossel, em deg/s. */

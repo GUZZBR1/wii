@@ -202,6 +202,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
         pinching: state.pinching,
         pinchRelease: state.pinchRelease,
         backProgress: state.backProgress,
+        capturedAtMs: snapshot.timestampMs,
         rotationPhase: state.rotationPhase,
         rotationAngularVelocity: state.rotationAngularVelocity,
         rotationDirection: state.rotationDirection,

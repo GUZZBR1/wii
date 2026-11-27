@@ -81,7 +81,7 @@ O controlador integra com `deltaTime` real do `requestAnimationFrame`:
 - `SNAP_TO_CARD` ou momentum baixo: snap ease-in-out para o canal inteiro mais próximo;
 - `prefers-reduced-motion`: o snap é imediato e a animação orbital do cursor é desligada.
 
-Quando não há mão sincronizada — inclusive após desligar a câmera — o loop de `requestAnimationFrame` é estacionado; mouse e transições CSS não dependem dele. O componente React continua sendo a interface para mouse/teclado: setas e clique em canais chamam `syncTurn` no controlador e preservam a transição CSS existente. Durante controle por gesto, o controlador escreve `left/top/transform/opacity/zIndex` diretamente nos canais e a classe `is-gesture-controlled` remove as transições que disputariam o mesmo atributo. React é sincronizado somente quando o canal frontal muda ou quando o movimento assenta.
+Quando não há mão sincronizada — inclusive após desligar a câmera — o loop de `requestAnimationFrame` é estacionado; mouse e transições CSS não dependem dele. Amostras de mão mais velhas que 150 ms são tratadas como ociosas, evitando que um frame `ROTATING` parado continue acelerando a roda. Cliques de mouse/setas assumem ownership por 900 ms — a duração da transição CSS — para que um flick no meio da animação não salte do alvo. O componente React continua sendo a interface para mouse/teclado: setas e clique em canais chamam `syncTurn` no controlador e preservam a transição CSS existente. Durante controle por gesto, o controlador escreve `left/top/transform/opacity/zIndex` diretamente nos canais e a classe `is-gesture-controlled` remove as transições que disputariam o mesmo atributo. React é sincronizado somente quando o canal frontal muda ou quando o movimento assenta.
 
 ## Diagnóstico opcional
 

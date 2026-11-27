@@ -10,6 +10,8 @@ const SPORTS: { id: Sport; name: string; hint: string }[] = [
 
 const SLOTS = Array.from({ length: 12 }, (_, i) => `slot-${i}`);
 const GRID_MS = 1100; // a grade fica à vista antes de virar roda
+const RING_TRANSITION_MS = 900;
+const HAND_SAMPLE_STALE_MS = 150;
 let introduced = false; // só a primeira visita mostra a grade se desfazendo
 
 type SharedRef<T> = { current: T };
@@ -80,13 +82,14 @@ export function HomeMenu({ onGames, exit, handInputRef, rotationGateRef, carouse
   const reducedMotion = usePrefersReducedMotion();
   const [zoom, setZoom] = useState<CSSProperties>();
   const [ring, setRing] = useState(() => introduced || reducedMotion);
+  const [ringReady, setRingReady] = useState(() => introduced || reducedMotion);
   const [turn, setTurn] = useState(0); // não volta a zero: a roda gira sempre pelo caminho curto
   const ringRef = useRef<HTMLDivElement>(null);
   const channelRefs = useRef<(HTMLButtonElement | null)[]>([]);
+  const mouseControlUntilMsRef = useRef(0);
   const controllerRef = useRef<CarouselController | null>(null);
   controllerRef.current ??= new CarouselController({ slotCount: SLOTS.length, reducedMotion });
   const controller = controllerRef.current;
-  const front = positiveModulo(Math.round(turn), SLOTS.length);
   // A câmera desligada/sem mão sincronizada estaciona o loop: mouse e CSS continuam independentes dele.
   const handRotationAvailable = handInputRef.current.visible && handInputRef.current.synced;
 
@@ -95,11 +98,11 @@ export function HomeMenu({ onGames, exit, handInputRef, rotationGateRef, carouse
   }, [controller, reducedMotion]);
 
   useEffect(() => {
-    rotationGateRef.current = ring && zoom === undefined;
+    rotationGateRef.current = ring && ringReady && zoom === undefined;
     return () => {
       rotationGateRef.current = false;
     };
-  }, [ring, zoom, rotationGateRef]);
+  }, [ring, ringReady, zoom, rotationGateRef]);
 
   const paintTurn = useCallback((nextTurn: number) => {
     for (let index = 0; index < SLOTS.length; index += 1) {
@@ -115,7 +118,7 @@ export function HomeMenu({ onGames, exit, handInputRef, rotationGateRef, carouse
   }, []);
 
   useEffect(() => {
-    if (!ring || zoom !== undefined || !handRotationAvailable) return;
+    if (!ring || !ringReady || zoom !== undefined || !handRotationAvailable) return;
     const ringElement = ringRef.current;
     if (!ringElement) return;
     let rafId: number | undefined;
@@ -126,7 +129,9 @@ export function HomeMenu({ onGames, exit, handInputRef, rotationGateRef, carouse
       const dtMs = lastMs === undefined ? 0 : now - lastMs;
       lastMs = now;
       const input = handInputRef.current;
-      const rotationInteractive = rotationGateRef.current && input.visible && input.synced;
+      const inputFresh = input.capturedAtMs !== undefined && now - input.capturedAtMs <= HAND_SAMPLE_STALE_MS;
+      const mouseOwningTransition = now < mouseControlUntilMsRef.current;
+      const rotationInteractive = rotationGateRef.current && input.visible && input.synced && inputFresh && !mouseOwningTransition;
       const result = controller.step(
         dtMs,
         rotationInteractive
@@ -136,7 +141,7 @@ export function HomeMenu({ onGames, exit, handInputRef, rotationGateRef, carouse
       if (result.controlling || result.frontChanged || result.settled) paintTurn(result.turn);
       ringElement.classList.toggle('is-gesture-controlled', result.controlling);
       if (carouselDebugRef) carouselDebugRef.current = result;
-      if (result.frontChanged || result.settled) {
+      if (result.settled) {
         setTurn((current) => (Object.is(current, result.turn) ? current : result.turn));
       }
       rafId = window.requestAnimationFrame(tick);
@@ -148,19 +153,30 @@ export function HomeMenu({ onGames, exit, handInputRef, rotationGateRef, carouse
       ringElement.classList.remove('is-gesture-controlled');
       if (carouselDebugRef) carouselDebugRef.current = undefined;
     };
-  }, [ring, zoom, handRotationAvailable, controller, paintTurn, handInputRef, rotationGateRef, carouselDebugRef]);
+  }, [ring, ringReady, zoom, handRotationAvailable, controller, paintTurn, handInputRef, rotationGateRef, carouselDebugRef]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => { introduced = true; setRing(true); }, ring ? 0 : GRID_MS);
     return () => window.clearTimeout(timer);
   }, [ring]);
 
+  useEffect(() => {
+    if (!ring) {
+      setRingReady(false);
+      return;
+    }
+    if (ringReady) return;
+    const timer = window.setTimeout(() => setRingReady(true), reducedMotion ? 0 : RING_TRANSITION_MS);
+    return () => window.clearTimeout(timer);
+  }, [ring, ringReady, reducedMotion]);
+
   const rotateTo = (nextTurn: number) => {
+    mouseControlUntilMsRef.current = reducedMotion ? 0 : performance.now() + RING_TRANSITION_MS;
     ringRef.current?.classList.remove('is-gesture-controlled');
     controller.syncTurn(nextTurn);
     setTurn(nextTurn);
   };
-  const rotateBy = (delta: number) => rotateTo(controller.currentTurn + delta);
+  const rotateBy = (delta: number) => rotateTo(Math.round(controller.currentTurn) + delta);
   // A câmera avança sobre o canal, o branco nasce no meio da tela e só então troca de tela.
   // Como nos papers: clicar num canal gira a roda, pelo caminho curto, até ele chegar à frente.
   const bring = (index: number) => {
@@ -169,7 +185,8 @@ export function HomeMenu({ onGames, exit, handInputRef, rotationGateRef, carouse
     rotateTo(controller.currentTurn + shortestTurnDelta(controller.currentTurn, index, SLOTS.length));
   };
   const open = (event: MouseEvent<HTMLButtonElement>) => {
-    if (front !== 0) { bring(0); return; }
+    const frontNow = positiveModulo(Math.round(controller.currentTurn), SLOTS.length);
+    if (controller.isControlling || frontNow !== 0) { bring(0); return; }
     if (reducedMotion) { onGames(); return; }
     const tile = event.currentTarget.getBoundingClientRect();
     const screen = event.currentTarget.closest('section')?.getBoundingClientRect();

@@ -73,6 +73,7 @@ describe('HomeMenu rotational carousel integration', () => {
       ...HAND_IDLE,
       visible: true,
       synced: true,
+      capturedAtMs: 1000,
       rotationPhase: 'ROTATING',
       rotationAngularVelocity: 180,
       rotationDirection: 1,
@@ -101,6 +102,33 @@ describe('HomeMenu rotational carousel integration', () => {
     expect(raf.callbacks.size).toBe(0);
     expect(rotationGateRef.current).toBe(false);
     expect(carouselDebugRef.current).toBeUndefined();
+  });
+
+
+  it('expires a stale rotating hand sample instead of driving forever', () => {
+    mockReducedMotion();
+    const raf = mockRaf();
+    const input: HandCursorInput = {
+      ...HAND_IDLE,
+      visible: true,
+      synced: true,
+      capturedAtMs: 800,
+      rotationPhase: 'ROTATING',
+      rotationAngularVelocity: 180,
+      rotationDirection: 1,
+    };
+    const { container, root } = renderHome(input);
+    const ring = container.querySelector('.channel-ring')!;
+    const firstChannel = container.querySelector<HTMLElement>('.channel')!;
+    act(() => {
+      raf.fire(1000);
+      raf.fire(1016);
+    });
+    expect(ring.className).not.toContain('is-gesture-controlled');
+    expect(firstChannel.style.left).toBe('50%');
+    act(() => {
+      root.unmount();
+    });
   });
 
   it('cancels the carousel rAF when camera hand input becomes unavailable', () => {
