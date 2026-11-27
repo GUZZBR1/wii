@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COUNTDOWN_S, FRAMED_S, FRAMING_PATIENCE_S, NO_BODY_ADVICE, Race, RACE_METRES, WARMUP_S } from '../src/games/sprint/race';
+import { COUNTDOWN_S, FRAMED_S, FRAMING_PATIENCE_S, NO_BODY_ADVICE, Race, RACE_METRES, WARMUP_RETRIES, WARMUP_S } from '../src/games/sprint/race';
 
 const run = (race: Race, seconds: number, each?: () => void) => {
   for (let i = 0; i < Math.round(seconds * 60); i += 1) { each?.(); race.step(1 / 60); }
@@ -11,6 +11,7 @@ const warmedUp = (best: number) => {
   run(race, FRAMED_S);
   race.setEffort(best);
   run(race, WARMUP_S);
+  while (race.phase === 'warmup') run(race, WARMUP_S);
   race.setEffort(0);
   return race;
 };
@@ -66,6 +67,36 @@ describe('100 m race', () => {
     const race = started(0.02);
     race.setEffort(0.2);
     expect(race.effort01).toBeLessThan(0.4);
+  });
+
+  it('repeats a warm-up it could not read, saying what to do, and then moves on', () => {
+    const race = new Race();
+    race.setFraming(undefined, true);
+    run(race, FRAMED_S);
+    expect(race.coaching).toBeUndefined();
+    run(race, 3);
+    expect(race.coaching).toMatch(/mãos/);
+    run(race, WARMUP_S - 2.9);
+    expect([race.phase, race.retries]).toEqual(['warmup', 1]);
+    run(race, WARMUP_S * WARMUP_RETRIES);
+    expect(race.phase).toBe('countdown');
+  });
+
+  it('fills the bar and stays quiet while the player is running', () => {
+    const race = new Race();
+    race.setFraming(undefined);
+    run(race, FRAMED_S);
+    race.setEffort(0.7);
+    run(race, 3);
+    expect([race.energy01, race.coaching]).toEqual([1, undefined]);
+  });
+
+  it('lists everyone by time at the finish, the player included once', () => {
+    const race = finish(0.9);
+    const names = race.standings.map((runner) => runner.name);
+    expect(names[0]).toBe('Você');
+    expect(names).toHaveLength(4);
+    expect(race.standings.map((runner) => runner.timeS)).toEqual([...race.standings.map((runner) => runner.timeS)].sort((a, b) => a - b));
   });
 
   it('never moves a player who does nothing', () => {

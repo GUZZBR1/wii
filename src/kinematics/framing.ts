@@ -57,3 +57,11 @@ export function framingAdvice(snapshot: PoseSnapshot): string | undefined {
   if (center < MIN_CENTER_X || center > MAX_CENTER_X) return 'Vá para o meio da imagem';
   return undefined;
 }
+
+/** The arm pump needs both wrists in the picture. */
+export function handsHidden(snapshot: PoseSnapshot): boolean {
+  return [15, 16].some((index) => {
+    const wrist = snapshot.landmarks[index];
+    return !wrist || (wrist.visibility ?? 0) < 0.3 || wrist.y > 1;
+  });
+}

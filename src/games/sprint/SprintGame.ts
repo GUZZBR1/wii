@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
 import { biomeAt } from '../track/biomes';
 import { createSkyDome, SCENERY_MAX_Z, SCENERY_MIN_Z, SceneryPool } from '../track/scenery';
@@ -11,7 +12,10 @@ export interface SprintHudState {
   speed01: number;
   status: string;
   banner?: { title: string; detail?: string };
-  finished?: { title: string; detail: string };
+  finished?: { title: string; detail: string; standings: { name: string; time: string; you: boolean }[] };
+  energy?: { value01: number; label: string; coaching?: string };
+  /** Where everyone is on the 100 m, 0–1. */
+  runners?: { name: string; progress01: number; you: boolean }[];
   /** The camera picture should be shown large. */
   framing?: boolean;
 }
@@ -39,8 +43,9 @@ export class SprintGame {
   private readonly loop: GameLoop;
   private readonly hudTimer: number;
   private lastHud = '';
+  private cue = '';
 
-  constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: SprintHudState) => void) {
+  constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: SprintHudState) => void, private readonly audio?: ProceduralAudio) {
     const biome = biomeAt(0).current;
     this.sky.topColor.setHex(biome.skyTop);
     this.sky.bottomColor.setHex(biome.skyBottom);
@@ -51,6 +56,11 @@ export class SprintGame {
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x88aa77, 2), sun, this.sky.mesh, this.scenery.group);
     this.buildTrack(biome.ground);
     this.player = this.buildRunner(0x2f9be8, LANE_X[PLAYER_LANE]!);
+    // Points at the player's own runner.
+    const marker = new THREE.Mesh(new THREE.ConeGeometry(0.2, 0.34, 4), new THREE.MeshBasicMaterial({ color: 0xff8a2a }));
+    marker.rotation.x = Math.PI;
+    marker.position.y = 2.55;
+    this.player.group.add(marker);
     this.rivals = [0xe8604c, 0x4fbf58, 0xf5b52e].map((color, i) => this.buildRunner(color, LANE_X[RIVAL_LANES[i]!]!));
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt));
     this.hudTimer = window.setInterval(() => this.publish(), 80);
@@ -126,7 +136,7 @@ export class SprintGame {
 
   setEffort(effort01: number): void { this.race.setEffort(effort01); }
 
-  setFraming(advice: string | undefined): void { this.race.setFraming(advice); }
+  setFraming(advice: string | undefined, handsHidden?: boolean): void { this.race.setFraming(advice, handsHidden); }
 
   setTracking(tracking: string): void {
     // A player the camera lost stops pushing; momentum fades on its own.
@@ -142,6 +152,7 @@ export class SprintGame {
     const before = this.race.distance;
     const rivalsBefore = this.race.rivals.map((rival) => rival.distance);
     this.race.step(dt);
+    this.playCues();
     const advance = (this.race.distance - before) * SCALE;
     for (const stripe of this.stripes) stripe.position.z = scrollZ(stripe.position.z, advance, SCENERY_MIN_Z, SCENERY_MAX_Z);
     this.scenery.update(advance, biomeAt(0).current.props);
@@ -158,6 +169,16 @@ export class SprintGame {
     });
   }
 
+  /** A beep per countdown number, then the start and the finish. */
+  private playCues(): void {
+    const { race } = this;
+    const cue = race.phase === 'countdown' ? `count-${Math.ceil(race.countdown)}` : race.phase;
+    if (cue === this.cue) return;
+    this.cue = cue;
+    if (race.phase === 'countdown') this.audio?.bounce(1);
+    if (race.phase === 'racing' || (race.phase === 'finished' && race.place === 1)) this.audio?.success(1);
+  }
+
   private publish(): void {
     const { race } = this;
     const metres = Math.min(RACE_METRES, Math.floor(race.distance));
@@ -166,15 +187,25 @@ export class SprintGame {
         ? { title: 'Ótimo!', detail: 'Fique aí' }
         : { title: 'Ajuste a câmera', detail: race.advice ?? 'Ligue a câmera para correr' }
       : race.phase === 'warmup'
-      ? { title: 'CORRA COM TUDO!', detail: `Aquecimento: estou aprendendo o seu máximo · ${Math.ceil(race.warmupLeft)}` }
+      ? { title: 'CORRA COM TUDO!', detail: `${race.retries ? 'Não senti você correr. De novo' : 'Aquecimento: encha a barra'} · ${Math.ceil(race.warmupLeft)}` }
       : race.phase === 'countdown' ? { title: String(Math.ceil(race.countdown)), detail: 'Pare. Corra quando zerar' } : undefined;
     const finished = race.finishS !== undefined
-      ? { title: `${race.place}º lugar`, detail: `${race.finishS.toFixed(2)} s nos ${RACE_METRES} metros` }
+      ? {
+        title: race.place === 1 ? 'VOCÊ VENCEU!' : `${race.place}º lugar`,
+        detail: `${race.finishS.toFixed(2)} s nos ${RACE_METRES} metros`,
+        standings: race.standings.map((runner) => ({ name: runner.name, time: `${runner.timeS.toFixed(2)} s`, you: runner.you })),
+      }
       : undefined;
     const state: SprintHudState = {
       score: metres,
       label: `${metres} m`,
       speed01: Math.round(race.effort01 * 100) / 100,
+      // Coarse steps, so a steady run does not republish the HUD every tick.
+      energy: finished ? undefined : { value01: Math.round(race.energy01 * 20) / 20, label: 'SUA ENERGIA', coaching: race.coaching },
+      runners: race.phase === 'racing' ? [
+        { name: 'Você', progress01: Math.min(1, metres / RACE_METRES), you: true },
+        ...race.rivals.map((rival) => ({ name: rival.name, progress01: Math.min(1, Math.floor(rival.distance) / RACE_METRES), you: false })),
+      ] : undefined,
       status: race.phase === 'racing' ? `${race.place}º lugar · ${race.elapsedS.toFixed(1)} s` : race.phase === 'finished' ? 'Chegada!' : 'Corra no lugar, mexendo os braços',
       banner,
       finished,

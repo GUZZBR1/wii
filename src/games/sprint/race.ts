@@ -11,9 +11,11 @@ export const FRAMED_S = 1;
 /** Nobody gets stuck: with a body in view, an imperfect picture is accepted after this long. */
 export const FRAMING_PATIENCE_S = 15;
 export const NO_BODY_ADVICE = 'Apareça na câmera';
+/** A warm-up the camera barely registered is repeated, with advice, this many times. */
+export const WARMUP_RETRIES = 2;
 /** Camera readings under this are rest, not slow running. */
 const REST_EFFORT = 0.05;
-/** A warm-up this weak means the player did not try: keep the default reference instead. */
+/** A warm-up this weak was not understood: repeat it, then fall back to the default reference. */
 const MIN_TRIED_EFFORT = 0.15;
 /** However gentle the warm-up, full speed never costs less than this reading. */
 const MIN_REFERENCE = 0.3;
@@ -39,6 +41,9 @@ export class Race {
   /** The camera reading that counts as this player's full effort. */
   reference = DEFAULT_REFERENCE;
   private readonly warmup: number[] = [];
+  /** Warm-ups repeated because the camera did not register any running. */
+  retries = 0;
+  private handsHidden = false;
   elapsedS = 0;
   distance = 0;
   speed = 0;
@@ -51,8 +56,22 @@ export class Race {
     this.effort = Number.isFinite(effort01) ? Math.min(1, Math.max(0, effort01)) : 0;
   }
 
-  /** Undefined means the picture is good. */
-  setFraming(advice: string | undefined): void { this.advice = advice; }
+  /** Undefined advice means the picture is good. */
+  setFraming(advice: string | undefined, handsHidden = false): void {
+    this.advice = advice;
+    this.handsHidden = handsHidden;
+  }
+
+  /** What the energy bar shows: the raw reading while warming up, the player's own share afterwards. */
+  get energy01(): number {
+    return this.phase === 'framing' || this.phase === 'warmup' ? Math.min(1, this.effort / DEFAULT_REFERENCE) : this.effort01;
+  }
+
+  /** What to do when the bar will not fill; undefined while it is filling. */
+  get coaching(): string | undefined {
+    if (this.phase !== 'warmup' || (this.retries === 0 && this.warmupLeft > WARMUP_S - 2) || this.effort >= MIN_TRIED_EFFORT) return undefined;
+    return this.handsHidden ? 'Mostre as mãos na câmera' : 'Mexa mais os braços, como quem corre';
+  }
 
   get effort01(): number {
     return this.effort < REST_EFFORT ? 0 : Math.min(1, this.effort / this.reference);
@@ -72,6 +91,12 @@ export class Race {
       if (this.warmupLeft <= 1e-9) {
         // Near the top of what was read, ignoring one-off spikes.
         const peak = [...this.warmup].sort((a, b) => a - b)[Math.floor(this.warmup.length * 0.8)] ?? 0;
+        if (peak < MIN_TRIED_EFFORT && this.retries < WARMUP_RETRIES) {
+          this.retries += 1;
+          this.warmupLeft = WARMUP_S;
+          this.warmup.length = 0;
+          return;
+        }
         this.reference = peak < MIN_TRIED_EFFORT ? DEFAULT_REFERENCE : Math.max(MIN_REFERENCE, peak);
         this.phase = 'countdown';
       }
@@ -100,6 +125,17 @@ export class Race {
       this.finishS = this.elapsedS;
       this.phase = 'finished';
     }
+  }
+
+  /** Everyone, fastest first; a rival still running is given the time its pace will take. */
+  get standings(): { name: string; timeS: number; you: boolean }[] {
+    const rivals = this.rivals.map((rival) => ({
+      name: rival.name,
+      timeS: rival.finishS ?? this.elapsedS + (RACE_METRES - rival.distance) / rival.pace,
+      you: false,
+    }));
+    const you = this.finishS === undefined ? [] : [{ name: 'Você', timeS: this.finishS, you: true }];
+    return [...rivals, ...you].sort((a, b) => a.timeS - b.timeS);
   }
 
   /** 1 for first: rivals already across the line, or further along, are ahead. */
