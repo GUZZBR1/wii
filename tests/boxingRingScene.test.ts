@@ -114,7 +114,7 @@ describe('buildBoxingRing', () => {
     expect(keyB.castShadow).toBe(true);
     expect(keyA.shadow.mapSize.x).toBe(1024);
     expect(beams.visible).toBe(true);
-    expect(beamMaterial.opacity).toBeCloseTo(0.13);
+    expect(beamMaterial.opacity).toBeCloseTo(0.025);
 
     ring.setQuality(1);
     expect(crowd.count).toBe(240);
@@ -123,7 +123,7 @@ describe('buildBoxingRing', () => {
     expect(keyB.castShadow).toBe(false);
     expect(keyA.shadow.mapSize.x).toBe(512);
     expect(beams.visible).toBe(true);
-    expect(beamMaterial.opacity).toBeCloseTo(0.08);
+    expect(beamMaterial.opacity).toBeCloseTo(0.018);
 
     ring.setQuality(2);
     expect(crowd.count).toBe(120);

@@ -47,10 +47,10 @@ const SEAT_ORDER = Array.from({ length: CROWD_SEATS }, (_, index) => (index * 7)
 
 const LIGHT_SOURCE_Y = 5.76;
 const LIGHT_FIXTURES = [
-  { name: 'boxing-key-light-a', x: 3.45, z: -3.45, color: 0xfff1d0, intensity: 620 },
-  { name: 'boxing-key-light-b', x: -3.45, z: 3.45, color: 0xfff1d0, intensity: 560 },
-  { name: 'boxing-fill-light-a', x: -3.45, z: -3.45, color: 0xd8edff, intensity: 360 },
-  { name: 'boxing-fill-light-b', x: 3.45, z: 3.45, color: 0xd8edff, intensity: 360 },
+  { name: 'boxing-key-light-a', x: 3.45, z: -3.45, color: 0xfff1d0, intensity: 34 },
+  { name: 'boxing-key-light-b', x: -3.45, z: 3.45, color: 0xfff1d0, intensity: 30 },
+  { name: 'boxing-fill-light-a', x: -3.45, z: -3.45, color: 0xd8edff, intensity: 20 },
+  { name: 'boxing-fill-light-b', x: 3.45, z: 3.45, color: 0xd8edff, intensity: 20 },
 ] as const;
 
 /** Bakes a color into the vertices, so differently colored parts can share one draw call. Consumes `source`. */
@@ -384,7 +384,7 @@ export function buildBoxingRing(
   const beamMaterial = new THREE.MeshBasicMaterial({
     color: 0x9fdcff,
     transparent: true,
-    opacity: 0.13,
+    opacity: 0.025,
     depthWrite: false,
     blending: THREE.AdditiveBlending,
     side: THREE.DoubleSide,
@@ -412,7 +412,7 @@ export function buildBoxingRing(
     crowd.count = crowdCountFor(tier);
     renderer.shadowMap.enabled = tier !== 2;
     beams.visible = tier !== 2;
-    beamMaterial.opacity = tier === 0 ? 0.13 : 0.08;
+    beamMaterial.opacity = tier === 0 ? 0.025 : 0.018;
     lensMaterial.emissiveIntensity = tier === 2 ? 0.7 : 1.35;
 
     for (const [index, light] of keyLights.entries()) {

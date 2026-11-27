@@ -285,3 +285,22 @@ describe('createFirstPersonGloves', () => {
     expect(poseDifference(early, late)).toBeGreaterThan(0.01);
   });
 });
+
+describe('first-person gloves framing', () => {
+  it('leaves the opponent visible between and above the resting fists', () => {
+    const gloves = createFirstPersonGloves();
+    gloves.animate(0, { guard: 0.35 });
+    const camera = new THREE.PerspectiveCamera(55, 2, 0.1, 80);
+    gloves.root.updateMatrixWorld(true);
+    camera.updateMatrixWorld(true);
+    for (const mesh of meshesIn(gloves.root)) {
+      const position = mesh.geometry.getAttribute('position');
+      for (let index = 0; index < position.count; index += 1) {
+        const point = new THREE.Vector3().fromBufferAttribute(position, index).applyMatrix4(mesh.matrixWorld).project(camera);
+        expect(point.y).toBeLessThan(-0.3);
+        expect(Math.abs(point.x)).toBeGreaterThan(0.2);
+      }
+    }
+    disposeObjectTree(gloves.root);
+  });
+});

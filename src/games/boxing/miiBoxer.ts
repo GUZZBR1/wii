@@ -580,6 +580,8 @@ export function createFirstPersonGloves(): FirstPersonGloves {
     const mesh = new THREE.Mesh(merge(parts), material);
     mesh.name = `${group.name}-parts`;
     group.add(mesh);
+    // Small enough that both fists frame the opponent instead of hiding them.
+    group.scale.setScalar(0.6);
     root.add(group);
     return group;
   };
@@ -605,8 +607,8 @@ export function createFirstPersonGloves(): FirstPersonGloves {
         const phase = side < 0 ? 0 : 1.35;
         const bob = Math.sin(timeSeconds * 2.2 + phase) * 0.014;
         glove.position.set(
-          side * (0.43 - 0.12 * guard - 0.07 * punch) + sway,
-          -0.36 + 0.17 * guard + 0.07 * punch + bob,
+          side * (0.5 - 0.1 * guard - 0.2 * punch) + sway,
+          -0.43 + 0.17 * guard + 0.17 * punch + bob,
           -0.86 + 0.08 * guard - 0.43 * punch,
         );
         glove.rotation.set(
