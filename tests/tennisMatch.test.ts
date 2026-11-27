@@ -119,3 +119,18 @@ it.each([-900, -300, 0, 400, 1500])('puts any serve stroke in play, %i ms from t
     game.dispose();
   }
 });
+
+it.each([0, 1])('serves the opponent diagonally into the box, never a fault (point %i)', (points) => {
+  const { game, state } = match();
+  const opponent = state as unknown as { stepPhase(dt: number, now: number): void };
+  try {
+    state.score = { ...state.score, server: 'opponent', points: { player: points, opponent: 0 } };
+    state.startPoint(1000);
+    opponent.stepPhase(1 / 60, 3000);
+    for (let now = 3000; now < 6000 && state.ball.bounces === 0 && state.faults === 0; now += 1000 / 60) state.stepBall(1 / 60, now);
+    expect(state.faults).toBe(0);
+    expect(state.ball.bounces).toBe(1);
+  } finally {
+    game.dispose();
+  }
+});

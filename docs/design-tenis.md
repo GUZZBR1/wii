@@ -165,3 +165,21 @@ Espaço dispara um swing sintético com `peakTimestampMs = agora` — ou seja, *
 - Modo fantoche contínuo (raquete do avatar dirigida pelo punho em tempo real) — futuro se a animação procedural não convencer.
 - Multiplayer / duplas.
 - Dificuldade adaptativa além da rampa linear.
+
+## Como o Wii Sports faz, e o que adotamos
+
+Consultado em [MiiWiki](https://miiwiki.org/wiki/Tennis) e
+[Wikibooks](https://en.wikibooks.org/wiki/Wii_Sports/Tennis). São fontes de fãs.
+
+| Wii Sports, segundo as fontes | Aqui |
+| --- | --- |
+| Movimento automático; o jogador só rebate | Igual |
+| Tempo e altura da raquetada definem a direção | Só o tempo |
+| Saque: lança a bola e bate; no topo sai um saque rápido com rastro branco | Igual, mas o lançamento é automático |
+| Baixo para alto faz lob; alto para baixo faz slice | Só o efeito de topspin/slice |
+| Sempre em duplas | Simples |
+| 1 game, melhor de 3 ou de 5; 15, 30, 40 e vantagem | Melhor de 3 |
+| Torcida de Miis | Torcida simples |
+
+**As fontes não falam de falta, dupla falta nem das regras de rede e fora.** Por decisão nossa, para o
+jogo fluir: um golpe que acerta a bola sempre passa a rede, e o saque sempre entra.

@@ -41,6 +41,8 @@ const TOSS_VY = 5.4; // apex ≈ 1.49 m above the release
 const SERVE_CONTACT_X_OFFSET = 0.35;
 const SERVE_HOLD_HEIGHT = 1.15;
 const SERVE_HOLD_MS = 900;
+const OPPONENT_TOSS_MS = 1100;
+const FAST_SERVE_MS = 130;
 const SERVE_CONTACT_HEIGHT = 2.4;
 /** Beyond this, a mistimed serve would leave the service box. */
 const SERVE_TIMING_SPREAD_MS = 150;
@@ -65,7 +67,7 @@ export class TennisGame {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(48, 1, 0.1, 200);
   private readonly ballMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(0.2, 16, 12),
+    new THREE.SphereGeometry(0.17, 16, 12),
     new THREE.MeshStandardMaterial({ color: 0xd8ff54, emissive: 0x4d7020, emissiveIntensity: 0.45 }),
   );
   private readonly player = createAthlete(0xf79432, 0);
@@ -79,6 +81,8 @@ export class TennisGame {
   private opponentMotion = 0;
   private swingDirection = 1;
   private serveStroke = false;
+  private fastServe = false;
+  private opponentServed = false;
   private readySide: -1 | 0 | 1 = 0;
   private tossAtMs = 0;
   private readonly loop: GameLoop;
@@ -212,7 +216,7 @@ export class TennisGame {
       timingErrorOverrideMs: Math.max(-SERVE_TIMING_SPREAD_MS, Math.min(SERVE_TIMING_SPREAD_MS, swing.peakTimestampMs - this.phase.idealHitMs)),
       geometry: { playerZ: BASELINE_Z + 1 },
     });
-    this.applyPlayerOutcome(outcome, contact, now, now, true, wallNow);
+    this.applyPlayerOutcome(outcome, contact, now, now, true, wallNow, swing.peakTimestampMs);
   }
 
   private applyPlayerOutcome(
@@ -222,6 +226,7 @@ export class TennisGame {
     now: number,
     isServe = false,
     wallNow = nowMs(),
+    struckAtMs = peakMs,
   ): void {
     if (outcome.kind === 'ignore') return;
     if (outcome.kind === 'whiff') {
@@ -239,11 +244,13 @@ export class TennisGame {
     // Rewind + fast-forward: the new flight starts at the physical peak instant,
     // then advances to now — detection latency never enters the physics.
     const lagSec = Math.max(0, (now - peakMs) / 1000);
+    // Struck at the top of the toss: the console game's fast serve, with its white streak.
+    this.fastServe = isServe && this.phase.kind === 'player-serve' && Math.abs(struckAtMs - this.phase.idealHitMs) <= FAST_SERVE_MS;
     const outgoing = isServe
       ? solveOutgoing(ballAtPeak.position, {
         x: -serviceSide(this.score.points) * (1.6 + outcome.timingErrorMs / 110),
         z: -4 - outcome.timingErrorMs / 150,
-      }, 0.88 - outcome.quality01 * 0.12)
+      }, this.fastServe ? 0.62 : 0.95)
       : outcome.outgoing;
     this.pendingPoint = undefined;
     this.servingFlight = isServe;
@@ -266,7 +273,8 @@ export class TennisGame {
     const spinLabel = outcome.spin > 0.4 ? ' · TOPSPIN' : outcome.spin < -0.4 ? ' · SLICE' : '';
     const dirLabel = outcome.direction === 'cross' ? 'CRUZADA' : outcome.direction === 'line' ? 'PARALELA' : 'CENTRO';
     if (outcome.smash) this.setFeedback('SMASH!', 'good');
-    else if (outcome.quality01 > 0.85) this.setFeedback(isServe ? 'SAQUE PERFEITO' : 'NO PONTO!', 'good');
+    else if (outcome.quality01 > 0.85) this.setFeedback('NO PONTO!', 'good');
+    if (this.fastServe) this.setFeedback('SAQUE FORTE!', 'good');
     this.status = isServe ? 'Saque diagonal' : `${dirLabel}${spinLabel}`;
   }
 
@@ -342,14 +350,22 @@ export class TennisGame {
         break;
       }
       case 'opponent-serve':
+        if (now < this.phase.hitAtMs && this.ball) {
+          // The ball rises out of the opponent's hand, so the serve can be seen coming.
+          const rise = 1 - Math.max(0, this.phase.hitAtMs - now) / OPPONENT_TOSS_MS;
+          const y = SERVE_HOLD_HEIGHT + (SERVE_CONTACT_HEIGHT - SERVE_HOLD_HEIGHT) * Math.sin(Math.max(0, rise) * Math.PI / 2);
+          this.ball = createBall({ ...this.ball.position, y }, { x: 0, y: 0, z: 0 }, 'opponent');
+        }
         if (now >= this.phase.hitAtMs && this.ball) {
           // The serve is not a return: always in, modest pace, slight lateral variety.
-          const from = { x: this.serveX, y: 2.2, z: -BASELINE_Z - 0.35 };
-          const targetX = Math.sign(this.serveX) * (1.2 + Math.random() * 1.3);
+          const from = { x: this.serveX, y: SERVE_CONTACT_HEIGHT, z: -BASELINE_Z - 0.35 };
+          // Diagonal: into the box across from where the server stands.
+          const targetX = -Math.sign(this.serveX) * (1.2 + Math.random() * 1.3);
           const velocity = solveOutgoing(from, { x: targetX, z: 3.5 + Math.random() }, 1.25);
           this.ball = createBall(from, velocity, 'opponent');
           this.tape = [{ tMs: now, ball: this.ball }];
           this.opponentSwingT = 0;
+          this.opponentServed = true;
           this.servingFlight = true;
           this.phase = { kind: 'rally' };
           this.audio?.racket(0.5);
@@ -368,11 +384,11 @@ export class TennisGame {
     this.opponentHitPlan = null;
     if (this.score.server === 'player') {
       this.tossBall(now);
-      this.status = 'Seu saque — faça uma raquetada';
+      this.status = 'Seu saque: raquetada! No topo sai forte';
     } else {
-      this.ball = createBall({ x: this.serveX, y: 2.2, z: -BASELINE_Z - 0.35 }, { x: 0, y: 0, z: 0 }, 'opponent');
+      this.ball = createBall({ x: this.serveX, y: SERVE_HOLD_HEIGHT, z: -BASELINE_Z - 0.35 }, { x: 0, y: 0, z: 0 }, 'opponent');
       this.tape = [{ tMs: now, ball: this.ball }];
-      this.phase = { kind: 'opponent-serve', hitAtMs: now + 900 };
+      this.phase = { kind: 'opponent-serve', hitAtMs: now + OPPONENT_TOSS_MS };
       this.status = 'Saque do adversário…';
     }
   }
@@ -473,6 +489,7 @@ export class TennisGame {
       this.tape = [{ tMs: now, ball: this.ball }];
       this.servingFlight = false;
       this.opponentSwingT = 0;
+      this.opponentServed = false;
       this.audio?.racket(0.4);
       this.effects.impact(this.ball.position, 0.1);
     }
@@ -588,14 +605,6 @@ export class TennisGame {
     if (this.ball) {
       this.ballMesh.visible = true;
       this.ballMesh.position.set(this.ball.position.x, Math.max(0.18, this.ball.position.y), this.ball.position.z);
-      // Stretched along its flight, squashed against the ground: speed and weight the eye can read.
-      const { x: vx, y: vy, z: vz } = this.ball.velocity;
-      const speed = Math.hypot(vx, vy, vz);
-      const grounded = this.ball.position.y < 0.3;
-      const stretch = grounded ? 0.7 : 1 + Math.min(0.45, speed / 40);
-      if (speed > 0) this.ballMesh.lookAt(this.ball.position.x + vx, this.ball.position.y + vy, this.ball.position.z + vz);
-      if (grounded) this.ballMesh.rotation.set(0, 0, 0);
-      this.ballMesh.scale.set(grounded ? 1.2 : 1 / Math.sqrt(stretch), grounded ? stretch : 1 / Math.sqrt(stretch), grounded ? 1.2 : stretch);
     } else {
       this.ballMesh.visible = false;
     }
@@ -616,7 +625,8 @@ export class TennisGame {
     const serving = this.phase.kind === 'player-serve' ? (nowMs() < this.tossAtMs ? 'hold' : 'toss') : undefined;
     const struck = this.serveStroke && this.swingAnimT < 1;
     this.player.animate(this.playerStride, this.playerMotion, this.swingAnimT, this.swingDirection, this.readySide, struck ? 'strike' : serving);
-    this.opponent.animate(this.opponentStride, -this.opponentMotion, this.opponentSwingT, 1);
+    const opponentToss = this.phase.kind === 'opponent-serve' ? 'toss' : this.opponentServed && this.opponentSwingT < 1 ? 'strike' : undefined;
+    this.opponent.animate(this.opponentStride, -this.opponentMotion, this.opponentSwingT, 1, 0, opponentToss);
     const portrait = Math.max(0, 1.35 - this.camera.aspect);
     // Low and just behind the player, drifting with them, as in the console game.
     const follow = this.playerX * 0.45;
@@ -630,7 +640,7 @@ export class TennisGame {
       incoming ? (DEFAULT_GEOMETRY.contactPlaneZ - ball.position.z) / ball.velocity.z : undefined,
       DEFAULT_GEOMETRY.maxTimingMs / 1000,
     );
-    this.effects.step(dt, ball && this.phase.kind === 'rally' ? this.ballMesh.position : undefined, this.camera);
+    this.effects.step(dt, ball && this.fastServe && this.servingFlight ? this.ballMesh.position : undefined, this.camera);
   }
 
   // ---------------------------------------------------------------- hud & lifecycle

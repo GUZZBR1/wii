@@ -1,4 +1,4 @@
-import { solveOutgoing, type BallState } from './ballistics';
+import { solveOverNet, type BallState } from './ballistics';
 
 /**
  * Pure swing adjudication by timing — the heart of the tennis design
@@ -151,7 +151,7 @@ export function adjudicateContact(query: AdjudicationQuery): ContactOutcome {
   const targetZ = geo.shallowTargetZ + (geo.deepTargetZ - geo.shallowTargetZ) * depthT;
   const flightTime = (ballAtPeak.position.z - targetZ) / forwardSpeed;
 
-  const outgoing = solveOutgoing(ballAtPeak.position, { x: aimX, z: targetZ }, flightTime);
+  const outgoing = solveOverNet(ballAtPeak.position, { x: aimX, z: targetZ }, flightTime);
   const spin = clampSigned(swing.verticalSpeed / 3);
 
   return {

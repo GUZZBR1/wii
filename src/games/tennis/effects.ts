@@ -13,7 +13,7 @@ export function createTennisEffects(scene: THREE.Scene) {
   target.rotation.x = -Math.PI / 2;
   const flash = new THREE.Mesh(new THREE.RingGeometry(0.18, 0.55, 12), flat(0xfff6b0, 1));
   const trail = Array.from({ length: TRAIL }, (_, i) => {
-    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.17 * (1 - i / (TRAIL + 2)), 8, 6), flat(0xeaff7a, 0.45 * (1 - i / TRAIL)));
+    const dot = new THREE.Mesh(new THREE.SphereGeometry(0.17 * (1 - i / (TRAIL + 2)), 8, 6), flat(0xffffff, 0.7 * (1 - i / TRAIL)));
     dot.visible = false;
     scene.add(dot);
     return dot;
