@@ -4,6 +4,7 @@ import { HandClient } from './cv/handClient';
 import { AdaptiveCalibrator } from './cv/adaptiveCalibrator';
 import { observeEarlyRejection } from './cv/observeEarlyRejection';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
+import { diagnosticsEnabled } from './cv/delegate';
 import { PhotoTrail } from './cv/photoTrail';
 import { TENNIS_RECORDING_SCRIPT } from './cv/recordingScript';
 import { downloadRecording, PoseRecorder, rememberFrame } from './cv/poseRecorder';
@@ -203,7 +204,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   // G starts/stops a recording during a camera run. Detectors and calibration restart with it,
   // so replaying the file from a cold start reproduces what happened live.
   useEffect(() => {
-    if (screen !== 'play' || !cameraOn) return;
+    if (screen !== 'play' || !cameraOn || !diagnosticsEnabled()) return;
     const toggle = (event: KeyboardEvent) => {
       const delegate = poseClientRef.current?.delegate;
       if (event.key.toLowerCase() === 'e' && !event.repeat && delegate && recentFramesRef.current.length) {

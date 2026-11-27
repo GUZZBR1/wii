@@ -82,7 +82,7 @@ export class ActionPipeline {
       && Math.min(snapshot.landmarks[23]!.visibility ?? 0, snapshot.landmarks[24]!.visibility ?? 0) < 0.5,
     );
     if (torsoTracking.state === 'tracked' || (shouldersConfident && oneHipVisible)) {
-      const sample = this.torsoChannel.update(current, this.jump.suppressesCadence);
+      const sample = this.torsoChannel.update(current);
       const jumped = sample ? this.jump.update(sample) : false;
       const body = sample?.shoulders;
       this.effort01 = this.intensity.update(snapshot.timestampMs, body && { ...body, shoulders: (body.left + body.right) / 2 });
