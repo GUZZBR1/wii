@@ -12,7 +12,7 @@ export interface SprintHudState {
   speed01: number;
   status: string;
   banner?: { title: string; detail?: string };
-  finished?: { title: string; detail: string; standings: { name: string; time: string; you: boolean }[] };
+  finished?: { title: string; detail: string; standings: { name: string; time: string; you: boolean }[]; restart01: number };
   energy?: { value01: number; label: string; coaching?: string };
   /** Where everyone is on the 100 m, 0–1. */
   runners?: { name: string; progress01: number; you: boolean }[];
@@ -134,6 +134,8 @@ export class SprintGame {
 
   onAction(): void {}
 
+  setHandsRaised(raised: boolean): void { this.race.setHandsRaised(raised); }
+
   setEffort(effort01: number): void { this.race.setEffort(effort01); }
 
   setFraming(advice: string | undefined, handsHidden?: boolean): void { this.race.setFraming(advice, handsHidden); }
@@ -142,6 +144,7 @@ export class SprintGame {
     // A player the camera lost stops pushing; momentum fades on its own.
     if (tracking !== 'SEM POSE') return;
     this.race.setEffort(0);
+    this.race.setHandsRaised(false);
     if (this.race.advice !== null) this.race.setFraming(NO_BODY_ADVICE);
   }
 
@@ -194,6 +197,7 @@ export class SprintGame {
         title: race.place === 1 ? 'VOCÊ VENCEU!' : `${race.place}º lugar`,
         detail: `${race.finishS.toFixed(2)} s nos ${RACE_METRES} metros`,
         standings: race.standings.map((runner) => ({ name: runner.name, time: `${runner.timeS.toFixed(2)} s`, you: runner.you })),
+        restart01: Math.round(race.restart01 * 20) / 20,
       }
       : undefined;
     const state: SprintHudState = {

@@ -13,6 +13,10 @@ export const FRAMING_PATIENCE_S = 15;
 export const NO_BODY_ADVICE = 'Apareça na câmera';
 /** A warm-up the camera barely registered is repeated, with advice, this many times. */
 export const WARMUP_RETRIES = 2;
+/** After the finish, holding both hands up this long runs again: no mouse needed. */
+export const RESTART_HOLD_S = 1.5;
+/** The result is shown this long before hands count; arms are still up from running. */
+export const RESTART_AFTER_S = 2;
 /** Camera readings under this are rest, not slow running. */
 const REST_EFFORT = 0.05;
 /** A warm-up this weak was not understood: repeat it, then fall back to the default reference. */
@@ -46,6 +50,11 @@ export class Race {
   /** Warm-ups repeated because the camera did not register any running. */
   retries = 0;
   private handsHidden = false;
+  private handsUp = false;
+  private sinceFinishS = 0;
+  /** The hands must have been seen down after the finish before raising them means anything. */
+  private restartArmed = false;
+  private heldS = 0;
   elapsedS = 0;
   distance = 0;
   speed = 0;
@@ -63,6 +72,11 @@ export class Race {
     this.advice = advice;
     this.handsHidden = handsHidden;
   }
+
+  setHandsRaised(raised: boolean): void { this.handsUp = raised; }
+
+  /** How far the raise-both-hands gesture is, 0–1; 1 asks for a new race. */
+  get restart01(): number { return Math.min(1, this.heldS / RESTART_HOLD_S); }
 
   /** What the energy bar shows: the raw reading while warming up, the player's own share afterwards. */
   get energy01(): number {
@@ -116,6 +130,9 @@ export class Race {
       if (rival.distance >= RACE_METRES) rival.finishS ??= this.elapsedS;
     }
     if (this.phase === 'finished') {
+      this.sinceFinishS += dt;
+      if (this.sinceFinishS >= RESTART_AFTER_S && !this.handsUp) this.restartArmed = true;
+      this.heldS = this.restartArmed && this.handsUp ? this.heldS + dt : 0;
       this.speed *= Math.exp(-dt / GAIN_TAU_S);
       this.distance += this.speed * dt;
       return;

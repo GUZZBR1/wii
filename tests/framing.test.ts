@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
-import { framingAdvice, HeadWarning, upsideDown } from '../src/kinematics/framing';
+import { framingAdvice, handsRaised, HeadWarning, upsideDown } from '../src/kinematics/framing';
 import { calibration, pose } from './fixtures/syntheticPose';
 
 const flipped = (time: number) => {
@@ -32,6 +32,12 @@ describe('framing', () => {
     expect(at((index) => (index === 0 ? { y: 0.02 } : {}))).toMatch(/cima/);
     expect(at((index, x) => (index === 0 ? { y: 0.2 } : { x: 0.5 + (x - 0.5) * 4 }))).toMatch(/Afaste/);
     expect(at((index, x) => (index === 0 ? { y: 0.2 } : { x: x + 0.3 }))).toMatch(/meio/);
+  });
+
+  it('sees both hands raised, and not just one', () => {
+    const base = pose(0);
+    const raise = (...wrists: number[]) => handsRaised({ ...base, landmarks: base.landmarks.map((point, index) => (wrists.includes(index) ? { ...point, y: 0.05 } : point)) });
+    expect([raise(), raise(15), raise(15, 16)]).toEqual([false, false, true]);
   });
 
   it('never drives the game from an upside-down skeleton', () => {

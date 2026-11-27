@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COUNTDOWN_S, FRAMED_S, HEADROOM, FRAMING_PATIENCE_S, NO_BODY_ADVICE, Race, RACE_METRES, WARMUP_RETRIES, WARMUP_S } from '../src/games/sprint/race';
+import { COUNTDOWN_S, FRAMED_S, HEADROOM, FRAMING_PATIENCE_S, NO_BODY_ADVICE, Race, RACE_METRES, RESTART_AFTER_S, RESTART_HOLD_S, WARMUP_RETRIES, WARMUP_S } from '../src/games/sprint/race';
 
 const run = (race: Race, seconds: number, each?: () => void) => {
   for (let i = 0; i < Math.round(seconds * 60); i += 1) { each?.(); race.step(1 / 60); }
@@ -99,6 +99,25 @@ describe('100 m race', () => {
     expect(names[0]).toBe('Você');
     expect(names).toHaveLength(4);
     expect(race.standings.map((runner) => runner.timeS)).toEqual([...race.standings.map((runner) => runner.timeS)].sort((a, b) => a - b));
+  });
+
+  it('runs again only when hands are lowered and then held up after the result', () => {
+    const race = started();
+    race.setEffort(0.9);
+    race.setHandsRaised(true); // still pumping across the line
+    run(race, 90);
+    expect(race.restart01).toBe(0);
+    race.setHandsRaised(false);
+    run(race, RESTART_AFTER_S);
+    race.setHandsRaised(true);
+    run(race, RESTART_HOLD_S / 2);
+    expect(race.restart01).toBeCloseTo(0.5, 1);
+    race.setHandsRaised(false);
+    run(race, 0.1);
+    expect(race.restart01).toBe(0);
+    race.setHandsRaised(true);
+    run(race, RESTART_HOLD_S + 0.1);
+    expect(race.restart01).toBe(1);
   });
 
   it('never moves a player who does nothing', () => {

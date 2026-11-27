@@ -15,7 +15,7 @@ const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }
 import { forwardKeyDown } from './keys';
 
 export type Sport = 'sprint' | 'track' | 'tennis';
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort01: number): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort01: number): void; setHandsRaised?(raised: boolean): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; dispose(): void }
 
 interface Props {
   sport: Sport;
@@ -40,6 +40,12 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
   trackingRef.current = tracking;
 
   useEffect(() => { engineRef.current?.setTracking?.(tracking); }, [tracking]);
+
+  // The 100 m asks for a new run with the body: both hands held up.
+  const restartByBody = (hud.finished?.restart01 ?? 0) >= 1;
+  const restartRef = useRef(onRestart);
+  restartRef.current = onRestart;
+  useEffect(() => { if (restartByBody) restartRef.current(); }, [restartByBody]);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -102,7 +108,8 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
       <ol>{hud.finished.standings.map((runner, index) => (
         <li key={runner.name} className={runner.you ? 'current' : ''}><span>{index + 1}º {runner.name}</span><span>{runner.time}</span></li>
       ))}</ol>
-      <button type="button" ref={(button) => button?.focus()} onClick={onRestart}>Correr de novo</button>
+      <div className="restart-gesture"><b style={{ width: `${hud.finished.restart01 * 100}%` }} /><span>Levante as duas mãos para correr de novo</span></div>
+      <button type="button" onClick={onRestart}>Correr de novo</button>
     </div>}
     {hud.result && <div className="game-over" role="dialog" aria-label="Fim de corrida">
       <h2>Você perdeu!</h2>

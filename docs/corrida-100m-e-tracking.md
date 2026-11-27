@@ -34,6 +34,9 @@ Fases:
    (ganha em 0,5 s, perde em 1,4 s). **Só se joga com o corpo**: a prova não tem teclado, então o tracking
    precisa funcionar para quem chega; não há saída alternativa.
 
+Depois da chegada, **as duas mãos levantadas** (na altura dos ombros ou acima) por 1,5 s começam outra
+prova, sem mouse.
+
 ### Medidor de intensidade
 
 Uma medida só: **o quanto a pessoa se move por segundo**. Soma a velocidade vertical dos pulsos (em

@@ -65,3 +65,15 @@ export function handsHidden(snapshot: PoseSnapshot): boolean {
     return !wrist || (wrist.visibility ?? 0) < 0.3 || wrist.y > 1;
   });
 }
+
+/**
+ * Both hands raised to the shoulders or higher. Not above the head: a close webcam cuts that off,
+ * and a hand out of the picture cannot be seen at all.
+ */
+export function handsRaised(snapshot: PoseSnapshot): boolean {
+  return ([[15, 11], [16, 12]] as const).every(([wrist, shoulder]) => {
+    const hand = snapshot.landmarks[wrist];
+    const base = snapshot.landmarks[shoulder];
+    return hand !== undefined && base !== undefined && (hand.visibility ?? 0) >= 0.5 && hand.y < base.y;
+  });
+}
