@@ -62,6 +62,21 @@ describe('effort-gate trust in the cadence tracker', () => {
     expect(shuffled.at(-1)!.running).toBe(false);
   });
 
+  it('opens a 480 ms jog early enough for the warm-up even at 20 samples per second', () => {
+    const { feed } = cadenceHarness();
+    let firstOpen = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < 140; i++) {
+      const t = i * 50;
+      const y = 0.016 * Math.sin((2 * Math.PI * (1000 / 480) * t) / 1000);
+      if (feed(poseWithHipBounce(t, y)).running) { firstOpen = t; break; }
+    }
+    // The five-second warm-up needs 1.5 s of usable effort: opening must leave that plus slack,
+    // so anything under three seconds passes the race. The honest chain costs one stride over the
+    // distorted-window admission — the partial first interval of a chain never counts — and still
+    // opens near 2.6 s, where the extended five-stride wait used to push it past 3.5 s and lose.
+    expect(firstOpen).toBeLessThan(3000);
+  });
+
   it('opens for a steady centered jog sampled at ordinary camera frame time', () => {
     // Frames 42 ms apart quantize each detected interval a frame either side of the true 480 ms
     // stride (125 spm): the sequence cadence absorbs that even when single intervals fall
@@ -84,9 +99,10 @@ describe('effort-gate trust in the cadence tracker', () => {
       results.push({ t, ...result });
     }
     const firstOpen = results.find((r) => r.running)?.t ?? Number.POSITIVE_INFINITY;
-    // The fast rhythm starts at 2000 ms; three 400 ms strides plus the trust confirmation put
-    // the opening not long after — never waiting for seven intervals of mixed history.
-    expect(firstOpen).toBeLessThan(4200);
+    // The fast rhythm starts at 2000 ms; three honest strides — the chain's partial first
+    // interval never counts — plus detection latency open not long after, never waiting for the
+    // seven-interval speed history to clear the slow start, which would push past five seconds.
+    expect(firstOpen).toBeLessThan(4400);
     expect(firstOpen).toBeGreaterThan(2000);
   });
 
@@ -104,6 +120,15 @@ describe('effort-gate trust in the cadence tracker', () => {
         peak = Math.max(peak, pipeline.update(poseWithHipBounce(t, y)).rawEffort);
       }
       expect(peak, `phase ${phase} fed the race effort`).toBe(0);
+      // The verdict itself, not only its downstream effect: the effort floor could read zero
+      // even with the gate open, so the sweep asserts the gate never opens at any phase.
+      const { feed } = cadenceHarness();
+      const verdicts = Array.from({ length: 200 }, (_, i) => {
+        const t = i * 50;
+        const y = 0.016 * Math.sin((2 * Math.PI * (1000 / 524) * (t + phase)) / 1000);
+        return feed(poseWithHipBounce(t, y)).running;
+      });
+      expect(verdicts.every((running) => !running), `phase ${phase} opened the gate`).toBe(true);
     }
   });
 

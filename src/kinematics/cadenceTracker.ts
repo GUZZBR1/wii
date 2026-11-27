@@ -107,6 +107,7 @@ export class CadenceTracker {
   private lateralActive = false;
   private suspended = false;
   private ranBeforeJump = false;
+  private freshChain = true;
 
   /** `suspend` (a jump in flight) holds the current verdict and ignores the airborne samples. */
   update(sample: TorsoVerticalSample | undefined, nowMs: number, suspend = false): CadenceResult {
@@ -137,8 +138,17 @@ export class CadenceTracker {
       this.moving = bounce.moving;
       if (bounce.rise) {
         const interval = sample.timestampMs - this.lastStepAt;
-        // After a pause the old pace says nothing about the new one.
-        this.intervals = interval <= MAX_STEP_INTERVAL_MS ? [...this.intervals, interval].slice(-STEPS_AVERAGED) : [];
+        // After a pause the old pace says nothing about the new one. Nor does the first interval
+        // of a chain: the detector emits its first rise mid-cycle while its window still fills,
+        // and always late, so that interval spans a partial stride — a slower bob quantizes into
+        // a deceptively fast reading. The chain itself still advances on rise timing.
+        if (interval <= MAX_STEP_INTERVAL_MS) {
+          if (!this.freshChain) this.intervals = [...this.intervals, interval].slice(-STEPS_AVERAGED);
+          this.freshChain = false;
+        } else {
+          this.intervals = [];
+          this.freshChain = true;
+        }
         this.lastStepAt = sample.timestampMs;
         if (this.moving) {
           this.lastStepSide = this.lastStepSide === 'left' ? 'right' : 'left';
@@ -169,12 +179,15 @@ export class CadenceTracker {
     if (this.moving) this.lastStrideAt = nowMs;
     if (this.moving || this.lateralActive) this.lastMovingAt = nowMs;
     // Corroboration judges the latest strides alone, never the whole speed history: a slow or
-    // uneven start must not delay the verdict once the rhythm is real. The fast path takes them
-    // each in band; when admission rests on the average instead, the extended window must agree
-    // — the span over more strides absorbs the frame quantization a short one cannot.
+    // uneven start must not delay the verdict once the rhythm is real. Every interval in the
+    // record spans a full stride — the partial first one of each chain never enters it — so a
+    // reading strictly inside the band is honest evidence of running pace. The fast path takes
+    // three such readings; when admission rests on the average instead, the extended window must
+    // agree — the span over more strides absorbs the frame quantization a short one cannot.
     const inBand = (interval: number) => interval >= STRIDE_MIN_INTERVAL_MS && interval <= STRIDE_MAX_INTERVAL_MS;
-    // A boundary reading is no evidence at all: a slower bob quantizes down onto exactly the
-    // cutoff, so the fast path only takes intervals strictly inside the band.
+    // A boundary reading alone is no evidence: a slower bob quantizes down onto exactly the
+    // cutoff, so the fast path needs at least one reading strictly below it — something a
+    // slower bob can never produce — while the rest may sit anywhere inside the band.
     const strictlyInBand = (interval: number) => interval > STRIDE_MIN_INTERVAL_MS && interval < STRIDE_MAX_INTERVAL_MS;
     const meanOf = (list: readonly number[]) => list.reduce((sum, interval) => sum + interval, 0) / list.length;
     const regular = (list: readonly number[]) => Math.max(...list) <= Math.min(...list) * STRIDE_REGULARITY;
@@ -183,7 +196,7 @@ export class CadenceTracker {
     const strideEvidence = recentStrides.length >= STRIDES_CORROBORATING
       && regular(recentStrides)
       && inBand(meanOf(recentStrides))
-      && (recentStrides.every(strictlyInBand)
+      && ((recentStrides.every(inBand) && recentStrides.some(strictlyInBand))
         || (extendedStrides.length >= STRIDES_EXTENDED && inBand(meanOf(extendedStrides)) && regular(extendedStrides)));
     if ((!this.moving && !this.lateralActive && nowMs - this.lastMovingAt >= RUN_TRUST_HOLD_MS)
       || nowMs - this.lastStrideAt >= LATERAL_BRIDGE_CAP_MS) this.trusted = false;
