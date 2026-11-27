@@ -6,7 +6,7 @@ import { observeEarlyRejection } from './cv/observeEarlyRejection';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { downloadRecording, PoseRecorder } from './cv/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
-import { headOutOfFrame } from './kinematics/framing';
+import { HeadWarning } from './kinematics/framing';
 import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
 import { HandCursorDetector } from './kinematics/handCursor';
 import { ProceduralAudio } from './games/audio';
@@ -80,6 +80,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const audioRef = useRef(new ProceduralAudio());
   const cameraAttemptRef = useRef(0);
   const poseFramesRef = useRef(0);
+  const headWarningRef = useRef(new HeadWarning());
   const [showPerf] = useState(() => new URLSearchParams(window.location.search).has('fps'));
   /** Diagnostic recording: owned here, fed by onPose, ended by the script, G or the camera stopping. */
   const recorderRef = useRef<PoseRecorder | undefined>(undefined);
@@ -123,6 +124,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     recorderRef.current = undefined;
     setRecordingPrompt(undefined);
     setHeadCut(false);
+    headWarningRef.current.reset();
     poseClientRef.current?.pauseCapture();
     handClientRef.current?.pauseCapture();
     streamRef.current?.getTracks().forEach((track) => { track.stop(); });
@@ -192,7 +194,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
         if (current) setRecordingPrompt(`${current.segment.prompt} · ${Math.ceil(current.remainingMs / 1000)}`);
         else finishRecording();
       }
-      setHeadCut(headOutOfFrame(raw));
+      setHeadCut(headWarningRef.current.update(raw));
       // Implicit calibration: every observed frame is evidence. The current profile is a
       // continuously improving estimate, never a mode the player has to enter or watch.
       profileRef.current = calibratorRef.current.update(raw, pipelineRef.current.laneZone) ?? profileRef.current;

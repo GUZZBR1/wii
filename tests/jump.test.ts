@@ -28,6 +28,16 @@ describe('jump from the shoulders', () => {
     expect(jumps).toHaveLength(2);
   });
 
+  it.each([550, 700, 900])('counts every hop of a non-stop series, one every %i ms', (period) => {
+    const series = (time: number) => {
+      const since = time - 2000;
+      return since >= 0 && since < 6 * period && since % period < 400 ? 0.7 * Math.sin((Math.PI * (since % period)) / 400) : 0;
+    };
+    const { jumps, speeds } = drive(series, 2000 + 6 * period + 500);
+    expect(jumps).toHaveLength(6);
+    expect(speeds.every((s) => s.speed === 0)).toBe(true);
+  });
+
   it('does not fire on a running bounce or on standing', () => {
     expect(drive(stride).jumps).toHaveLength(0);
     expect(drive(() => 0).jumps).toHaveLength(0);
