@@ -4,6 +4,7 @@ import { AdaptiveCalibrator } from '../src/cv/adaptiveCalibrator';
 import type { CalibrationProfile, PoseSnapshot } from '../src/cv/protocol';
 import { segmentAt, TENNIS_RECORDING_SCRIPT } from '../src/cv/diagnostics/recordingScript';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
+import { raisedTossHand } from '../src/kinematics/framing';
 import { pose } from './fixtures/syntheticPose';
 
 function replay(frames: readonly PoseSnapshot[]) {
@@ -96,3 +97,21 @@ describe.skipIf(recordings.length === 0)('tennis recording diagnostics', () => {
     }
   });
 });
+
+const serves = recordings.filter(([name]) => name.includes('1795794444389'));
+describe.skipIf(serves.length === 0)('recorded serve gestures', () => {
+  it('reads the four natural free-hand tosses, which lasted too briefly to be held', () => {
+    const { frames } = parsePoseRecording(serves[0]![1]);
+    const start = frames[0]!.snapshot.timestampMs;
+    let before: string | undefined;
+    const tosses: number[] = [];
+    for (const { snapshot } of frames) {
+      const hand = raisedTossHand(snapshot);
+      if (hand === 'left' && before !== 'left') tosses.push((snapshot.timestampMs - start) / 1000);
+      before = hand;
+    }
+    expect(tosses).toHaveLength(4);
+    [6.5, 8.5, 10.4, 13.2].forEach((expected, i) => { expect(Math.abs(tosses[i]! - expected)).toBeLessThan(0.3); });
+  });
+});
+

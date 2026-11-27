@@ -41,12 +41,13 @@ const SURE_RETURNS = 3;
 const SWING_ANIM_START = 0.2;
 /** An opponent to rally with: it misses now and then, more under pressure. */
 const RALLY_AI = { ...DEFAULT_OPPONENT_AI_CONFIG, generosity: 0.45, qualityPressure: 0.2 };
-const TOSS_VY = 5.4; // apex ≈ 1.49 m above the release
+const TOSS_VY = 6.4; // apex ≈ 1.49 m above the release
 const SERVE_CONTACT_X_OFFSET = 0.35;
 const SERVE_HOLD_HEIGHT = 1.15;
 /** The ball goes up by itself if no lifted hand is seen for this long. */
 const SERVE_HOLD_MS = 6000;
-const TOSS_HOLD_MS = 750;
+/** A tossed ball waits this long to be struck before it goes back to the hand. */
+const SERVE_WINDOW_MS = 2600;
 /** Ideal contact slightly past the apex on the way down. */
 const SERVE_IDEAL_MS = (TOSS_VY / 9.8 + 0.12) * 1000;
 const OPPONENT_TOSS_MS = 800;
@@ -91,7 +92,8 @@ export class TennisGame {
   private serveStroke = false;
   private fastServe = false;
   private tossArmed = false;
-  private handUpSinceMs?: number;
+  /** Learned from the rallies: whichever arm last returned a ball holds the racket. */
+  private racketHand: Hand = 'right';
   /** The serving rule: this hand threw the ball, so the other one strikes it. Unset on an automatic toss. */
   private tossedWith?: Hand;
   private swingLift: -1 | 0 | 1 = 0;
@@ -188,25 +190,23 @@ export class TennisGame {
 
   setHandsRaised(raised: boolean): void { this.restart.setHandsRaised(raised); }
 
-  /** First of the two serving gestures: holding a hand up throws the ball; the stroke then serves it. */
+  /**
+   * First of the two serving gestures: lifting the free hand throws the ball at once, like letting a
+   * real one go. Only the free hand counts, so a racket stroke can never be read as a toss.
+   */
   setTossHand(hand: Hand | undefined): void {
-    if (!hand) {
+    if (hand === this.racketHand || !hand) {
       this.tossArmed = true;
-      this.handUpSinceMs = undefined;
       return;
     }
     // The hand has to come up during this serve: one left up from before does not throw.
     if (!this.tossArmed || !this.holdingServe()) return;
-    const now = Math.max(this.lastSimulationTimeMs, nowMs());
-    this.handUpSinceMs ??= now;
-    // Held, not passing through: a stroke keeps the hand at face height for up to two thirds of a second.
-    if (now - this.handUpSinceMs < TOSS_HOLD_MS) return;
     this.tossArmed = false;
-    this.handUpSinceMs = undefined;
+    const now = Math.max(this.lastSimulationTimeMs, nowMs());
     this.tossedWith = hand;
     this.tossAtMs = now;
     this.phase = { kind: 'player-serve', idealHitMs: now + SERVE_IDEAL_MS };
-    this.status = 'Agora bata com a outra mão!';
+    this.status = 'Agora bata com a raquete!';
     this.setFeedback('BATA!', 'good');
   }
 
@@ -243,6 +243,7 @@ export class TennisGame {
       movementPenalty01: Math.min(1, (anchor?.playerSpeed ?? this.playerLateralSpeed) / PLAYER_MOVE_SPEED),
       swing: simulationSwing,
     });
+    if (outcome.kind === 'contact' && swing.hand) this.racketHand = swing.hand;
     if (outcome.kind === 'contact') {
       const arc = outcome.height === 'high' ? ' ALTO ↑' : outcome.height === 'low' ? ' RASANTE ↓' : '';
       this.setFeedback(`${swing.side === 'forehand' ? 'FOREHAND' : 'BACKHAND'}${arc}`, 'good');
@@ -261,11 +262,11 @@ export class TennisGame {
   ): void {
     if (this.phase.kind !== 'player-serve') return;
     if (this.holdingServe()) {
-      this.setFeedback('SEGURE A MÃO NO ALTO', 'neutral');
+      this.setFeedback('LANCE A BOLA COM A MÃO LIVRE', 'neutral');
       return;
     }
     if (swing.hand && swing.hand === this.tossedWith) {
-      this.setFeedback('BATA COM A OUTRA MÃO', 'neutral');
+      this.setFeedback('BATA COM A RAQUETE', 'neutral');
       return;
     }
     const contact = createBall({ x: this.playerX + SERVE_CONTACT_X_OFFSET, y: SERVE_CONTACT_HEIGHT, z: BASELINE_Z + 0.35 }, { x: 0, y: -1, z: 0 }, 'player');
@@ -406,9 +407,9 @@ export class TennisGame {
         break;
       case 'player-serve': {
         // Toss missed and the ball came back down: re-toss quietly, no penalty.
-        if (this.ball && this.ball.position.y <= 0.6 && this.ball.velocity.y < 0) {
+        if (now >= this.tossAtMs + SERVE_WINDOW_MS) {
           this.tossBall(now);
-          this.status = 'Seu saque: segure no alto a mão livre; bata com a outra';
+          this.status = 'Seu saque: lance com a mão livre e bata com a raquete';
         }
         break;
       }
@@ -449,7 +450,7 @@ export class TennisGame {
     this.opponentBeaten = false;
     if (this.score.server === 'player') {
       this.tossBall(now);
-      this.status = 'Seu saque: segure no alto a mão livre; bata com a outra';
+      this.status = 'Seu saque: lance com a mão livre e bata com a raquete';
     } else {
       this.ball = createBall({ x: this.serveX, y: SERVE_HOLD_HEIGHT, z: -BASELINE_Z - 0.35 }, { x: 0, y: 0, z: 0 }, 'opponent');
       this.tape = [{ tMs: now, ball: this.ball }];
@@ -467,7 +468,6 @@ export class TennisGame {
     this.tape = [{ tMs: now, ball: this.ball }];
     this.phase = { kind: 'player-serve', idealHitMs: this.tossAtMs + SERVE_IDEAL_MS };
     this.tossArmed = false;
-    this.handUpSinceMs = undefined;
   }
 
   private stepBall(dt: number, now: number): void {
@@ -483,6 +483,8 @@ export class TennisGame {
       if (now < this.tossAtMs) return;
       if (this.ball.velocity.y === 0) this.ball = createBall(this.ball.position, { x: 0, y: TOSS_VY, z: 0 }, 'player');
     }
+    // Waiting to be struck, a fallen toss rests at knee height instead of bouncing about.
+    if (this.phase.kind === 'player-serve' && this.ball.velocity.y < 0 && this.ball.position.y <= 0.6) return;
     const before = this.ball;
     const after = advanceBall(before, dt);
     this.ball = after;
