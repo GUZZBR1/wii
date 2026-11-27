@@ -88,6 +88,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const audioRef = useRef(new ProceduralAudio());
   const cameraAttemptRef = useRef(0);
   const poseFramesRef = useRef(0);
+  /** Capture-to-game delay of the last pose, shown by `?fps`. */
+  const poseDelayRef = useRef(0);
   const recentFramesRef = useRef<PoseSnapshot[]>([]);
   const photoTrailRef = useRef(new PhotoTrail());
   const [keepPhotos] = useState(() => new URLSearchParams(window.location.search).has('fotos'));
@@ -238,6 +240,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     },
     onPose: (raw) => {
       poseFramesRef.current += 1;
+      poseDelayRef.current = performance.now() - raw.timestampMs;
       rememberFrame(recentFramesRef.current, raw);
       if (keepPhotos) photoTrailRef.current.add(raw.timestampMs, videoRef.current);
       if (recorderRef.current) {
@@ -522,7 +525,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       videoRef={videoRef} canvasRef={overlayRef} cameraOn={cameraOn} status={cameraStatus} tracking={tracking}
       onStart={() => void startCamera()} onStop={stopCamera}
     />
-    {showPerf && <PerfMeter videoRef={videoRef} poseFrames={poseFramesRef} />}
+    {showPerf && <PerfMeter videoRef={videoRef} poseFrames={poseFramesRef} poseDelay={poseDelayRef} />}
     {splash && <WiiSplash onDone={endSplash} />}
   </div>;
 }

@@ -98,6 +98,9 @@ Neste estado:
 - a **altura** em que o golpe termina muda a bola: acima da cabeça sai alta, abaixo do peito sai rasante;
 - um quadro borrado no meio do golpe é pulado. Antes ele apagava o golpe, e a volta do braço era lida
   como backhand;
+- o adversário **devolve sempre as 3 primeiras bolas** do ponto; depois pode errar, mais sob pressão, e
+  fica visivelmente longe da bola quando erra;
+- `?fps` mostra o atraso entre a captura do quadro e a chegada ao jogo;
 - reinício pelas mãos.
 
 ### Detector de raquetada (`src/kinematics/swingDetector.ts`)

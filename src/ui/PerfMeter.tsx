@@ -14,7 +14,7 @@ function graphicsName(): string {
  * Shown with `?fps` in the address: screen, camera and pose rates, to tell which of the three is
  * stuttering. Owns its counters; `poseFrames` is only read.
  */
-export function PerfMeter({ videoRef, poseFrames }: { videoRef: RefObject<HTMLVideoElement | null>; poseFrames: RefObject<number> }) {
+export function PerfMeter({ videoRef, poseFrames, poseDelay }: { videoRef: RefObject<HTMLVideoElement | null>; poseFrames: RefObject<number>; poseDelay: RefObject<number> }) {
   const [text, setText] = useState('medindo…');
   useEffect(() => {
     const gpu = graphicsName();
@@ -28,7 +28,7 @@ export function PerfMeter({ videoRef, poseFrames }: { videoRef: RefObject<HTMLVi
       if (time !== lastTime) { camera += 1; lastTime = time; }
       if (now - since >= 1000) {
         const rate = (count: number) => Math.round((count * 1000) / (now - since));
-        setText(`tela ${rate(screen)} fps (pior ${Math.round(worstMs)} ms) · câmera ${rate(camera)} · pose ${rate(poseFrames.current - pose)} · ${gpu}`);
+        setText(`tela ${rate(screen)} fps (pior ${Math.round(worstMs)} ms) · câmera ${rate(camera)} · pose ${rate(poseFrames.current - pose)} · atraso ${Math.round(poseDelay.current)} ms · ${gpu}`);
         screen = camera = worstMs = 0;
         pose = poseFrames.current;
         since = now;
@@ -37,6 +37,6 @@ export function PerfMeter({ videoRef, poseFrames }: { videoRef: RefObject<HTMLVi
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [videoRef, poseFrames]);
+  }, [videoRef, poseFrames, poseDelay]);
   return <div className="perf-meter">{text}</div>;
 }

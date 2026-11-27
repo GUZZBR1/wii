@@ -15,7 +15,7 @@ import { createTennisEffects } from './effects';
 import { buildTennisStadium } from './stadium';
 import { advanceBall, createBall, solveOutgoing, timeAtPlane, type BallState } from './ballistics';
 import { adjudicateContact, DEFAULT_GEOMETRY, type ContactOutcome } from './contactAdjudicator';
-import { adaptOpponentSkill, createOpponentAi, decideReturn, type OpponentAiState } from './opponentAi';
+import { adaptOpponentSkill, createOpponentAi, decideReturn, DEFAULT_OPPONENT_AI_CONFIG, type OpponentAiState } from './opponentAi';
 import { ballAtPlannedContact, resolveScheduledOpponentReturn, type OpponentHitPlan } from './opponentReturn';
 import { crossesNetBelowCord } from './rallyPhysics';
 import { BASELINE_Z, COURT_HALF_WIDTH, groundImpact, legalLanding, NET_HEIGHT, serviceSide } from './court';
@@ -36,12 +36,15 @@ const OPPONENT_HOME_Z = -8.3;
 const PLAYER_MOVE_SPEED = 5.5;
 const RACKET_REACH_X = 0.6;
 const TAPE_WINDOW_MS = 1200;
-const POINT_PAUSE_S = 2.0;
+const POINT_PAUSE_S = 1.2;
+const SURE_RETURNS = 3;
+/** An opponent to rally with: it misses now and then, more under pressure. */
+const RALLY_AI = { ...DEFAULT_OPPONENT_AI_CONFIG, generosity: 0.45, qualityPressure: 0.2 };
 const TOSS_VY = 5.4; // apex ≈ 1.49 m above the release
 const SERVE_CONTACT_X_OFFSET = 0.35;
 const SERVE_HOLD_HEIGHT = 1.15;
-const SERVE_HOLD_MS = 900;
-const OPPONENT_TOSS_MS = 1100;
+const SERVE_HOLD_MS = 500;
+const OPPONENT_TOSS_MS = 800;
 const FAST_SERVE_MS = 130;
 const SERVE_CONTACT_HEIGHT = 2.4;
 /** Beyond this, a mistimed serve would leave the service box. */
@@ -82,6 +85,8 @@ export class TennisGame {
   private swingDirection = 1;
   private serveStroke = false;
   private fastServe = false;
+  private opponentReturns = 0;
+  private opponentBeaten = false;
   private opponentServed = false;
   private readySide: -1 | 0 | 1 = 0;
   private tossAtMs = 0;
@@ -383,6 +388,8 @@ export class TennisGame {
     this.playerX = this.score.server === 'player' ? this.serveX : 0;
     this.opponentX = this.score.server === 'opponent' ? this.serveX : 0;
     this.opponentHitPlan = null;
+    this.opponentReturns = 0;
+    this.opponentBeaten = false;
     if (this.score.server === 'player') {
       this.tossBall(now);
       this.status = 'Seu saque: raquetada! No topo sai forte';
@@ -465,6 +472,7 @@ export class TennisGame {
       this.opponentHitPlan = null;
       return;
     }
+    if (this.opponentBeaten) return;
     if (!this.opponentHitPlan) {
       const crossing = timeAtPlane(this.ball, OPPONENT_CONTACT_PLANE_Z);
       if (!crossing) return;
@@ -478,9 +486,20 @@ export class TennisGame {
     if (now >= this.opponentHitPlan.hitAtMs) {
       const plan = this.opponentHitPlan;
       const contactBall = ballAtPlannedContact(plan);
-      const decision = decideReturn(this.opponentAi, this.pressureOnOpponent(contactBall), Math.random);
+      // The first returns of a point are certain, so there is always a rally; after that it can be beaten.
+      let roll = this.opponentReturns < SURE_RETURNS ? 0 : undefined;
+      const decision = decideReturn(this.opponentAi, this.pressureOnOpponent(contactBall), () => {
+        const value = roll ?? Math.random();
+        roll = undefined;
+        return value;
+      }, RALLY_AI);
       this.opponentHitPlan = null;
-      if (decision.kind === 'no-return') return; // ball plays on — the bounce rules score the point
+      if (decision.kind === 'no-return') {
+        // Ball plays on and the bounce rules score the point; the opponent visibly fails to get there.
+        this.opponentBeaten = true;
+        return;
+      }
+      this.opponentReturns += 1;
       this.ball = resolveScheduledOpponentReturn(
         plan,
         now,
@@ -581,6 +600,8 @@ export class TennisGame {
     if (this.ball && this.ball.velocity.z < -0.5) {
       oppTarget = Math.max(-2.5, Math.min(2.5, this.opponentHitPlan ? ballAtPlannedContact(this.opponentHitPlan).position.x : this.ball.position.x));
     }
+    // Beaten: left stranded on the wrong side, short of the ball.
+    if (this.opponentBeaten && this.ball) oppTarget = this.ball.position.x > 0 ? -2.5 : 2.5;
     const oppDelta = oppTarget - this.opponentX;
     const oppSpeed = 2.5 + this.opponentAi.skill * 3.5;
     const oppStep = Math.sign(oppDelta) * Math.min(Math.abs(oppDelta), oppSpeed * dt);
