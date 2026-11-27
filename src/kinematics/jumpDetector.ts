@@ -23,6 +23,8 @@ const FOLLOW_UP_HEIGHT_RATIO = 0.8;
 const GROUND_PERCENTILE = 0.9;
 const LANDED_RISE_SW = 0.2;
 const PEAK_WINDOW_MS = 450;
+/** The head must rise too: lifting the arms hoists the shoulders under a head that stays put. */
+const HEAD_RISE_RATIO = 0.5;
 
 export class JumpDetector {
   private samples: TorsoVerticalSample[] = [];
@@ -47,12 +49,16 @@ export class JumpDetector {
     const aboveTypical = Math.min(median(lefts) - left, median(rights) - right) / width;
     const aboveGround = Math.min(ground(lefts) - left, ground(rights) - right) / width;
 
+    const heads = before.map((old) => old.shoulders.head);
+    const headRose = (baseline: number, rise: number) => !((baseline - sample.shoulders.head) / width < rise * HEAD_RISE_RATIO);
+
     const since = this.now - this.lastJumpAt;
     if (since < PEAK_WINDOW_MS) this.height = Math.max(this.height, aboveGround);
     if (aboveGround < LANDED_RISE_SW) this.landed = true;
     const again = since >= FOLLOW_UP_REFRACTORY_MS && since <= FOLLOW_UP_MS && this.landed
-      && aboveGround >= Math.max(JUMP_MIN_RISE_SW, this.height * FOLLOW_UP_HEIGHT_RATIO);
-    const fresh = since >= REFRACTORY_MS && aboveTypical >= JUMP_MIN_RISE_SW;
+      && aboveGround >= Math.max(JUMP_MIN_RISE_SW, this.height * FOLLOW_UP_HEIGHT_RATIO)
+      && headRose(ground(heads), aboveGround);
+    const fresh = since >= REFRACTORY_MS && aboveTypical >= JUMP_MIN_RISE_SW && headRose(median(heads), aboveTypical);
     if (!again && !fresh) return false;
     this.lastJumpAt = this.now;
     this.landed = false;

@@ -1,6 +1,7 @@
 import { BounceDetector } from './bounce';
 import { median } from './math';
 import type { TorsoVerticalSample } from './torsoVertical';
+import { WalkDetector } from './walk';
 
 export interface CadenceResult { cadenceSpm: number; speed01: number; step?: 'left' | 'right' }
 
@@ -10,6 +11,8 @@ const MAX_STEP_INTERVAL_MS = 900;
 /** One missed or doubled rise must not swing the speed: the median of these decides. */
 const STEPS_AVERAGED = 7;
 const ESTABLISHED_RUN_MS = 1000;
+/** Walking is a single steady pace: the camera can tell that it happens, not how fast. */
+const WALK_SPM = 100;
 /**
  * Steps/min to game speed, interpolated. Anchors follow the CADENCE-Adults studies (100 steps/min is a
  * moderate walk; walking turns into running around 135-140). Those were measured moving forward, not in place.
@@ -32,6 +35,8 @@ export function speedFromCadence(spm: number): number {
  */
 export class CadenceTracker {
   private readonly bounce = new BounceDetector();
+  private readonly walk = new WalkDetector();
+  private walking = false;
   private intervals: number[] = [];
   private lastStepAt = Number.NEGATIVE_INFINITY;
   private lastStepSide: 'left' | 'right' = 'right';
@@ -50,6 +55,7 @@ export class CadenceTracker {
       this.moving = this.ranBeforeJump;
     }
     this.suspended = suspend;
+    if (suspend) { this.walk.reset(); this.walking = false; }
     if (suspend) this.bounce.forgetJump(nowMs, this.ranBeforeJump);
     if (sample && !suspend) {
       const bounce = this.bounce.update(sample.timestampMs, sample.shoulders.left, sample.shoulders.right, sample.shoulders.width, sample.shoulders.head);
@@ -65,15 +71,30 @@ export class CadenceTracker {
           step = this.lastStepSide;
         }
       }
-    } else if (!suspend) this.moving = this.bounce.isMoving(nowMs);
+      const { left, right, width, x } = sample.shoulders;
+      const walk = this.walk.update(sample.timestampMs, x, (left + right) / 2, width);
+      this.walking = walk.walking;
+      if (walk.step && !this.moving) {
+        this.lastStepSide = this.lastStepSide === 'left' ? 'right' : 'left';
+        step = this.lastStepSide;
+      }
+    } else if (!suspend) {
+      this.moving = this.bounce.isMoving(nowMs);
+      this.walking = false;
+    }
     this.movingSince = this.moving ? Math.min(this.movingSince, nowMs) : Number.POSITIVE_INFINITY;
-    if (!this.moving) return { cadenceSpm: 0, speed01: 0, step };
+    // Running wins: its bounce also sways.
+    if (!this.moving) return this.walking
+      ? { cadenceSpm: WALK_SPM, speed01: speedFromCadence(WALK_SPM), step }
+      : { cadenceSpm: 0, speed01: 0, step };
     const cadenceSpm = this.intervals.length ? 60_000 / median(this.intervals) : DEFAULT_SPM;
     return { cadenceSpm, speed01: speedFromCadence(cadenceSpm), step };
   }
 
   reset(): void {
     this.bounce.reset();
+    this.walk.reset();
+    this.walking = false;
     this.intervals = [];
     this.lastStepAt = Number.NEGATIVE_INFINITY;
     this.lastStepSide = 'right';

@@ -17,12 +17,13 @@ const recordings = import.meta.glob('./recordings/*.json', { query: '?raw', impo
  * detector improves; lowering one is accepting a regression. The recordings are personal and local, so
  * these only guard on a machine that has them.
  */
-interface Floor { run: number; arms: number; side: number; stop: number; runJump?: number }
+interface Floor { run: number; arms: number; side: number; stop: number; runJump?: number; walk?: number }
 const FLOORS: Record<string, Floor> = {
   'corrida-CPU-1795731825430': { run: 85, arms: 3, side: 20, stop: 12 },
   'corrida-CPU-1795734053676': { run: 95, arms: 3, side: 5, stop: 5 },
   'corrida-CPU-1795735134733': { run: 95, arms: 3, side: 5, stop: 5 },
-  'corrida-CPU-1795736477645': { run: 95, arms: 3, side: 5, stop: 5, runJump: 90 },
+  'corrida-CPU-1795736477645': { run: 95, arms: 3, side: 5, stop: 5, runJump: 90, walk: 75 },
+  'corrida-CPU-1795738782805': { run: 95, arms: 3, side: 5, stop: 5, runJump: 90, walk: 75 },
   // Badly framed (see above): kept to notice changes, not as a target.
   'corrida-GPU-1795733551309': { run: 20, arms: 3, side: 5, stop: 5 },
 };
@@ -62,6 +63,7 @@ describe.skipIf(Object.keys(recordings).length === 0)('scoreboard for real recor
     expect(summary.side, 'changing lanes moved the runner').toBeLessThanOrEqual(floor.side);
     expect(summary.stop, 'the runner kept going after the stop').toBeLessThanOrEqual(floor.stop);
     expect(summary.run, 'running was missed').toBeGreaterThanOrEqual(floor.run);
+    if (floor.walk !== undefined) expect(summary.walk, 'walking was missed').toBeGreaterThanOrEqual(floor.walk);
     if (floor.runJump !== undefined) expect(summary.runJump, 'running was lost around jumps').toBeGreaterThanOrEqual(floor.runJump);
   });
 });
