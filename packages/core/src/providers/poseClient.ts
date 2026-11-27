@@ -231,7 +231,8 @@ export class PoseClient {
 
   /** Undefined when the video needs downscaling or VideoFrame cannot be built from it. */
   private directFrame(video: HTMLVideoElement, timestampMs: number): VideoFrame | undefined {
-    if (typeof VideoFrame === 'undefined' || !(video.videoWidth <= MAX_DIRECT_FRAME_WIDTH)) return undefined;
+    const maxWidth = this.activeDelegate === 'CPU' ? CPU_BITMAP_WIDTH : MAX_DIRECT_FRAME_WIDTH;
+    if (typeof VideoFrame === 'undefined' || !(video.videoWidth <= maxWidth)) return undefined;
     try {
       // VideoFrame timestamps are integer microseconds.
       return new VideoFrame(video, { timestamp: Math.round(timestampMs * 1000) });

@@ -537,3 +537,45 @@ describe('BoxingGame training modes', () => {
     expect(read().feedback?.text).toBe('LEVOU UM SOCO');
   });
 });
+
+describe('BoxingGame review fixes', () => {
+  /** Small deterministic generator, so the AI sees a non-constant roll sequence. */
+  const seeded = (seed: number) => () => {
+    seed = (seed * 1664525 + 1013904223) % 4294967296;
+    return seed / 4294967296;
+  };
+  const attacks = (punching: boolean) => {
+    let hud: BoxingHudState | undefined;
+    const game = new BoxingGame(document.createElement('canvas'), (state) => { hud = state; }, undefined, seeded(7), {
+      opponent: 'technical',
+      motionRng: () => 0.999, // always rolls a dash when one is eligible
+    });
+    game.setTracking('TRACKING');
+    const internals = game as unknown as { ai: { phase: { kind: string; hand?: string } } };
+    const seen: string[] = [];
+    for (let step = 0; step < 60 * 20; step += 1) {
+      wallMs += STEP_S * 1000;
+      if (punching && step % 40 === 0) {
+        game.onAction({ id: step, timestampMs: wallMs, confidence: 1, trackingState: 'tracked', source: 'cv', type: 'punch-start', hand: 'left' });
+      }
+      loopState.update!(STEP_S);
+      const { kind, hand } = internals.ai.phase;
+      const label = `${kind}:${hand ?? ''}`;
+      if (seen.at(-1) !== label) seen.push(label);
+    }
+    expect(hud).toBeDefined();
+    return seen;
+  };
+
+  it('keeps the opponent attack sequence independent of player punches', () => {
+    expect(attacks(true)).toEqual(attacks(false));
+  });
+
+  it('drops a dash in progress at the bell, so the camera does not stay rolled', () => {
+    const fight = start();
+    fight.setMatch({ roundMsLeft: 100 });
+    fight.game.setLateralDash(1);
+    fight.run(0.2);
+    expect((fight.game as unknown as { dash?: unknown }).dash).toBeUndefined();
+  });
+});

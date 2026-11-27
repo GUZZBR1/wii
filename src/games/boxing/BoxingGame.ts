@@ -117,6 +117,11 @@ const HANDS = ['left', 'right'] as const;
 export interface BoxingGameOptions {
   mode?: BoxingMode;
   opponent?: OpponentProfileId;
+  /**
+   * Randomness for the opponent's footwork, kept apart from the AI's `rng` so player punches never
+   * shift the attack sequence. Defaults to no random footwork (the opponent never dashes).
+   */
+  motionRng?: () => number;
 }
 
 export interface BoxingScoreboard {
@@ -157,6 +162,7 @@ export class BoxingGame {
   private readonly hudTimer: number;
   private readonly gate = new RunGate();
   private readonly mode: BoxingMode;
+  private readonly motionRng: () => number;
   private readonly profile: OpponentProfile;
 
   private match: BoxingState = createBoxing();
@@ -214,6 +220,7 @@ export class BoxingGame {
     options: BoxingGameOptions = {},
   ) {
     this.mode = options.mode ?? 'fight';
+    this.motionRng = options.motionRng ?? (() => 0);
     this.profile = opponentProfile(options.opponent);
     this.status = this.initialStatus();
     this.ai = createOpponentAi(this.fightMs, this.rng, this.profile.skill);
@@ -558,6 +565,7 @@ export class BoxingGame {
     this.match = tick.state;
     if (!tick.roundEnded) return;
     this.roundEndedWallMs = performance.now();
+    this.dash = undefined;
     if (tick.matchEnded) this.endMatch();
     else {
       this.breakMsLeft = ROUND_BREAK_MS;
@@ -602,7 +610,7 @@ export class BoxingGame {
         playerPunching: HANDS.some((hand) => this.punchAnimS[hand] < PUNCH_ANIM_S),
       },
       dtMs / 1000,
-      this.rng,
+      this.motionRng,
     );
   }
 
@@ -708,6 +716,7 @@ export class BoxingGame {
 
   private finishTraining(title: string, won: boolean): void {
     this.restartMsLeft = MATCH_PAUSE_MS;
+    this.dash = undefined;
     this.status = title;
     this.audio?.bell(won ? 'ko' : 'round');
     if (won) this.audio?.crowdReact(1);
@@ -748,6 +757,7 @@ export class BoxingGame {
 
   private endMatch(): void {
     this.restartMsLeft = MATCH_PAUSE_MS;
+    this.dash = undefined;
     this.status = this.match.winner === 'player' ? 'VOCÊ VENCEU!' : this.match.winner === 'draw' ? 'Empate' : 'Adversário venceu';
     this.audio?.bell('ko');
     if (this.match.winner === 'player') this.audio?.crowdReact(1);

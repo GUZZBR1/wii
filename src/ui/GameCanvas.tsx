@@ -112,6 +112,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, boxingMode, o
               : new (await import('../games/boxing/BoxingGame')).BoxingGame(canvas, updateHud, audio, undefined, {
                   mode: boxingMode,
                   opponent: boxingOpponent,
+                  motionRng: Math.random,
                 });
         if (disposed) { engine.dispose(); return; }
         game = engine;

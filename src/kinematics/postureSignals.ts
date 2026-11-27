@@ -124,6 +124,8 @@ export class RingDepthTracker {
   private readonly filter = new OneEuroFilter({ minCutoff: 3, beta: 1, derivativeCutoff: 1 });
   private move: -1 | 0 | 1 = 0;
   private speed?: number;
+  /** When the size first left the dead band; speed stays 0 until that has lasted DEPTH_HOLD_MS. */
+  private outsideSinceMs?: number;
   private pending?: { move: -1 | 1; sinceMs: number };
   /** The profile has no torso reference: derived from the first readings against its width. */
   private torso?: { widthReference: number; samples: number[] };
@@ -149,7 +151,11 @@ export class RingDepthTracker {
     if (this.torso.samples.length < TORSO_REFERENCE_SAMPLES) this.torso.samples.push(torsoHeight * reference / width);
     const ratio = this.filter.filter(agreedSizeRatio(width / reference, torsoHeight / median(this.torso.samples)), snapshot.timestampMs);
     const offset = ratio - 1;
-    this.speed = Math.abs(offset) <= DEPTH_DEAD_BAND
+    // A brief change of apparent size (a lean, a turn) must not walk the player: same dwell as the step.
+    const outside = Math.abs(offset) > DEPTH_DEAD_BAND;
+    if (!outside) this.outsideSinceMs = undefined;
+    else this.outsideSinceMs ??= snapshot.timestampMs;
+    this.speed = !outside || snapshot.timestampMs - this.outsideSinceMs! < DEPTH_HOLD_MS
       ? 0
       : Math.sign(offset) * clamp((Math.abs(offset) - DEPTH_DEAD_BAND) / (DEPTH_FULL_SPEED - DEPTH_DEAD_BAND));
     if ((this.move === 1 && ratio <= EXIT_NEAR_RATIO) || (this.move === -1 && ratio >= EXIT_FAR_RATIO)) this.move = 0;
@@ -168,5 +174,5 @@ export class RingDepthTracker {
   /** Signed approach speed -1..1 as of the last unfrozen reading, positive toward the camera. */
   get approach01(): number | undefined { return this.speed; }
 
-  reset(): void { this.filter.reset(); this.move = 0; this.speed = undefined; this.pending = undefined; this.torso = undefined; }
+  reset(): void { this.filter.reset(); this.move = 0; this.speed = undefined; this.outsideSinceMs = undefined; this.pending = undefined; this.torso = undefined; }
 }

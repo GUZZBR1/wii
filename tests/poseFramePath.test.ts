@@ -117,6 +117,15 @@ describe('PoseClient frame transport', () => {
     client.dispose();
   });
 
+  it('downscales a 640-wide camera on CPU instead of sending it whole', async () => {
+    const { client, video } = await start(640, 'CPU');
+    await video.fireFrame(10);
+
+    expect(FakeVideoFrame.created).toHaveLength(0);
+    expect(createBitmap).toHaveBeenCalledWith(video, { resizeWidth: 320, resizeQuality: 'low' });
+    client.dispose();
+  });
+
   it.each([
     ['READY on CPU', 'CPU' as const, false],
     ['a mid-session FALLBACK', 'GPU' as const, true],

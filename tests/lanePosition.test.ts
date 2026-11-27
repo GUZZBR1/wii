@@ -299,10 +299,13 @@ describe('RingDepthTracker', () => {
     ));
     return { ...snapshot, landmarks };
   };
-  const drive = (ratioAt: (timeMs: number) => number, totalMs: number) => {
+  const drive = (ratioAt: (timeMs: number) => number, totalMs: number, speeds: number[] = []) => {
     const tracker = new RingDepthTracker();
     const trace: number[] = [];
-    for (let time = 0; time <= totalMs; time += 33) trace.push(tracker.update(scaled(time, ratioAt(time)), profile())!);
+    for (let time = 0; time <= totalMs; time += 33) {
+      trace.push(tracker.update(scaled(time, ratioAt(time)), profile())!);
+      speeds.push(tracker.approach01 ?? 0);
+    }
     return trace;
   };
 
@@ -316,7 +319,9 @@ describe('RingDepthTracker', () => {
 
   it('ignores a standing player and a brief change of apparent size', () => {
     expect(new Set(drive((t) => (t % 66 === 0 ? 1.05 : 0.95), 2000))).toEqual(new Set([0]));
-    expect(new Set(drive((t) => (t > 500 && t < 700 ? 0.7 : 1), 2000))).toEqual(new Set([0]));
+    const speeds: number[] = [];
+    expect(new Set(drive((t) => (t > 500 && t < 700 ? 0.7 : 1), 2000, speeds))).toEqual(new Set([0]));
+    expect(new Set(speeds)).toEqual(new Set([0]));
   });
 
   it('has no opinion without a reference width', () => {
