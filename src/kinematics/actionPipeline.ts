@@ -171,7 +171,7 @@ export class ActionPipeline {
         this.lastSwingAt = snapshot.timestampMs;
         const { confidence, peakTimestampMs, ...action } = best.swing;
         delete (action as { kind?: unknown }).kind; // runtime-only detector discriminant, not protocol
-        events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'swing', ...action, peakTimestampMs });
+        events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'swing', hand: best.hand, ...action, peakTimestampMs });
       }
     }
 

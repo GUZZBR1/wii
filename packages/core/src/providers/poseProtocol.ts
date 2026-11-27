@@ -74,6 +74,8 @@ export type SportActionEvent =
   | ActionBase & { type: 'swing-start'; hand: Hand; side: 'forehand' | 'backhand' }
   | ActionBase & {
       type: 'swing';
+      /** The wrist that made the stroke. */
+      hand: Hand;
       side: 'forehand' | 'backhand';
       power01: number;
       peakTimestampMs?: number;

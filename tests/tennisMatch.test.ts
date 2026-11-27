@@ -18,7 +18,7 @@ function match() {
     pendingPoint?: { deadAt: number };
     startPoint(now: number): void;
     stepBall(dt: number, now: number): void;
-    resolveSwing(swing: { side: 'forehand'; power01: number; verticalSpeed: number; contactY: number; peakTimestampMs: number }): void;
+    resolveSwing(swing: { hand?: 'left' | 'right'; side: 'forehand'; power01: number; verticalSpeed: number; contactY: number; peakTimestampMs: number }): void;
   };
   return { game, state };
 }
@@ -103,10 +103,10 @@ it.each([-900, -300, 0, 400, 1500])('puts any serve stroke in play, %i ms from t
   try {
     state.startPoint(1000);
     clock.mockReturnValue(1100);
-    game.setTossHand(false);
-    game.setTossHand(true);
+    game.setTossHand(undefined);
+    game.setTossHand('left');
     clock.mockReturnValue(1900);
-    game.setTossHand(true);
+    game.setTossHand('left');
     const { idealHitMs } = state.phase as unknown as { idealHitMs: number };
     state.resolveSwing({ side: 'forehand', power01: 0, verticalSpeed: 0, contactY: -1, peakTimestampMs: idealHitMs + offsetMs });
     expect(state.phase.kind).toBe('rally');
@@ -142,24 +142,26 @@ it.each([0, 1])('serves the opponent diagonally into the box, never a fault (poi
 it('holds the serve until a hand is lifted, then strikes on the swing', () => {
   const { game, state } = match();
   const clock = vi.spyOn(performance, 'now').mockReturnValue(1000);
-  const swing = () => state.resolveSwing({ side: 'forehand', power01: 0.5, verticalSpeed: 0, contactY: 0, peakTimestampMs: performance.now() });
+  const swing = (hand?: 'left' | 'right') => state.resolveSwing({ hand, side: 'forehand', power01: 0.5, verticalSpeed: 0, contactY: 0, peakTimestampMs: performance.now() });
   try {
     state.startPoint(1000);
     clock.mockReturnValue(1500);
     swing();
-    game.setTossHand(true); // already up when the serve began: does not count
+    game.setTossHand('left'); // already up when the serve began: does not count
     swing();
     expect(state.phase.kind).toBe('player-serve');
-    game.setTossHand(false);
-    game.setTossHand(true);
+    game.setTossHand(undefined);
+    game.setTossHand('left');
     clock.mockReturnValue(2000);
-    game.setTossHand(true); // still short of the hold: a passing stroke does not throw
+    game.setTossHand('left'); // still short of the hold: a passing stroke does not throw
     swing();
     expect(state.phase.kind).toBe('player-serve');
     clock.mockReturnValue(2300);
-    game.setTossHand(true);
+    game.setTossHand('left');
     clock.mockReturnValue(2600);
-    swing();
+    swing('left'); // the hand that threw cannot strike
+    expect(state.phase.kind).toBe('player-serve');
+    swing('right');
     expect(state.phase.kind).toBe('rally');
   } finally {
     clock.mockRestore();

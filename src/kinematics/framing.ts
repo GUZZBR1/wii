@@ -1,4 +1,4 @@
-import type { PoseSnapshot } from '../cv/protocol';
+import type { Hand, PoseSnapshot } from '../cv/protocol';
 
 /** The warning waits this long: a head that dips out during a hop or a stride is not worth a word. */
 const HEAD_OUT_AFTER_MS = 1500;
@@ -80,11 +80,11 @@ export function handsRaised(snapshot: PoseSnapshot): boolean {
 
 /**
  * The serve toss: one hand lifted to the height of the face or higher, the other one down. Either
- * hand counts, so nobody has to know which one the game expects.
+ * hand counts — the other one is then the racket hand. Names are the player's own left and right.
  */
-export function oneHandRaised(snapshot: PoseSnapshot): boolean {
+export function raisedTossHand(snapshot: PoseSnapshot): Hand | undefined {
   const nose = snapshot.landmarks[0];
-  if (!nose) return false;
+  if (!nose) return undefined;
   const [left, right] = ([[15, 11], [16, 12]] as const).map(([wrist, shoulder]) => {
     const hand = snapshot.landmarks[wrist];
     const base = snapshot.landmarks[shoulder];
@@ -92,7 +92,8 @@ export function oneHandRaised(snapshot: PoseSnapshot): boolean {
     // "Face height" is a third of the way below the nose towards the shoulder.
     return { up: seen && hand.y < nose.y + (base.y - nose.y) / 3, raised: seen && hand.y < base.y };
   });
-  return (left!.up && !right!.raised) || (right!.up && !left!.raised);
+  if (left!.up && !right!.raised) return 'left';
+  return right!.up && !left!.raised ? 'right' : undefined;
 }
 
 /**
