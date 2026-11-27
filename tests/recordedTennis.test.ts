@@ -50,6 +50,12 @@ const recordings = Object.entries(import.meta.glob<string>([
  * not keep to the script's one-per-window, so the floor is the trace, not the script.
  */
 const STROKES: Record<string, { forehand: number[]; backhand: number[] }> = {
+  // Guided recording, five of each in their script windows. The last forehand falls in the slow
+  // preparation window and is the one known false reading.
+  './recordings/tenis-CPU-1795788487328.json': {
+    forehand: [7.2, 9.7, 11.9, 14.1, 16.3, 31.6],
+    backhand: [18.3, 20.2, 22.4, 26.2, 28.9],
+  },
   './recordings/tenis-CPU-1795786091987.json': {
     forehand: [7, 9, 11, 12.6, 14.3, 15.9, 17.3, 19.6, 39.6],
     backhand: [23.7, 25.5, 27.7, 29.4],
