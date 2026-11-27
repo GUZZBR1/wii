@@ -26,6 +26,16 @@ const recordings = import.meta.glob('./recordings/{corrida,erro}-*.json', { quer
  */
 const ARMS_ONLY_CLIPS = ['erro-CPU-1795803374564'];
 const armsOnlyClips = Object.entries(recordings).filter(([path]) => ARMS_ONLY_CLIPS.some((clip) => path.endsWith(`/${clip}.json`)));
+/**
+ * Clips someone has checked as real running attempts, however flat the jog: the bar must fill
+ * through them. Floors are wide because the clips mix starting, stopping and frame-rate noise —
+ * they exist so a detector change cannot silently bring back the intermittent fill the player
+ * reported: peak 0.63 / mean 0.20 / 131 of 202 frames with effort when added.
+ */
+const RUNNING_CLIPS: Record<string, { peak: number; mean: number; effortFrames: number }> = {
+  'erro-CPU-1795806065324': { peak: 0.4, mean: 0.1, effortFrames: 0.4 },
+};
+const runningClips = Object.entries(recordings).filter(([path]) => Object.keys(RUNNING_CLIPS).some((clip) => path.endsWith(`/${clip}.json`)));
 
 interface Floor { run: number; arms: number; side: number; stop: number; runJump?: number; walk?: number }
 const FLOORS: Record<string, Floor> = {
@@ -79,6 +89,26 @@ describe.skipIf(Object.keys(recordings).length === 0)('scoreboard for real recor
     expect(peak, 'arm movement without running fed the race effort').toBe(0);
   });
 
+  it.each(runningClips)('%s: a clip labelled as a running attempt fills the effort bar', (_name, raw) => {
+    const recording = parsePoseRecording(raw);
+    const frames = recording.frames.map((frame) => frame.snapshot);
+    const pipeline = new ActionPipeline();
+    const calibrator = new AdaptiveCalibrator();
+    let profile: CalibrationProfile | undefined;
+    let peak = 0, sum = 0, withEffort = 0;
+    for (const snapshot of frames) {
+      profile = calibrator.update(snapshot, pipeline.laneZone) ?? profile;
+      const effort = pipeline.update(snapshot, profile).rawEffort;
+      peak = Math.max(peak, effort);
+      sum += effort;
+      if (effort > 0.01) withEffort++;
+    }
+    const floor = RUNNING_CLIPS[Object.keys(RUNNING_CLIPS).find((clip) => _name.endsWith(`/${clip}.json`))!]!;
+    expect(peak, 'running barely registered').toBeGreaterThanOrEqual(floor.peak);
+    expect(sum / frames.length, 'running filled weakly overall').toBeGreaterThanOrEqual(floor.mean);
+    expect(withEffort / frames.length, 'the fill was intermittent').toBeGreaterThanOrEqual(floor.effortFrames);
+  });
+
   it.each(Object.entries(recordings))('%s', (name, raw) => {
     const recording = parsePoseRecording(raw);
     const frames = recording.frames.map((frame) => frame.snapshot);
@@ -95,9 +125,9 @@ describe.skipIf(Object.keys(recordings).length === 0)('scoreboard for real recor
     expect(summary.arms, 'arms alone moved the runner').toBeLessThanOrEqual(floor.arms);
     // The channel the athletics race actually consumes: arms without a torso bounce must not
     // feed any effort at all, and real running must register strongly through the gate.
-    // Big scripted swings can jolt the torso enough to open the bounce gate for a moment in the
-    // hardest clip; the separation from real running (>= 0.1) stays wide. Broken-framing clips
-    // (floor.run below 50) cannot score run effort because the tracker loses the body.
+    // Even violent scripted swings stay shut out: they bounce the torso but never shift the
+    // body's weight, and the gate needs both. Broken-framing clips (floor.run below 50) cannot
+    // score run effort because the tracker loses the body.
     expect(summary.armsEffort, 'arms alone fed the race effort').toBeLessThanOrEqual(0.03);
     if (floor.run >= 50) expect(summary.runEffort, 'running no longer feeds the race effort').toBeGreaterThanOrEqual(0.1);
     expect(summary.side, 'changing lanes moved the runner').toBeLessThanOrEqual(floor.side);

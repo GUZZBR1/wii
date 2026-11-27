@@ -10,6 +10,12 @@ const MIN_SPREAD_SW = 0.03;
 const JUMP_LOCKOUT_MS = 1200;
 /** Both shoulders must move together, which independent landmark jitter and one-arm waving do not. */
 const MIN_TOGETHER = 0.65;
+/**
+ * Once strides confirm, the verdict outlives weak patches: real running is irregular, and a
+ * borderline stride or a noisy stretch must not drop it within a step or two. This is safe
+ * because candidates never fire for arm waving at all — the together/head tests see to that —
+ * and because a genuinely still body reads flat in the quiet window long before this expires.
+ */
 const HOLD_MS = 300;
 /**
  * Running carries the head along; swinging the arms hard moves the shoulders under a steadier head.

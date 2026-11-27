@@ -5,12 +5,12 @@ import { IntensityMeter, type Body } from '../src/kinematics/intensity';
  *  cheering, not of someone running in place. */
 function wavingBody(t: number): Body {
   const phase = Math.sin(t / 90);
-  return { head: 0.3, shoulders: 0.5, width: 0.25, leftWrist: 0.5 + phase * 0.2, rightWrist: 0.5 - phase * 0.2 };
+  return { head: 0.3, shoulders: 0.5, width: 0.25, x: 0, leftWrist: 0.5 + phase * 0.2, rightWrist: 0.5 - phase * 0.2 };
 }
 
 function runningBody(t: number): Body {
   const phase = Math.sin(t / 120);
-  return { head: 0.3 + phase * 0.03, shoulders: 0.5 + phase * 0.03, width: 0.25, leftWrist: 0.5 + phase * 0.15, rightWrist: 0.5 - phase * 0.15 };
+  return { head: 0.3 + phase * 0.03, shoulders: 0.5 + phase * 0.03, width: 0.25, x: 0, leftWrist: 0.5 + phase * 0.15, rightWrist: 0.5 - phase * 0.15 };
 }
 
 describe('intensity bounce gate', () => {

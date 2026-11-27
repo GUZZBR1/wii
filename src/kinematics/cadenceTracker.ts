@@ -3,6 +3,21 @@ import { median } from './math';
 import type { TorsoVerticalSample } from './torsoVertical';
 import { WalkDetector } from './walk';
 
+/**
+ * Running or marching in place keeps the body's weight moving sideways, even when the head and
+ * shoulders barely bounce — a player watching the screen stabilizes their upper body, and the
+ * movement is irregular drift as much as step-frequency sway. Waving the arms while standing
+ * still keeps the weight centered: real clips measure 0.02-0.03 shoulder widths of lateral
+ * spread for arm waving against 0.06-0.13 for running. Opening the effort gate takes vertical
+ * bounce and weight transfer together: even violent arm swinging can bounce the torso, but it
+ * never shifts the body's weight. Once open, either channel holds the gate through flat
+ * stretches. The lateral channel never drives cadence speed, so sidesteps don't sprint.
+ */
+const LATERAL_WINDOW_MS = 1000;
+const LATERAL_MIN_SPAN_MS = 500;
+/** Between the highest arm-waving stretch (0.033) and the lowest running one (0.052). */
+const LATERAL_ACTIVE_SW = 0.042;
+
 export interface CadenceResult { cadenceSpm: number; speed01: number; step?: 'left' | 'right'; running: boolean }
 
 /** Assumed pace until two steps have been timed: a relaxed run in place. */
@@ -21,9 +36,16 @@ const MAX_WALK_SPM = 130;
 /**
  * A jolt when the player starts moving their arms can fool the bounce verdict for a frame or two
  * (real clips: ~150 ms at 257 spm). Running is only trusted once the verdict persists this long;
- * the trust then holds without flapping through stride gaps and closes the instant the bounce stops.
+ * the trust then holds without flapping through stride gaps.
  */
 const RUN_TRUST_MS = 300;
+/**
+ * Once trusted, the verdict survives weak patches: real running is irregular, and dropping the
+ * effort gate for a stride or two cuts the runner's speed mid-race. Closing waits this long
+ * without bounce or weight transfer. Arm waving never opens the trust in the first place, and a still body
+ * measures no effort even while the trust is open, so the long close only bridges strides.
+ */
+const RUN_TRUST_HOLD_MS = 2000;
 const SPEED_BY_CADENCE = [[40, 0.1], [100, 0.3], [137.5, 0.55], [200, 1]] as const;
 
 export function speedFromCadence(spm: number): number {
@@ -51,6 +73,9 @@ export class CadenceTracker {
   private moving = false;
   private movingSince = Number.POSITIVE_INFINITY;
   private trusted = false;
+  private lastMovingAt = Number.NEGATIVE_INFINITY;
+  private lateralWindow: { t: number; x: number; width: number }[] = [];
+  private lateralActive = false;
   private suspended = false;
   private ranBeforeJump = false;
 
@@ -67,6 +92,17 @@ export class CadenceTracker {
     if (suspend) { this.walk.reset(); this.walking = false; }
     if (suspend) this.bounce.forgetJump(nowMs, this.ranBeforeJump);
     if (sample && !suspend) {
+      this.lateralWindow.push({ t: sample.timestampMs, x: sample.shoulders.x, width: sample.shoulders.width });
+      this.lateralWindow = this.lateralWindow.filter((entry) => sample.timestampMs - entry.t <= LATERAL_WINDOW_MS);
+      const span = sample.timestampMs - this.lateralWindow[0]!.t;
+      if (span >= LATERAL_MIN_SPAN_MS && this.lateralWindow.length >= 4) {
+        const width = this.lateralWindow[Math.floor(this.lateralWindow.length / 2)]!.width;
+        const xs = this.lateralWindow.map((entry) => entry.x);
+        const meanX = xs.reduce((sum, x) => sum + x, 0) / xs.length;
+        const rms = Math.sqrt(xs.reduce((sum, x) => sum + (x - meanX) ** 2, 0) / xs.length) / width;
+        if (rms >= LATERAL_ACTIVE_SW) this.lateralActive = true;
+        else if (rms < 0.036) this.lateralActive = false;
+      }
       const bounce = this.bounce.update(sample.timestampMs, sample.shoulders.left, sample.shoulders.right, sample.shoulders.width, sample.shoulders.head);
       // Right after a jump the window is still filling; the run it interrupted carries on meanwhile.
       this.moving = bounce.moving;
@@ -98,12 +134,13 @@ export class CadenceTracker {
       this.walking = false;
     }
     this.movingSince = this.moving ? Math.min(this.movingSince, nowMs) : Number.POSITIVE_INFINITY;
-    if (!this.moving) this.trusted = false;
-    else if (!this.trusted && nowMs - this.movingSince >= RUN_TRUST_MS) this.trusted = true;
+    if (this.moving || this.lateralActive) this.lastMovingAt = nowMs;
+    if (!this.moving && !this.lateralActive && nowMs - this.lastMovingAt >= RUN_TRUST_HOLD_MS) this.trusted = false;
+    else if (!this.trusted && this.moving && this.lateralActive && nowMs - this.movingSince >= RUN_TRUST_MS) this.trusted = true;
     // Running wins: its bounce also sways.
     if (!this.moving) return this.walking
-      ? { cadenceSpm: this.walkSpm, speed01: speedFromCadence(this.walkSpm), step, running: false }
-      : { cadenceSpm: 0, speed01: 0, step, running: false };
+      ? { cadenceSpm: this.walkSpm, speed01: speedFromCadence(this.walkSpm), step, running: this.trusted }
+      : { cadenceSpm: 0, speed01: 0, step, running: this.trusted };
     const cadenceSpm = this.intervals.length ? 60_000 / median(this.intervals) : DEFAULT_SPM;
     return { cadenceSpm, speed01: speedFromCadence(cadenceSpm), step, running: this.trusted };
   }
@@ -119,6 +156,9 @@ export class CadenceTracker {
     this.moving = false;
     this.movingSince = Number.POSITIVE_INFINITY;
     this.trusted = false;
+    this.lastMovingAt = Number.NEGATIVE_INFINITY;
+    this.lateralWindow = [];
+    this.lateralActive = false;
     this.suspended = this.ranBeforeJump = false;
   }
 }

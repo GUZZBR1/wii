@@ -10,7 +10,8 @@ function driveBounce(pipeline: ActionPipeline, profile: ReturnType<typeof calibr
   const hz = 150 / 60;
   for (let time = startAt; time <= until; time += 33) {
     const units = time >= from ? 0.04 * Math.sin((2 * Math.PI * hz * (time - from)) / 1000) : 0;
-    pipeline.update(poseWithHipBounce(time, units * 0.4), profile);
+    const sway = time >= from ? 0.04 * Math.cos((2 * Math.PI * hz * (time - from)) / 1000) : 0;
+    pipeline.update(poseWithHipBounce(time, units * 0.4, undefined, sway), profile);
   }
 }
 
@@ -512,7 +513,8 @@ it('keeps the effort timestamp through low confidence and collapsed shoulders un
   const bouncing = (time: number, options?: Parameters<typeof pose>[1]) => {
     const base = pose(time, options);
     const dy = 0.016 * Math.sin((2 * Math.PI * 2.5 * time) / 1000);
-    return { ...base, landmarks: base.landmarks.map((point, index) => [0, 11, 12, 23, 24].includes(index) ? { ...point, y: point.y + dy } : point) };
+    const dx = 0.04 * Math.cos((2 * Math.PI * 2.5 * time) / 1000);
+    return { ...base, landmarks: base.landmarks.map((point, index) => [0, 11, 12, 23, 24].includes(index) ? { ...point, y: point.y + dy, x: point.x + dx } : point) };
   };
   for (let time = 0; time <= 1200; time += 33) pipeline.update(bouncing(time));
   for (const time of [1233, 1266, 1299, 1332]) pipeline.update(bouncing(time));

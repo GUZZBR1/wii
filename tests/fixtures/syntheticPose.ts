@@ -89,10 +89,10 @@ export function calibration(): CalibrationProfile {
   };
 }
 
-/** Translates the torso core (shoulders + hips) vertically in image space, torso height unchanged. */
-export function poseWithHipBounce(timestampMs: number, hipYOffset: number, confidence?: number) {
+/** Translates the torso core (shoulders + hips) in image space, torso height unchanged. */
+export function poseWithHipBounce(timestampMs: number, hipYOffset: number, confidence?: number, hipXOffset = 0) {
   const snapshot = pose(timestampMs, { confidence });
   const landmarks = snapshot.landmarks.map((point, index) =>
-    [0, 11, 12, 23, 24].includes(index) ? { ...point, y: point.y + hipYOffset } : point);
+    [0, 11, 12, 23, 24].includes(index) ? { ...point, y: point.y + hipYOffset, x: point.x + hipXOffset } : point);
   return { ...snapshot, landmarks };
 }

@@ -11,7 +11,7 @@ function level({ hz = 0, armSw = 0, bounceSw = 0, hands = true, jitterSw = 0 }) 
     const swing = armSw * WIDTH * Math.sin((2 * Math.PI * hz * t) / 1000);
     const y = bounceSw * WIDTH * Math.sin((2 * Math.PI * hz * 2 * t) / 1000);
     value = meter.update(t, {
-      head: 0.3 + y + noise(), shoulders: 0.5 + y, width: WIDTH,
+      head: 0.3 + y + noise(), shoulders: 0.5 + y, width: WIDTH, x: 0,
       leftWrist: hands ? 0.8 + y + swing + noise() : Number.NaN, rightWrist: hands ? 0.8 + y - swing + noise() : Number.NaN,
     });
   }
@@ -48,7 +48,7 @@ describe('running intensity', () => {
 
   it('discards old speed when stationary frames return after a tracking gap', () => {
     const meter = new IntensityMeter();
-    const still = { head: 0.3, shoulders: 0.5, width: WIDTH, leftWrist: 0.8, rightWrist: 0.8 };
+    const still = { head: 0.3, shoulders: 0.5, width: WIDTH, x: 0, leftWrist: 0.8, rightWrist: 0.8 };
     let effort = 0;
     for (let t = 0; t <= 3000; t += 20) {
       const swing = 0.15 * Math.sin(t / 90);
@@ -68,7 +68,7 @@ describe('running intensity', () => {
     let value = 0;
     for (let t = 0; t <= 4000; t += 33) {
       const swing = 0.1 * Math.sin((2 * Math.PI * 1.4 * t) / 1000);
-      value = meter.update(t, { head: 0.3, shoulders: 0.5, width: WIDTH, leftWrist: 0.8 + swing, rightWrist: 0.8 - swing });
+      value = meter.update(t, { head: 0.3, shoulders: 0.5, width: WIDTH, x: 0, leftWrist: 0.8 + swing, rightWrist: 0.8 - swing });
     }
     const after = meter.update(4200);
     expect(after).toBeGreaterThan(value * 0.6);

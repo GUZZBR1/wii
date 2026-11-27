@@ -11,6 +11,12 @@ const REST_SPEED = 0.35;
 const REFERENCE_SPEED = 3.5;
 /** The torso moves less than the arms, so give a confirmed bounce more weight. */
 const BOUNCE_GAIN = 3;
+/**
+ * Marching or running flat shifts the body's weight sideways even when nothing moves vertically:
+ * the torso's lateral speed is real exertion the vertical channels miss. It only counts when the
+ * gate is already open, so arm waving — where the weight stays centered — never reaches it.
+ */
+const LATERAL_GAIN = 1;
 /** Landmark jitter is fast and tiny: smoothing the positions removes most of its apparent speed. */
 const POSITION_SMOOTHING_MS = 80;
 const AVERAGE_MS = 1000;
@@ -19,8 +25,8 @@ const RELEASE_MS = 700;
 /** A longer hole than this means the two positions are not one movement. */
 const MAX_FRAME_GAP_MS = 250;
 
-/** Heights in the shoulder width's units; a wrist out of view is NaN. */
-export interface Body { head: number; shoulders: number; width: number; leftWrist: number; rightWrist: number }
+/** Heights in the shoulder width's units; a wrist out of view is NaN. `x` is the torso's lateral position. */
+export interface Body { head: number; shoulders: number; width: number; leftWrist: number; rightWrist: number; x: number }
 
 export class IntensityMeter {
   private previous?: { t: number; positions: number[] };
@@ -57,8 +63,8 @@ export class IntensityMeter {
     return this.level;
   }
 
-  private measure(t: number, { head, shoulders, width, leftWrist, rightWrist }: Body): number | undefined {
-    const positions = [head, shoulders, leftWrist - shoulders, rightWrist - shoulders];
+  private measure(t: number, { head, shoulders, width, leftWrist, rightWrist, x }: Body): number | undefined {
+    const positions = [head, shoulders, leftWrist - shoulders, rightWrist - shoulders, x];
     const previous = this.previous;
     const dt = previous ? t - previous.t : 0;
     if (!previous || dt <= 0 || dt > MAX_FRAME_GAP_MS) {
@@ -71,13 +77,15 @@ export class IntensityMeter {
       return Number.isFinite(before) ? before + (now - before) * alpha : now;
     });
     const velocity = smoothed.map((now, i) => (now - previous.positions[i]!) / width / (dt / 1000));
-    const [headVelocity = Number.NaN, shoulderVelocity = Number.NaN, ...hands] = velocity;
+    const [headVelocity = Number.NaN, shoulderVelocity = Number.NaN, leftHand = Number.NaN, rightHand = Number.NaN, lateralVelocity = Number.NaN] = velocity;
+    const hands = [leftHand, rightHand];
     const seen = hands.filter(Number.isFinite);
     const headSpeed = Number.isFinite(headVelocity) ? Math.abs(headVelocity) : 0;
     const armSpeed = seen.length ? seen.reduce((sum, speed) => sum + Math.abs(speed), 0) / seen.length : 0;
     const bounce = headVelocity * shoulderVelocity > 0 ? Math.min(headSpeed, Math.abs(shoulderVelocity)) : 0;
+    const lateralSpeed = Number.isFinite(lateralVelocity) ? Math.abs(lateralVelocity) * LATERAL_GAIN : 0;
     this.previous = { t, positions: smoothed };
-    return Number.isFinite(headVelocity) || seen.length > 0 ? Math.max(headSpeed + armSpeed, bounce * BOUNCE_GAIN) : undefined;
+    return Number.isFinite(headVelocity) || seen.length > 0 ? Math.max(headSpeed + armSpeed, bounce * BOUNCE_GAIN) + lateralSpeed : undefined;
   }
 
   reset(): void { this.previous = this.at = undefined; this.measuredAtMs = null; this.speeds = []; this.level = 0; }
