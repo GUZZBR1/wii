@@ -14,7 +14,7 @@ import { createAthlete, createRacket } from './athlete';
 import { createTennisEffects } from './effects';
 import { buildTennisStadium } from './stadium';
 import { advanceBall, createBall, solveOutgoing, timeAtPlane, type BallState } from './ballistics';
-import { adjudicateContact, DEFAULT_GEOMETRY, type ContactOutcome } from './contactAdjudicator';
+import { adjudicateContact, DEFAULT_GEOMETRY, strokeHeight, type ContactOutcome } from './contactAdjudicator';
 import { adaptOpponentSkill, createOpponentAi, decideReturn, DEFAULT_OPPONENT_AI_CONFIG, type OpponentAiState } from './opponentAi';
 import { ballAtPlannedContact, resolveScheduledOpponentReturn, type OpponentHitPlan } from './opponentReturn';
 import { crossesNetBelowCord } from './rallyPhysics';
@@ -86,6 +86,7 @@ export class TennisGame {
   private swingDirection = 1;
   private serveStroke = false;
   private fastServe = false;
+  private swingLift: -1 | 0 | 1 = 0;
   private opponentReturns = 0;
   private opponentBeaten = false;
   private opponentServed = false;
@@ -153,10 +154,13 @@ export class TennisGame {
       this.swingDirection = (event.hand === 'right') === (event.side === 'forehand') ? 1 : -1;
       // By the time the stroke is recognised the arm is well on its way; so is the racket.
       this.swingAnimT = SWING_ANIM_START;
+      this.swingLift = 0;
       this.serveStroke = this.phase.kind === 'player-serve';
       return;
     }
     if (event.type !== 'swing') return;
+    const height = strokeHeight(event.contactY ?? 0);
+    this.swingLift = height === 'high' ? 1 : height === 'low' ? -1 : 0;
     this.resolveSwing({
       side: event.side,
       power01: event.power01,
@@ -200,7 +204,10 @@ export class TennisGame {
       movementPenalty01: Math.min(1, (anchor?.playerSpeed ?? this.playerLateralSpeed) / PLAYER_MOVE_SPEED),
       swing: simulationSwing,
     });
-    if (outcome.kind === 'contact') this.setFeedback(swing.side === 'forehand' ? 'FOREHAND' : 'BACKHAND', 'good');
+    if (outcome.kind === 'contact') {
+      const arc = outcome.height === 'high' ? ' ALTO ↑' : outcome.height === 'low' ? ' RASANTE ↓' : '';
+      this.setFeedback(`${swing.side === 'forehand' ? 'FOREHAND' : 'BACKHAND'}${arc}`, 'good');
+    }
     this.applyPlayerOutcome(outcome, ballAtPeak, simulationSwing.peakTimestampMs, now, false, wallNow);
   }
 
@@ -648,7 +655,7 @@ export class TennisGame {
     this.opponent.root.position.set(this.opponentX, 0, opponentServing ? -BASELINE_Z - 0.45 : OPPONENT_HOME_Z);
     const serving = this.phase.kind === 'player-serve' ? (nowMs() < this.tossAtMs ? 'hold' : 'toss') : undefined;
     const struck = this.serveStroke && this.swingAnimT < 1;
-    this.player.animate(this.playerStride, this.playerMotion, this.swingAnimT, this.swingDirection, this.readySide, struck ? 'strike' : serving);
+    this.player.animate(this.playerStride, this.playerMotion, this.swingAnimT, this.swingDirection, this.readySide, struck ? 'strike' : serving, this.swingLift);
     const opponentToss = this.phase.kind === 'opponent-serve' ? 'toss' : this.opponentServed && this.opponentSwingT < 1 ? 'strike' : undefined;
     this.opponent.animate(this.opponentStride, -this.opponentMotion, this.opponentSwingT, 1, 0, opponentToss);
     const portrait = Math.max(0, 1.35 - this.camera.aspect);

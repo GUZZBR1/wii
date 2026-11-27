@@ -68,7 +68,7 @@ export function createAthlete(shirt: number, facing: number) {
      * `direction` is the side of the body the stroke starts from (1 right, -1 left); `ready` draws the
      * racket back to a side before the ball arrives; `serve` is the toss and the overhead strike.
      */
-    animate(stride: number, speed: number, swing: number, direction: number, ready: -1 | 0 | 1 = 0, serve?: 'hold' | 'toss' | 'strike') {
+    animate(stride: number, speed: number, swing: number, direction: number, ready: -1 | 0 | 1 = 0, serve?: 'hold' | 'toss' | 'strike', lift: -1 | 0 | 1 = 0) {
       const step = Math.sin(stride * 9) * Math.min(1, Math.abs(speed) / 3);
       const swinging = swing < 1;
       // Fast through the ball, slower on the follow-through.
@@ -88,7 +88,12 @@ export function createAthlete(shirt: number, facing: number) {
         racketHand.rotation.set(-reach, 0, 0);
         grip.rotation.set(0, 0, 0);
       } else if (swinging) {
-        racketHand.position.set(Math.sin(angle) * 0.62, 0.22 + eased * 0.3, -Math.cos(angle) * 0.62);
+        // A high stroke climbs from the knee to over the head; a low one stays down; between, a gentle rise.
+        const [from, to] = lift > 0 ? [-0.15, 1.45] : lift < 0 ? [0.25, -0.25] : [0.22, 0.52];
+        racketHand.position.set(Math.sin(angle) * 0.62, from + (to - from) * eased, -Math.cos(angle) * 0.62);
+        // The streak sits at the height of the stroke and tilts with it.
+        swoosh.position.y = 0.6 + from + (to - from) * eased;
+        swoosh.rotation.x = -Math.PI / 2 + (lift > 0 ? 0.5 : 0);
         // Lay the racket out radially, pointing away from the body.
         racketHand.rotation.set(0, -angle, 0);
         grip.rotation.set(-Math.PI / 2, 0, 0);

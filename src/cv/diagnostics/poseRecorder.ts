@@ -6,6 +6,13 @@ import type { Photo } from './photoTrail';
 
 const CLIP_MS = 20_000;
 
+/** Capture-to-game delay of each snapshot, saved with the recording so latency can be read from it. */
+const delays = new WeakMap<PoseSnapshot, number>();
+
+export function noteArrival(snapshot: PoseSnapshot, nowMs: number): void {
+  delays.set(snapshot, Math.round(nowMs - snapshot.timestampMs));
+}
+
 /** Always remembers the last seconds, so a mistake can be saved after it happens. */
 export function rememberFrame(recent: PoseSnapshot[], snapshot: PoseSnapshot): PoseSnapshot[] {
   recent.push(snapshot);
@@ -38,8 +45,9 @@ export class PoseRecorder {
       runningMode: 'VIDEO',
       runtime: { userAgent: navigator.userAgent, platform: navigator.platform },
     }));
-    // An extra field the recording parser ignores.
-    return photos.length ? JSON.stringify({ ...JSON.parse(text), photos }) : text;
+    // Extra fields the recording parser ignores.
+    const delaysMs = this.frames.map((frame) => delays.get(frame) ?? null);
+    return JSON.stringify({ ...JSON.parse(text), delaysMs, ...(photos.length ? { photos } : {}) });
   }
 }
 

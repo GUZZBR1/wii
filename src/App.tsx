@@ -7,7 +7,7 @@ import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { diagnosticsEnabled } from './cv/diagnostics/flags';
 import { PhotoTrail } from './cv/diagnostics/photoTrail';
 import { TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
-import { downloadRecording, PoseRecorder, rememberFrame } from './cv/diagnostics/poseRecorder';
+import { downloadRecording, noteArrival, PoseRecorder, rememberFrame } from './cv/diagnostics/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
 import { framingAdvice, handsHidden, handsRaised, HeadWarning } from './kinematics/framing';
 import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
@@ -241,6 +241,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     onPose: (raw) => {
       poseFramesRef.current += 1;
       poseDelayRef.current = performance.now() - raw.timestampMs;
+      noteArrival(raw, performance.now());
       rememberFrame(recentFramesRef.current, raw);
       if (keepPhotos) photoTrailRef.current.add(raw.timestampMs, videoRef.current);
       if (recorderRef.current) {
