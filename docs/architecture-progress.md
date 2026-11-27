@@ -44,7 +44,7 @@ flowchart LR
 | App hand adapter | `src/cv/handClient.ts` | Supplies versioned local asset URLs and asset warming. It no longer implements a second capture scheduler. |
 | Alternate provider switching | `packages/core/src/runtime/spatialRuntime.ts` | Owns a provider generation. It delegates live capture to providers that support it; each processFrame-only hand activation owns a separate pump. It is exported and tested, but no production caller was found. |
 | Calibration and action history | `src/App.tsx`, `src/cv/adaptiveCalibrator.ts`, `src/kinematics/*` | The coordinator owns long-lived instances; pure detectors own their local filters and timing windows. `adaptiveCalibrator.ts` consumes kinematics helpers; the reverse type dependency was removed in round 2 by importing contracts from `@wii/spatial-core`. |
-| Three.js renderer and fixed-step clock | `src/games/core/GameLoop.ts` | Game instances own their scene objects and dispose them through shared helpers. |
+| Three.js renderer, fixed-step clock and shared scenery | `src/games/core/GameLoop.ts`, `src/games/core/scenery.ts` | Game instances own their scene objects; shared game primitives live under `games/core` rather than a single sport. |
 | Rules and match state | `src/games/track/*`, `src/games/athletics/*`, `src/games/tennis/*`, `src/games/boxing/*` | Pure rules have direct deterministic tests; rendering is owned by each game class. Cross-game imports remain in the backlog for a dedicated ownership pass. |
 | Website and menu state | React modules under `src/app`, `src/components`, `src/pages`, `src/ui` | Local UI state stays in React. The language provider owns selected language. |
 | Browser persistence | `src/lib/quality.ts`, `src/App.tsx`, `src/i18n.tsx`, `src/components/SiteHeader.tsx`, legacy `TrackGame.ts` | Local storage holds quality preference, mute, language, theme and obstacle-course records. There is no server-side user store. |
@@ -181,6 +181,20 @@ flowchart LR
 - O teste determinístico reproduziu a falha sem sleeps: mantém `processFrame` antigo pendente, troca hand→pose→hand e confirma que o novo adapter recebe seu primeiro quadro. O resultado antigo é resolvido depois e continua sem ser publicado.
 - O teste falhou antes da correção e passou após criar um pump por ativação legada. `npm test -- tests/spatialRuntime.test.ts tests/videoFramePump.test.ts`: 12 testes passaram; os cinco testes Node de qualidade passaram.
 - A garantia de um único quadro em voo continua dentro de cada pump, inclusive ao reiniciar o mesmo pump; gerações diferentes deixam de compartilhar o slot.
+
+## Rodada 6 — propriedade da cena compartilhada
+
+### Mudança
+
+- `createSkyDome` era implementado em `games/track/scenery.ts` e chamado por Track, Athletics e Tennis. A localização fazia os outros jogos dependerem do módulo do curso legado.
+- A implementação passou para `games/core/scenery.ts`; os três jogos usam o helper compartilhado, e `games/track/scenery.ts` mantém somente objetos específicos do Track.
+- Os outros imports cruzados permanecem no backlog para revisão individual: `Feedback`, `RunGate` e `MiiRunner` têm semânticas e proprietários diferentes e não foram movidos por semelhança textual.
+
+### Verificação
+
+- `npm test`: 97 arquivos Vitest e 926 testes passaram; os cinco testes Node de qualidade também passaram. Os replays usaram as 14 gravações locais existentes via symlink temporário, removido ao fim da execução.
+- `npm run build`, `npm run check:articles`, lint focado dos arquivos alterados e `git diff --check` passaram. `npm run lint` passou com 35 avisos CSS em arquivos sem alteração; o build mantém o aviso de chunks acima de 500 kB.
+- Duas revisões independentes do diff completo não encontraram achados concretos; verificaram lifecycle de câmera, captura por geração e a extração do helper de cena.
 
 ## Ciclo de melhoria
 

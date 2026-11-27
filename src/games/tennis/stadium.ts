@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { createSkyDome } from '../track/scenery';
+import { createSkyDome } from '../core/scenery';
 import { BASELINE_Z, COURT_HALF_WIDTH, LINE_WIDTH, NET_HALF_WIDTH, NET_HEIGHT, SERVICE_LINE_Z } from './court';
 
 /** Everything here is static scenery; the game's disposeObjectTree frees it with the scene. */
