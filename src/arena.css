@@ -69,7 +69,7 @@
   .preview { width: min(520px, 90vw); margin: 0; overflow: hidden; border: 6px solid #fff; border-radius: 24px; background: #fff; box-shadow: 0 8px 24px #0b4a6e66; }
   .scene { aspect-ratio: 16/9; }
   .preview.tennis .scene { background: linear-gradient(90deg, #0000 49.6%, #fff 49.6% 50.4%, #0000 50.4%) 50% 100% / 100% 40% no-repeat, linear-gradient(#0000 68%, #fff 68% 70%, #0000 70%), linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #3f8f4b 42% 48%, #3f78b5 48%); }
-  .preview.track .scene { background: linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #4e9e52 42% 52%, #0000 52%), repeating-linear-gradient(#c8603f 0 13%, #fff 13% 14%); }
+  .preview.track .scene, .preview.athletics .scene { background: linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #4e9e52 42% 52%, #0000 52%), repeating-linear-gradient(#c8603f 0 13%, #fff 13% 14%); }
   .preview figcaption { padding: 12px; text-align: center; font-weight: 700; }
 
   /* jogo em tela cheia */
@@ -138,6 +138,9 @@
   .tennis-practice { top: 40%; }
   .tennis-practice h2 { color: var(--ink); }
   .tennis-practice p { margin-bottom: 10px; }
+  .game-over.finish h2 { color: var(--blue); }
+  .game-goals { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; margin: 0; padding: 0; border: 0; z-index: 9; }
+  .game-goals button[aria-pressed='true'] { background: var(--blue); color: #fff; }
   .game-over h3 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
   .game-over p { margin: 0; }
   .game-over ol { margin: 0 0 14px; padding: 0; list-style: none; }

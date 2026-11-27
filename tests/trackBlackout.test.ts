@@ -135,7 +135,7 @@ describe('track blackout adjudication', () => {
     canvas.remove();
   });
 
-  it('keeps visual track travel and articulated knee/arm animation moving smoothly during a degraded coasting frame', () => {
+  it('keeps visual track travel moving during a degraded coasting frame', () => {
     const canvas = document.createElement('canvas');
     document.body.append(canvas);
     const game = new TrackGame(canvas, () => {});
@@ -154,22 +154,10 @@ describe('track blackout adjudication', () => {
     game.setTracking('TRACKING');
     step(3, 'tracked', 0);
     step(0.6, 'tracked', 0.9);
-    const internals = game as unknown as {
-      travelled: number;
-      shins: { rotation: { x: number } }[];
-      forearms: { rotation: { x: number } }[];
-      torsoGroup: { rotation: { y: number } };
-    };
+    const internals = game as unknown as { travelled: number };
     const travelledBefore = internals.travelled;
-    let maxTwist = 0;
-    for (let i = 0; i < 15; i += 1) {
-      step(1 / 60, 'degraded', 0.7);
-      maxTwist = Math.max(maxTwist, Math.abs(internals.torsoGroup.rotation.y));
-    }
+    for (let i = 0; i < 15; i += 1) step(1 / 60, 'degraded', 0.7);
     expect(internals.travelled).toBeGreaterThan(travelledBefore);
-    expect(Math.max(internals.shins[0]!.rotation.x, internals.shins[1]!.rotation.x)).toBeGreaterThan(0.1);
-    expect(Math.min(internals.forearms[0]!.rotation.x, internals.forearms[1]!.rotation.x)).toBeLessThan(-0.4);
-    expect(maxTwist).toBeGreaterThan(0.05);
     game.dispose();
     canvas.remove();
   });

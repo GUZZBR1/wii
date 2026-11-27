@@ -2,8 +2,7 @@ import { type CSSProperties, type MouseEvent, type ReactNode, useEffect, useStat
 import type { Sport } from './GameCanvas';
 
 const SPORTS: { id: Sport; name: string; hint: string }[] = [
-  { id: 'sprint', name: '100 metros', hint: 'Corra no lugar com força e dispute a chegada' },
-  { id: 'track', name: 'Obstáculos', hint: 'Corra no lugar, salte e troque de raia' },
+  { id: 'athletics', name: 'Atletismo', hint: 'Corra no lugar e dispute a prova no estádio' },
   { id: 'tennis', name: 'Tênis', hint: 'Balance o braço para rebater' },
 ];
 
@@ -100,7 +99,7 @@ export function TitleMenu({ onStart, onBack }: { onStart: () => void; onBack: ()
 }
 
 export function GamesMenu({ onPick, onBack, onHome }: { onPick: (sport: Sport) => void; onBack: () => void; onHome: () => void }) {
-  const [preview, setPreview] = useState<Sport>('sprint');
+  const [preview, setPreview] = useState<Sport>('athletics');
   const hint = SPORTS.find((s) => s.id === preview)?.hint;
 
   return <section className="menu sports-menu" aria-label="Escolha a modalidade">
@@ -114,7 +113,7 @@ export function GamesMenu({ onPick, onBack, onHome }: { onPick: (sport: Sport) =
           onPointerEnter={() => setPreview(s.id)} onFocus={() => setPreview(s.id)} onClick={() => onPick(s.id)}>{s.name}</button>)}
         <button type="button" className="wii-btn back" onClick={onBack}>Voltar</button>
       </div>
-      <figure className={`preview ${preview === 'sprint' ? 'track' : preview}`}>
+      <figure className={`preview ${preview === 'athletics' ? 'track' : preview}`}>
         <div className="scene" />
         <figcaption>{hint}</figcaption>
       </figure>

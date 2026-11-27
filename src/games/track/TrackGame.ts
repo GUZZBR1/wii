@@ -1,5 +1,8 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { SportActionEvent } from '../../cv/protocol';
+import { createMiiRunner } from '../athletics/miiRunner';
+import { addRoomEnvironment } from '../core/environment';
 import { GameLoop } from '../core/GameLoop';
 import { type BiomeSpec, biomeAt } from './biomes';
 import { type Feedback, awardText, SHAKE_DURATION_S, shakeOffset } from './feedback';
@@ -19,18 +22,41 @@ type Item = { group: THREE.Group; kind: ItemKind; lane: number; z: number; passe
 type BiomeColor = Exclude<keyof BiomeSpec, 'id' | 'endDistance' | 'props'>;
 const RANKING_KEY = 'wii-track-ranking';
 const GAIT_STATUS: Record<Gait, string> = { idle: 'Parado', walk: 'Andando', run: 'Correndo' };
+/** Metres of track one repeat of the surface texture covers. */
+const SURFACE_TILE = 4;
+/** Shadows are cast in a box around the runner and the hurdles coming up. */
+const SHADOW_CENTER = new THREE.Vector3(0, 0, RUNNER_Z - 10);
+const SUN_OFFSET = new THREE.Vector3(-6, 14, 8);
+
+/** Neutral rubber grain: the biome color tints it through the material color. */
+function surfaceTexture(anisotropy: number): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256;
+  canvas.height = 256;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Canvas 2D indisponível');
+  context.fillStyle = '#e6e6e6';
+  context.fillRect(0, 0, 256, 256);
+  for (let i = 0; i < 2600; i += 1) {
+    context.fillStyle = ['#ffffff55', '#00000022', '#00000012', '#ffffff30'][i % 4]!;
+    const size = i % 9 === 0 ? 3 : 1.5;
+    context.fillRect(Math.random() * 256, Math.random() * 256, size, size);
+  }
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.wrapS = texture.wrapT = THREE.RepeatWrapping;
+  texture.anisotropy = anisotropy;
+  return texture;
+}
 
 export class TrackGame {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(54, 1, 0.1, 120);
   private readonly runner = new THREE.Group();
-  private readonly torsoGroup = new THREE.Group();
-  private readonly headGroup = new THREE.Group();
-  private readonly legs: THREE.Group[] = [];
-  private readonly shins: THREE.Group[] = [];
-  private readonly feet: THREE.Mesh[] = [];
-  private readonly arms: THREE.Group[] = [];
-  private readonly forearms: THREE.Group[] = [];
+  private readonly mii = createMiiRunner();
+  private readonly sun = new THREE.DirectionalLight(0xffffff, 2.2);
+  private readonly trackMaterial = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 });
+  private removeEnvironment?: () => void;
   private readonly stripes: THREE.Mesh[] = [];
   private readonly skyDome = createSkyDome();
   private readonly sceneryPool = new SceneryPool(biomeAt(0).current.props);
@@ -40,7 +66,7 @@ export class TrackGame {
   private readonly tintTarget = new THREE.Color();
   private camX = 0;
   private landingDip = 0;
-  private readonly shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false }));
+  private readonly shadow = new THREE.Mesh(new THREE.CircleGeometry(0.5, 20), new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.16, depthWrite: false }));
   private readonly items: Item[] = [];
   private readonly itemAssets = new ItemAssets();
   private readonly loop: GameLoop;
@@ -75,35 +101,50 @@ export class TrackGame {
     this.setupScene();
     this.applyBiome();
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) => this.update(dt, wallTimeMs));
-    if (this.loop.renderer) this.loop.renderer.toneMapping = THREE.NeutralToneMapping;
+    const { renderer } = this.loop;
+    // Tests swap the loop for one without a renderer; the scene itself does not need it.
+    if (renderer) {
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.shadowMap.enabled = true;
+      this.removeEnvironment = addRoomEnvironment(this.scene, renderer);
+      this.trackMaterial.map = surfaceTexture(renderer.capabilities.getMaxAnisotropy());
+      this.trackMaterial.map.repeat.set(1, 90 / SURFACE_TILE);
+      this.loop.onQualityChange = (tier) => { this.sun.castShadow = tier === 0; };
+    }
     this.hudTimer = window.setInterval(() => this.publishHud(), 80);
   }
 
   private setupScene(): void {
     const fog = new THREE.Fog(0xd0eafc, 22, 64);
     this.scene.fog = fog;
-    const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 2);
-    const sun = new THREE.DirectionalLight(0xffffff, 1.8);
-    sun.position.set(-5, 10, 6);
-    this.scene.add(hemi, sun, this.skyDome.mesh, this.sceneryPool.group, this.dustPool.mesh);
-    const surface = () => new THREE.MeshLambertMaterial();
-    const ground = surface(), track = surface(), curb = surface(), stripe = surface();
+    const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 1.3);
+    const { sun } = this;
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.normalBias = 0.03;
+    Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 18, bottom: -18, near: 1, far: 60 });
+    sun.shadow.camera.updateProjectionMatrix();
+    sun.target.position.copy(SHADOW_CENTER);
+    sun.position.copy(SHADOW_CENTER).add(SUN_OFFSET);
+    this.scene.add(hemi, sun, sun.target, this.skyDome.mesh, this.sceneryPool.group, this.dustPool.mesh);
+    const surface = (roughness = 0.85) => new THREE.MeshStandardMaterial({ roughness, metalness: 0 });
+    const ground = surface(), curb = surface(0.6), stripe = surface(0.6), track = this.trackMaterial;
     const flat = (width: number, length: number, material: THREE.Material, y: number, z: number) => {
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, length), material);
-      mesh.rotation.x = -Math.PI / 2; mesh.position.set(0, y, z); this.scene.add(mesh);
+      mesh.rotation.x = -Math.PI / 2; mesh.position.set(0, y, z); mesh.receiveShadow = true; this.scene.add(mesh);
     };
     flat(120, 100, ground, 0, -30);
     flat(4.8, 90, track, 0.02, -30);
-    const curbGeo = new THREE.BoxGeometry(0.22, 0.14, 90);
+    const curbGeo = new RoundedBoxGeometry(0.24, 0.16, 90, 2, 0.06);
     for (const x of [-2.5, 2.5]) {
       const curbs = new THREE.Mesh(curbGeo, curb);
-      curbs.position.set(x, 0.07, -30); this.scene.add(curbs);
+      curbs.position.set(x, 0.07, -30); curbs.receiveShadow = true; this.scene.add(curbs);
     }
-    const stripeGeo = new THREE.BoxGeometry(0.08, 0.01, 2.2);
+    const stripeGeo = new RoundedBoxGeometry(0.09, 0.012, 2.2, 1, 0.005);
     for (const x of [-0.75, 0.75]) {
       for (let z = SCENERY_MIN_Z; z < SCENERY_MAX_Z; z += 4) {
         const mesh = new THREE.Mesh(stripeGeo, stripe);
-        mesh.position.set(x, 0.035, z); this.scene.add(mesh); this.stripes.push(mesh);
+        mesh.position.set(x, 0.035, z); mesh.receiveShadow = true; this.scene.add(mesh); this.stripes.push(mesh);
       }
     }
     this.tints.push(
@@ -112,46 +153,9 @@ export class TrackGame {
       [hemi.color, 'hemiSky'], [hemi.groundColor, 'hemiGround'], [sun.color, 'sun'],
     );
     this.shadow.rotation.x = -Math.PI / 2; this.shadow.position.set(0, 0.045, RUNNER_Z); this.scene.add(this.shadow);
-    // Articulated Mii-like proportions with upper body counter-rotation, knee joints, and ankle push-off.
-    const lambert = (color: number) => new THREE.MeshLambertMaterial({ color, flatShading: true });
-    const shirt = lambert(0xffffff), accent = lambert(0x2f9be8), skin = lambert(0xf2c29a), shorts = lambert(0x35516e), shoes = lambert(0xff8a2a);
-    const part = (geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z: number, parent: THREE.Object3D = this.runner) => {
-      const mesh = new THREE.Mesh(geometry, material);
-      mesh.position.set(x, y, z); parent.add(mesh);
-      return mesh;
-    };
-    this.torsoGroup.position.set(0, 0.78, 0);
-    part(new THREE.CapsuleGeometry(0.34, 0.4, 4, 12), shirt, 0, 0.35, 0, this.torsoGroup);
-    part(new THREE.CylinderGeometry(0.35, 0.35, 0.14, 16, 1, true), accent, 0, 0.44, 0, this.torsoGroup);
-    this.headGroup.position.set(0, 1.2, 0);
-    part(new THREE.SphereGeometry(0.42, 16, 12), skin, 0, 0, 0, this.headGroup);
-    part(new THREE.CylinderGeometry(0.41, 0.425, 0.13, 16, 1, true), accent, 0, 0.13, 0, this.headGroup);
-    part(new THREE.BoxGeometry(0.46, 0.05, 0.26), accent, 0, 0.1, -0.48, this.headGroup);
-    this.torsoGroup.add(this.headGroup);
-    this.runner.add(this.torsoGroup);
-
-    const thighGeo = new THREE.CapsuleGeometry(0.13, 0.22, 3, 8);
-    const shinGeo = new THREE.CapsuleGeometry(0.105, 0.2, 3, 8);
-    const footGeo = new THREE.BoxGeometry(0.25, 0.14, 0.4);
-    const upperArmGeo = new THREE.CapsuleGeometry(0.095, 0.2, 3, 8);
-    const handGeo = new THREE.SphereGeometry(0.145, 10, 8);
-    for (const side of [-1, 1]) {
-      const leg = new THREE.Group(); leg.position.set(side * 0.17, 0.74, 0);
-      part(thighGeo, shorts, 0, -0.18, 0, leg);
-      const shin = new THREE.Group(); shin.position.set(0, -0.36, 0);
-      part(shinGeo, skin, 0, -0.15, 0, shin);
-      const foot = part(footGeo, shoes, 0, -0.3, -0.06, shin);
-      leg.add(shin);
-      const arm = new THREE.Group(); arm.position.set(side * 0.46, 0.68, 0);
-      part(upperArmGeo, shirt, 0, -0.14, 0, arm);
-      const forearm = new THREE.Group(); forearm.position.set(0, -0.28, 0);
-      part(handGeo, skin, 0, -0.18, -0.04, forearm);
-      arm.add(forearm);
-      this.torsoGroup.add(arm);
-      this.runner.add(leg);
-      this.legs.push(leg); this.shins.push(shin); this.feet.push(foot);
-      this.arms.push(arm); this.forearms.push(forearm);
-    }
+    // The same Mii as Atletismo HD, scaled to the hurdle height this mode was tuned for.
+    this.mii.root.scale.setScalar(1.3);
+    this.runner.add(this.mii.root);
     this.runner.position.set(0, 0, RUNNER_Z); this.scene.add(this.runner);
     this.addItem('hurdle', -1, -30);
     this.addItem('hurdle', 1, -48);
@@ -257,70 +261,7 @@ export class TrackGame {
     // One leg swing per step: follow the player's cadence, or estimate it from speed for the keyboard.
     const lastStep = Math.floor(this.stridePhase / Math.PI);
     if (gait !== 'idle') this.stridePhase += dt * Math.PI * (this.pace.cadenceSpm || 70 + speed * 130) / 60;
-    const isRun = gait === 'run';
-    const swing = gait === 'idle' ? 0 : gait === 'walk' ? 0.48 : 0.85 + Math.min(0.25, speed * 0.25);
-    const airbornePose = this.jumpTime > 0;
-    for (const index of [0, 1] as const) {
-      const phase = this.stridePhase + (index === 1 ? Math.PI : 0);
-      const s = Math.sin(phase);
-      const c = Math.cos(phase);
-      // In camera view (-Z is forward down the track), positive rotation.x swings the limb backward
-      // and negative rotation.x drives the knee/arm forward.
-      const thighPitch = airbornePose
-        ? (index === 0 ? -0.75 : 0.35)
-        : gait === 'idle'
-          ? 0
-          : s * swing - (isRun ? Math.max(0, -s) * 0.22 : 0);
-      // Knee only bends backward (+rotation.x): heel kick during recovery (c < 0) and high-knee bend.
-      const kneeFlex = airbornePose
-        ? (index === 0 ? 0.95 : 0.65)
-        : gait === 'idle'
-          ? 0
-          : isRun
-            ? Math.max(0, -c) * 1.15 + Math.max(0, -s) * 0.35
-            : Math.max(0, -c) * 0.45;
-      const footPitch = airbornePose
-        ? 0.25
-        : gait === 'idle'
-          ? 0
-          : Math.max(0, s) * (isRun ? 0.38 : 0.18) - Math.max(0, -s) * 0.15;
-      this.legs[index]!.rotation.x = THREE.MathUtils.damp(this.legs[index]!.rotation.x, thighPitch, 22, dt);
-      this.shins[index]!.rotation.x = THREE.MathUtils.damp(this.shins[index]!.rotation.x, kneeFlex, 24, dt);
-      this.feet[index]!.rotation.x = THREE.MathUtils.damp(this.feet[index]!.rotation.x, footPitch, 22, dt);
-
-      // Contra-lateral arm pump: right arm swings forward with left leg, elbows bent in an L during running.
-      const armPhase = phase + Math.PI;
-      const armSin = Math.sin(armPhase);
-      const armPitch = airbornePose
-        ? -0.55
-        : gait === 'idle'
-          ? 0
-          : armSin * swing * (isRun ? 1.05 : 0.65);
-      const elbowFlex = airbornePose
-        ? -0.85
-        : gait === 'idle'
-          ? -0.1
-          : isRun
-            ? -0.75 - Math.max(0, -armSin) * 0.45
-            : -0.25 - Math.max(0, -armSin) * 0.2;
-      const side = index === 0 ? -1 : 1;
-      this.arms[index]!.rotation.x = THREE.MathUtils.damp(this.arms[index]!.rotation.x, armPitch, 22, dt);
-      this.arms[index]!.rotation.z = side * (isRun ? 0.14 : 0.08);
-      this.forearms[index]!.rotation.x = THREE.MathUtils.damp(this.forearms[index]!.rotation.x, elbowFlex, 24, dt);
-      this.forearms[index]!.rotation.y = -side * (isRun ? 0.22 : 0.08);
-    }
-
-    const strideSin = Math.sin(this.stridePhase);
-    const targetForwardLean = airbornePose ? -0.08 : gait === 'idle' ? 0 : -(0.06 + speed * 0.18);
-    this.runner.rotation.x = THREE.MathUtils.damp(this.runner.rotation.x, targetForwardLean, 12, dt);
-    this.torsoGroup.rotation.y = THREE.MathUtils.damp(
-      this.torsoGroup.rotation.y,
-      gait === 'idle' ? 0 : -strideSin * (isRun ? 0.18 : 0.08),
-      18,
-      dt,
-    );
-    this.headGroup.rotation.y = -this.torsoGroup.rotation.y * 0.55;
-    this.headGroup.rotation.x = -this.runner.rotation.x * 0.45;
+    this.mii.animate(this.stridePhase, gait === 'idle' ? 0 : speed, 0);
     if (this.jumpTime > 0) {
       const jumpDt = this.jumpSource === 'keyboard' ? dt : physicsDt;
       this.jumpTime = Math.max(0, this.jumpTime - jumpDt);
@@ -331,8 +272,8 @@ export class TrackGame {
         this.dustPool.emit(this.runner.position.x, RUNNER_Z + 0.2, 8);
       }
     } else {
-      const bounceAmp = gait === 'run' ? 0.11 + speed * 0.06 : gait === 'walk' ? 0.035 : 0;
-      this.runner.position.y = bounceAmp > 0 ? Math.abs(Math.sin(this.stridePhase)) * bounceAmp : 0;
+      // The Mii bobs on its own stride.
+      this.runner.position.y = 0;
       if (gait === 'run' && Math.floor(this.stridePhase / Math.PI) !== lastStep) this.dustPool.emit(this.runner.position.x, RUNNER_Z + 0.2, 2);
     }
     if (speed > 0) this.movingTime += physicsDt;
@@ -341,6 +282,8 @@ export class TrackGame {
     const visualAdvance = visualDt * speed * 22 * boost;
     const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
     this.travelled += visualAdvance;
+    const { map } = this.trackMaterial;
+    if (map) map.offset.y = (map.offset.y + visualAdvance / SURFACE_TILE) % 1;
     for (const stripe of this.stripes) stripe.position.z = scrollZ(stripe.position.z, visualAdvance, SCENERY_MIN_Z, SCENERY_MAX_Z);
     this.sceneryPool.update(visualAdvance, this.applyBiome().props);
     this.dustPool.update(dt, visualAdvance);
@@ -417,6 +360,9 @@ export class TrackGame {
     for (const item of this.items) this.scene.remove(item.group);
     this.items.length = 0;
     this.scene.remove(this.sceneryPool.group, this.dustPool.mesh, this.skyDome.mesh);
+    this.removeEnvironment?.();
+    // Lights are not meshes, so the scene-wide disposal leaves the shadow map to us.
+    this.sun.dispose();
     this.loop.dispose();
     this.itemAssets.dispose();
     this.sceneryPool.dispose();
