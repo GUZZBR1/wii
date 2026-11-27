@@ -136,6 +136,34 @@ flowchart LR
 - `npm run build`, `npm run check:articles`, `npx biome lint src/kinematics` e `git diff --check` passaram. `npm run lint` passou com 28 avisos CSS já existentes; nenhum aviso novo apareceu em kinematics.
 - Revisão independente do caso com frame mais novo pendente não encontrou achados concretos.
 
+## Rodada 4 — ativações de visão e ciclo de vida da câmera
+
+### Invariantes antes da implementação
+
+| Item | Decisão/estado observado |
+| --- | --- |
+| Donos | `App` possui a stream/câmera e escolhe a modalidade; cada cliente possui seu Worker e pode continuar inicializando depois de `pauseCapture()`. |
+| Leitores/escritores | `startCamera`, o efeito de troca de tela e os callbacks/promises de Pose/Hand leem ou atualizam estado da câmera. `HandClient` pode notificar erro e rejeitar a inicialização em sequência. |
+| Vida útil | A stream permanece viva ao trocar hand↔pose; os clients/Workers são reutilizados, e pausar captura não cancela uma inicialização pendente. |
+| Buffers | A troca de ativação não altera posse nem transferência dos `ImageBitmap`; cada provider conserva seu contrato atual. |
+| Invalidação | `cameraAttemptRef` continua invalidando a sessão física. `activateVisionMode` avança `visionActivationRef` nas transições e invalida callbacks, catches e inícios de captura anteriores, inclusive no ciclo hand→pose→hand. `screenRef` fecha o intervalo antes do efeito React. |
+| Ponto de commit | Só callbacks e falhas pertencentes à ativação ainda atual podem mudar estado da câmera; falha de stream continua encerrando a sessão independentemente da modalidade. |
+| Progresso | A ativação corrente inicia seu provider uma vez quando há stream, mesmo se a inicialização iniciada para uma modalidade anterior terminar com falha. O efeito React é a autoridade de início para o par sessão/ativação atual. |
+| Exceções | Erro do provider ativo encerra câmera conforme o comportamento existente; erro obsoleto de provider é ignorado sem parar tracks ou captura ativa. Falhas de `getUserMedia`/vídeo continuam reportadas. |
+
+### Mudança e verificação
+
+- `activateVisionMode` centraliza a troca do modo ativo; `isCurrentVisionActivation` confere tentativa da câmera, geração da visão, modalidade ativa e tela solicitada. A sessão de câmera fica ligada à modalidade nova; falhas de provider antigo ficam isoladas.
+- `captureStartedRef` faz o efeito React iniciar captura uma vez por par `{cameraAttempt, visionActivation}`. O efeito roda também quando `cameraOn` muda, então uma troca de tela durante `getUserMedia` ainda inicia o provider da tela atual quando a stream fica pronta.
+- `startCamera` inicia o provider em paralelo com `getUserMedia`, mas observa a rejeição imediatamente. Só falhas do provider da ativação atual encerram a câmera; erros de stream e vídeo continuam encerrando a tentativa física.
+- Falhas assíncronas de `startHandCapture`/`startPoseCapture` da ativação atual também encerram a câmera. Isso cobre a rejeição de `PoseClient.init()` sem callback de status; sem essa regra, a câmera ficava ligada sem tracking e sem nova tentativa.
+- Removidos `observeEarlyRejection.ts` e seu teste: o único chamador agora anexa diretamente o tratamento da Promise na criação, sem precisar preservar uma Promise para um `await` posterior.
+- Cinco testes determinísticos cobrem: erro de init de mão depois da troca para pose; fatal tardio do Worker de mão; erro de mão enquanto `getUserMedia` está pendente e início posterior de pose; ciclo hand→pose→hand com frame antigo; e rejeição do init de pose sem callback de status.
+- O primeiro teste de interleaving e o teste da rejeição silenciosa de Pose foram executados antes da correção e falharam na asserção de stream/captura, confirmando o sinal vermelho específico.
+- Suíte completa com gravações locais existentes: `npm test` — 54 arquivos e 446 testes Vitest aprovados; os cinco testes Node de qualidade também passaram. Os JSON foram ligados temporariamente à worktree e o link foi removido ao terminar.
+- `npm run build`, `npm run lint`, `npm run check:articles`, `npx biome lint src/App.tsx tests/appVisionMode.test.tsx src/kinematics` e `git diff --check` passaram. O lint global mantém 28 avisos CSS existentes; os arquivos alterados não geram avisos isolados. O build mantém o aviso de chunks acima de 500 kB.
+- Revisão independente final não encontrou achados após a correção do caso em que o init de Pose rejeita sem publicar status.
+
 ## Ciclo de melhoria
 
 Cada lote termina com código migrado, teste na interface apropriada, exclusão segura da implementação substituída, restrição contra regressão quando aplicável e commit próprio. A lista ordenada e as decisões pendentes ficam em [architecture-backlog.md](architecture-backlog.md); decisões que passem o critério ADR ficam em `docs/adr/`.
