@@ -110,6 +110,10 @@ Neste estado:
 - a altura final é **prevista** pela velocidade com que o braço sobe, sem esperar o braço chegar.
   Antecipar a animação foi medido e descartado: ganhava uns 60 ms e criava 41 movimentos falsos para 63
   golpes;
+- **ajuda de último instante** (`armMotion.ts`): se nenhum golpe foi lido e a bola está passando,
+  qualquer movimento claro do braço (1 largura de ombro em 0,5 s) devolve, fraco e no meio. Veio da
+  gravação de uma segunda pessoa, vista pela câmera em 727 de 742 quadros e com **um** golpe lido: essa pessoa bate mais
+  devagar, mais para cima e menos de lado. Um golpe reconhecido sempre vem antes e é o que dá força e direção;
 - reinício pelas mãos.
 
 ### Detector de raquetada (`src/kinematics/swingDetector.ts`)

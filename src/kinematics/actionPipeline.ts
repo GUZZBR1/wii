@@ -4,6 +4,7 @@ import { upsideDown } from './framing';
 import { IntensityMeter } from './intensity';
 import { JumpDetector } from './jumpDetector';
 import { LanePositionTracker } from './postureSignals';
+import { type ArmMotion, ArmMotionDetector } from './armMotion';
 import { SWING_MAX_DURATION_MS, SwingDetector, type SwingSignal } from './swingDetector';
 import { TorsoVerticalChannel } from './torsoVertical';
 import { TrackingGate } from './trackingGate';
@@ -40,6 +41,7 @@ export class ActionPipeline {
     { hand, wrist, gate: new TrackingGate([], 'world'), detector: new SwingDetector(hand) }
   ));
   private lastSwingAt = Number.NEGATIVE_INFINITY;
+  private readonly arms = [new ArmMotionDetector('right'), new ArmMotionDetector('left')];
   /** Confirmed swing held back while the other wrist still has one in flight, so the stronger wins. */
   private heldSwing?: { swing: SwingSignal; hand: Hand; heldSince: number };
   private nextId = 1;
@@ -62,7 +64,7 @@ export class ActionPipeline {
     this.heldSwing = undefined;
   }
 
-  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number; effort01: number; effortSampleAtMs: number | null; swingTracking: { scaleReady: boolean; wrists: readonly { hand: Hand; tracked: boolean }[] } } {
+  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number; effort01: number; effortSampleAtMs: number | null; armMotions: ArmMotion[]; swingTracking: { scaleReady: boolean; wrists: readonly { hand: Hand; tracked: boolean }[] } } {
     const start = performance.now();
     // An impossible skeleton is a frame without a player, so every gate treats it as a blackout.
     if (upsideDown(snapshot)) snapshot = { ...snapshot, landmarks: [], worldLandmarks: [] };
@@ -180,7 +182,7 @@ export class ActionPipeline {
       }
     }
 
-    return { snapshot: current, events, controls, kinematicsMs: performance.now() - start, effort01: this.effort01, effortSampleAtMs: this.effortSampleAtMs ?? null, swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked }) => ({ hand, tracked })) } };
+    return { snapshot: current, events, controls, kinematicsMs: performance.now() - start, effort01: this.effort01, effortSampleAtMs: this.effortSampleAtMs ?? null, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked }) => ({ hand, tracked })) } };
   }
 
   /**
@@ -236,5 +238,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.effort01 = 0; this.effortSampleAtMs = undefined; this.torsoChannel.reset(); this.lanePosition.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.effort01 = 0; this.effortSampleAtMs = undefined; this.torsoChannel.reset(); this.lanePosition.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }

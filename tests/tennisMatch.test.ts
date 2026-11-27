@@ -184,3 +184,23 @@ it('opens with the warm-up and starts the match once it is done', () => {
     game.dispose();
   }
 });
+
+it('returns an arriving ball on plain arm movement when no stroke was read, and not without it', () => {
+  for (const moved of [true, false]) {
+    const { game, state } = match();
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(1000);
+    const help = state as unknown as { helpWithMotion(now: number): void };
+    try {
+      const incoming = createBall({ x: 0, y: 0.9, z: 7.2 + 8 * 0.2 }, { x: 0, y: 1, z: 8 }, 'opponent');
+      state.phase = { kind: 'rally' };
+      state.ball = incoming;
+      state.tape = [{ tMs: 700, ball: createBall({ x: 0, y: 0.9, z: 7.2 - 8 * 0.1 }, { x: 0, y: 1, z: 8 }, 'opponent') }];
+      if (moved) game.setArmMotions([{ hand: 'right', sideways: 1 }]);
+      help.helpWithMotion(1000);
+      expect(state.ball.lastHitter).toBe(moved ? 'player' : 'opponent');
+    } finally {
+      clock.mockRestore();
+      game.dispose();
+    }
+  }
+});

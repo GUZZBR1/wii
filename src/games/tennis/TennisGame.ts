@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import type { Hand, SportActionEvent } from '../../cv/protocol';
+import type { ArmMotion } from '../../kinematics/armMotion';
 import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
 import type { GameHudState } from '../core/hud';
@@ -40,6 +41,9 @@ const TAPE_WINDOW_MS = 1200;
 const POINT_PAUSE_S = 1.2;
 const SURE_RETURNS = 3;
 const SWING_ANIM_START = 0.2;
+/** A proper stroke gets until this long after the ideal instant; then movement alone will do. */
+const HELP_AFTER_S = 0.18;
+const HELP_BEFORE_S = 0.5;
 /** An opponent to rally with: it misses now and then, more under pressure. */
 const RALLY_AI = { ...DEFAULT_OPPONENT_AI_CONFIG, generosity: 0.45, qualityPressure: 0.2 };
 const TOSS_VY = 6.4; // apex ≈ 1.49 m above the release
@@ -93,6 +97,8 @@ export class TennisGame {
   private swingDirection = 1;
   private serveStroke = false;
   private fastServe = false;
+  /** Last clear arm movement and when it was seen, for the last-moment help. */
+  private armMotion?: ArmMotion & { atMs: number };
   private tutorial?: TennisTutorial;
   private readonly skipTutorial = new RestartGesture();
   private framingAdvice?: string;
@@ -240,6 +246,47 @@ export class TennisGame {
 
   private holdingServe(): boolean {
     return this.phase.kind === 'player-serve' && Math.max(this.lastSimulationTimeMs, nowMs()) < this.tossAtMs;
+  }
+
+  setArmMotions(motions: readonly ArmMotion[]): void {
+    // The arm that threw the serve is not the one hitting it.
+    const motion = motions.find((candidate) => !(this.phase.kind === 'player-serve' && candidate.hand === this.tossedWith));
+    if (motion) this.armMotion = { ...motion, atMs: nowMs() };
+  }
+
+  /**
+   * Last-moment help: if no proper stroke was read and the ball is about to get past, any clear arm
+   * movement made around its arrival returns it, softly and to the middle. A recognised stroke always
+   * comes first, and is what earns pace and direction.
+   */
+  private helpWithMotion(now: number): void {
+    const motion = this.armMotion;
+    const ball = this.ball;
+    if (!motion || !ball) return;
+    let lateS: number;
+    if (this.phase.kind === 'player-serve') {
+      // Serving: a movement made after the throw, once the best moment has gone by.
+      if (this.holdingServe() || now < this.phase.idealHitMs + HELP_AFTER_S * 1000) return;
+      lateS = (now - this.phase.idealHitMs) / 1000;
+      if (nowMs() - motion.atMs > (now - this.tossAtMs - 300)) return;
+    } else {
+      if (this.phase.kind !== 'rally' || ball.lastHitter !== 'opponent' || ball.velocity.z <= 0.5) return;
+      lateS = (ball.position.z - DEFAULT_GEOMETRY.contactPlaneZ) / ball.velocity.z;
+      if (lateS < HELP_AFTER_S || (nowMs() - motion.atMs) / 1000 > lateS + HELP_BEFORE_S) return;
+    }
+    this.armMotion = undefined;
+    const forehand = (motion.hand === 'right') === motion.sideways > 0;
+    this.resolveSwing({
+      side: forehand ? 'forehand' : 'backhand',
+      power01: 0.35,
+      verticalSpeed: 0,
+      contactY: 0,
+      // Judged as if it met the ball at the ideal instant.
+      peakTimestampMs: nowMs() - (this.phase.kind === 'player-serve' ? 0 : lateS * 1000),
+    });
+    this.swingDirection = forehand === (motion.hand === 'right') ? 1 : -1;
+    this.swingAnimT = SWING_ANIM_START;
+    this.swingLift = 0;
   }
 
   // ---------------------------------------------------------------- warm-up
@@ -463,6 +510,7 @@ export class TennisGame {
     this.lastSimulationTimeMs = now;
     this.stepPhase(dt, now);
     this.stepAvatars(dt);
+    this.helpWithMotion(now);
     this.stepBall(dt, now);
     this.stepAnimations(dt);
     this.render();

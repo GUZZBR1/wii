@@ -235,6 +235,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setFraming?.(framingAdvice(raw), handsHidden(raw));
       engineRef.current?.setHandsRaised?.(handsRaised(raw));
       engineRef.current?.setTossHand?.(raisedTossHand(raw));
+      engineRef.current?.setArmMotions?.(result.armMotions);
       for (const event of result.events) dispatchEvent(event);
     },
   };

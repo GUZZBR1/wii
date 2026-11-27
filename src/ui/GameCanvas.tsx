@@ -3,6 +3,7 @@ import type { Hand, SportActionEvent } from '../cv/protocol';
 import type { AthleticsHudState } from '../games/athletics/AthleticsGame';
 import type { Goal } from '../games/athletics/race';
 import type { ProceduralAudio } from '../games/audio';
+import type { ArmMotion } from '../kinematics/armMotion';
 import { RestartGesture } from '../games/core/restartGesture';
 import type { GameHudState as CoreHudState } from '../games/core/hud';
 import type { GameHudState as TrackHudState } from '../games/track/TrackGame';
@@ -23,7 +24,7 @@ const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }
   athletics: { score: 'TEMPO', speed: 'INTENSIDADE', controls: 'corra no lugar, mexendo os braços' },
   tennis: { score: 'PONTOS', speed: 'MIRA', controls: 'raquetada no tempo da bola: cedo cruza, tarde vai reto' },
 };
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort01: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean): void; setTossHand?(hand: Hand | undefined): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort01: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean): void; setTossHand?(hand: Hand | undefined): void; setArmMotions?(motions: readonly ArmMotion[]): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; dispose(): void }
 
 interface Props {
   sport: Sport;
