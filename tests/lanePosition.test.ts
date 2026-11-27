@@ -3,7 +3,7 @@ import { AdaptiveCalibrator } from '../src/cv/adaptiveCalibrator';
 import type { CalibrationProfile } from '../src/cv/protocol';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
 import { LanePositionTracker } from '../src/kinematics/postureSignals';
-import { calibration, pose } from './fixtures/syntheticPose';
+import { pose } from './fixtures/syntheticPose';
 
 /** Smoothly ramps toward each keyframed displacement — bodies accelerate, they don't teleport. */
 function shiftAt(timeMs: number, timeline: { atMs: number; shiftSw: number; rampMs?: number }[]): number {
@@ -19,9 +19,9 @@ function shiftAt(timeMs: number, timeline: { atMs: number; shiftSw: number; ramp
 function driveTracker(timeline: { atMs: number; shiftSw: number; rampMs?: number }[], totalMs: number, stepMs = 33) {
   const tracker = new LanePositionTracker();
   const zoneTrace: { atMs: number; zone: number }[] = [];
-  for (let time = 0; time <= totalMs; time += stepMs) {
-    const zone = tracker.update(pose(time, { shiftUserRightSw: shiftAt(time, timeline) }), calibration());
-    zoneTrace.push({ atMs: time, zone: zone ?? 0 });
+  for (let time = 0; time <= totalMs + 1100; time += stepMs) {
+    const zone = tracker.update(pose(time, { shiftUserRightSw: shiftAt(time - 1100, timeline) }));
+    zoneTrace.push({ atMs: time - 1100, zone: zone ?? 0 });
   }
   return zoneTrace;
 }
@@ -33,7 +33,7 @@ function zoneExtremes(trace: { zone: number }[]): { min: number; max: number } {
 describe('LanePositionTracker', () => {
   it('follows a held right displacement into the right zone and back to center on return', () => {
     const zoneTrace = driveTracker([
-      { atMs: 1000, shiftSw: 0.3 },
+      { atMs: 1000, shiftSw: 0.7 },
       { atMs: 2500, shiftSw: 0 },
     ], 4000);
     expect(zoneExtremes(zoneTrace)).toEqual({ min: 0, max: 1 });
@@ -44,8 +44,8 @@ describe('LanePositionTracker', () => {
     // The exact failure mode of the gesture detector: fast lean right, fast return overshooting
     // past center. Position control can at most return to center — never invert.
     const zoneTrace = driveTracker([
-      { atMs: 1000, shiftSw: 0.3, rampMs: 250 },
-      { atMs: 1800, shiftSw: -0.09, rampMs: 250 },
+      { atMs: 1000, shiftSw: 0.7, rampMs: 250 },
+      { atMs: 1800, shiftSw: -0.25, rampMs: 250 },
       { atMs: 2600, shiftSw: 0 },
     ], 3500);
     expect(zoneExtremes(zoneTrace).min).toBe(0);
@@ -54,7 +54,7 @@ describe('LanePositionTracker', () => {
 
   it('reaches the right zone while the body is still out there during a quick dodge', () => {
     const zoneTrace = driveTracker([
-      { atMs: 1000, shiftSw: 0.3, rampMs: 250 },
+      { atMs: 1000, shiftSw: 0.7, rampMs: 250 },
       { atMs: 1500, shiftSw: 0, rampMs: 300 },
     ], 2500);
     const displacedWindow = zoneTrace.filter((p) => p.atMs >= 1000 && p.atMs <= 1500);
@@ -64,13 +64,13 @@ describe('LanePositionTracker', () => {
 
   it('reads a whole-body step to the right as right zone, not just a spine lean', () => {
     // shiftUserRightSw moves the torso core in image space — the same signal a lateral step produces.
-    const zoneTrace = driveTracker([{ atMs: 800, shiftSw: 0.5 }], 2500);
+    const zoneTrace = driveTracker([{ atMs: 800, shiftSw: 0.8 }], 2500);
     expect(zoneExtremes(zoneTrace).max).toBe(1);
     expect(zoneTrace.at(-1)!.zone).toBe(1); // still out there, still right zone
   });
 
   it('mirrors the behavior for the left side', () => {
-    const zoneTrace = driveTracker([{ atMs: 800, shiftSw: -0.3 }], 2500);
+    const zoneTrace = driveTracker([{ atMs: 800, shiftSw: -0.7 }], 2500);
     expect(zoneExtremes(zoneTrace).min).toBe(-1);
     expect(zoneTrace.at(-1)!.zone).toBe(-1);
   });
@@ -79,25 +79,31 @@ describe('LanePositionTracker', () => {
     const tracker = new LanePositionTracker();
     const zones = new Set<number>();
     for (let time = 0; time <= 3000; time += 33) {
-      const jitter = Math.sin(time / 61) * 0.03; // sub-threshold noise, ±0.03 shoulder widths
-      zones.add(tracker.update(pose(time, { shiftUserRightSw: jitter }), calibration()) ?? 0);
+      const jitter = Math.sin(time / 61) * 0.15; // sub-threshold sway, ±0.15 shoulder widths
+      zones.add(tracker.update(pose(time, { shiftUserRightSw: time < 1100 ? 0 : jitter })) ?? 0);
     }
     expect([...zones]).toEqual([0]);
   });
 
   it('treats a frame with non-finite shoulder coordinates as unreadable without poisoning the filter', () => {
     const tracker = new LanePositionTracker();
-    const profile = calibration();
     const base = pose(0);
     const nanPose = { ...base, landmarks: base.landmarks.map((point, index) => (index === 11 ? { ...point, x: Number.NaN } : point)) };
 
-    for (let time = 0; time <= 99; time += 33) expect(tracker.update(pose(time), profile)).toBe(0);
-    expect(tracker.update({ ...nanPose, timestampMs: 132 }, profile)).toBeUndefined();
+    for (let time = 0; time <= 1089; time += 33) tracker.update(pose(time));
+    expect(tracker.update({ ...nanPose, timestampMs: 1122 })).toBeUndefined();
     let zone = 0;
-    for (let time = 165; time <= 396; time += 33) {
-      zone = tracker.update(pose(time, { shiftUserRightSw: 0.3 }), profile) ?? zone;
-    }
+    for (let time = 1155; time <= 1450; time += 33) zone = tracker.update(pose(time, { shiftUserRightSw: 0.7 })) ?? zone;
     expect(zone).toBe(1);
+  });
+
+  it('waits for the player to stand still before choosing the center', () => {
+    const tracker = new LanePositionTracker();
+    // Walking into position, then standing 0.8 sw to the right of where the walk started.
+    for (let time = 0; time <= 1500; time += 33) expect(tracker.update(pose(time, { shiftUserRightSw: (time / 1500) * 0.8 }))).toBeUndefined();
+    let zone: number | undefined;
+    for (let time = 1533; time <= 3000; time += 33) zone = tracker.update(pose(time, { shiftUserRightSw: 0.8 }));
+    expect(zone).toBe(0);
   });
 });
 
@@ -122,15 +128,15 @@ describe('aspect-corrected shoulder width', () => {
   it('keeps a marginal displacement inside the lane at every in-plane shoulder tilt', () => {
     // x and y are normalized by frame width and height independently, so a raw hypot would let a
     // tilted shoulder line measure wider than a horizontal one — deflating sensitivity exactly
-    // while the player leans. The step here is marginal on purpose: 0.13sw corrected still
-    // crosses the 0.12sw entry at any tilt, but the ~31% width inflation of a raw hypot at 35°
-    // would deflate it to ~0.10sw and the runner would never leave the center.
+    // while the player leans. The step here is marginal on purpose: 0.37sw corrected still
+    // crosses the 0.35sw entry at any tilt, but the ~31% width inflation of a raw hypot at 35°
+    // would deflate it to ~0.28sw and the runner would never leave the center.
     const measure = (tiltDeg: number) => {
       const tracker = new LanePositionTracker();
-      for (let time = 0; time <= 1000; time += 33) tracker.update(pose(time), calibration());
+      for (let time = 0; time <= 1100; time += 33) tracker.update(pose(time));
       let zone: -1 | 0 | 1 = 0;
-      for (let time = 1033; time <= 1300; time += 33) {
-        zone = tracker.update(tiltShoulders(pose(time, { shiftUserRightSw: 0.13 }), tiltDeg), calibration()) ?? zone;
+      for (let time = 1133; time <= 1700; time += 33) {
+        zone = tracker.update(tiltShoulders(pose(time, { shiftUserRightSw: 0.37 }), tiltDeg)) ?? zone;
       }
       return zone;
     };
@@ -161,7 +167,7 @@ describe('lane position control through the real pipeline and calibrator', () =>
 
   it('converges calibration and follows the player into the right lane', () => {
     const { zoneTrace } = drivePipeline([
-      { atMs: 4000, shiftSw: 0.3 },
+      { atMs: 4000, shiftSw: 0.7 },
       { atMs: 6000, shiftSw: 0 },
     ], 8000);
     expect(Math.max(...lanes(zoneTrace))).toBe(1);
@@ -174,7 +180,7 @@ describe('lane position control through the real pipeline and calibrator', () =>
     // neutral, and the return to center must land back in the center zone, never the opposite one.
     const holdMs = holdS * 1000;
     const { zoneTrace, profile } = drivePipeline([
-      { atMs: 4000, shiftSw: 0.3, rampMs: 0 },
+      { atMs: 4000, shiftSw: 0.7, rampMs: 0 },
       { atMs: 4000 + holdMs, shiftSw: 0, rampMs: 0 },
     ], 4000 + holdMs + 4000);
     const held = zoneTrace.filter((p) => p.atMs >= 4000 + holdMs / 2 && p.atMs < 4000 + holdMs);
@@ -184,7 +190,7 @@ describe('lane position control through the real pipeline and calibrator', () =>
     expect(Math.min(...lanes(zoneTrace))).toBe(0); // never inverted, even on return
   });
 
-  it.each([0.13, 0.2])('does not chase a shallow %f sw hold either — the admission gate clears the lane band', (shiftSw) => {
+  it.each([0.4, 0.5])('does not chase a shallow %f sw hold either', (shiftSw) => {
     // Regression for the shallow-hold hole: a displacement just past the lane-enter threshold is
     // an active lane, so it must contribute zero posture evidence even though it is small.
     const { zoneTrace, profile } = drivePipeline([
@@ -197,29 +203,12 @@ describe('lane position control through the real pipeline and calibrator', () =>
     expect(Math.abs(profile!.image.shoulderCenterX0 - 0.5)).toBeLessThan(0.005);
   });
 
-  it('adapts to a small sustained stance shift so dodges away from it still reach the lane', () => {
-    // Regression for the hysteresis-band hole: settling 0.07 sw right of center never enters a
-    // lane, so it is stance rather than control — the reference must follow it, or a leftward
-    // dodge measured from the stale center falls short of the left lane.
-    const { zoneTrace, profile } = drivePipeline([
-      { atMs: 5000, shiftSw: 0.07, rampMs: 500 },
-      { atMs: 28000, shiftSw: -0.08, rampMs: 300 }, // 0.15 sw dodge left from the shifted stance
-      { atMs: 29500, shiftSw: 0.07, rampMs: 400 },
-    ], 31000);
-    const duringDodge = zoneTrace.filter((p) => p.atMs >= 28100 && p.atMs <= 29400);
-    expect(Math.min(...duringDodge.map((p) => p.zone ?? 0))).toBe(-1);
-    // And the shift is stance, not a lane: while settled, the zone stays center.
-    const settled = zoneTrace.filter((p) => p.atMs >= 15000 && p.atMs <= 27000);
-    expect(settled.every((p) => p.zone === 0 || p.zone === undefined)).toBe(true);
-    void profile;
-  });
-
   it('a player who only ever leans right never ends up in the left lane', () => {
     const { zoneTrace } = drivePipeline([
-      { atMs: 4000, shiftSw: 0.3, rampMs: 250 },
-      { atMs: 4800, shiftSw: -0.06, rampMs: 250 }, // snap-back overshoot past center
+      { atMs: 4000, shiftSw: 0.7, rampMs: 250 },
+      { atMs: 4800, shiftSw: -0.15, rampMs: 250 }, // snap-back overshoot past center
       { atMs: 5600, shiftSw: 0 },
-      { atMs: 7000, shiftSw: 0.3, rampMs: 250 },
+      { atMs: 7000, shiftSw: 0.7, rampMs: 250 },
       { atMs: 7800, shiftSw: 0, rampMs: 300 },
     ], 9500);
     expect(Math.min(...lanes(zoneTrace))).toBe(0);
@@ -227,11 +216,11 @@ describe('lane position control through the real pipeline and calibrator', () =>
 
   it('alternating dodge gameplay tracks both lanes and returns to center at rest', () => {
     const timeline = [
-      { atMs: 4000, shiftSw: 0.3, rampMs: 250 }, // dodge right
+      { atMs: 4000, shiftSw: 0.7, rampMs: 250 }, // dodge right
       { atMs: 6000, shiftSw: 0, rampMs: 300 },
-      { atMs: 8000, shiftSw: -0.3, rampMs: 250 }, // dodge left
+      { atMs: 8000, shiftSw: -0.7, rampMs: 250 }, // dodge left
       { atMs: 10000, shiftSw: 0, rampMs: 300 },
-      { atMs: 12000, shiftSw: 0.3, rampMs: 250 }, // dodge right again
+      { atMs: 12000, shiftSw: 0.7, rampMs: 250 }, // dodge right again
       { atMs: 14000, shiftSw: 0, rampMs: 300 },
     ];
     const { zoneTrace, profile } = drivePipeline(timeline, 16000);

@@ -1,7 +1,10 @@
 import type { CalibrationProfile, ContinuousControls, Hand, PoseSnapshot, SportActionEvent, TrackingState } from '../cv/protocol';
 import { CadenceTracker } from './cadenceTracker';
+import { upsideDown } from './framing';
+import { IntensityMeter } from './intensity';
 import { JumpDetector } from './jumpDetector';
 import { LanePositionTracker } from './postureSignals';
+import { type ArmMotion, ArmMotionDetector } from './armMotion';
 import { SWING_MAX_DURATION_MS, SwingDetector, type SwingSignal } from './swingDetector';
 import { TorsoVerticalChannel } from './torsoVertical';
 import { TrackingGate } from './trackingGate';
@@ -15,24 +18,33 @@ import { TrackingGate } from './trackingGate';
  * through the whole window — only a sustained 'lost' (the gate's own 800 ms blackout) resets
  * them, so a blur burst no longer wipes the cadence memory the run depends on.
  */
+const UPPER_BODY_ANCHOR = [11, 12] as const;
 const COAST_TIMEOUT_MS = 600;
 const COAST_HALF_LIFE_MS = 150;
 /** Below this the carried speed is indistinguishable from stopped; the coast ends in a clean zero. */
 const COAST_MIN_SPEED01 = 0.02;
 
+export interface SwingTracking {
+  scaleReady: boolean;
+  wrists: readonly { hand: Hand; tracked: boolean; pending: boolean; arbitrating: boolean }[];
+}
+
 export class ActionPipeline {
-  private readonly bodyGate = new TrackingGate();
+  /** Shoulder-anchored: hips sit at the bottom edge of a laptop webcam frame or behind the swinging arms. */
+  private readonly bodyGate = new TrackingGate(UPPER_BODY_ANCHOR);
   /** One gate and one vertical channel for the torso core: cadence and jump read the same frame's sample. */
-  private readonly torsoGate = new TrackingGate([11, 12, 23, 24]);
+  private readonly torsoGate = new TrackingGate(UPPER_BODY_ANCHOR);
   private readonly torsoChannel = new TorsoVerticalChannel();
   private readonly cadence = new CadenceTracker();
   private readonly jump = new JumpDetector();
+  private readonly intensity = new IntensityMeter();
   private readonly lanePosition = new LanePositionTracker();
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
     { hand, wrist, gate: new TrackingGate([], 'world'), detector: new SwingDetector(hand) }
   ));
   private lastSwingAt = Number.NEGATIVE_INFINITY;
+  private readonly arms = [new ArmMotionDetector('right'), new ArmMotionDetector('left')];
   /** Confirmed swing held back while the other wrist still has one in flight, so the stronger wins. */
   private heldSwing?: { swing: SwingSignal; hand: Hand; heldSince: number };
   private nextId = 1;
@@ -41,21 +53,54 @@ export class ActionPipeline {
   /** Last moving sprint measurement and when it was taken — the input coasting decays from. */
   private coast?: { speed01: number; cadenceSpm: number; measuredAt: number };
 
-  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number } {
+  /** How long a wrist movement must be to count as a stroke; undefined restores the default. */
+  setStrokeTravel(travel: number): void {
+    for (const { detector } of this.swings) detector.minTravel = travel;
+  }
+
+  resetSwings(): void {
+    for (const { gate, detector } of this.swings) {
+      gate.reset();
+      detector.reset();
+    }
+    this.lastSwingAt = Number.NEGATIVE_INFINITY;
+    this.heldSwing = undefined;
+  }
+
+  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number; rawEffort: number; effortSampleAtMs: number | null; armMotions: ArmMotion[]; swingTracking: SwingTracking } {
     const start = performance.now();
+    // An impossible skeleton is a frame without a player, so every gate treats it as a blackout.
+    if (upsideDown(snapshot)) snapshot = { ...snapshot, landmarks: [], worldLandmarks: [] };
     const body = this.bodyGate.evaluate(snapshot);
     const current = { ...snapshot, trackingState: body.state, bodyConfidence: body.confidence };
     const events: SportActionEvent[] = [];
     let controls: ContinuousControls = { sprintSpeed01: 0, cadenceSpm: 0, trackingState: 'lost' };
 
+    let rawEffort: number;
     const torsoTracking = this.torsoGate.evaluate(snapshot);
     controls = { ...controls, trackingState: torsoTracking.state };
-    if (torsoTracking.state === 'tracked') {
-      const sample = this.torsoChannel.update(current, this.jump.suppressesCadence);
+    const shouldersConfident = Boolean(
+      snapshot.landmarks[11]
+      && snapshot.landmarks[12]
+      && (snapshot.landmarks[11]!.visibility ?? 0) >= 0.7
+      && (snapshot.landmarks[12]!.visibility ?? 0) >= 0.7
+      && (snapshot.landmarks[11]!.presence ?? 0) >= 0.7
+      && (snapshot.landmarks[12]!.presence ?? 0) >= 0.7,
+    );
+    const oneHipVisible = Boolean(
+      snapshot.landmarks[23]
+      && snapshot.landmarks[24]
+      && Math.max(snapshot.landmarks[23]!.visibility ?? 0, snapshot.landmarks[24]!.visibility ?? 0) >= 0.5
+      && Math.min(snapshot.landmarks[23]!.visibility ?? 0, snapshot.landmarks[24]!.visibility ?? 0) < 0.5,
+    );
+    if (torsoTracking.state === 'tracked' || (shouldersConfident && oneHipVisible)) {
+      const sample = this.torsoChannel.update(current);
       const jumped = sample ? this.jump.update(sample) : false;
+      const body = sample?.shoulders;
       const cadence = this.cadence.update(sample, snapshot.timestampMs, this.jump.suppressesCadence);
+      rawEffort = this.intensity.update(snapshot.timestampMs, body && { ...body, shoulders: (body.left + body.right) / 2 }, cadence.running);
       controls = { sprintSpeed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm, trackingState: 'tracked' };
-      const base = this.eventBase(snapshot, torsoTracking.confidence);
+      const base = this.eventBase(snapshot, Math.max(torsoTracking.confidence, 0.55));
       events.push({ ...base, id: this.nextId++, type: 'sprint', speed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm });
       this.sprinting = cadence.speed01 > 0;
       this.coast = cadence.speed01 > 0
@@ -64,6 +109,7 @@ export class ActionPipeline {
       if (cadence.step) events.push({ ...base, id: this.nextId++, type: 'step', side: cadence.step });
       if (jumped) events.push({ ...base, id: this.nextId++, type: 'jump' });
     } else {
+      rawEffort = this.intensity.update(snapshot.timestampMs);
       const coasted = this.coastSprint(snapshot, torsoTracking);
       if (coasted) {
         events.push(coasted);
@@ -79,31 +125,37 @@ export class ActionPipeline {
       }
     }
 
-    // Lane control reads the same image torso core as the vertical channel, so it shares the
-    // torso gate. The zone is published as a continuous authoritative position, not a step
-    // event: the game re-reads it every frame, so countdowns, pauses and remounts cannot drop
-    // it, and a frozen zone never desyncs — when updates resume the filter re-converges within
-    // a frame and the restated zone corrects whatever the runner did in the meantime.
-    const laneReady = calibration !== undefined && (calibration.readiness?.neutral01 ?? 1) >= 0.65;
-    if (laneReady && torsoTracking.state === 'tracked') {
-      const zone = this.lanePosition.update(current, calibration);
+    // Lane control reads the shoulder line in image space, so it stays active whenever the
+    // torso gate is tracked OR both shoulders are clearly visible (even if hips are cropped).
+    if (torsoTracking.state === 'tracked' || shouldersConfident) {
+      const zone = this.lanePosition.update(current);
       if (zone !== undefined) controls = { ...controls, laneZone: zone };
     }
 
     const swingScaleReady = calibration !== undefined && (calibration.readiness?.scale01 ?? 1) >= 0.5;
     if (!swingScaleReady) this.heldSwing = undefined;
     const results = this.swings.map(({ wrist, gate, detector, hand }) => {
-      const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, wrist], 'world');
+      const worldHipsVisible = Boolean(
+        snapshot.worldLandmarks[23]
+        && snapshot.worldLandmarks[24]
+        && Math.min(
+          snapshot.worldLandmarks[23]!.visibility ?? snapshot.worldLandmarks[23]!.presence ?? 0,
+          snapshot.worldLandmarks[24]!.visibility ?? snapshot.worldLandmarks[24]!.presence ?? 0,
+        ) >= 0.35,
+      );
+      const swingLandmarks = worldHipsVisible ? [11, 12, 23, 24, wrist] : [11, 12, wrist];
+      const tracking = gate.evaluate(snapshot, swingLandmarks, 'world');
       if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
-      else if (tracking.state === 'degraded') detector.interruptRearm();
-      const output = calibration && swingScaleReady && tracking.state === 'tracked' ? detector.update(current, calibration) : undefined;
+      // A degraded gate still feeds the detector, which skips weak frames itself: the gate stays degraded
+      // for a good half second after one blurred frame, which is a whole stroke.
+      const output = swingScaleReady && tracking.state !== 'lost' ? detector.update(current) : undefined;
       // The onset bypasses arbitration and the refractory on purpose: it is the real-time,
       // unconfirmed channel — the game's cue to start the stroke animation now, not proof of a hit.
       if (output?.kind === 'onset') {
-        events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'swing-start', hand });
+        events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'swing-start', hand, side: output.side });
       }
       const swing = output?.kind === 'confirmed' ? output : undefined;
-      return { hand, tracked: tracking.state === 'tracked', swing };
+      return { hand, tracked: tracking.state === 'tracked', pending: detector.hasPending(), swing };
     });
     // A held swing whose own wrist is no longer tracked is stale: discard it rather than
     // release a "tracked" hit into a dead pose. Losing only the rival is different — it
@@ -129,11 +181,11 @@ export class ActionPipeline {
         this.lastSwingAt = snapshot.timestampMs;
         const { confidence, peakTimestampMs, ...action } = best.swing;
         delete (action as { kind?: unknown }).kind; // runtime-only detector discriminant, not protocol
-        events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'swing', ...action, peakTimestampMs });
+        events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'swing', hand: best.hand, ...action, peakTimestampMs });
       }
     }
 
-    return { snapshot: current, events, controls, kinematicsMs: performance.now() - start };
+    return { snapshot: current, events, controls, kinematicsMs: performance.now() - start, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked, pending }) => ({ hand, tracked, pending, arbitrating: this.heldSwing?.hand === hand })) } };
   }
 
   /**
@@ -167,6 +219,9 @@ export class ActionPipeline {
     };
   }
 
+  /** A new run: the player may be standing somewhere else, so the lane center is measured again. */
+  recenterLane(): void { this.lanePosition.reset(); }
+
   /** Returns the events the game still needs, such as stopping a sprint in progress. */
   reset(): SportActionEvent[] {
     const stopped = this.stopSprint(performance.now(), 0, 'lost');
@@ -186,5 +241,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }
