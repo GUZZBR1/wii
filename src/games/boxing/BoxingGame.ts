@@ -58,7 +58,8 @@ const KEY_PUNCH_POWER01 = 0.65;
 const KEY_PUNCH_COOLDOWN_MS = 250;
 /** Fight time after a dodge in which one punch counts as a counter. */
 const COUNTER_WINDOW_MS = 1100;
-const GUARD_KEYS = new Set(['arrowdown', 's']);
+const GUARD_KEYS = new Set(['arrowdown', 'q']);
+const PUNCH_KEY = 'e';
 const PUNCH_ANIM_S = 0.24;
 const OPPONENT_HIT_S = 0.35;
 const ZONE_WIDTH = 0.7;
@@ -78,9 +79,9 @@ const OPPONENT_CIRCLE_SPEED = 0.25;
 const BAG_POSITION: RingPosition = Object.freeze({ x: 0, z: 0 });
 const MOVE_KEYS: Record<string, { forward: number; strafe: number }> = {
   w: { forward: 1, strafe: 0 },
-  x: { forward: -1, strafe: 0 },
-  q: { forward: 0, strafe: -1 },
-  e: { forward: 0, strafe: 1 },
+  s: { forward: -1, strafe: 0 },
+  a: { forward: 0, strafe: -1 },
+  d: { forward: 0, strafe: 1 },
 };
 const clampUnit = (value: number) => Math.max(-1, Math.min(1, value));
 const HANDS = ['left', 'right'] as const;
@@ -155,6 +156,8 @@ export class BoxingGame {
   private circleDirection: -1 | 1 = 1;
   private dodgeOffset = 0;
   private keyGuard = false;
+  /** The punch key alternates arms, so two taps are a one-two. */
+  private nextKeyHand: Hand = 'right';
   private cameraGuard = false;
   /** Fight-time bounds of the open counter window, if any. */
   private counter: { fromMs: number; untilMs: number } | undefined;
@@ -286,7 +289,7 @@ export class BoxingGame {
   onKey(key: string): void {
     const pressed = key.toLowerCase();
     const move = pressed === 'arrowleft' ? -1 : pressed === 'arrowright' ? 1 : 0;
-    const hand: Hand | undefined = pressed === 'a' ? 'left' : pressed === 'd' ? 'right' : undefined;
+    const hand: Hand | undefined = pressed === PUNCH_KEY ? this.nextKeyHand : undefined;
     const guard = GUARD_KEYS.has(pressed);
     const footwork = pressed in MOVE_KEYS;
     if (move === 0 && !hand && !guard && !footwork) return;
@@ -300,6 +303,7 @@ export class BoxingGame {
       this.zone = Math.max(-1, Math.min(1, this.zone + move)) as Zone;
     } else if (hand && this.punchingActive() && this.fightMs - this.keyPunchAtMs[hand] >= KEY_PUNCH_COOLDOWN_MS) {
       this.keyPunchAtMs[hand] = this.fightMs;
+      this.nextKeyHand = hand === 'right' ? 'left' : 'right';
       this.punchAnimS[hand] = 0;
       this.audio?.whoosh(KEY_PUNCH_POWER01);
       if (this.mode === 'bag') this.landBagPunch(KEY_PUNCH_POWER01, hand);
@@ -803,7 +807,7 @@ export class BoxingGame {
     const finished = this.mode === 'fight' ? this.match.winner !== undefined : this.trainingFinished();
     const countdownDetail = this.mode === 'bag' ? 'Prepare o ritmo' : this.mode === 'dodge' ? 'Leia o golpe' : 'Guarda alta';
     const banner = this.gate.phase === 'countdown' ? { title: String(this.gate.count), detail: countdownDetail }
-      : this.gate.phase === 'paused' ? { title: 'PAUSA', detail: 'Volte para a câmera ou aperte ← → A D' }
+      : this.gate.phase === 'paused' ? { title: 'PAUSA', detail: 'Volte para a câmera ou aperte W A S D' }
       : finished ? { title: this.status }
       : this.mode === 'fight' && this.breakMsLeft > 0 ? { title: `ROUND ${this.match.round}`, detail: 'Intervalo' }
       : undefined;

@@ -118,22 +118,22 @@ describe('BoxingGame', () => {
     expect(read().label).toBe('100 × 100');
   });
 
-  it('rate-limits each keyboard hand, so a held key cannot machine-gun an opening', () => {
+  it('alternates hands on the punch key and rate-limits each one', () => {
     const { game, run, read } = start();
     run(1);
-    for (let repeat = 0; repeat < 5; repeat += 1) game.onKey('d');
+    game.onKey('e');
     expect(read().label).toBe('100 × 91');
-    game.onKey('a'); // the other hand is free
+    for (let press = 0; press < 5; press += 1) game.onKey('E'); // the other hand, then both cooling down
     expect(read().label).toBe('100 × 82');
     run(0.3);
-    game.onKey('d');
+    game.onKey('e');
     expect(read().label).toBe('100 × 73');
   });
 
   it('takes the keyboard for dodging and punching', () => {
     const { game, run, read } = start();
     run(1);
-    game.onKey('d');
+    game.onKey('e');
     expect(read().label).toBe('100 × 91');
     game.onKey('ArrowLeft');
     run(0.8);
@@ -225,7 +225,7 @@ describe('BoxingGame counter window', () => {
 });
 
 describe('BoxingGame guard', () => {
-  it.each(['ArrowDown', 's'])('holds the guard while %s is down and drops it on release', (key) => {
+  it.each(['ArrowDown', 'q'])('holds the guard while %s is down and drops it on release', (key) => {
     const { game, run, read } = start();
     run(1);
     game.onKey(key);
@@ -274,16 +274,16 @@ describe('BoxingGame footwork', () => {
     fight.game.onKeyUp(key);
   };
 
-  it('walks in with W and back with X while the key is held', () => {
+  it('walks in with W and back with S while the key is held', () => {
     const fight = start();
     hold(fight, 'w', 0.5);
     expect(gap(fight.game)).toBeLessThan(2.1);
     const close = gap(fight.game);
-    hold(fight, 'X', 0.3);
+    hold(fight, 'S', 0.3);
     expect(gap(fight.game)).toBeGreaterThan(close + 0.3);
   });
 
-  it.each([['q', -1], ['e', 1]])('circles with %s', (key, side) => {
+  it.each([['a', -1], ['d', 1]])('circles with %s', (key, side) => {
     const fight = start();
     hold(fight, key, 0.5);
     expect(Math.sign(spots(fight.game).playerPos.x)).toBe(side);
@@ -291,7 +291,7 @@ describe('BoxingGame footwork', () => {
 
   it('stays inside the ropes and off the opponent', () => {
     const fight = start();
-    for (const key of ['x', 'q', 'e', 'w']) {
+    for (const key of ['s', 'a', 'd', 'w']) {
       hold(fight, key, 4);
       const { playerPos, opponentPos } = spots(fight.game);
       for (const value of [playerPos.x, playerPos.z, opponentPos.x, opponentPos.z]) {
@@ -303,20 +303,20 @@ describe('BoxingGame footwork', () => {
 
   it('misses from out of range, until the opponent walks in', () => {
     const fight = start();
-    fight.game.onKey('x');
+    fight.game.onKey('s');
     fight.run(1); // 200 ms into the windup, backing away the whole time
     expect(gap(fight.game)).toBeGreaterThan(2.95);
-    fight.game.onKey('d');
+    fight.game.onKey('e');
     expect(fight.read()).toMatchObject({ label: '100 × 100', feedback: { text: 'LONGE DEMAIS' } });
-    fight.game.onKeyUp('x');
+    fight.game.onKeyUp('s');
     fight.run(2);
     expect(gap(fight.game)).toBeLessThanOrEqual(2.95);
   });
 
   it('lets the player step out of an opponent punch', () => {
     const fight = start();
-    hold(fight, 'x', 0.8);
-    fight.game.onKey('x');
+    hold(fight, 's', 0.8);
+    fight.game.onKey('s');
     fight.run(1);
     expect(fight.read()).toMatchObject({ label: '100 × 100', feedback: { text: 'LONGE DEMAIS' } });
   });
@@ -343,7 +343,7 @@ describe('BoxingGame footwork', () => {
 
   it('recenters both fighters for the next round', () => {
     const fight = start();
-    hold(fight, 'e', 0.5);
+    hold(fight, 'd', 0.5);
     fight.setMatch({ roundMsLeft: 100 });
     fight.run(3.2); // bell and break
     expect(spots(fight.game)).toMatchObject({ playerPos: { x: 0, z: 1.85 } });
@@ -385,9 +385,9 @@ describe('BoxingGame training modes', () => {
 
   it('lets ring displacement count as the safe lane in the dodge challenge', () => {
     const fight = start({ mode: 'dodge' });
-    fight.game.onKey('q');
+    fight.game.onKey('a');
     fight.run(0.5);
-    fight.game.onKeyUp('q');
+    fight.game.onKeyUp('a');
     fight.run(0.7);
 
     expect(fight.read().boxing.training).toMatchObject({
