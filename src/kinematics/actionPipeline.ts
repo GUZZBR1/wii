@@ -24,6 +24,11 @@ const COAST_HALF_LIFE_MS = 150;
 /** Below this the carried speed is indistinguishable from stopped; the coast ends in a clean zero. */
 const COAST_MIN_SPEED01 = 0.02;
 
+export interface SwingTracking {
+  scaleReady: boolean;
+  wrists: readonly { hand: Hand; tracked: boolean; pending: boolean; arbitrating: boolean }[];
+}
+
 export class ActionPipeline {
   /** Shoulder-anchored: hips sit at the bottom edge of a laptop webcam frame or behind the swinging arms. */
   private readonly bodyGate = new TrackingGate(UPPER_BODY_ANCHOR);
@@ -62,7 +67,7 @@ export class ActionPipeline {
     this.heldSwing = undefined;
   }
 
-  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number; rawEffort: number; effortSampleAtMs: number | null; armMotions: ArmMotion[]; swingTracking: { scaleReady: boolean; wrists: readonly { hand: Hand; tracked: boolean }[] } } {
+  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number; rawEffort: number; effortSampleAtMs: number | null; armMotions: ArmMotion[]; swingTracking: SwingTracking } {
     const start = performance.now();
     // An impossible skeleton is a frame without a player, so every gate treats it as a blackout.
     if (upsideDown(snapshot)) snapshot = { ...snapshot, landmarks: [], worldLandmarks: [] };
@@ -150,7 +155,7 @@ export class ActionPipeline {
         events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'swing-start', hand, side: output.side });
       }
       const swing = output?.kind === 'confirmed' ? output : undefined;
-      return { hand, tracked: tracking.state === 'tracked', swing };
+      return { hand, tracked: tracking.state === 'tracked', pending: detector.hasPending(), swing };
     });
     // A held swing whose own wrist is no longer tracked is stale: discard it rather than
     // release a "tracked" hit into a dead pose. Losing only the rival is different — it
@@ -180,7 +185,7 @@ export class ActionPipeline {
       }
     }
 
-    return { snapshot: current, events, controls, kinematicsMs: performance.now() - start, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked }) => ({ hand, tracked })) } };
+    return { snapshot: current, events, controls, kinematicsMs: performance.now() - start, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked, pending }) => ({ hand, tracked, pending, arbitrating: this.heldSwing?.hand === hand })) } };
   }
 
   /**

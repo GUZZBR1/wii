@@ -23,6 +23,21 @@ describe('pose replay worker session', () => {
     vi.unstubAllGlobals();
   });
 
+  it('passes the CPU fallback model to the worker when one is provided', async () => {
+    vi.stubGlobal('window', { setTimeout, clearTimeout });
+    const worker = new FakeWorker();
+    const session = new PoseWorkerSession(worker as unknown as Worker, 'GPU');
+    const initialization = session.initialize('/wasm', '/pose-full.task', '/pose-lite.task');
+    worker.emit({ type: 'READY', delegate: 'GPU' });
+    await initialization;
+
+    expect(worker.messages[0]).toMatchObject({
+      type: 'INIT',
+      modelUrl: '/pose-full.task',
+      cpuModelUrl: '/pose-lite.task',
+    });
+  });
+
   it('records a recoverable GPU fallback as a dropped sample and continues on CPU', async () => {
     vi.stubGlobal('window', { setTimeout, clearTimeout });
     const worker = new FakeWorker();

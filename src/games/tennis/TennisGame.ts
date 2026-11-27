@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import type { Hand, SportActionEvent } from '../../cv/protocol';
 import type { ArmMotion } from '../../kinematics/armMotion';
+import type { SwingTracking } from '../../kinematics/actionPipeline';
 import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
 import type { GameHudState } from '../core/hud';
@@ -64,6 +65,7 @@ const FAST_SERVE_MS = 130;
 const SERVE_CONTACT_HEIGHT = 2.4;
 /** Beyond this, a mistimed serve would leave the service box. */
 const SERVE_TIMING_SPREAD_MS = 150;
+const SWING_TRACKING_STALE_MS = 300;
 
 type Phase =
   | { kind: 'player-serve'; idealHitMs: number }
@@ -104,13 +106,14 @@ export class TennisGame {
   private serveView = 0;
   /** Last clear arm movement and when it was seen, for the last-moment help. */
   private armMotion?: ArmMotion & { atMs: number };
+  private swingTracking?: SwingTracking & { atMs: number };
   private tutorial?: TennisTutorial;
   private readonly skipTutorial = new RestartGesture();
   private framingAdvice?: string;
   private seen = false;
   private tossArmed = false;
   /** Learned from the rallies: whichever arm last returned a ball holds the racket. */
-  private racketHand: Hand = 'right';
+  private racketHand: Hand;
   /** The serving rule: this hand threw the ball, so the other one strikes it. Unset on an automatic toss. */
   private tossedWith?: Hand;
   private swingLift: -1 | 0 | 1 = 0;
@@ -157,8 +160,14 @@ export class TennisGame {
     canvas: HTMLCanvasElement,
     private readonly onHud: (state: GameHudState) => void,
     private readonly audio?: ProceduralAudio,
-    private readonly options: { tutorial?: boolean; onStrokeTravel?: (travel: number) => void } = {},
+    private readonly options: {
+      tutorial?: boolean;
+      initialRacketHand?: Hand;
+      onRacketHand?: (hand: Hand) => void;
+      onStrokeTravel?: (travel: number) => void;
+    } = {},
   ) {
+    this.racketHand = options.initialRacketHand ?? 'right';
     this.crowd = buildTennisStadium(this.scene).crowd;
     this.effects = createTennisEffects(this.scene);
     this.player.grip.add(createRacket(0x2563c9));
@@ -259,10 +268,28 @@ export class TennisGame {
     return this.phase.kind === 'player-serve' && simulationTimeMs < this.tossAtMs;
   }
 
+  private learnRacketHand(hand: Hand): void {
+    this.racketHand = hand;
+    this.options.onRacketHand?.(hand);
+  }
+
   setArmMotions(motions: readonly ArmMotion[]): void {
     // The arm that threw the serve is not the one hitting it.
     const motion = motions.find((candidate) => !(this.phase.kind === 'player-serve' && candidate.hand === this.tossedWith));
     if (motion) this.armMotion = { ...motion, atMs: nowMs() };
+  }
+
+  setSwingTracking(tracking: SwingTracking): void {
+    this.swingTracking = { ...tracking, atMs: nowMs() };
+  }
+
+  private hasSwingCandidate(): boolean {
+    const tracking = this.swingTracking;
+    if (!tracking || nowMs() - tracking.atMs > SWING_TRACKING_STALE_MS) return false;
+    return tracking.wrists.some((wrist) => (
+      (wrist.pending || wrist.arbitrating)
+      && !(this.phase.kind === 'player-serve' && wrist.hand === this.tossedWith)
+    ));
   }
 
   /**
@@ -285,6 +312,7 @@ export class TennisGame {
       lateS = (ball.position.z - DEFAULT_GEOMETRY.contactPlaneZ) / ball.velocity.z;
       if (lateS < HELP_AFTER_S || (nowMs() - motion.atMs) / 1000 > lateS + HELP_BEFORE_S) return;
     }
+    if (this.hasSwingCandidate()) return;
     this.armMotion = undefined;
     const forehand = (motion.hand === 'right') === motion.sideways > 0;
     this.resolveSwing({
@@ -331,7 +359,7 @@ export class TennisGame {
   private checkTutorialDone(): void {
     const tutorial = this.tutorial!;
     if (!tutorial.done) return;
-    this.racketHand = tutorial.racketHand;
+    this.learnRacketHand(tutorial.racketHand);
     this.options.onStrokeTravel?.(tutorial.strokeTravel);
     this.tutorial = undefined;
     this.ball = null;
@@ -383,7 +411,7 @@ export class TennisGame {
       movementPenalty01: Math.min(1, (anchor?.playerSpeed ?? this.playerLateralSpeed) / PLAYER_MOVE_SPEED),
       swing: simulationSwing,
     });
-    if (outcome.kind === 'contact' && swing.hand) this.racketHand = swing.hand;
+    if (outcome.kind === 'contact' && swing.hand) this.learnRacketHand(swing.hand);
     if (outcome.kind === 'contact') {
       const arc = outcome.height === 'high' ? ' ALTO ↑' : outcome.height === 'low' ? ' RASANTE ↓' : '';
       this.setFeedback(`${swing.side === 'forehand' ? 'FOREHAND' : 'BACKHAND'}${arc}`, 'good');

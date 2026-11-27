@@ -189,7 +189,12 @@ it('throws at once when the free hand rises, and only the racket hand strikes', 
 it('opens with the warm-up and starts the match once it is done', () => {
   const huds: { banner?: { title: string } }[] = [];
   const travels: number[] = [];
-  const game = new TennisGame(document.createElement('canvas'), (hud) => huds.push(hud), undefined, { tutorial: true, onStrokeTravel: (travel) => travels.push(travel) });
+  const racketHands: ('left' | 'right')[] = [];
+  const game = new TennisGame(document.createElement('canvas'), (hud) => huds.push(hud), undefined, {
+    tutorial: true,
+    onRacketHand: (hand) => racketHands.push(hand),
+    onStrokeTravel: (travel) => travels.push(travel),
+  });
   const state = game as unknown as { phase: { kind: string }; publishHud(): void };
   const swing = (side: 'forehand' | 'backhand') => game.onAction({ type: 'swing', id: 1, timestampMs: 0, confidence: 1, trackingState: 'tracked', source: 'cv', hand: 'right', side, power01: 0.5, travel: 3, contactY: 0, verticalSpeed: 0 });
   try {
@@ -203,7 +208,112 @@ it('opens with the warm-up and starts the match once it is done', () => {
     }
     expect(state.phase.kind).toBe('point-over');
     expect(travels).toEqual([1.6, 1.9]);
+    expect(racketHands).toEqual(['right']);
   } finally {
+    game.dispose();
+  }
+});
+
+it('seeds a left racket hand for the opening toss and strike', () => {
+  const game = new TennisGame(document.createElement('canvas'), () => {}, undefined, { initialRacketHand: 'left' });
+  const state = game as unknown as ReturnType<typeof match>['state'];
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(1000);
+  try {
+    state.startPoint(1000);
+    clock.mockReturnValue(1300);
+    game.setTossHand(undefined);
+    game.setTossHand('right');
+    state.stepBall(1 / 60, 1300);
+    expect(state.ball.velocity.y).toBeGreaterThan(0);
+    state.resolveSwing({ hand: 'left', side: 'forehand', power01: 0.5, verticalSpeed: 0, contactY: 0, peakTimestampMs: 1300 });
+    expect(state.phase.kind).toBe('rally');
+  } finally {
+    clock.mockRestore();
+    game.dispose();
+  }
+});
+
+it('reports the racket hand learned from an accepted return', () => {
+  const learned: ('left' | 'right')[] = [];
+  const game = new TennisGame(document.createElement('canvas'), () => {}, undefined, { onRacketHand: (hand) => learned.push(hand) });
+  const state = game as unknown as ReturnType<typeof match>['state'];
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(1200);
+  try {
+    const incoming = createBall({ x: 0, y: 1, z: 6 }, { x: 0, y: 1, z: 5 }, 'opponent');
+    state.phase = { kind: 'rally' };
+    state.ball = incoming;
+    state.tape = [{ tMs: 1000, ball: incoming }];
+    state.resolveSwing({ hand: 'left', side: 'forehand', power01: 0.5, verticalSpeed: 0, contactY: 0, peakTimestampMs: 1000 });
+    expect(state.ball.lastHitter).toBe('player');
+    expect(learned).toEqual(['left']);
+  } finally {
+    clock.mockRestore();
+    game.dispose();
+  }
+});
+
+it('defers assistance while a stroke is pending, and the confirmed stroke controls the return', () => {
+  const { game, state } = match();
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(1000);
+  const help = state as unknown as { helpWithMotion(now: number): void };
+  try {
+    const incoming = createBall({ x: 0, y: 0.9, z: 7.2 + 8 * 0.2 }, { x: 0, y: 1, z: 8 }, 'opponent');
+    state.phase = { kind: 'rally' };
+    state.ball = incoming;
+    state.tape = [{ tMs: 700, ball: createBall({ x: 0, y: 0.9, z: 7.2 - 8 * 0.1 }, { x: 0, y: 1, z: 8 }, 'opponent') }];
+    game.setArmMotions([{ hand: 'right', sideways: 1 }]);
+    game.setSwingTracking({
+      scaleReady: true,
+      wrists: [
+        { hand: 'right', tracked: true, pending: true, arbitrating: false },
+        { hand: 'left', tracked: true, pending: false, arbitrating: false },
+      ],
+    });
+
+    help.helpWithMotion(1000);
+    expect(state.ball.lastHitter).toBe('opponent');
+
+    state.resolveSwing({ hand: 'right', side: 'forehand', power01: 0.9, verticalSpeed: 0, contactY: 0, peakTimestampMs: 800 });
+    expect(state.ball.lastHitter).toBe('player');
+    expect(Math.abs(state.ball.velocity.z)).toBeGreaterThan(17);
+  } finally {
+    clock.mockRestore();
+    game.dispose();
+  }
+});
+
+it('uses assistance after a pending stroke clears without confirming', () => {
+  const { game, state } = match();
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(1000);
+  const help = state as unknown as { helpWithMotion(now: number): void };
+  try {
+    const incoming = createBall({ x: 0, y: 0.9, z: 7.2 + 8 * 0.2 }, { x: 0, y: 1, z: 8 }, 'opponent');
+    state.phase = { kind: 'rally' };
+    state.ball = incoming;
+    state.tape = [{ tMs: 700, ball: createBall({ x: 0, y: 0.9, z: 7.2 - 8 * 0.1 }, { x: 0, y: 1, z: 8 }, 'opponent') }];
+    game.setArmMotions([{ hand: 'right', sideways: 1 }]);
+    game.setSwingTracking({
+      scaleReady: true,
+      wrists: [
+        { hand: 'right', tracked: true, pending: true, arbitrating: false },
+        { hand: 'left', tracked: true, pending: false, arbitrating: false },
+      ],
+    });
+    help.helpWithMotion(1000);
+    expect(state.ball.lastHitter).toBe('opponent');
+
+    game.setSwingTracking({
+      scaleReady: true,
+      wrists: [
+        { hand: 'right', tracked: true, pending: false, arbitrating: false },
+        { hand: 'left', tracked: true, pending: false, arbitrating: false },
+      ],
+    });
+    help.helpWithMotion(1000);
+    expect(state.ball.lastHitter).toBe('player');
+    expect(Math.abs(state.ball.velocity.z)).toBeLessThan(17);
+  } finally {
+    clock.mockRestore();
     game.dispose();
   }
 });

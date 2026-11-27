@@ -154,8 +154,12 @@ export class Race {
     this.elapsedS += dt;
     for (const rival of this.rivals) {
       // A short acceleration off the blocks, then a steady pace.
-      rival.distance += rival.pace * Math.min(1, this.elapsedS / 1.2) * dt;
-      if (rival.distance >= this.goal) rival.finishS ??= this.elapsedS;
+      const from = rival.distance;
+      const speed = rival.pace * Math.min(1, this.elapsedS / 1.2);
+      rival.distance += speed * dt;
+      if (rival.finishS === undefined && rival.distance >= this.goal && speed > 0) {
+        rival.finishS = this.elapsedS - dt + (this.goal - from) / speed;
+      }
     }
     if (this.phase === 'finished') {
       this.restart.step(dt, wallTimeMs);

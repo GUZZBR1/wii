@@ -1,6 +1,7 @@
 import { createPoseRecording, parsePoseRecording } from '@wii/spatial-core';
 import type { Point3, PoseRecording, PoseSnapshot, WorkerReply } from '@wii/spatial-core';
-import { MEDIAPIPE_WASM_VERSION, POSE_MODEL_SHA8 } from '../src/cv/mediapipeAssets';
+import { MEDIAPIPE_WASM_VERSION } from '../src/cv/mediapipeAssets';
+import { poseReplayModelFiles } from './poseReplayAssets';
 import { PoseWorkerSession } from './poseReplaySession';
 import { seekVideoTo, waitForVideoFrame } from './poseReplayVideo';
 
@@ -49,11 +50,7 @@ async function sha256(data: ArrayBuffer): Promise<string> {
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }
 
-async function modelAssets() {
-  const sumsResponse = await fetch('/mediapipe/models/SHA256SUMS');
-  if (!sumsResponse.ok) throw new Error('Could not read the local MediaPipe model checksum manifest.');
-  const sums = await sumsResponse.text();
-  const modelName = `pose_landmarker_lite.${POSE_MODEL_SHA8}.task`;
+async function verifiedModel(sums: string, modelName: string) {
   const expectedHash = sums.split(/\r?\n/).find((line) => line.trim().endsWith(modelName))?.trim().split(/\s+/)[0];
   if (!expectedHash) throw new Error(`Model ${modelName} is not listed in SHA256SUMS.`);
   const modelUrl = new URL(`/mediapipe/models/${modelName}`, location.origin).href;
@@ -61,10 +58,22 @@ async function modelAssets() {
   if (!modelResponse.ok) throw new Error(`Could not fetch local model (${modelResponse.status}).`);
   const actualHash = await sha256(await modelResponse.arrayBuffer());
   if (actualHash !== expectedHash) throw new Error('Local pose model does not match SHA256SUMS.');
+  return { modelUrl, modelSha256: actualHash };
+}
+
+async function modelAssets(delegate: 'CPU' | 'GPU') {
+  const sumsResponse = await fetch('/mediapipe/models/SHA256SUMS');
+  if (!sumsResponse.ok) throw new Error('Could not read the local MediaPipe model checksum manifest.');
+  const sums = await sumsResponse.text();
+  const files = poseReplayModelFiles(delegate);
+  const primary = await verifiedModel(sums, files.modelFile);
+  const cpu = files.cpuModelFile === files.modelFile ? primary : await verifiedModel(sums, files.cpuModelFile);
   return {
     wasmBaseUrl: new URL(`/mediapipe/wasm-${MEDIAPIPE_WASM_VERSION}`, location.origin).href,
-    modelUrl,
-    modelSha256: actualHash,
+    modelUrl: primary.modelUrl,
+    cpuModelUrl: cpu.modelUrl,
+    modelSha256: primary.modelSha256,
+    cpuModelSha256: cpu.modelSha256,
   };
 }
 
@@ -168,12 +177,12 @@ async function run(): Promise<void> {
   const reference = referenceFile ? await readReference(referenceFile) : undefined;
   await loadVideo(videoFile);
   const videoHash = await sha256(await videoFile.arrayBuffer());
-  const model = await modelAssets();
+  const requestedDelegate = delegateInput.value as 'CPU' | 'GPU';
+  const model = await modelAssets(requestedDelegate);
   const worker = new Worker(new URL('../packages/core/src/providers/pose.worker.ts', import.meta.url), { type: 'module' });
   activeWorker = worker;
-  const requestedDelegate = delegateInput.value as 'CPU' | 'GPU';
   const session = new PoseWorkerSession(worker, requestedDelegate);
-  await session.initialize(model.wasmBaseUrl, model.modelUrl);
+  await session.initialize(model.wasmBaseUrl, model.modelUrl, model.cpuModelUrl);
   const snapshots: PoseSnapshot[] = [];
   let droppedFrameCount = 0;
   const frameCount = Math.floor((video.duration * 1000) / SAMPLE_STEP_MS) + 1;
@@ -200,7 +209,7 @@ async function run(): Promise<void> {
   currentRecording = createPoseRecording(snapshots, {
     kind: 'mediapipe',
     tasksVisionVersion: MEDIAPIPE_WASM_VERSION,
-    modelSha256: model.modelSha256,
+    modelSha256: session.delegate === 'CPU' ? model.cpuModelSha256 : model.modelSha256,
     delegate: session.delegate,
     runningMode: 'VIDEO',
     droppedFrameCount,

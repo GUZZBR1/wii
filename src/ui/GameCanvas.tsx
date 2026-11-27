@@ -1,9 +1,10 @@
-import { type RefObject, useEffect, useRef, useState } from 'react';
+import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import type { Hand, SportActionEvent } from '../cv/protocol';
 import type { AthleticsHudState } from '../games/athletics/AthleticsGame';
 import type { Goal } from '../games/athletics/race';
 import type { ProceduralAudio } from '../games/audio';
 import type { ArmMotion } from '../kinematics/armMotion';
+import type { SwingTracking } from '../kinematics/actionPipeline';
 import { type GestureSample, RestartGesture } from '../games/core/restartGesture';
 import type { GameHudState as CoreHudState } from '../games/core/hud';
 import type { GameHudState as TrackHudState } from '../games/track/TrackGame';
@@ -24,7 +25,7 @@ const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }
   athletics: { score: 'TEMPO', speed: 'INTENSIDADE', controls: 'corra no lugar, mexendo os braços' },
   tennis: { score: 'PONTOS', speed: 'MIRA', controls: 'raquetada no tempo da bola: cedo cruza, tarde vai reto' },
 };
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setSwingTracking?(tracking: SwingTracking): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; dispose(): void }
 
 interface Props {
   sport: Sport;
@@ -38,16 +39,27 @@ interface Props {
   onExit?: () => void;
   /** Receives the stroke length the tennis warm-up settles on. */
   onStrokeTravel?: (travel: number) => void;
+  initialRacketHand?: Hand;
+  onRacketHand?: (hand: Hand) => void;
 }
 
 /** Restarting remounts the whole run, so a new game starts from a clean engine and canvas. */
 export function GameCanvas(props: Props) {
   const [run, setRun] = useState(0);
+  const racketHandRef = useRef<Hand>('right');
+  const rememberRacketHand = useCallback((hand: Hand) => { racketHandRef.current = hand; }, []);
   // The warm-up opens the first match only; playing again goes straight to the court.
-  return <GameRun key={run} {...props} tutorial={run === 0} onRestart={() => setRun((value) => value + 1)} />;
+  return <GameRun
+    key={run}
+    {...props}
+    tutorial={run === 0}
+    initialRacketHand={racketHandRef.current}
+    onRacketHand={rememberRacketHand}
+    onRestart={() => setRun((value) => value + 1)}
+  />;
 }
 
-function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, tutorial, onRestart }: Props & { onRestart: () => void; tutorial: boolean }) {
+function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, initialRacketHand, onRacketHand, tutorial, onRestart }: Props & { onRestart: () => void; tutorial: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hud, setHud] = useState<GameHudState>({ score: 0, label: '00000', speed01: 0, status: 'Pronto para jogar' });
   const hudRef = useRef(setHud);
@@ -68,6 +80,10 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
   const over = Boolean(hud.finished || hud.tennis?.winner);
   const travelRef = useRef(onStrokeTravel);
   travelRef.current = onStrokeTravel;
+  const racketHandRef = useRef(initialRacketHand);
+  racketHandRef.current = initialRacketHand;
+  const racketHandCallbackRef = useRef(onRacketHand);
+  racketHandCallbackRef.current = onRacketHand;
   const tutorialRef = useRef(tutorial);
   const exitRef = useRef(onExit);
   exitRef.current = onExit;
@@ -113,7 +129,12 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
           ? new (await import('../games/track/TrackGame')).TrackGame(canvas, updateHud)
           : sport === 'athletics'
             ? new (await import('../games/athletics/AthleticsGame')).AthleticsGame(canvas, updateHud, audio, goal)
-            : new (await import('../games/tennis/TennisGame')).TennisGame(canvas, updateHud, audio, { tutorial: tutorialRef.current, onStrokeTravel: (travel) => travelRef.current?.(travel) });
+            : new (await import('../games/tennis/TennisGame')).TennisGame(canvas, updateHud, audio, {
+              tutorial: tutorialRef.current,
+              initialRacketHand: racketHandRef.current,
+              onRacketHand: (hand) => racketHandCallbackRef.current?.(hand),
+              onStrokeTravel: (travel) => travelRef.current?.(travel),
+            });
         if (disposed) { engine.dispose(); return; }
         game = engine;
         engineRef.current = engine;

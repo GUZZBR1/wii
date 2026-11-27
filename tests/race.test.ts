@@ -208,6 +208,25 @@ describe('athletics race', () => {
     expect(race.standings.map((runner) => runner.timeS)).toEqual([...race.standings.map((runner) => runner.timeS)].sort((a, b) => a - b));
   });
 
+  it('keeps a rival ahead when both cross in the same step and the rival crossed first', () => {
+    const race = new Race(100);
+    race.phase = 'racing';
+    race.elapsedS = 15;
+    race.distance = 99.9;
+    race.speed = 8.5;
+    race.setEffort(1);
+    race.rivals[2]!.distance = 99.95;
+
+    race.step(1 / 60);
+
+    expect(race.rivals[2]!.finishS).toBeCloseTo(15 + (100 - 99.95) / 6.5, 6);
+    expect(race.finishS).toBeCloseTo(15 + (100 - 99.9) / 8.5, 6);
+    expect(race.standings.map((runner) => runner.name).indexOf('Davi')).toBeLessThan(
+      race.standings.map((runner) => runner.name).indexOf('Você'),
+    );
+    expect(race.place).toBe(2);
+  });
+
   it('runs again only when hands are lowered and then held up after the result', () => {
     const race = started();
     let atMs = 0;

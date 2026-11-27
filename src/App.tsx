@@ -244,6 +244,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setHandsRaised?.(gestureAtMs !== null && wristsVisible && handsRaised(current), gestureAtMs);
       engineRef.current?.setTossHand?.(raisedTossHand(current), raw.timestampMs);
       engineRef.current?.setArmMotions?.(result.armMotions);
+      engineRef.current?.setSwingTracking?.(result.swingTracking);
       for (const event of result.events) dispatchEvent(event);
     },
   };

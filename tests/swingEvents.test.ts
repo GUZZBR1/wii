@@ -27,6 +27,37 @@ describe('pipeline swing-start and enriched events', () => {
     expect(start!.timestampMs).toBeLessThan(swing!.timestampMs);
   });
 
+  it('reports strokes still being confirmed or arbitrated', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    for (const time of [0, 33, 66]) pipeline.update(pose(time), profile);
+
+    const onset = pipeline.update(pose(100, { leftWristLateral: 0.3 }), profile);
+    expect(onset.swingTracking.wrists).toEqual([
+      { hand: 'right', tracked: true, pending: false, arbitrating: false },
+      { hand: 'left', tracked: true, pending: true, arbitrating: false },
+    ]);
+
+    let tracking = onset.swingTracking;
+    let confirmedAt300 = false;
+    for (const [time, left, right] of [
+      [150, 0.6, 0],
+      [200, 0.9, 0],
+      [250, 1.2, -0.3],
+      [300, 1.5, 0.2],
+    ] as const) {
+      const result = pipeline.update(pose(time, { leftWristLateral: left, wristLateral: right }), profile);
+      tracking = result.swingTracking;
+      if (time === 300) confirmedAt300 = result.events.some((event) => event.type === 'swing' && event.hand === 'right');
+    }
+
+    expect(confirmedAt300).toBe(false);
+    expect(tracking.wrists).toEqual([
+      { hand: 'right', tracked: true, pending: false, arbitrating: true },
+      { hand: 'left', tracked: true, pending: true, arbitrating: false },
+    ]);
+  });
+
   it('discards a practice swing when entering the match', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();

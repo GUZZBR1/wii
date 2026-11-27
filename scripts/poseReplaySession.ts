@@ -30,8 +30,14 @@ export class PoseWorkerSession {
     return this.effectiveDelegate;
   }
 
-  async initialize(wasmBaseUrl: string, modelUrl: string): Promise<Delegate> {
-    this.worker.postMessage({ type: 'INIT', delegate: this.effectiveDelegate, wasmBaseUrl, modelUrl } satisfies WorkerRequest);
+  async initialize(wasmBaseUrl: string, modelUrl: string, cpuModelUrl?: string): Promise<Delegate> {
+    this.worker.postMessage({
+      type: 'INIT',
+      delegate: this.effectiveDelegate,
+      wasmBaseUrl,
+      modelUrl,
+      ...(cpuModelUrl ? { cpuModelUrl } : {}),
+    } satisfies WorkerRequest);
     let timeout: number | undefined;
     try {
       await Promise.race([
