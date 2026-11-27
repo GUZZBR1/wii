@@ -1,6 +1,6 @@
 import * as THREE from 'three';
-import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
+import { addRoomEnvironment } from '../core/environment';
 import { createSkyDome } from '../track/scenery';
 import { merge, paint } from './geometry';
 import { LANE_WIDTH, lapLength, R_KERB, R_RUN, STRAIGHT, sampleTrack } from './trackCurve';
@@ -237,13 +237,7 @@ export function buildStadium(scene: THREE.Scene, renderer: THREE.WebGLRenderer):
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.shadowMap.enabled = true;
 
-  const pmrem = new THREE.PMREMGenerator(renderer);
-  const room = new RoomEnvironment();
-  const environment = pmrem.fromScene(room, 0.04);
-  room.dispose();
-  pmrem.dispose();
-  scene.environment = environment.texture;
-  scene.environmentIntensity = 0.4;
+  const removeEnvironment = addRoomEnvironment(scene, renderer);
 
   const sky = createSkyDome();
   scene.fog = new THREE.Fog(sky.bottomColor, 80, 220);
@@ -303,8 +297,7 @@ export function buildStadium(scene: THREE.Scene, renderer: THREE.WebGLRenderer):
     },
     // Meshes are freed by the loop's disposeObjectTree; these live outside what it walks.
     dispose() {
-      scene.environment = null;
-      environment.dispose();
+      removeEnvironment();
       sun.dispose();
     },
   };
