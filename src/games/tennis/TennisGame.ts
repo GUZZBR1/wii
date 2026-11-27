@@ -34,10 +34,13 @@ const OPPONENT_CONTACT_PLANE_Z = -7.2;
 const PLAYER_HOME_Z = 8.3;
 const OPPONENT_HOME_Z = -8.3;
 const PLAYER_MOVE_SPEED = 5.5;
+const RACKET_REACH_X = 0.6;
 const TAPE_WINDOW_MS = 1200;
 const POINT_PAUSE_S = 2.0;
 const TOSS_VY = 5.4; // apex ≈ 1.49 m above the release
 const SERVE_CONTACT_X_OFFSET = 0.35;
+const SERVE_HOLD_HEIGHT = 1.15;
+const SERVE_HOLD_MS = 900;
 const SERVE_CONTACT_HEIGHT = 2.4;
 /** Beyond this, a mistimed serve would leave the service box. */
 const SERVE_TIMING_SPREAD_MS = 150;
@@ -75,6 +78,9 @@ export class TennisGame {
   private playerMotion = 0;
   private opponentMotion = 0;
   private swingDirection = 1;
+  private serveStroke = false;
+  private readySide: -1 | 0 | 1 = 0;
+  private tossAtMs = 0;
   private readonly loop: GameLoop;
   private readonly effects: ReturnType<typeof createTennisEffects>;
   private readonly crowd: THREE.Object3D[];
@@ -133,8 +139,10 @@ export class TennisGame {
 
   onAction(event: SportActionEvent): void {
     if (event.type === 'swing-start') {
-      this.swingDirection = event.hand === 'left' ? -1 : 1;
+      // A right-hander's forehand starts on the right, the backhand across the body; mirrored for the left.
+      this.swingDirection = (event.hand === 'right') === (event.side === 'forehand') ? 1 : -1;
       this.swingAnimT = 0;
+      this.serveStroke = this.phase.kind === 'player-serve';
       return;
     }
     if (event.type !== 'swing') return;
@@ -181,6 +189,7 @@ export class TennisGame {
       movementPenalty01: Math.min(1, (anchor?.playerSpeed ?? this.playerLateralSpeed) / PLAYER_MOVE_SPEED),
       swing: simulationSwing,
     });
+    if (outcome.kind === 'contact') this.setFeedback(swing.side === 'forehand' ? 'FOREHAND' : 'BACKHAND', 'good');
     this.applyPlayerOutcome(outcome, ballAtPeak, simulationSwing.peakTimestampMs, now, false, wallNow);
   }
 
@@ -337,7 +346,7 @@ export class TennisGame {
           // The serve is not a return: always in, modest pace, slight lateral variety.
           const from = { x: this.serveX, y: 2.2, z: -BASELINE_Z - 0.35 };
           const targetX = Math.sign(this.serveX) * (1.2 + Math.random() * 1.3);
-          const velocity = solveOutgoing(from, { x: targetX, z: 3.5 + Math.random() }, 1.5);
+          const velocity = solveOutgoing(from, { x: targetX, z: 3.5 + Math.random() }, 1.25);
           this.ball = createBall(from, velocity, 'opponent');
           this.tape = [{ tMs: now, ball: this.ball }];
           this.opponentSwingT = 0;
@@ -369,12 +378,14 @@ export class TennisGame {
   }
 
   private tossBall(now: number): void {
-    const from = { x: this.playerX + SERVE_CONTACT_X_OFFSET, y: 1.4, z: BASELINE_Z + 0.35 };
-    this.ball = createBall(from, { x: 0, y: TOSS_VY, z: 0 }, 'player');
+    const from = { x: this.playerX - SERVE_CONTACT_X_OFFSET, y: SERVE_HOLD_HEIGHT, z: BASELINE_Z + 0.1 };
+    // Held in the hand first; stepBall throws it up at `tossAtMs`.
+    this.ball = createBall({ ...from, y: SERVE_HOLD_HEIGHT }, { x: 0, y: 0, z: 0 }, 'player');
+    this.tossAtMs = now + SERVE_HOLD_MS;
     this.tape = [{ tMs: now, ball: this.ball }];
     const apexSec = TOSS_VY / 9.8;
     // Ideal contact slightly past the apex on the way down — classic serve timing.
-    this.phase = { kind: 'player-serve', idealHitMs: now + (apexSec + 0.12) * 1000 };
+    this.phase = { kind: 'player-serve', idealHitMs: this.tossAtMs + (apexSec + 0.12) * 1000 };
   }
 
   private stepBall(dt: number, now: number): void {
@@ -385,6 +396,10 @@ export class TennisGame {
       const { winner, label, deadAt } = this.pendingPoint;
       if (now >= deadAt + 650) this.endPoint(winner, label, now);
       return;
+    }
+    if (this.phase.kind === 'player-serve') {
+      if (now < this.tossAtMs) return;
+      if (this.ball.velocity.y === 0) this.ball = createBall(this.ball.position, { x: 0, y: TOSS_VY, z: 0 }, 'player');
     }
     const before = this.ball;
     const after = advanceBall(before, dt);
@@ -532,8 +547,12 @@ export class TennisGame {
     // Auto-movement like the Miis: glide toward the incoming ball's lateral position.
     let targetX = this.phase.kind === 'player-serve' ? this.serveX : 0;
     if (this.ball && this.ball.velocity.z > 0.5 && this.ball.position.z < PLAYER_HOME_Z + 2) {
-      targetX = Math.max(-2.8, Math.min(2.8, advanceBall(this.ball, timeAtPlane(this.ball, 7.2)?.timeSeconds ?? 0).position.x));
+      const arrival = advanceBall(this.ball, timeAtPlane(this.ball, 7.2)?.timeSeconds ?? 0).position.x;
+      // Stand beside the ball, so the racket meets it rather than the body: forehand unless it is far left.
+      if (this.readySide === 0) this.readySide = arrival >= this.playerX - 0.3 ? 1 : -1;
+      targetX = Math.max(-2.8, Math.min(2.8, arrival - this.readySide * RACKET_REACH_X));
     }
+    else this.readySide = 0;
     const before = this.playerX;
     const delta = targetX - this.playerX;
     const step = Math.sign(delta) * Math.min(Math.abs(delta), PLAYER_MOVE_SPEED * dt);
@@ -569,6 +588,14 @@ export class TennisGame {
     if (this.ball) {
       this.ballMesh.visible = true;
       this.ballMesh.position.set(this.ball.position.x, Math.max(0.18, this.ball.position.y), this.ball.position.z);
+      // Stretched along its flight, squashed against the ground: speed and weight the eye can read.
+      const { x: vx, y: vy, z: vz } = this.ball.velocity;
+      const speed = Math.hypot(vx, vy, vz);
+      const grounded = this.ball.position.y < 0.3;
+      const stretch = grounded ? 0.7 : 1 + Math.min(0.45, speed / 40);
+      if (speed > 0) this.ballMesh.lookAt(this.ball.position.x + vx, this.ball.position.y + vy, this.ball.position.z + vz);
+      if (grounded) this.ballMesh.rotation.set(0, 0, 0);
+      this.ballMesh.scale.set(grounded ? 1.2 : 1 / Math.sqrt(stretch), grounded ? stretch : 1 / Math.sqrt(stretch), grounded ? 1.2 : stretch);
     } else {
       this.ballMesh.visible = false;
     }
@@ -586,7 +613,9 @@ export class TennisGame {
     const opponentServing = this.phase.kind === 'opponent-serve';
     this.player.root.position.set(this.playerX, 0, playerServing ? BASELINE_Z + 0.45 : PLAYER_HOME_Z);
     this.opponent.root.position.set(this.opponentX, 0, opponentServing ? -BASELINE_Z - 0.45 : OPPONENT_HOME_Z);
-    this.player.animate(this.playerStride, this.playerMotion, this.swingAnimT, this.swingDirection);
+    const serving = this.phase.kind === 'player-serve' ? (nowMs() < this.tossAtMs ? 'hold' : 'toss') : undefined;
+    const struck = this.serveStroke && this.swingAnimT < 1;
+    this.player.animate(this.playerStride, this.playerMotion, this.swingAnimT, this.swingDirection, this.readySide, struck ? 'strike' : serving);
     this.opponent.animate(this.opponentStride, -this.opponentMotion, this.opponentSwingT, 1);
     const portrait = Math.max(0, 1.35 - this.camera.aspect);
     // Low and just behind the player, drifting with them, as in the console game.

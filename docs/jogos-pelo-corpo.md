@@ -92,6 +92,9 @@ Neste estado:
   falado pelo navegador (`effects.ts`, `audio.ts`);
 - **o saque não se erra**: qualquer raquetada durante o lançamento entra na área certa; o momento só muda
   força e ângulo;
+- forehand e backhand **aparecem diferentes**: o boneco fica ao lado da bola e recua a raquete para o lado
+  dela, o golpe sai do lado reconhecido, o rastro é amarelo (forehand) ou azul (backhand) e o nome aparece;
+- saque em três tempos: bola na mão, lançamento e golpe por cima;
 - reinício pelas mãos.
 
 ### Detector de raquetada (`src/kinematics/swingDetector.ts`)

@@ -71,7 +71,7 @@ export type SportActionEvent =
    * crossing frame, ~100-400 ms before the swing confirms (if it ever does). Backswings and
    * aborted motions fire it too: use it for animation, never for adjudication.
    */
-  | ActionBase & { type: 'swing-start'; hand: Hand }
+  | ActionBase & { type: 'swing-start'; hand: Hand; side: 'forehand' | 'backhand' }
   | ActionBase & {
       type: 'swing';
       side: 'forehand' | 'backhand';

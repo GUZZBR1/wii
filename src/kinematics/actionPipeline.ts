@@ -138,7 +138,7 @@ export class ActionPipeline {
       // The onset bypasses arbitration and the refractory on purpose: it is the real-time,
       // unconfirmed channel — the game's cue to start the stroke animation now, not proof of a hit.
       if (output?.kind === 'onset') {
-        events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'swing-start', hand });
+        events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'swing-start', hand, side: output.side });
       }
       const swing = output?.kind === 'confirmed' ? output : undefined;
       return { hand, tracked: tracking.state === 'tracked', swing };

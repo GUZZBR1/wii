@@ -21,7 +21,7 @@ export interface SwingSignal {
  * follow-through proves it, carrying the peak-frame measurements.
  */
 export type SwingOutput =
-  | { kind: 'onset'; timestampMs: number }
+  | { kind: 'onset'; timestampMs: number; side: 'forehand' | 'backhand' }
   | ({ kind: 'confirmed' } & SwingSignal);
 
 /*
@@ -103,11 +103,9 @@ export class SwingDetector {
       const slowed = Math.sign(vx) !== pending.direction || speed <= pending.peak.speed * 0.65;
       if (!slowed && time - pending.startedAt < SWING_MAX_DURATION_MS) return undefined;
       this.pending = undefined;
-      // The wrist's own right (image left) toward its left is a right-hander's forehand.
-      const forehand = this.hand === 'right' ? pending.direction > 0 : pending.direction < 0;
       return {
         kind: 'confirmed',
-        side: forehand ? 'forehand' : 'backhand',
+        side: this.sideOf(pending.direction),
         power01: clamp((pending.peak.speed - MIN_POWER_SPEED) / (FULL_POWER_SPEED - MIN_POWER_SPEED)),
         confidence: pending.peak.confidence,
         peakTimestampMs: pending.peak.time,
@@ -135,7 +133,12 @@ export class SwingDetector {
     }
     this.last = { direction, time };
     this.pending = { direction, startedAt: time, peak: { time, speed, verticalSpeed: vy, y: sample.y, confidence } };
-    return { kind: 'onset', timestampMs: time };
+    return { kind: 'onset', timestampMs: time, side: this.sideOf(direction) };
+  }
+
+  /** The wrist's own right (image left) toward its left is a right-hander's forehand. */
+  private sideOf(direction: -1 | 1): 'forehand' | 'backhand' {
+    return (this.hand === 'right') === direction > 0 ? 'forehand' : 'backhand';
   }
 
   /** A swing in flight that has not confirmed yet: the arbiter may hold a rival's confirmation for it. */

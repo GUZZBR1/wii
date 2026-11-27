@@ -59,10 +59,16 @@ export function createAthlete(shirt: number, facing: number) {
   swoosh.rotation.x = -Math.PI / 2;
   swoosh.visible = false;
   const swooshPaint = swoosh.material as THREE.MeshBasicMaterial;
+  // Warm for the forehand side, cool for the backhand, so the two never look alike.
+  const tint = (side: number) => swooshPaint.color.setHex(side > 0 ? 0xffd34d : 0x59d7ff);
 
   return {
     root, grip,
-    animate(stride: number, speed: number, swing: number, direction: number) {
+    /**
+     * `direction` is the side of the body the stroke starts from (1 right, -1 left); `ready` draws the
+     * racket back to a side before the ball arrives; `serve` is the toss and the overhead strike.
+     */
+    animate(stride: number, speed: number, swing: number, direction: number, ready: -1 | 0 | 1 = 0, serve?: 'hold' | 'toss' | 'strike') {
       const step = Math.sin(stride * 9) * Math.min(1, Math.abs(speed) / 3);
       const swinging = swing < 1;
       // Fast through the ball, slower on the follow-through.
@@ -74,18 +80,36 @@ export function createAthlete(shirt: number, facing: number) {
       legs[0]!.rotation.x = step * 0.7;
       legs[1]!.rotation.x = -step * 0.7;
       freeHand.position.set(-0.46, 0.2 + step * 0.08, -0.06 - step * 0.12);
-      if (swinging) {
+      if (serve === 'strike' && swinging) {
+        // Overhead: from behind the head, up and down in front.
+        const reach = -1.4 + 3.2 * eased;
+        torso.rotation.set(-0.25 * Math.sin(Math.PI * swing), 0, 0);
+        racketHand.position.set(0.3, 0.75 + Math.cos(reach) * 0.55, -Math.sin(reach) * 0.55);
+        racketHand.rotation.set(-reach, 0, 0);
+        grip.rotation.set(0, 0, 0);
+      } else if (swinging) {
         racketHand.position.set(Math.sin(angle) * 0.62, 0.22 + eased * 0.3, -Math.cos(angle) * 0.62);
         // Lay the racket out radially, pointing away from the body.
         racketHand.rotation.set(0, -angle, 0);
         grip.rotation.set(-Math.PI / 2, 0, 0);
+      } else if (ready !== 0) {
+        // Racket drawn back on the side the ball is coming to: forehand open, backhand across.
+        const back = 1.35 * ready;
+        torso.rotation.set(0, -ready * 0.55, 0);
+        racketHand.position.set(Math.sin(back) * 0.72, 0.4, -Math.cos(back) * 0.72);
+        racketHand.rotation.set(0, -back, 0);
+        // Head tipped up, so the face of the racket shows from behind.
+        grip.rotation.set(-Math.PI / 4, 0, 0);
       } else {
         racketHand.position.set(0.46, 0.2, -0.06);
         racketHand.rotation.set(0, 0, 0);
         grip.rotation.set(0, 0, -1.1);
       }
-      swoosh.visible = swinging;
-      swooshPaint.opacity = 0.55 * Math.sin(Math.PI * swing);
+      if (serve === 'hold') freeHand.position.set(-0.36, 0.45, -0.38);
+      if (serve === 'toss') freeHand.position.set(-0.38, 1.3, -0.3);
+      swoosh.visible = swinging && serve !== 'strike';
+      tint(direction);
+      swooshPaint.opacity = 0.75 * Math.sin(Math.PI * swing);
       swoosh.rotation.z = Math.PI / 2 - angle - (direction > 0 ? 0 : Math.PI * 1.1);
     },
   };
