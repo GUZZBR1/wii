@@ -4,7 +4,7 @@
 
 # Wii Web Sports Arena
 
-**Seu corpo é o controle.** Uma arena arcade no navegador com prova de 100 metros, corrida de obstáculos e tênis, controlada por pose via webcam.
+**Seu corpo é o controle.** Uma arena arcade no navegador com atletismo (100, 200 e 400 m no estádio) e tênis, controlada por pose via webcam.
 
 </div>
 
@@ -21,7 +21,7 @@ npm ci
 npm run dev
 ```
 
-O servidor local imprime a URL de desenvolvimento. A primeira ação **Ativar câmera** solicita permissão. Os 100 metros enquadram o jogador e fazem um aquecimento curto antes da largada; nos obstáculos e no tênis não há etapa manual de calibração. A técnica, o que foi medido e o que falta estão em [docs/corrida-100m-e-tracking.md](docs/corrida-100m-e-tracking.md) (em andamento). A mão da raquete é detectada pelo movimento. Se a câmera não estiver disponível, setas e espaço continuam funcionando.
+O servidor local imprime a URL de desenvolvimento. A primeira ação **Ativar câmera** solicita permissão. O atletismo enquadra o jogador; o tênis abre com 3 rebatidas de aquecimento. Os dois se jogam só com o corpo, e levantar as duas mãos joga de novo. O atletismo e fazem um aquecimento curto antes da largada; nos obstáculos e no tênis não há etapa manual de calibração. A técnica, o que foi medido e o que falta estão em [docs/corrida-100m-e-tracking.md](docs/corrida-100m-e-tracking.md) (em andamento). A mão da raquete é detectada pelo movimento. Se a câmera não estiver disponível, setas e espaço continuam funcionando.
 
 ```bash
 npm test
@@ -59,11 +59,9 @@ No Vercel, use a raiz do repositório como Root Directory, `npm run build` como 
 
 | Ação | Webcam | Teclado |
 | --- | --- | --- |
-| 100 metros | Corra no lugar bombeando os braços | Não há: só com o corpo |
-| Correr (obstáculos) | Ande ou corra no lugar | Seta para baixo alterna andar / correr / parar |
-| Pular | Salto vertical | Espaço ou seta para cima |
-| Trocar de raia | Incline o tronco ou dê um passo ao lado | Setas esquerda/direita |
-| Bater no tênis | Raquetada dominante | Espaço |
+| Atletismo | Corra no lugar bombeando os braços | Não há: só com o corpo |
+| Bater no tênis | Raquetada; cedo cruza, tarde vai reto | Não há: só com o corpo |
+| Jogar de novo | Levante as duas mãos por 1,5 s | — |
 
 <div align="center">
 <picture>

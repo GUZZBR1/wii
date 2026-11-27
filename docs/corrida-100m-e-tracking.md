@@ -16,9 +16,10 @@ vira "um pouco mais devagar", não uma ação que não aconteceu.
 há evidência de que funcionem para outras pessoas. Quando uma gravação não usada em nenhum ajuste foi
 testada pela primeira vez, a corrida caiu para 42% de detecção.
 
-## Prova de 100 m
+## Atletismo (100, 200 e 400 m)
 
-Código: `src/games/sprint/race.ts` (regras puras), `src/games/sprint/SprintGame.ts` (cena),
+Estádio, Mii e câmera vêm do PR 41 (GUZZBR1). Código: `src/games/athletics/race.ts` (regras puras),
+`src/games/athletics/AthleticsGame.ts` (cena), `src/games/core/restartGesture.ts` (reinício pelas mãos),
 `src/kinematics/intensity.ts` (medidor).
 
 Fases:
@@ -99,4 +100,5 @@ Tudo é local; nada é enviado a um servidor do jogo.
    corrida no lugar; câmera e distância diferentes; a página não declara licença).
 5. Diagnosticar travamentos de câmera com `/app?fps`.
 6. Ajustar ritmos dos adversários e a escala de velocidade, hoje um primeiro chute.
-7. A calibração contínua ainda calcula um centro de raia que o jogo não usa mais: remover.
+7. Tênis: gravar com G (`?debug`) e usar como teste do detector de raquetada.
+8. A calibração contínua ainda calcula um centro de raia que o jogo não usa mais: remover.
