@@ -2,6 +2,7 @@ import { createPoseRecording, parsePoseRecording } from '@wii/spatial-core';
 import type { Point3, PoseRecording, PoseSnapshot, WorkerReply } from '@wii/spatial-core';
 import { MEDIAPIPE_WASM_VERSION } from '../src/cv/mediapipeAssets';
 import { type PoseReplayModelChoice, poseReplayModelFiles } from './poseReplayAssets';
+import { incompatibleReasons } from './poseReplayCompare';
 import { PoseWorkerSession } from './poseReplaySession';
 import { seekVideoTo, waitForVideoFrame } from './poseReplayVideo';
 
@@ -92,29 +93,6 @@ function loadVideo(file: File): Promise<void> {
 
 async function readReference(file: File): Promise<PoseRecording> {
   return parsePoseRecording(await file.text());
-}
-
-function incompatibleReasons(reference: PoseRecording, actual: PoseRecording): string[] {
-  const reasons: string[] = [];
-  const expectedSource = reference.source;
-  const actualSource = actual.source;
-  if (expectedSource.kind !== 'mediapipe') reasons.push('reference source is not MediaPipe');
-  if (expectedSource.tasksVisionVersion !== actualSource.tasksVisionVersion) reasons.push('MediaPipe Tasks version differs');
-  if (expectedSource.modelSha256 !== actualSource.modelSha256) reasons.push('pose model checksum differs');
-  if (expectedSource.delegate !== actualSource.delegate) reasons.push('delegate differs');
-  if (expectedSource.runningMode !== 'VIDEO') reasons.push('reference was not captured in VIDEO mode');
-  if (reference.timestampClock !== actual.timestampClock) reasons.push('timestamp clock domain differs');
-  if (expectedSource.runtime?.userAgent !== actualSource.runtime?.userAgent) reasons.push('browser user agent differs');
-  if (expectedSource.runtime?.platform !== actualSource.runtime?.platform) reasons.push('browser platform differs');
-  if (expectedSource.input?.sha256 !== actualSource.input?.sha256) reasons.push('input video checksum differs');
-  if (expectedSource.input?.width !== actualSource.input?.width || expectedSource.input?.height !== actualSource.input?.height) {
-    reasons.push('input video dimensions differ');
-  }
-  if (reference.frameCount !== actual.frameCount) reasons.push('sampled frame count differs');
-  if (reference.frames.some((frame, index) => frame.snapshot.timestampMs !== actual.frames[index]?.snapshot.timestampMs)) {
-    reasons.push('sampled frame timestamps differ');
-  }
-  return reasons;
 }
 
 function errors(reference: PoseRecording, actual: PoseRecording) {
@@ -211,8 +189,8 @@ async function run(): Promise<void> {
   currentRecording = createPoseRecording(snapshots, {
     kind: 'mediapipe',
     tasksVisionVersion: MEDIAPIPE_WASM_VERSION,
-    modelSha256: session.delegate === 'CPU' ? model.cpuModelSha256 : model.modelSha256,
-    delegate: session.delegate,
+    modelSha256: (session.sampledDelegate ?? session.delegate) === 'CPU' ? model.cpuModelSha256 : model.modelSha256,
+    delegate: session.sampledDelegate ?? session.delegate,
     runningMode: 'VIDEO',
     droppedFrameCount,
     runtime: { userAgent: navigator.userAgent, platform: navigator.platform },

@@ -71,7 +71,7 @@ describe('pose replay worker session', () => {
     await expect(nextSample).resolves.toEqual(poseReply);
   });
 
-  it('marks a fallback that follows successful primary-model samples as a mixed-configuration run', async () => {
+  it('marks samples spanning both sides of a fallback as a mixed-configuration run', async () => {
     vi.stubGlobal('window', { setTimeout, clearTimeout });
     const worker = new FakeWorker();
     const session = new PoseWorkerSession(worker as unknown as Worker, 'GPU');
@@ -79,7 +79,7 @@ describe('pose replay worker session', () => {
     worker.emit({ type: 'READY', delegate: 'GPU' });
     await initialization;
 
-    for (const timestampMs of [0, 33, 66, 100, 133]) {
+    const emitSample = async (timestampMs: number) => {
       const sample = session.detect({ close: vi.fn() } as unknown as ImageBitmap, timestampMs);
       const frame = worker.messages.filter((message) => message.type === 'FRAME').at(-1);
       if (frame?.type !== 'FRAME') throw new Error('Expected a frame request.');
@@ -88,13 +88,43 @@ describe('pose replay worker session', () => {
         timestampMs, landmarks: [], worldLandmarks: [], frameWidth: 640, frameHeight: 360,
       });
       await expect(sample).resolves.toBeDefined();
-    }
+    };
+
+    // The latency-fallback sequence: successful GPU replies arrive before the fallback notice.
+    for (const timestampMs of [0, 33, 66, 100, 133]) await emitSample(timestampMs);
     expect(session.hasMixedConfigurationSamples).toBe(false);
     expect(() => session.assertSingleConfigurationRun()).not.toThrow();
 
     worker.emit({ type: 'FALLBACK', from: 'GPU', to: 'CPU', reason: 'GPU slow' });
+    await emitSample(166);
     expect(session.hasMixedConfigurationSamples).toBe(true);
+    expect(session.sampledDelegate).toBeUndefined();
     expect(() => session.assertSingleConfigurationRun()).toThrow(/mixed-configuration replay/);
+  });
+
+  it('keeps a fallback without later samples a pure primary-delegate run', async () => {
+    vi.stubGlobal('window', { setTimeout, clearTimeout });
+    const worker = new FakeWorker();
+    const session = new PoseWorkerSession(worker as unknown as Worker, 'GPU');
+    const initialization = session.initialize('/wasm', '/pose-full.task', '/pose-lite.task');
+    worker.emit({ type: 'READY', delegate: 'GPU' });
+    await initialization;
+
+    const sample = session.detect({ close: vi.fn() } as unknown as ImageBitmap, 0);
+    const frame = worker.messages.filter((message) => message.type === 'FRAME').at(-1);
+    if (frame?.type !== 'FRAME') throw new Error('Expected a frame request.');
+    worker.emit({
+      type: 'POSE', requestId: frame.requestId, captureEpoch: frame.captureEpoch,
+      timestampMs: 0, landmarks: [], worldLandmarks: [], frameWidth: 640, frameHeight: 360,
+    });
+    await expect(sample).resolves.toBeDefined();
+
+    // GPU fails on the final frame: it is dropped after the switch and no CPU sample is ever collected.
+    worker.emit({ type: 'FALLBACK', from: 'GPU', to: 'CPU', reason: 'GPU failed' });
+    expect(session.delegate).toBe('CPU');
+    expect(session.sampledDelegate).toBe('GPU');
+    expect(session.hasMixedConfigurationSamples).toBe(false);
+    expect(() => session.assertSingleConfigurationRun()).not.toThrow();
   });
 
   it('rejects a frame when CPU inference fails after fallback', async () => {
