@@ -102,8 +102,10 @@ it.each([-900, -300, 0, 400, 1500])('puts any serve stroke in play, %i ms from t
   const clock = vi.spyOn(performance, 'now').mockReturnValue(1000);
   try {
     state.startPoint(1000);
-    const { idealHitMs } = state.phase as unknown as { idealHitMs: number };
     clock.mockReturnValue(1100);
+    game.setTossHand(false);
+    game.setTossHand(true);
+    const { idealHitMs } = state.phase as unknown as { idealHitMs: number };
     state.resolveSwing({ side: 'forehand', power01: 0, verticalSpeed: 0, contactY: -1, peakTimestampMs: idealHitMs + offsetMs });
     expect(state.phase.kind).toBe('rally');
     for (let now = 1100; now < 3500 && state.ball && state.ball.bounces === 0 && state.faults === 0; now += 1000 / 60) {
@@ -131,6 +133,28 @@ it.each([0, 1])('serves the opponent diagonally into the box, never a fault (poi
     expect(state.faults).toBe(0);
     expect(state.ball.bounces).toBe(1);
   } finally {
+    game.dispose();
+  }
+});
+
+it('holds the serve until a hand is lifted, then strikes on the swing', () => {
+  const { game, state } = match();
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(1000);
+  const swing = () => state.resolveSwing({ side: 'forehand', power01: 0.5, verticalSpeed: 0, contactY: 0, peakTimestampMs: performance.now() });
+  try {
+    state.startPoint(1000);
+    clock.mockReturnValue(1500);
+    swing();
+    game.setTossHand(true); // already up when the serve began: does not count
+    swing();
+    expect(state.phase.kind).toBe('player-serve');
+    game.setTossHand(false);
+    game.setTossHand(true);
+    clock.mockReturnValue(1900);
+    swing();
+    expect(state.phase.kind).toBe('rally');
+  } finally {
+    clock.mockRestore();
     game.dispose();
   }
 });

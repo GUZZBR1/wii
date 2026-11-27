@@ -9,7 +9,7 @@ import { PhotoTrail } from './cv/diagnostics/photoTrail';
 import { TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
 import { downloadRecording, noteArrival, PoseRecorder, rememberFrame } from './cv/diagnostics/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
-import { framingAdvice, handsHidden, handsRaised, HeadWarning } from './kinematics/framing';
+import { framingAdvice, handsHidden, handsRaised, oneHandRaised, HeadWarning } from './kinematics/framing';
 import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
 import { HandCursorDetector } from './kinematics/handCursor';
 import { ProceduralAudio } from './games/audio';
@@ -263,6 +263,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setEffort?.(result.effort01);
       engineRef.current?.setFraming?.(framingAdvice(raw), handsHidden(raw));
       engineRef.current?.setHandsRaised?.(handsRaised(raw));
+      engineRef.current?.setTossHand?.(oneHandRaised(raw));
       if (practiceRef.current) {
         const advice = framingAdvice(raw);
         const { scaleReady, wrists } = result.swingTracking;

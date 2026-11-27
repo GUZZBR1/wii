@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
-import { framingAdvice, handsRaised, HeadWarning, upsideDown } from '../src/kinematics/framing';
+import { oneHandRaised, framingAdvice, handsRaised, HeadWarning, upsideDown } from '../src/kinematics/framing';
 import { calibration, pose } from './fixtures/syntheticPose';
 
 const flipped = (time: number) => {
@@ -50,4 +50,18 @@ describe('framing', () => {
       expect(result.controls.laneZone).toBeUndefined();
     }
   });
+});
+
+it('reads one lifted hand as the serve toss, not two and not a hand at the chest', () => {
+  const at = (leftY: number, rightY: number) => {
+    const snapshot = pose(0);
+    const landmarks = snapshot.landmarks.map((point, i) => (i === 15 ? { ...point, y: leftY } : i === 16 ? { ...point, y: rightY } : point));
+    return oneHandRaised({ ...snapshot, landmarks });
+  };
+  // Synthetic head at 0.07, shoulders at 0.15.
+  expect(at(0.05, 0.43)).toBe(true);
+  expect(at(0.43, 0.05)).toBe(true);
+  expect(at(0.05, 0.05)).toBe(false);
+  expect(at(0.2, 0.43)).toBe(false);
+  expect(at(0.43, 0.43)).toBe(false);
 });

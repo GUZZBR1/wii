@@ -77,3 +77,20 @@ export function handsRaised(snapshot: PoseSnapshot): boolean {
     return hand !== undefined && base !== undefined && (hand.visibility ?? 0) >= 0.5 && hand.y < base.y;
   });
 }
+
+/**
+ * The serve toss: one hand lifted to the height of the face or higher, the other one down. Either
+ * hand counts, so nobody has to know which one the game expects.
+ */
+export function oneHandRaised(snapshot: PoseSnapshot): boolean {
+  const nose = snapshot.landmarks[0];
+  if (!nose) return false;
+  const [left, right] = ([[15, 11], [16, 12]] as const).map(([wrist, shoulder]) => {
+    const hand = snapshot.landmarks[wrist];
+    const base = snapshot.landmarks[shoulder];
+    const seen = hand !== undefined && base !== undefined && (hand.visibility ?? 0) >= 0.5;
+    // "Face height" is a third of the way below the nose towards the shoulder.
+    return { up: seen && hand.y < nose.y + (base.y - nose.y) / 3, raised: seen && hand.y < base.y };
+  });
+  return (left!.up && !right!.raised) || (right!.up && !left!.raised);
+}

@@ -44,7 +44,10 @@ const RALLY_AI = { ...DEFAULT_OPPONENT_AI_CONFIG, generosity: 0.45, qualityPress
 const TOSS_VY = 5.4; // apex ≈ 1.49 m above the release
 const SERVE_CONTACT_X_OFFSET = 0.35;
 const SERVE_HOLD_HEIGHT = 1.15;
-const SERVE_HOLD_MS = 500;
+/** The ball goes up by itself if no lifted hand is seen for this long. */
+const SERVE_HOLD_MS = 6000;
+/** Ideal contact slightly past the apex on the way down. */
+const SERVE_IDEAL_MS = (TOSS_VY / 9.8 + 0.12) * 1000;
 const OPPONENT_TOSS_MS = 800;
 const FAST_SERVE_MS = 130;
 const SERVE_CONTACT_HEIGHT = 2.4;
@@ -86,6 +89,7 @@ export class TennisGame {
   private swingDirection = 1;
   private serveStroke = false;
   private fastServe = false;
+  private tossArmed = false;
   private swingLift: -1 | 0 | 1 = 0;
   private opponentReturns = 0;
   private opponentBeaten = false;
@@ -150,6 +154,8 @@ export class TennisGame {
 
   onAction(event: SportActionEvent): void {
     if (event.type === 'swing-start') {
+      // The ball is still in the hand: nothing to strike yet.
+      if (this.holdingServe()) return;
       // A right-hander's forehand starts on the right, the backhand across the body; mirrored for the left.
       this.swingDirection = (event.hand === 'right') === (event.side === 'forehand') ? 1 : -1;
       // By the time the stroke is recognised the arm is well on its way; so is the racket.
@@ -174,6 +180,23 @@ export class TennisGame {
   onKey(): void {}
 
   setHandsRaised(raised: boolean): void { this.restart.setHandsRaised(raised); }
+
+  /** First of the two serving gestures: lifting a hand throws the ball up; the stroke then serves it. */
+  setTossHand(raised: boolean): void {
+    // The hand has to come up during this serve: one left up from before does not throw.
+    const lifted = raised && this.tossArmed;
+    this.tossArmed = !raised;
+    if (!lifted || !this.holdingServe() || this.phase.kind !== 'player-serve') return;
+    const now = Math.max(this.lastSimulationTimeMs, nowMs());
+    this.tossAtMs = now;
+    this.phase = { kind: 'player-serve', idealHitMs: now + SERVE_IDEAL_MS };
+    this.status = 'Agora bata!';
+    this.setFeedback('BATA!', 'good');
+  }
+
+  private holdingServe(): boolean {
+    return this.phase.kind === 'player-serve' && Math.max(this.lastSimulationTimeMs, nowMs()) < this.tossAtMs;
+  }
 
   // ---------------------------------------------------------------- swing resolution
 
@@ -221,6 +244,10 @@ export class TennisGame {
     wallNow: number,
   ): void {
     if (this.phase.kind !== 'player-serve') return;
+    if (this.holdingServe()) {
+      this.setFeedback('LEVANTE A MÃO PARA JOGAR A BOLA', 'neutral');
+      return;
+    }
     const contact = createBall({ x: this.playerX + SERVE_CONTACT_X_OFFSET, y: SERVE_CONTACT_HEIGHT, z: BASELINE_Z + 0.35 }, { x: 0, y: -1, z: 0 }, 'player');
     const outcome = adjudicateContact({
       ballAtPeak: contact,
@@ -361,6 +388,7 @@ export class TennisGame {
         // Toss missed and the ball came back down: re-toss quietly, no penalty.
         if (this.ball && this.ball.position.y <= 0.6 && this.ball.velocity.y < 0) {
           this.tossBall(now);
+          this.status = 'Seu saque: levante uma mão para jogar a bola';
         }
         break;
       }
@@ -401,7 +429,7 @@ export class TennisGame {
     this.opponentBeaten = false;
     if (this.score.server === 'player') {
       this.tossBall(now);
-      this.status = 'Seu saque: raquetada! No topo sai forte';
+      this.status = 'Seu saque: levante uma mão para jogar a bola';
     } else {
       this.ball = createBall({ x: this.serveX, y: SERVE_HOLD_HEIGHT, z: -BASELINE_Z - 0.35 }, { x: 0, y: 0, z: 0 }, 'opponent');
       this.tape = [{ tMs: now, ball: this.ball }];
@@ -412,13 +440,12 @@ export class TennisGame {
 
   private tossBall(now: number): void {
     const from = { x: this.playerX - SERVE_CONTACT_X_OFFSET, y: SERVE_HOLD_HEIGHT, z: BASELINE_Z + 0.1 };
-    // Held in the hand first; stepBall throws it up at `tossAtMs`.
+    // Held until a hand is lifted (setTossHand); thrown anyway after a while, so nobody gets stuck.
     this.ball = createBall({ ...from, y: SERVE_HOLD_HEIGHT }, { x: 0, y: 0, z: 0 }, 'player');
     this.tossAtMs = now + SERVE_HOLD_MS;
     this.tape = [{ tMs: now, ball: this.ball }];
-    const apexSec = TOSS_VY / 9.8;
-    // Ideal contact slightly past the apex on the way down — classic serve timing.
-    this.phase = { kind: 'player-serve', idealHitMs: this.tossAtMs + (apexSec + 0.12) * 1000 };
+    this.phase = { kind: 'player-serve', idealHitMs: this.tossAtMs + SERVE_IDEAL_MS };
+    this.tossArmed = false;
   }
 
   private stepBall(dt: number, now: number): void {
