@@ -25,8 +25,10 @@ Fases:
 
 1. **Enquadramento** (`framingAdvice`, em `src/kinematics/framing.ts`): pede para inclinar, afastar ou
    centralizar. Segue com 1 s de imagem boa, ou após 15 s com o corpo visível, para ninguém ficar preso.
-2. **Aquecimento** (5 s, "corra com tudo"): a leitura alta vira o 100% daquela pessoa e câmera. Se quase
-   não houver movimento, usa uma referência padrão.
+2. **Aquecimento** (5 s, "corra com tudo"): a leitura alta vira o 100% daquela pessoa e câmera. Se o
+   jogo quase não ler movimento, o aquecimento se repete até duas vezes dizendo o que fazer ("mostre as
+   mãos" ou "mexa mais os braços") e só então usa uma referência padrão. Uma barra de energia mostra ao
+   vivo o que está sendo lido, no aquecimento e na prova.
 3. **Contagem** de 3 s.
 4. **Prova** contra três adversários de ritmo fixo. A velocidade segue a intensidade com embalo
    (ganha em 0,5 s, perde em 1,4 s). **Só se joga com o corpo**: a prova não tem teclado, então o tracking
@@ -87,7 +89,7 @@ Tudo é local; nada é enviado a um servidor do jogo.
 ## Falta fazer
 
 1. Testar a prova de 100 m ao vivo, incluindo enquadramento e aquecimento.
-2. Barra de energia visível no aquecimento, com instrução quando ela não encher.
+2. Conferir ao vivo se a instrução do aquecimento aparece na hora certa para quem o jogo não entende.
 3. Testar com pelo menos três outras pessoas, com critério definido antes: a barra enche correndo, fica
    vazia parado, e correr forte é claramente mais rápido que correr leve.
 4. Opcional: avaliar em [UTD-MHAD](https://personal.utdallas.edu/~kehtar/UTD-MHAD.html) (8 pessoas,
