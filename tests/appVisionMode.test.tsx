@@ -76,7 +76,7 @@ it('switches the camera back to hand tracking when play exits to the games menu'
     expect(captures.handBegins).toBe(1);
 
     await act(async () => { container.querySelector<HTMLButtonElement>('.channel.sports')!.click(); });
-    await click('Start');
+    await click('Tênis'); // brings the card to the front
     await click('Tênis');
     await act(flush);
     expect(captures.gameProps).toBeDefined();
