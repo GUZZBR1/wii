@@ -46,8 +46,12 @@ const HELP_AFTER_S = 0.18;
 const HELP_BEFORE_S = 0.5;
 /** An opponent to rally with: it misses now and then, more under pressure. */
 const RALLY_AI = { ...DEFAULT_OPPONENT_AI_CONFIG, generosity: 0.45, qualityPressure: 0.2 };
-const TOSS_VY = 6.4; // apex ≈ 1.49 m above the release
+const TOSS_VY = 6.4;
 const SERVE_CONTACT_X_OFFSET = 0.35;
+/** The ball is held out at arm's length, clear of the body, as seen from behind. */
+const SERVE_HOLD_X_OFFSET = 0.85;
+/** Carries the toss over the head to the racket side by the top of its arc. */
+const TOSS_VX = (SERVE_HOLD_X_OFFSET + SERVE_CONTACT_X_OFFSET) / (TOSS_VY / 9.8); // apex ≈ 1.49 m above the release
 const SERVE_HOLD_HEIGHT = 1.15;
 /** The ball goes up by itself if no lifted hand is seen for this long. */
 const SERVE_HOLD_MS = 6000;
@@ -97,6 +101,7 @@ export class TennisGame {
   private swingDirection = 1;
   private serveStroke = false;
   private fastServe = false;
+  private serveView = 0;
   /** Last clear arm movement and when it was seen, for the last-moment help. */
   private armMotion?: ArmMotion & { atMs: number };
   private tutorial?: TennisTutorial;
@@ -298,7 +303,7 @@ export class TennisGame {
     const step = this.tutorial!.step;
     if (!lifted || !this.tutorial!.toss()) return;
     this.tossedWith = hand;
-    this.ball = createBall({ x: this.playerX - SERVE_CONTACT_X_OFFSET, y: SERVE_HOLD_HEIGHT, z: BASELINE_Z + 0.1 }, { x: 0, y: TOSS_VY, z: 0 }, 'player');
+    this.ball = createBall({ x: this.playerX - SERVE_HOLD_X_OFFSET, y: SERVE_HOLD_HEIGHT, z: BASELINE_Z + 0.25 }, { x: TOSS_VX, y: TOSS_VY, z: 0 }, 'player');
     this.setFeedback(step === 'serve' ? 'BATA!' : '✔ LANÇAMENTO', 'good');
     this.audio?.bounce(0.5);
     this.checkTutorialDone();
@@ -592,7 +597,7 @@ export class TennisGame {
 
   private tossBall(now: number): void {
     this.tossedWith = undefined;
-    const from = { x: this.playerX - SERVE_CONTACT_X_OFFSET, y: SERVE_HOLD_HEIGHT, z: BASELINE_Z + 0.1 };
+    const from = { x: this.playerX - SERVE_HOLD_X_OFFSET, y: SERVE_HOLD_HEIGHT, z: BASELINE_Z + 0.25 };
     // Held until a hand is lifted (setTossHand); thrown anyway after a while, so nobody gets stuck.
     this.ball = createBall({ ...from, y: SERVE_HOLD_HEIGHT }, { x: 0, y: 0, z: 0 }, 'player');
     this.tossAtMs = now + SERVE_HOLD_MS;
@@ -612,7 +617,7 @@ export class TennisGame {
     }
     if (this.phase.kind === 'player-serve') {
       if (now < this.tossAtMs) return;
-      if (this.ball.velocity.y === 0) this.ball = createBall(this.ball.position, { x: 0, y: TOSS_VY, z: 0 }, 'player');
+      if (this.ball.velocity.y === 0) this.ball = createBall(this.ball.position, { x: TOSS_VX, y: TOSS_VY, z: 0 }, 'player');
     }
     // Waiting to be struck, a fallen toss rests at knee height instead of bouncing about.
     if (this.phase.kind === 'player-serve' && this.ball.velocity.y < 0 && this.ball.position.y <= 0.6) return;
@@ -842,10 +847,14 @@ export class TennisGame {
     const opponentToss = this.phase.kind === 'opponent-serve' ? 'toss' : this.opponentServed && this.opponentSwingT < 1 ? 'strike' : undefined;
     this.opponent.animate(this.opponentStride, -this.opponentMotion, this.opponentSwingT, 1, 0, opponentToss);
     const portrait = Math.max(0, 1.35 - this.camera.aspect);
-    // Low and just behind the player, drifting with them, as in the console game.
+    // Low and just behind the player, drifting with them, as in the console game; it steps in closer
+    // for the player's own serve, so the ball in the hand and the toss can be read.
     const follow = this.playerX * 0.45;
-    this.camera.position.set(follow, 5.2 + portrait * 3, 16.2 + portrait * 8);
-    this.camera.lookAt(follow * 0.5, 0.2, 0);
+    const closeUp = this.phase.kind === 'player-serve' || (this.serveStroke && this.swingAnimT < 1);
+    this.serveView += ((closeUp ? 1 : 0) - this.serveView) * Math.min(1, dt * 4);
+    const blend = (rally: number, close: number) => rally + (close - rally) * this.serveView;
+    this.camera.position.set(blend(follow, this.playerX * 0.85), blend(5.2, 4.1) + portrait * 3, blend(16.2, 15.2) + portrait * 8);
+    this.camera.lookAt(blend(follow * 0.5, this.playerX * 0.6), blend(0.2, 0.5), blend(0, 3));
     const ball = this.ball;
     const incoming = ball && this.phase.kind === 'rally' && ball.lastHitter === 'opponent' && ball.velocity.z > 0.5;
     this.effects.timing(

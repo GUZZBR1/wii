@@ -110,8 +110,15 @@ export function createAthlete(shirt: number, facing: number) {
         racketHand.rotation.set(0, 0, 0);
         grip.rotation.set(0, 0, -1.1);
       }
-      if (serve === 'hold') freeHand.position.set(-0.36, 0.45, -0.38);
-      if (serve === 'toss') freeHand.position.set(-0.38, 1.3, -0.3);
+      // Ball held out to the side; the arm follows it up while the racket is cocked behind the head.
+      if (serve === 'hold') freeHand.position.set(-0.85, 0.42, -0.2);
+      if (serve === 'toss') {
+        freeHand.position.set(-0.62, 1.45, -0.2);
+        torso.rotation.set(0.18, -0.35, 0.12);
+        racketHand.position.set(0.7, 0.95, 0.15);
+        racketHand.rotation.set(0, 0, 0);
+        grip.rotation.set(0.25, 0, -0.5);
+      }
       swoosh.visible = swinging && serve !== 'strike';
       tint(direction);
       swooshPaint.opacity = 0.75 * Math.sin(Math.PI * swing);
