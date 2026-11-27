@@ -18,6 +18,13 @@ export interface TorsoVerticalSample {
 
 const MIN_TORSO_HEIGHT = 0.03;
 const MIN_SHOULDER_WIDTH = 0.02;
+/**
+ * Fast movement makes the tracker snap one shoulder onto the other for a frame: real recordings show
+ * the width falling from 0.28 to 0.01. Such a frame is dropped. A player who really turned or moved
+ * away stays narrow, so after this long the new width is believed.
+ */
+const BROKEN_WIDTH_RATIO = 0.6;
+const BROKEN_PATIENCE_MS = 400;
 const CORE_MIN_CONFIDENCE = 0.5;
 /** Shoulder width in aspect-corrected image space is ~0.583 of torso height in canonical posture. */
 const TORSO_TO_SHOULDER_RATIO = 0.4 / (0.14 * (1280 / 720));
@@ -51,6 +58,7 @@ export class TorsoVerticalChannel {
   private previousEnvTimeMs?: number;
   private previous?: { position: number; timeMs: number };
   private widthScale?: number;
+  private brokenSince?: number;
   private adaptiveFreezeStartedAt?: number;
 
   constructor(options: { baselineTauMs?: number } = {}) {
@@ -73,6 +81,13 @@ export class TorsoVerticalChannel {
       leftShoulder.x - rightShoulder.x,
       (leftShoulder.y - rightShoulder.y) * aspect,
     );
+
+    if (this.widthScale !== undefined && shoulderWidth < this.widthScale * BROKEN_WIDTH_RATIO) {
+      this.brokenSince ??= snapshot.timestampMs;
+      if (snapshot.timestampMs - this.brokenSince < BROKEN_PATIENCE_MS) return undefined;
+      this.widthScale = undefined;
+    }
+    this.brokenSince = undefined;
 
     const leftHip = l[23];
     const rightHip = l[24];
@@ -167,7 +182,7 @@ export class TorsoVerticalChannel {
     this.sustainedAmplitudeMeanAbs = undefined;
     this.previousEnvTimeMs = undefined;
     this.previous = undefined;
-    this.widthScale = undefined;
+    this.widthScale = this.brokenSince = undefined;
     this.adaptiveFreezeStartedAt = undefined;
   }
 }

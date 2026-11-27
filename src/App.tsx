@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { CalibrationProfile, SportActionEvent } from './cv/protocol';
+import type { CalibrationProfile, PoseSnapshot, SportActionEvent } from './cv/protocol';
 import { HandClient } from './cv/handClient';
 import { AdaptiveCalibrator } from './cv/adaptiveCalibrator';
 import { observeEarlyRejection } from './cv/observeEarlyRejection';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
-import { downloadRecording, PoseRecorder } from './cv/poseRecorder';
+import { downloadRecording, PoseRecorder, rememberFrame } from './cv/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
 import { HeadWarning } from './kinematics/framing';
 import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
@@ -80,6 +80,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const audioRef = useRef(new ProceduralAudio());
   const cameraAttemptRef = useRef(0);
   const poseFramesRef = useRef(0);
+  const recentFramesRef = useRef<PoseSnapshot[]>([]);
   const headWarningRef = useRef(new HeadWarning());
   const [showPerf] = useState(() => new URLSearchParams(window.location.search).has('fps'));
   /** Diagnostic recording: owned here, fed by onPose, ended by the script, G or the camera stopping. */
@@ -125,6 +126,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     setRecordingPrompt(undefined);
     setHeadCut(false);
     headWarningRef.current.reset();
+    recentFramesRef.current = [];
     poseClientRef.current?.pauseCapture();
     handClientRef.current?.pauseCapture();
     streamRef.current?.getTracks().forEach((track) => { track.stop(); });
@@ -162,6 +164,11 @@ export default function App({ exit }: { exit?: ReactNode }) {
   useEffect(() => {
     if (screen !== 'play' || sport !== 'track' || !cameraOn) return;
     const toggle = (event: KeyboardEvent) => {
+      const delegate = poseClientRef.current?.delegate;
+      if (event.key.toLowerCase() === 'e' && !event.repeat && delegate && recentFramesRef.current.length) {
+        void downloadRecording(new PoseRecorder(recentFramesRef.current), delegate, 'erro').catch(() => setCameraStatus('Não foi possível salvar o trecho.'));
+        return;
+      }
       if (event.key.toLowerCase() !== 'g' || event.repeat) return;
       if (recorderRef.current) { finishRecording(); return; }
       for (const stop of pipelineRef.current.reset()) dispatchEvent(stop);
@@ -189,6 +196,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     },
     onPose: (raw) => {
       poseFramesRef.current += 1;
+      rememberFrame(recentFramesRef.current, raw);
       if (recorderRef.current) {
         const current = recorderRef.current.push(raw);
         if (current) setRecordingPrompt(`${current.segment.prompt} · ${Math.ceil(current.remainingMs / 1000)}`);

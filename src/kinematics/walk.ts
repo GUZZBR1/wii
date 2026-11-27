@@ -16,8 +16,11 @@ const MIN_INTERVALS = 3;
 /** Landmark jitter turns constantly and at random; smoothing removes it, and real steps are alike. */
 const SMOOTHING_MS = 120;
 const MAX_GAP_CHANGE = 0.4;
-/** More vertical spread than this (over one second) is running or jumping. */
-const MAX_VERTICAL_SW = 0.025;
+/**
+ * More vertical spread of the head than this (over one second) is running or jumping. The head, not
+ * the shoulders: swinging the arms high while walking hoists the shoulders and left the head quiet.
+ */
+const MAX_VERTICAL_SW = 0.045;
 const VERTICAL_WINDOW_MS = 1000;
 
 type Point = { t: number; x: number };
@@ -35,7 +38,7 @@ export class WalkDetector {
   private lastGap?: number;
   private vertical: { t: number; y: number }[] = [];
 
-  /** `x` and `y` locate the shoulder midpoint, in the same units as the shoulder width. */
+  /** `x` is the shoulder midpoint and `y` the head (or shoulders), in the shoulder width's units. */
   update(t: number, x: number, y: number, width: number): Walk {
     this.vertical = [...this.vertical.filter((sample) => t - sample.t <= VERTICAL_WINDOW_MS), { t, y }];
     const mean = this.vertical.reduce((sum, sample) => sum + sample.y, 0) / this.vertical.length;

@@ -17,6 +17,8 @@ const HOLD_MS = 300;
  * (2%, the fallback if other people lose their run), and the lowest running windows sat near 0.71.
  */
 const MIN_HEAD_RATIO = 0.65;
+/** Running heads measured 0.054–0.097; walking with big arm swings stayed under 0.028 at its p90. */
+const MIN_HEAD_SPREAD_SW = 0.035;
 /** A jump passes through running-sized bounces on its way up; only a run stays there. */
 const SUSTAIN_MS = 200;
 /** A noisy frame or two does not restart the wait. */
@@ -75,7 +77,7 @@ export class BounceDetector {
     const h = detrend(times, this.samples.map((sample) => sample.head));
     const headSpread = Math.sqrt(h.reduce((sum, value) => sum + value * value, 0) / h.length) / width;
     // A head that cannot be read (NaN) does not veto: the shoulders still decide.
-    const candidate = !(headSpread < spread * MIN_HEAD_RATIO) && spread >= MIN_SPREAD_SW && together >= MIN_TOGETHER && moved(recent) / width >= QUIET_SPREAD_SW;
+    const candidate = !(headSpread < MIN_HEAD_SPREAD_SW) && !(headSpread < spread * MIN_HEAD_RATIO) && spread >= MIN_SPREAD_SW && together >= MIN_TOGETHER && moved(recent) / width >= QUIET_SPREAD_SW;
     if (candidate) {
       if (this.candidateSince === undefined || t - this.candidateAt > CANDIDATE_GAP_MS) this.candidateSince = t;
       this.candidateAt = t;

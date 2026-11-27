@@ -74,7 +74,8 @@ export class CadenceTracker {
         }
       }
       const { left, right, width, x } = sample.shoulders;
-      const walk = this.walk.update(sample.timestampMs, x, (left + right) / 2, width);
+      const { head } = sample.shoulders;
+      const walk = this.walk.update(sample.timestampMs, x, Number.isFinite(head) ? head : (left + right) / 2, width);
       this.walking = walk.walking;
       if (walk.walking && walk.spm > 0) {
         const spm = Math.min(MAX_WALK_SPM, Math.max(MIN_WALK_SPM, walk.spm));

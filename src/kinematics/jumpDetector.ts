@@ -24,7 +24,7 @@ const GROUND_PERCENTILE = 0.9;
 const LANDED_RISE_SW = 0.2;
 const PEAK_WINDOW_MS = 450;
 /** The head must rise too: lifting the arms hoists the shoulders under a head that stays put. */
-const HEAD_RISE_RATIO = 0.5;
+const HEAD_RISE_RATIO = 0.3;
 
 export class JumpDetector {
   private samples: TorsoVerticalSample[] = [];

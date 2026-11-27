@@ -1,7 +1,7 @@
 import { parsePoseRecording } from '@wii/spatial-core';
 import { describe, expect, it } from 'vitest';
 import { segmentAt, TRACK_RECORDING_SCRIPT } from '../src/cv/recordingScript';
-import { PoseRecorder } from '../src/cv/poseRecorder';
+import { PoseRecorder, rememberFrame } from '../src/cv/poseRecorder';
 import { replayTrack, summarize } from './fixtures/replayTrack';
 import { pose } from './fixtures/syntheticPose';
 
@@ -24,6 +24,8 @@ const FLOORS: Record<string, Floor> = {
   'corrida-CPU-1795735134733': { run: 95, arms: 3, side: 5, stop: 5 },
   'corrida-CPU-1795736477645': { run: 95, arms: 3, side: 5, stop: 5, runJump: 90, walk: 75 },
   'corrida-CPU-1795738782805': { run: 95, arms: 3, side: 5, stop: 5, runJump: 90, walk: 75 },
+  // Big arm swings while walking and broken skeleton frames: the hardest one so far.
+  'corrida-CPU-1795739257223': { run: 95, arms: 8, side: 5, stop: 8, runJump: 70, walk: 60 },
   // Badly framed (see above): kept to notice changes, not as a target.
   'corrida-GPU-1795733551309': { run: 20, arms: 3, side: 5, stop: 5 },
 };
@@ -35,6 +37,13 @@ describe('recording script and replay', () => {
     expect(recorder.push(pose(5000 + SCRIPT_MS))).toBeUndefined();
     expect(recorder.frameCount).toBe(SCRIPT_MS / 100);
     expect(segmentAt(0)?.segment.kind).toBe('warmup');
+  });
+
+  it('remembers only the last twenty seconds for a mistake clip', () => {
+    const recent: ReturnType<typeof pose>[] = [];
+    for (let time = 0; time <= 60_000; time += 500) rememberFrame(recent, pose(time));
+    expect(recent[0]!.timestampMs).toBe(40_000);
+    expect(recent.at(-1)!.timestampMs).toBe(60_000);
   });
 
   it('scores a motionless player as motionless in every segment', () => {
