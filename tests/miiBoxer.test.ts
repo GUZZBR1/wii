@@ -216,6 +216,19 @@ describe('createMiiBoxer', () => {
     expect(poseDifference(snapshotPose(early.root), snapshotPose(late.root))).toBeGreaterThan(0.5);
   });
 
+  it('adds subtle deterministic leg and trunk motion for footwork input', () => {
+    const boxer = createMiiBoxer();
+    boxer.animate(0.4);
+    const planted = snapshotPose(boxer.root);
+
+    boxer.animate(0.4, { speed01: 1, forward: 1, strafe: 1 });
+    const moving = snapshotPose(boxer.root);
+    expect(poseDifference(planted, moving)).toBeGreaterThan(0.05);
+
+    boxer.animate(0.4);
+    expect(snapshotPose(boxer.root)).toEqual(planted);
+  });
+
   it('rejects non-finite animation times', () => {
     const boxer = createMiiBoxer();
     expect(() => boxer.animate(Number.NaN)).toThrow(TypeError);

@@ -58,6 +58,15 @@ export interface MiiBoxerOptions {
   shoeColor?: THREE.ColorRepresentation;
 }
 
+export interface MiiBoxerFootwork {
+  /** Horizontal displacement speed, clamped to 0..1. Zero plants the feet. */
+  speed01?: number;
+  /** Signed forward/backward component, clamped to -1..1. Positive closes in. */
+  forward?: number;
+  /** Signed circling component, clamped to -1..1. Positive moves to the boxer's right. */
+  strafe?: number;
+}
+
 export interface MiiBoxer {
   /**
    * Faces local -Z. The owner controls position and heading; the boxer controls the internal
@@ -76,9 +85,11 @@ export interface MiiBoxer {
   /**
    * Poses the boxer for an explicit, normally monotonic clock in seconds. No wall-clock timers
    * are read; repeating the same sequence of `setState`/`animate` calls gives the same pose.
+   * Footwork is sampled as a pose like the rest of the input: it adds a small leg/trunk stride
+   * without accumulating state inside the boxer.
    * @throws TypeError when `timeSeconds` is not finite.
    */
-  animate(timeSeconds: number): void;
+  animate(timeSeconds: number, footwork?: MiiBoxerFootwork): void;
 }
 
 export interface FirstPersonGlovesInput {
@@ -332,6 +343,29 @@ function addPoseOffsets(pose: BoxerPose, offsets: Partial<BoxerPose>): BoxerPose
   return pose;
 }
 
+function clampSignedUnit(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value)) return 0;
+  return Math.max(-1, Math.min(1, value));
+}
+
+function withFootwork(pose: BoxerPose, timeSeconds: number, footwork: MiiBoxerFootwork | undefined): BoxerPose {
+  const speed01 = footwork?.speed01 === undefined || !Number.isFinite(footwork.speed01) ? 0 : clamp01(footwork.speed01);
+  if (speed01 === 0) return pose;
+  const forward = clampSignedUnit(footwork?.forward);
+  const strafe = clampSignedUnit(footwork?.strafe);
+  const stride = Math.sin(timeSeconds * 8.4) * speed01;
+  const lift = Math.abs(Math.cos(timeSeconds * 8.4)) * speed01;
+  return addPoseOffsets(copyPose(pose), {
+    bodyY: lift * 0.015,
+    bodyRotX: forward * speed01 * 0.045,
+    bodyRotZ: strafe * speed01 * 0.06,
+    leftHipX: stride * 0.24,
+    rightHipX: -stride * 0.24,
+    leftKneeX: -Math.max(0, -stride) * 0.18,
+    rightKneeX: -Math.max(0, stride) * 0.18,
+  });
+}
+
 function pulse01(time: number, attackEnd: number, holdEnd: number, releaseEnd: number): number {
   if (time < attackEnd) return smooth01(time / attackEnd);
   if (time < holdEnd) return 1;
@@ -536,13 +570,13 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
       state = nextState;
       stateStartedAt = currentTime;
     },
-    animate(timeSeconds) {
+    animate(timeSeconds, footwork) {
       requireFiniteTime(timeSeconds);
       currentTime = timeSeconds;
       const target = poseForState(state, Math.max(0, timeSeconds - stateStartedAt));
       const transition = smooth01((timeSeconds - transitionStartedAt) / TRANSITION_SECONDS[state]);
       currentPose = mixPose(transitionFrom, target, transition);
-      applyPose(currentPose);
+      applyPose(withFootwork(currentPose, timeSeconds, footwork));
     },
   };
 }
