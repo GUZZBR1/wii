@@ -1,7 +1,7 @@
 import { parsePoseRecording } from '@wii/spatial-core';
 import { describe, expect, it } from 'vitest';
-import { segmentAt, TRACK_RECORDING_SCRIPT } from '../src/cv/recordingScript';
-import { PoseRecorder, rememberFrame } from '../src/cv/poseRecorder';
+import { segmentAt, TRACK_RECORDING_SCRIPT } from '../src/cv/diagnostics/recordingScript';
+import { PoseRecorder, rememberFrame } from '../src/cv/diagnostics/poseRecorder';
 import { replayTrack, summarize } from './fixtures/replayTrack';
 import { pose } from './fixtures/syntheticPose';
 

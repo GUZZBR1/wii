@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { diagnosticsEnabled, preferredDelegate } from '../src/cv/delegate';
+import { preferredDelegate } from '../src/cv/delegate';
+import { diagnosticsEnabled } from '../src/cv/diagnostics/flags';
 
 describe('vision delegate', () => {
   it('defaults to the CPU and only uses the GPU when asked', () => {

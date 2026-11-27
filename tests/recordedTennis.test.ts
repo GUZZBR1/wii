@@ -2,7 +2,7 @@ import { parsePoseRecording } from '@wii/spatial-core';
 import { describe, expect, it } from 'vitest';
 import { AdaptiveCalibrator } from '../src/cv/adaptiveCalibrator';
 import type { CalibrationProfile, PoseSnapshot } from '../src/cv/protocol';
-import { segmentAt, TENNIS_RECORDING_SCRIPT } from '../src/cv/recordingScript';
+import { segmentAt, TENNIS_RECORDING_SCRIPT } from '../src/cv/diagnostics/recordingScript';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
 import { pose } from './fixtures/syntheticPose';
 

@@ -1,6 +1,6 @@
 import { AdaptiveCalibrator } from '../../src/cv/adaptiveCalibrator';
 import type { CalibrationProfile, PoseSnapshot } from '../../src/cv/protocol';
-import { segmentAt, TRACK_RECORDING_SCRIPT, type SegmentKind } from '../../src/cv/recordingScript';
+import { segmentAt, TRACK_RECORDING_SCRIPT, type SegmentKind } from '../../src/cv/diagnostics/recordingScript';
 import { ActionPipeline } from '../../src/kinematics/actionPipeline';
 
 export interface SegmentScore {

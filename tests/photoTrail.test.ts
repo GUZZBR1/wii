@@ -1,7 +1,7 @@
 import { parsePoseRecording } from '@wii/spatial-core';
 import { describe, expect, it } from 'vitest';
-import { PhotoTrail } from '../src/cv/photoTrail';
-import { PoseRecorder } from '../src/cv/poseRecorder';
+import { PhotoTrail } from '../src/cv/diagnostics/photoTrail';
+import { PoseRecorder } from '../src/cv/diagnostics/poseRecorder';
 import { pose } from './fixtures/syntheticPose';
 
 describe('photo trail of a mistake clip', () => {
