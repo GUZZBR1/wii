@@ -30,6 +30,9 @@ export function pose(timestampMs: number, options: {
   points[28] = { ...points[28]!, x: 0.54, y: hipY + 0.4 };
   points[15] = { ...points[15]!, x: 0.39 - shift, y: hipY - 0.12 };
   points[16] = { ...points[16]!, x: 0.61 - shift, y: hipY - 0.12 };
+  // The same wrist motion in the image, exaggerated so that 0.3 reads as a full stroke (two shoulder widths).
+  points[15] = { ...points[15]!, x: points[15]!.x - (options.leftWristLateral ?? 0) };
+  points[16] = { ...points[16]!, x: points[16]!.x - (options.wristLateral ?? 0), y: points[16]!.y - (options.wristVertical ?? 0) * 0.62 };
   options.hiddenLandmarks?.forEach((index) => {
     if (points[index]) points[index] = { ...points[index]!, visibility: 0, presence: 0 };
   });

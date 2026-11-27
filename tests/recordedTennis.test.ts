@@ -45,10 +45,40 @@ const recordings = Object.entries(import.meta.glob<string>([
   '!./recordings/tenis-erro-*.json',
 ], { query: '?raw', import: 'default', eager: true }));
 
+/**
+ * Strokes seen in the wrist trace of each recording (seconds from the first frame). The player did
+ * not keep to the script's one-per-window, so the floor is the trace, not the script.
+ */
+const STROKES: Record<string, { forehand: number[]; backhand: number[] }> = {
+  './recordings/tenis-CPU-1795786091987.json': {
+    forehand: [7, 9, 11, 12.6, 14.3, 15.9, 17.3, 19.6],
+    backhand: [23.7, 25.5, 27.7, 29.4],
+  },
+};
+
 describe.skipIf(recordings.length === 0)('tennis recording diagnostics', () => {
   it.each(recordings)('%s', (_name, raw) => {
     const { frames } = parsePoseRecording(raw);
     expect(frames.length).toBeGreaterThan(0);
     console.table(replay(frames.map(({ snapshot }) => snapshot)));
+  });
+
+  it.each(recordings.filter(([name]) => STROKES[name]))('%s: reads exactly the strokes in the trace', (name, raw) => {
+    const { frames } = parsePoseRecording(raw);
+    const pipeline = new ActionPipeline();
+    const calibrator = new AdaptiveCalibrator();
+    let profile: CalibrationProfile | undefined;
+    const found: { side: string; at: number }[] = [];
+    for (const { snapshot } of frames) {
+      profile = calibrator.update(snapshot, pipeline.laneZone) ?? profile;
+      for (const event of pipeline.update(snapshot, profile).events) {
+        if (event.type === 'swing') found.push({ side: event.side, at: (snapshot.timestampMs - frames[0]!.snapshot.timestampMs) / 1000 });
+      }
+    }
+    for (const side of ['forehand', 'backhand'] as const) {
+      const times = found.filter((stroke) => stroke.side === side).map(({ at }) => at);
+      expect(times).toHaveLength(STROKES[name]![side].length);
+      STROKES[name]![side].forEach((expected, i) => { expect(Math.abs(times[i]! - expected)).toBeLessThan(0.5); });
+    }
   });
 });

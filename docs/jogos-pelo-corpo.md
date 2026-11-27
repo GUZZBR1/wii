@@ -88,9 +88,18 @@ Neste estado:
 - tenistas com a paleta e as proporções do Mii (`athlete.ts`);
 - reinício pelas mãos.
 
-**O detector de raquetada ainda não foi testado com gravações reais.** O roteiro existe (G no tênis:
-forehands, backhands, preparar sem bater, tirar o pulso do quadro) e o teste
-`tests/recordedTennis.test.ts` está pronto para elas.
+### Detector de raquetada (`src/kinematics/swingDetector.ts`)
+
+Um golpe é o pulso **percorrer muito, de lado, em pouco tempo**: pelo menos 1,7 largura de ombro em
+200 ms, medido na imagem em relação ao meio dos ombros. A largura usada como régua só diminui devagar,
+porque o tronco girando faz os ombros "encolherem". A volta do braço no sentido contrário é ignorada
+por 0,7 s.
+
+Na primeira gravação real, o detector anterior (eixos presos aos ombros e espera por uma pose de
+repouso) não reconheceu **nenhum dos 3 forehands** do roteiro. O atual lê os 12 golpes rápidos visíveis
+no traçado do pulso, cada um para o lado certo, e nada na volta do braço nem com o pulso fora do quadro;
+qualquer limite de 1,6 a 2,0 dá o mesmo resultado. **É uma gravação de uma pessoa**, e quem bate com
+suavidade pode não ser reconhecido.
 
 ## 5. Peças compartilhadas
 
@@ -135,7 +144,7 @@ não reiniciar nada sem querer.
 ## 9. Falta fazer
 
 1. Uma prova e uma partida completas na câmera, sem tocar no computador.
-2. Gravar o tênis e ajustar o detector de raquetada com essas gravações.
+2. Mais gravações de tênis (outra pessoa, golpes suaves, canhoto).
 3. Pelo menos três outras pessoas, com critério definido antes: a barra enche correndo, fica vazia
    parado, correr forte é claramente mais rápido que correr leve, e as rebatidas são reconhecidas.
 4. Voltar ao menu com um gesto.

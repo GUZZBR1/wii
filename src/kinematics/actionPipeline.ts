@@ -134,8 +134,7 @@ export class ActionPipeline {
       const swingLandmarks = worldHipsVisible ? [11, 12, 23, 24, wrist] : [11, 12, wrist];
       const tracking = gate.evaluate(snapshot, swingLandmarks, 'world');
       if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
-      else if (tracking.state === 'degraded') detector.interruptRearm();
-      const output = calibration && swingScaleReady && tracking.state === 'tracked' ? detector.update(current, calibration) : undefined;
+      const output = swingScaleReady && tracking.state === 'tracked' ? detector.update(current) : undefined;
       // The onset bypasses arbitration and the refractory on purpose: it is the real-time,
       // unconfirmed channel — the game's cue to start the stroke animation now, not proof of a hit.
       if (output?.kind === 'onset') {
