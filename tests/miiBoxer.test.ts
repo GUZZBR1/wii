@@ -108,6 +108,7 @@ describe('createMiiBoxer', () => {
       guard: 0.5,
       windup: 0.5,
       punch: 0.12,
+      recover: 0.5,
       hit: 0.1,
       dizzy: 0.5,
       knockdown: 0.8,
@@ -225,8 +226,85 @@ describe('createMiiBoxer', () => {
     const moving = snapshotPose(boxer.root);
     expect(poseDifference(planted, moving)).toBeGreaterThan(0.05);
 
-    boxer.animate(0.4);
-    expect(snapshotPose(boxer.root)).toEqual(planted);
+    // The stride fades with elapsed time; once faded it matches a boxer that never moved.
+    boxer.animate(2);
+    const still = createMiiBoxer();
+    still.animate(0.4);
+    still.animate(2);
+    expect(snapshotPose(boxer.root)).toEqual(snapshotPose(still.root));
+  });
+
+  it('damps the footwork instead of snapping the legs when the boxer stops', () => {
+    const run = (stopped: number) => {
+      const boxer = createMiiBoxer();
+      const still = createMiiBoxer();
+      boxer.animate(1, { speed01: 1, forward: 1, strafe: 1 });
+      still.animate(1);
+      boxer.animate(1 + stopped);
+      still.animate(1 + stopped);
+      return {
+        pose: snapshotPose(boxer.root),
+        leftover: Math.abs(
+          named(boxer.root, 'mii-boxer-left-hip').rotation.x - named(still.root, 'mii-boxer-left-hip').rotation.x,
+        ),
+      };
+    };
+    expect(run(1 / 60).leftover).toBeGreaterThan(0.05);
+    expect(run(1).leftover).toBe(0);
+    expect(run(1 / 60).pose).toEqual(run(1 / 60).pose);
+  });
+
+  it.each([
+    ['windup', 0.5],
+    ['punch', 0.12],
+  ] as const)('mirrors the %s arms for the left hand', (state, time) => {
+    const pose = (hand: 'left' | 'right') => {
+      const boxer = createMiiBoxer();
+      boxer.animate(0);
+      boxer.setState(state, hand);
+      // Past the blend from idle.
+      boxer.animate(time);
+      if (state === 'windup') boxer.animate(time);
+      return boxer;
+    };
+    const right = pose('right');
+    const left = pose('left');
+    for (const joint of ['shoulder', 'elbow'] as const) {
+      const thrown = named(right.root, `mii-boxer-right-${joint}`).rotation;
+      const mirrored = named(left.root, `mii-boxer-left-${joint}`).rotation;
+      expect(mirrored.x).toBeCloseTo(thrown.x);
+      expect(mirrored.y).toBeCloseTo(-thrown.y);
+      expect(mirrored.z).toBeCloseTo(-thrown.z);
+    }
+    expect(named(left.root, 'mii-boxer-body').rotation.y).toBeCloseTo(-named(right.root, 'mii-boxer-body').rotation.y);
+    expect(named(left.root, 'mii-boxer-left-hip').rotation.x).toBeCloseTo(
+      named(right.root, 'mii-boxer-left-hip').rotation.x,
+    );
+  });
+
+  it('restarts a punch for the other hand but not for the same one', () => {
+    const boxer = createMiiBoxer();
+    boxer.animate(0);
+    boxer.setState('punch');
+    boxer.animate(0.12);
+    const extended = glovePoint(boxer, 'right').z;
+    boxer.setState('punch', 'right');
+    boxer.animate(1);
+    expect(glovePoint(boxer, 'right').z).toBeGreaterThan(extended + 0.2);
+    const restingLeft = glovePoint(boxer, 'left').z;
+    boxer.setState('punch', 'left');
+    boxer.animate(1.12);
+    expect(glovePoint(boxer, 'left').z).toBeLessThan(restingLeft - 0.2);
+  });
+
+  it('opens the guard while recovering', () => {
+    const guard = boxerIn('guard', 0.5);
+    const recover = boxerIn('recover', 0.5);
+    for (const side of ['left', 'right'] as const) {
+      expect(glovePoint(recover, side).y).toBeLessThan(glovePoint(guard, side).y - 0.05);
+    }
+    const spread = (boxer: MiiBoxer) => glovePoint(boxer, 'right').x - glovePoint(boxer, 'left').x;
+    expect(spread(recover)).toBeGreaterThan(spread(guard) + 0.1);
   });
 
   it('rejects non-finite animation times', () => {
@@ -309,7 +387,10 @@ describe('first-person gloves framing', () => {
     for (const mesh of meshesIn(gloves.root)) {
       const position = mesh.geometry.getAttribute('position');
       for (let index = 0; index < position.count; index += 1) {
-        const point = new THREE.Vector3().fromBufferAttribute(position, index).applyMatrix4(mesh.matrixWorld).project(camera);
+        const point = new THREE.Vector3()
+          .fromBufferAttribute(position, index)
+          .applyMatrix4(mesh.matrixWorld)
+          .project(camera);
         expect(point.y).toBeLessThan(-0.3);
         expect(Math.abs(point.x)).toBeGreaterThan(0.2);
       }

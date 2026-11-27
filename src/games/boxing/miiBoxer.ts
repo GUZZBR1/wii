@@ -47,7 +47,8 @@ const POSE_KEYS = [
 type PoseKey = (typeof POSE_KEYS)[number];
 type BoxerPose = Record<PoseKey, number>;
 
-export type MiiBoxerState = 'idle' | 'guard' | 'windup' | 'punch' | 'hit' | 'dizzy' | 'knockdown' | 'getup';
+export type MiiBoxerState = 'idle' | 'guard' | 'windup' | 'punch' | 'recover' | 'hit' | 'dizzy' | 'knockdown' | 'getup';
+type MiiBoxerHand = 'left' | 'right';
 
 export interface MiiBoxerOptions {
   shirtColor?: THREE.ColorRepresentation;
@@ -76,17 +77,17 @@ export interface MiiBoxer {
   /**
    * Selects the next animation state. The transition starts at the boxer's internal clock: the
    * latest time passed to `animate`, or zero for a newly created boxer. Re-selecting the current
-   * state is a no-op, so per-frame state broadcasts do not restart one-shot motions. `punch`
+   * state and hand is a no-op, so per-frame state broadcasts do not restart one-shot motions. `punch`
    * extends and retracts over 0.34 s, `hit` settles over 0.5 s, `knockdown` falls over 0.55 s and
    * `getup` recovers over about 1.35 s, all measured from state entry; the other states loop until
-   * replaced. The boxer throws with the right hand.
+   * replaced. `hand` picks the arm for `windup` and `punch`.
    */
-  setState(state: MiiBoxerState): void;
+  setState(state: MiiBoxerState, hand?: MiiBoxerHand): void;
   /**
    * Poses the boxer for an explicit, normally monotonic clock in seconds. No wall-clock timers
    * are read; repeating the same sequence of `setState`/`animate` calls gives the same pose.
-   * Footwork is sampled as a pose like the rest of the input: it adds a small leg/trunk stride
-   * without accumulating state inside the boxer.
+   * Footwork adds a small leg/trunk stride. It starts at once and, when the input slows or stops,
+   * fades out over the time between `animate` calls instead of snapping the legs.
    * @throws TypeError when `timeSeconds` is not finite.
    */
   animate(timeSeconds: number, footwork?: MiiBoxerFootwork): void;
@@ -187,6 +188,24 @@ const PUNCH_EXTENDED_POSE: BoxerPose = {
   rightElbowX: 0.16,
   rightElbowY: 0,
   rightElbowZ: 0,
+};
+
+/** Off balance after a punch: gloves low and wide, knees soft. */
+const RECOVER_POSE: BoxerPose = {
+  ...GUARD_POSE,
+  bodyY: -0.07,
+  bodyRotX: -0.18,
+  bodyRotY: -0.04,
+  leftHipZ: -0.12,
+  leftKneeX: -0.46,
+  rightHipZ: 0.12,
+  rightKneeX: -0.42,
+  leftShoulderX: 0.34,
+  leftShoulderZ: -0.42,
+  leftElbowX: 0.9,
+  rightShoulderX: 0.3,
+  rightShoulderZ: 0.42,
+  rightElbowX: 0.86,
 };
 
 const HIT_IMPACT_POSE: BoxerPose = {
@@ -312,6 +331,7 @@ const TRANSITION_SECONDS: Record<MiiBoxerState, number> = {
   guard: 0.16,
   windup: 0.14,
   punch: 0.05,
+  recover: 0.18,
   hit: 0.08,
   dizzy: 0.22,
   knockdown: 0.1,
@@ -338,6 +358,27 @@ function mixPose(from: BoxerPose, to: BoxerPose, amount01: number): BoxerPose {
   return mixed;
 }
 
+/** Swaps the arms and the trunk twist; the stance, and so the legs, stays as it is. */
+function mirrorUpperBody(pose: BoxerPose): BoxerPose {
+  return {
+    ...pose,
+    bodyRotY: -pose.bodyRotY,
+    bodyRotZ: -pose.bodyRotZ,
+    leftShoulderX: pose.rightShoulderX,
+    leftShoulderY: -pose.rightShoulderY,
+    leftShoulderZ: -pose.rightShoulderZ,
+    leftElbowX: pose.rightElbowX,
+    leftElbowY: -pose.rightElbowY,
+    leftElbowZ: -pose.rightElbowZ,
+    rightShoulderX: pose.leftShoulderX,
+    rightShoulderY: -pose.leftShoulderY,
+    rightShoulderZ: -pose.leftShoulderZ,
+    rightElbowX: pose.leftElbowX,
+    rightElbowY: -pose.leftElbowY,
+    rightElbowZ: -pose.leftElbowZ,
+  };
+}
+
 function addPoseOffsets(pose: BoxerPose, offsets: Partial<BoxerPose>): BoxerPose {
   for (const key of POSE_KEYS) pose[key] += offsets[key] ?? 0;
   return pose;
@@ -348,11 +389,29 @@ function clampSignedUnit(value: number | undefined): number {
   return Math.max(-1, Math.min(1, value));
 }
 
-function withFootwork(pose: BoxerPose, timeSeconds: number, footwork: MiiBoxerFootwork | undefined): BoxerPose {
+/** Time constant of the footwork fade-out. */
+const FOOTWORK_RELEASE_S = 0.09;
+
+interface Stride {
+  speed01: number;
+  forward: number;
+  strafe: number;
+}
+
+/** Rises with the input at once; fades toward a slower input, keeping the last heading once stopped. */
+function stepStride(stride: Stride, dtS: number, footwork: MiiBoxerFootwork | undefined): Stride {
   const speed01 = footwork?.speed01 === undefined || !Number.isFinite(footwork.speed01) ? 0 : clamp01(footwork.speed01);
+  let amount = speed01;
+  if (speed01 < stride.speed01) {
+    amount = speed01 + (stride.speed01 - speed01) * Math.exp(-dtS / FOOTWORK_RELEASE_S);
+    if (amount < 1e-3) amount = 0;
+  }
+  if (speed01 === 0) return { ...stride, speed01: amount };
+  return { speed01: amount, forward: clampSignedUnit(footwork?.forward), strafe: clampSignedUnit(footwork?.strafe) };
+}
+
+function withFootwork(pose: BoxerPose, timeSeconds: number, { speed01, forward, strafe }: Stride): BoxerPose {
   if (speed01 === 0) return pose;
-  const forward = clampSignedUnit(footwork?.forward);
-  const strafe = clampSignedUnit(footwork?.strafe);
   const stride = Math.sin(timeSeconds * 8.4) * speed01;
   const lift = Math.abs(Math.cos(timeSeconds * 8.4)) * speed01;
   return addPoseOffsets(copyPose(pose), {
@@ -373,7 +432,7 @@ function pulse01(time: number, attackEnd: number, holdEnd: number, releaseEnd: n
   return 0;
 }
 
-function poseForState(state: MiiBoxerState, stateTime: number): BoxerPose {
+function poseForState(state: MiiBoxerState, stateTime: number, hand: MiiBoxerHand): BoxerPose {
   if (state === 'idle') {
     return addPoseOffsets(copyPose(IDLE_POSE), {
       bodyY: Math.sin(stateTime * 2.1) * 0.012,
@@ -391,14 +450,23 @@ function poseForState(state: MiiBoxerState, stateTime: number): BoxerPose {
     });
   }
   if (state === 'windup') {
-    return addPoseOffsets(copyPose(WINDUP_POSE), {
+    const pose = addPoseOffsets(copyPose(WINDUP_POSE), {
       bodyRotY: Math.sin(stateTime * 3.1) * 0.025,
       rightElbowX: Math.sin(stateTime * 3.1 + 0.8) * 0.05,
     });
+    return hand === 'left' ? mirrorUpperBody(pose) : pose;
   }
   if (state === 'punch') {
     const extension = pulse01(stateTime, 0.09, 0.16, 0.34);
-    return mixPose(GUARD_POSE, PUNCH_EXTENDED_POSE, extension);
+    return mixPose(GUARD_POSE, hand === 'left' ? mirrorUpperBody(PUNCH_EXTENDED_POSE) : PUNCH_EXTENDED_POSE, extension);
+  }
+  if (state === 'recover') {
+    const balance = Math.sin(stateTime * 5.2);
+    return addPoseOffsets(copyPose(RECOVER_POSE), {
+      bodyRotZ: balance * 0.035,
+      leftShoulderZ: balance * -0.04,
+      rightShoulderZ: balance * -0.04,
+    });
   }
   if (state === 'hit') {
     const recovery = smooth01(stateTime / 0.5);
@@ -542,9 +610,12 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
   const right = limbs[1]!;
   let currentTime = 0;
   let state: MiiBoxerState = 'idle';
+  let stateHand: MiiBoxerHand = 'right';
+  let stride: Stride = { speed01: 0, forward: 0, strafe: 0 };
+  let animatedAt: number | undefined;
   let stateStartedAt = 0;
   let transitionStartedAt = 0;
-  const initialPose = poseForState('idle', 0);
+  const initialPose = poseForState('idle', 0, 'right');
   let transitionFrom = copyPose(initialPose);
   let currentPose = copyPose(initialPose);
 
@@ -563,8 +634,9 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
 
   return {
     root,
-    setState(nextState) {
-      if (nextState === state) return;
+    setState(nextState, hand = 'right') {
+      if (nextState === state && hand === stateHand) return;
+      stateHand = hand;
       transitionFrom = copyPose(currentPose);
       transitionStartedAt = currentTime;
       state = nextState;
@@ -573,10 +645,12 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
     animate(timeSeconds, footwork) {
       requireFiniteTime(timeSeconds);
       currentTime = timeSeconds;
-      const target = poseForState(state, Math.max(0, timeSeconds - stateStartedAt));
+      const target = poseForState(state, Math.max(0, timeSeconds - stateStartedAt), stateHand);
       const transition = smooth01((timeSeconds - transitionStartedAt) / TRANSITION_SECONDS[state]);
       currentPose = mixPose(transitionFrom, target, transition);
-      applyPose(withFootwork(currentPose, timeSeconds, footwork));
+      stride = stepStride(stride, Math.max(0, timeSeconds - (animatedAt ?? timeSeconds)), footwork);
+      animatedAt = timeSeconds;
+      applyPose(withFootwork(currentPose, timeSeconds, stride));
     },
   };
 }
