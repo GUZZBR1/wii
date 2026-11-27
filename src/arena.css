@@ -123,6 +123,21 @@
 
   .game-over { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(320px, 90vw); max-height: 90%; overflow: auto; padding: 20px; border: 3px solid var(--blue); border-radius: 24px; background: #fffffff5; box-shadow: var(--shadow); text-align: center; z-index: 9; }
   .game-over h2 { margin: 0 0 8px; font-size: 30px; color: #d64545; }
+  .game-viewport.tennis .game-ready { top: auto; bottom: 35px; max-width: 94%; white-space: normal; text-align: center; }
+  .tennis-score { position: absolute; top: 68px; left: 14px; z-index: 4; border-collapse: separate; border-spacing: 0; border-radius: 12px; overflow: hidden; background: #102d40; color: white; box-shadow: 0 4px 14px #11283b66; font-variant-numeric: tabular-nums; font-size: clamp(11px, 1.5vw, 15px); }
+  .tennis-score th, .tennis-score td { padding: 5px 9px; text-align: center; }
+  .tennis-score th:first-child { text-align: left; }
+  .tennis-score thead { background: #21516c; }
+  .tennis-score td:last-child { color: #ecf8a9; font-weight: 800; }
+  .tennis-server { margin-left: 6px; color: #d9f46c; }
+  @media (max-width: 600px) {
+    .stage:has(.game-viewport.tennis) .cam-pip:not(.expanded) { top: 68px; bottom: auto; }
+  }
+  .tennis-result h2 { color: var(--ink); }
+  .tennis-result p { margin-bottom: 12px; }
+  .tennis-practice { top: 40%; }
+  .tennis-practice h2 { color: var(--ink); }
+  .tennis-practice p { margin-bottom: 10px; }
   .game-over h3 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
   .game-over p { margin: 0; }
   .game-over ol { margin: 0 0 14px; padding: 0; list-style: none; }

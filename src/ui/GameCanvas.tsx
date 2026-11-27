@@ -5,7 +5,7 @@ import type { GameHudState as CoreHudState } from '../games/core/hud';
 import type { SprintHudState } from '../games/sprint/SprintGame';
 import type { GameHudState as TrackHudState } from '../games/track/TrackGame';
 
-type GameHudState = Omit<TrackHudState, 'feedback'> & { feedback?: TrackHudState['feedback'] | CoreHudState['feedback']; finished?: SprintHudState['finished']; framing?: boolean; energy?: SprintHudState['energy']; runners?: SprintHudState['runners'] };
+type GameHudState = Omit<TrackHudState, 'feedback'> & { tennis?: CoreHudState['tennis']; feedback?: TrackHudState['feedback'] | CoreHudState['feedback']; finished?: SprintHudState['finished']; framing?: boolean; energy?: SprintHudState['energy']; runners?: SprintHudState['runners'] };
 
 const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }> = {
   sprint: { score: 'DISTÂNCIA', speed: 'INTENSIDADE', controls: 'corra no lugar, mexendo os braços' },
@@ -52,6 +52,7 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
     let game: GameEngineHandle | undefined;
     let disposed = false;
     const keydown = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || (event.target instanceof HTMLElement && event.target.closest('button, input, select, textarea, a'))) return;
       if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', ' '].includes(event.key)) event.preventDefault();
       if (!forwardKeyDown(event.key, event.repeat)) return;
       void audio?.unlock();
@@ -89,7 +90,21 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
 
   return <div className={`game-viewport ${sport}${hud.framing ? ' is-framing' : ''}`}>
     <canvas ref={canvasRef} />
-    <div className="game-hud"><div><span>{HUD_TEXT[sport].score}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{HUD_TEXT[sport].speed}</span><strong>{sport === 'tennis' ? hud.status.split(' · ').at(-1) : `${Math.round(hud.speed01 * 100)}%`}</strong></div></div>
+    {hud.tennis ? <table className="tennis-score" aria-label="Placar do tênis">
+      <thead><tr><th scope="col">Tênis</th><th scope="col">Games</th><th scope="col">Pontos</th></tr></thead>
+      <tbody>{(['player', 'opponent'] as const).map((side) => (
+        <tr key={side}>
+          <th scope="row">{side === 'player' ? 'Você' : 'Adversário'}{hud.tennis?.server === side && <span className="tennis-server" role="img" aria-label={hud.tennis.secondServe ? 'Segundo saque' : 'Sacando'}>●</span>}</th>
+          <td>{hud.tennis?.games[side]}</td>
+          <td>{hud.tennis?.points[side]}</td>
+        </tr>
+      ))}</tbody>
+    </table> : sport !== 'tennis' && <div className="game-hud"><div><span>{HUD_TEXT[sport].score}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{HUD_TEXT[sport].speed}</span><strong>{Math.round(hud.speed01 * 100)}%</strong></div></div>}
+    {hud.tennis?.winner && <section className="game-over tennis-result" aria-label="Resultado da partida">
+      <h2>{hud.tennis.winner === 'player' ? 'Você venceu!' : 'Adversário venceu'}</h2>
+      <p>{hud.tennis.games.player} × {hud.tennis.games.opponent} games</p>
+      <button type="button" onClick={onRestart}>Jogar de novo</button>
+    </section>}
     {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${('kind' in hud.feedback ? hud.feedback.kind : hud.feedback.tone)}`}>
       <span>{hud.feedback.text}</span>
     </div>}

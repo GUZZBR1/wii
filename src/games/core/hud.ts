@@ -10,4 +10,11 @@ export interface GameHudState {
   speed01: number;
   status: string;
   feedback?: HudFeedback;
+  tennis?: {
+    points: Readonly<Record<"player" | "opponent", string>>;
+    games: Readonly<Record<"player" | "opponent", number>>;
+    server: "player" | "opponent";
+    winner: "player" | "opponent" | null;
+    secondServe: boolean;
+  };
 }
