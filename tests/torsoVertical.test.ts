@@ -24,7 +24,7 @@ describe('TorsoVerticalChannel', () => {
     for (let time = 0; time <= 1000; time += 33) channel.update(pose(time));
     expect(channel.update(withShoulderX(1033, 0.5, 0.505))).toBeUndefined();
     expect(channel.update(pose(1066))).toBeDefined();
-    let last;
+    let last: ReturnType<TorsoVerticalChannel["update"]>;
     for (let time = 1100; time <= 1700; time += 33) last = channel.update(withShoulderX(time, 0.48, 0.52));
     expect(last).toBeDefined();
   });
