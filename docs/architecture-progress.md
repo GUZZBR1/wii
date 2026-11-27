@@ -43,7 +43,7 @@ flowchart LR
 | Hand worker, capture and in-flight frame | `packages/core/src/providers/handClient.ts` | Owns the hand Worker, worker request correlation, resizing and live capture. `processFrame` closes rejected bitmaps and transfers accepted ones; the shared pump owns scheduling and single-flight. |
 | App hand adapter | `src/cv/handClient.ts` | Supplies versioned local asset URLs and asset warming. It no longer implements a second capture scheduler. |
 | Alternate provider switching | `packages/core/src/runtime/spatialRuntime.ts` | Owns a provider generation. It delegates live capture to providers that support it; processFrame-only adapters use the shared pump. It is exported and tested, but no production caller was found. |
-| Calibration and action history | `src/App.tsx`, `src/cv/adaptiveCalibrator.ts`, `src/kinematics/*` | The coordinator owns long-lived instances; pure detectors own their local filters and timing windows. `adaptiveCalibrator.ts` imports kinematics helpers while kinematics imports protocol types through `src/cv/protocol.ts`, creating a source-level layering cycle. |
+| Calibration and action history | `src/App.tsx`, `src/cv/adaptiveCalibrator.ts`, `src/kinematics/*` | The coordinator owns long-lived instances; pure detectors own their local filters and timing windows. `adaptiveCalibrator.ts` consumes kinematics helpers; the reverse type dependency was removed in round 2 by importing contracts from `@wii/spatial-core`. |
 | Three.js renderer and fixed-step clock | `src/games/core/GameLoop.ts` | Game instances own their scene objects and dispose them through shared helpers. |
 | Rules and match state | `src/games/track/*`, `src/games/tennis/*` | Pure rules have direct deterministic tests; rendering is owned by each game class. |
 | Website and menu state | React modules under `src/app`, `src/components`, `src/pages`, `src/ui` | Local UI state stays in React. The language provider owns selected language. |
@@ -56,7 +56,7 @@ flowchart LR
 - `src/cv/mediapipeAssets.ts` pins local model hashes and the WASM version. App adapters construct versioned local URLs and warm assets. The workers fetch the local model files; video frames stay on-device.
 - `vite.config.ts` maps `@wii/spatial-core` to source in app/dev mode. Tests resolve the built workspace package; `pretest` builds it first. This is intentional and verified by the workspace/package setup.
 - The browser-facing errors include camera acquisition, worker initialization (30-second timeout), worker errors and GPU-to-CPU fallback. Site article failures are logged at the app error boundary. Developer CV recordings/replays live under `src/cv/diagnostics` and `scripts/`.
-- CI (`.github/workflows/ci.yml`) runs `npm ci`, tests, Biome lint, production build and article validation. Existing engineering constraints in `AGENTS.md` are not yet mechanically enforced as dependency rules.
+- CI (`.github/workflows/ci.yml`) runs `npm ci`, tests, Biome lint, production build and article validation. A scoped Biome override now enforces the purity/import direction of `src/kinematics`; other ownership and dependency rules remain in the backlog.
 - There is no shared theme package: site and arena styling have separate CSS entry points. The design system and accessibility contracts remain to be audited before any visual consolidation.
 
 ## Rodada 1 — captura de quadros
@@ -92,6 +92,24 @@ flowchart LR
 - Artigos: `npm run check:articles` — aprovado (5 artigos PT, 5 EN e figuras no bundle).
 - `git diff --check` — aprovado.
 - Revisão independente encontrou e levou à correção de duas regressões: reentrância em `PoseClient.beginCapture` e fechamento de bitmap se um adaptador do runtime lança sincronamente. A segunda revisão não encontrou outros problemas concretos.
+
+## Rodada 2 — limite de dependências da cinemática
+
+### Mudança
+
+- Os módulos de `src/kinematics` importam contratos de pose/calibração diretamente de `@wii/spatial-core`, removendo a dependência de tipos no re-export da camada `src/cv/protocol.ts` e, com ela, o ciclo de fonte com `src/cv/adaptiveCalibrator.ts`.
+- Um override Biome aplicado somente a `src/kinematics/**` rejeita imports de CV/adapters, UI, jogos, páginas, React, Three.js e MediaPipe. Ele também bloqueia globais de DOM, vídeo, canvas, worker e animação.
+- Imports do core são limitados a contratos de dados, `OneEuroFilter` e detectores puros já canônicos no pacote (como `RotationalFlickDetector`); o barrel misto não fica aberto para providers e runtime de browser.
+- Imports internos proibidos usam padrões que cobrem profundidades diferentes. A regra também bloqueia leitura do relógio global: `kinematicsMs` não tinha consumidores e foi removido; `ActionPipeline.reset(timestampMs)` agora recebe o instante do coordenador.
+- A regra usa os parsers AST do Biome já instalado e o lint que o CI executa; não foi adicionada dependência ou uma segunda ferramenta de verificação.
+
+### Verificação
+
+- [x] `npx biome lint src/kinematics` passou sem avisos.
+- [x] Fixtures temporárias confirmaram que Three.js, imports relativos da CV em diretórios atuais e aninhados, jogos, globais DOM e o export `PoseClient` do core são rejeitados; as fixtures foram removidas.
+- [x] Suíte completa com gravações locais existentes: `npm test` — 54 arquivos, 440 testes aprovados; links temporários removidos após os testes.
+- [x] `npm run build` e `npm run check:articles` passaram; Biome passou com 28 avisos CSS existentes e nenhum aviso na pasta de cinemática; `git diff --check` passou.
+- [x] Revisão independente confirmou os padrões aninhados, o relógio explícito e ausência de novos achados ou falsos positivos.
 
 ## Ciclo de melhoria
 

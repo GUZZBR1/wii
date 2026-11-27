@@ -57,7 +57,7 @@ describe('punch wiring in ActionPipeline', () => {
   it('forgets the previous session on reset', () => {
     const pipeline = new ActionPipeline();
     jab(pipeline);
-    pipeline.reset();
+    pipeline.reset(933);
     expect(jab(pipeline).map((event) => event.type)).toEqual(['punch-start', 'punch']);
   });
 

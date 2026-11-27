@@ -1,4 +1,4 @@
-import type { CalibrationProfile, ContinuousControls, Hand, PoseSnapshot, SportActionEvent, TrackingState } from '../cv/protocol';
+import type { CalibrationProfile, ContinuousControls, Hand, PoseSnapshot, SportActionEvent, TrackingState } from '@wii/spatial-core';
 import { LateralDashTracker, PunchInFlight } from './boxingLocomotion';
 import { CadenceTracker } from './cadenceTracker';
 import { upsideDown } from './framing';
@@ -79,8 +79,7 @@ export class ActionPipeline {
     this.heldSwing = undefined;
   }
 
-  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number; rawEffort: number; effortSampleAtMs: number | null; armMotions: ArmMotion[]; swingTracking: SwingTracking } {
-    const start = performance.now();
+  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; rawEffort: number; effortSampleAtMs: number | null; armMotions: ArmMotion[]; swingTracking: SwingTracking } {
     // An impossible skeleton is a frame without a player, so every gate treats it as a blackout.
     if (upsideDown(snapshot)) snapshot = { ...snapshot, landmarks: [], worldLandmarks: [] };
     const body = this.bodyGate.evaluate(snapshot);
@@ -230,7 +229,7 @@ export class ActionPipeline {
       if (dash !== undefined) controls = { ...controls, lateralDash: dash };
     }
 
-    return { snapshot: current, events, controls, kinematicsMs: performance.now() - start, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked, pending }) => ({ hand, tracked, pending, arbitrating: this.heldSwing?.hand === hand })) } };
+    return { snapshot: current, events, controls, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked, pending }) => ({ hand, tracked, pending, arbitrating: this.heldSwing?.hand === hand })) } };
   }
 
   /**
@@ -270,8 +269,8 @@ export class ActionPipeline {
   recenterLane(): void { this.lanePosition.reset(); }
 
   /** Returns the events the game still needs, such as stopping a sprint in progress. */
-  reset(): SportActionEvent[] {
-    const stopped = this.stopSprint(performance.now(), 0, 'lost');
+  reset(timestampMs: number): SportActionEvent[] {
+    const stopped = this.stopSprint(timestampMs, 0, 'lost');
     this.bodyGate.reset(); this.torsoGate.reset(); this.swings.forEach(({ gate }) => { gate.reset(); }); this.punches.forEach(({ gate }) => { gate.reset(); });
     this.resetDetectors();
     this.coast = undefined;

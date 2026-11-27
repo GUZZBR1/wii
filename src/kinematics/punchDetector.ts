@@ -1,4 +1,4 @@
-import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from '../cv/protocol';
+import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from '@wii/spatial-core';
 import { OneEuroFilter } from '@wii/spatial-core';
 import { BODY_JOINTS } from './bodyFeatures';
 import { bodyLocalPoint } from './bodyFrame';

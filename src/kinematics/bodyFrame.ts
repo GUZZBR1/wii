@@ -1,4 +1,4 @@
-import type { Point3 } from '../cv/protocol';
+import type { Point3 } from '@wii/spatial-core';
 import { midpoint } from './math';
 
 const EPSILON = 1e-6;

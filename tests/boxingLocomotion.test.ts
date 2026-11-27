@@ -201,7 +201,7 @@ describe('boxing locomotion through ActionPipeline', () => {
 
   it('forgets the trackers on reset', () => {
     const { pipeline } = drive((t) => resized(pose(t), t < 300 ? 1 : 1.3), 1500);
-    pipeline.reset();
+    pipeline.reset(1533);
     let controls: ContinuousControls | undefined;
     for (let time = 1533; time <= 1700; time += 33) controls = pipeline.update(pose(time), profile()).controls;
     expect(controls).toMatchObject({ ringDepthMove: 0, ringDepth01: 0, lateralDash: 0 });

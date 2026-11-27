@@ -1,4 +1,4 @@
-import type { CalibrationProfile, Point3, PoseSnapshot } from '../cv/protocol';
+import type { CalibrationProfile, Point3, PoseSnapshot } from '@wii/spatial-core';
 import { type BodyBasis, bodyBasis } from './bodyFrame';
 import { OneEuroFilter } from '@wii/spatial-core';
 import { distance3, landmarkConfidence, midpoint } from './math';

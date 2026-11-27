@@ -1,4 +1,4 @@
-import type { Hand, PoseSnapshot } from '../cv/protocol';
+import type { Hand, PoseSnapshot } from '@wii/spatial-core';
 
 export interface ArmMotion {
   hand: Hand;

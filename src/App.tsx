@@ -165,7 +165,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     setCameraStatus('Câmera desligada');
     publishHandInput(HAND_IDLE);
     handDetectorRef.current.reset();
-    for (const event of pipelineRef.current.reset()) dispatchEvent(event);
+    for (const event of pipelineRef.current.reset(performance.now())) dispatchEvent(event);
     engineRef.current?.resetLaneZone?.();
     engineRef.current?.setGuard?.(undefined);
     engineRef.current?.setDepthMove?.(undefined);
@@ -204,7 +204,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       }
       if (event.key.toLowerCase() !== 'g' || event.repeat) return;
       if (recorderRef.current) { finishRecording(); return; }
-      for (const stop of pipelineRef.current.reset()) dispatchEvent(stop);
+      for (const stop of pipelineRef.current.reset(performance.now())) dispatchEvent(stop);
       resetCalibration();
       recorderRef.current = new PoseRecorder([], sport === 'tennis' ? TENNIS_RECORDING_SCRIPT : undefined);
       setRecordingPrompt('Gravando…');
