@@ -173,6 +173,9 @@ export class CadenceTracker {
     // each in band; when admission rests on the average instead, the extended window must agree
     // — the span over more strides absorbs the frame quantization a short one cannot.
     const inBand = (interval: number) => interval >= STRIDE_MIN_INTERVAL_MS && interval <= STRIDE_MAX_INTERVAL_MS;
+    // A boundary reading is no evidence at all: a slower bob quantizes down onto exactly the
+    // cutoff, so the fast path only takes intervals strictly inside the band.
+    const strictlyInBand = (interval: number) => interval > STRIDE_MIN_INTERVAL_MS && interval < STRIDE_MAX_INTERVAL_MS;
     const meanOf = (list: readonly number[]) => list.reduce((sum, interval) => sum + interval, 0) / list.length;
     const regular = (list: readonly number[]) => Math.max(...list) <= Math.min(...list) * STRIDE_REGULARITY;
     const recentStrides = this.intervals.slice(-STRIDES_CORROBORATING);
@@ -180,7 +183,7 @@ export class CadenceTracker {
     const strideEvidence = recentStrides.length >= STRIDES_CORROBORATING
       && regular(recentStrides)
       && inBand(meanOf(recentStrides))
-      && (recentStrides.every(inBand)
+      && (recentStrides.every(strictlyInBand)
         || (extendedStrides.length >= STRIDES_EXTENDED && inBand(meanOf(extendedStrides)) && regular(extendedStrides)));
     if ((!this.moving && !this.lateralActive && nowMs - this.lastMovingAt >= RUN_TRUST_HOLD_MS)
       || nowMs - this.lastStrideAt >= LATERAL_BRIDGE_CAP_MS) this.trusted = false;

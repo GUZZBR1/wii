@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { BounceDetector } from '../src/kinematics/bounce';
 import { TorsoVerticalChannel } from '../src/kinematics/torsoVertical';
+import { ActionPipeline } from '../src/kinematics/actionPipeline';
 import { cadenceHarness } from './fixtures/torsoHarness';
 import { poseWithHipBounce } from './fixtures/syntheticPose';
 
@@ -91,11 +92,19 @@ describe('effort-gate trust in the cadence tracker', () => {
 
   it('never opens for a borderline bob whose quantization averages into the band', () => {
     // A centered bob every 524 ms (~115 bpm) sampled every 50 ms: short windows can average
-    // exactly onto the 500 ms band edge, but the extended window never agrees it is running.
-    const frames50 = Array.from({ length: 160 }, (_, i) => i * 50);
-    const bob524 = (t: number) => 0.016 * Math.sin((2 * Math.PI * (1000 / 524) * t) / 1000);
-    const results = drive(frames50, bob524, () => 0);
-    expect(results.every((r) => !r.running)).toBe(true);
+    // exactly onto the 500 ms band edge, and at some phase alignments three consecutive
+    // readings land exactly on the cutoff — neither path may admit it, so the sweep covers
+    // every alignment end-to-end through the action pipeline.
+    for (let phase = 0; phase < 524; phase += 87) {
+      const pipeline = new ActionPipeline();
+      let peak = 0;
+      for (let i = 0; i < 200; i++) {
+        const t = i * 50;
+        const y = 0.016 * Math.sin((2 * Math.PI * (1000 / 524) * (t + phase)) / 1000);
+        peak = Math.max(peak, pipeline.update(poseWithHipBounce(t, y)).rawEffort);
+      }
+      expect(peak, `phase ${phase} fed the race effort`).toBe(0);
+    }
   });
 
   it('never opens for a slow bob however long it persists', () => {
