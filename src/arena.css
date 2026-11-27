@@ -92,6 +92,9 @@
   .game-banner { position: absolute; left: 0; right: 0; top: 22%; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 16px; color: #fff; text-align: center; text-shadow: 0 3px 10px #000c; pointer-events: none; z-index: 4; }
   .game-banner strong { font-size: 68px; font-weight: 800; }
   .game-banner span { font-size: 14px; font-weight: 700; }
+  .game-viewport.tennis .game-banner { top: 12%; }
+  .game-viewport.tennis .game-banner strong { font-size: 40px; }
+  .game-viewport.tennis .game-banner span { font-size: 20px; }
   .recording-prompt { position: absolute; left: 50%; bottom: 20%; transform: translateX(-50%); max-width: 90%; padding: 14px 22px; border-radius: 16px; background: #000c; color: #fff; font-size: 30px; font-weight: 800; text-align: center; pointer-events: none; z-index: 11; }
   .framing-hint { position: absolute; left: 50%; top: 14%; transform: translateX(-50%); max-width: 90%; padding: 10px 18px; border-radius: 14px; background: #c0392b; color: #fff; font-size: 22px; font-weight: 800; text-align: center; pointer-events: none; z-index: 11; }
   .perf-meter { position: absolute; left: 10px; bottom: 10px; max-width: 60%; padding: 6px 10px; border-radius: 8px; background: #000d; color: #7f7; font: 700 13px/1.4 monospace; pointer-events: none; z-index: 30; }
@@ -135,10 +138,6 @@
   }
   .tennis-result h2 { color: var(--ink); }
   .tennis-result p { margin-bottom: 12px; }
-  .tennis-practice { top: 40%; }
-  .tennis-practice h2 { color: var(--ink); }
-  .tennis-practice p { margin-bottom: 10px; }
-  .tennis-practice .practice-count { font-size: 34px; font-weight: 800; color: var(--blue-deep); }
   /* The framing screen already says what to fix; the head warning would repeat it on top. */
   .game-viewport.is-framing ~ .framing-hint { display: none; }
   .game-over.finish h2 { color: var(--blue); }

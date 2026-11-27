@@ -48,6 +48,11 @@ export class ActionPipeline {
   /** Last moving sprint measurement and when it was taken — the input coasting decays from. */
   private coast?: { speed01: number; cadenceSpm: number; measuredAt: number };
 
+  /** How long a wrist movement must be to count as a stroke; undefined restores the default. */
+  setStrokeTravel(travel: number): void {
+    for (const { detector } of this.swings) detector.minTravel = travel;
+  }
+
   resetSwings(): void {
     for (const { gate, detector } of this.swings) {
       gate.reset();

@@ -12,6 +12,8 @@ export interface SwingSignal {
   contactY: number;
   /** Vertical wrist speed at the peak in shoulder widths/s, up positive — topspin/slice proxy. */
   verticalSpeed: number;
+  /** How far the wrist travelled, in shoulder widths — the size of this player's stroke. */
+  travel: number;
 }
 
 /**
@@ -55,6 +57,7 @@ interface PendingSwing {
   peak: { time: number; speed: number; verticalSpeed: number; y: number; confidence: number };
   /** Fastest sideways-and-up speed seen: the power of the stroke. */
   force: number;
+  reach: number;
 }
 
 export class SwingDetector {
@@ -63,6 +66,8 @@ export class SwingDetector {
   private samples: Sample[] = [];
   private ruler?: { width: number; time: number };
   private pending?: PendingSwing;
+  /** Shortest travel that counts as a stroke; the tennis warm-up adapts it to the player. */
+  minTravel = STROKE_TRAVEL;
   private last?: { direction: -1 | 1; time: number };
 
   update(snapshot: PoseSnapshot): SwingOutput | undefined {
@@ -101,8 +106,19 @@ export class SwingDetector {
     const world = [11, 12, this.hand === 'right' ? 16 : 15].map((index) => snapshot.worldLandmarks[index]);
     const confidence = landmarkConfidence(...world.flatMap((point) => (point ? [point] : [])));
 
+    let travel = 0;
+    let reach = 0;
+    for (const kept of this.samples) {
+      const sideways = sample.x - kept.x;
+      const distance = Math.hypot(sideways, Math.max(0, sample.y - kept.y));
+      if (Math.abs(sideways) >= MIN_SIDEWAYS_TRAVEL && distance > reach) {
+        reach = distance;
+        travel = sideways;
+      }
+    }
     const pending = this.pending;
     if (pending) {
+      if (Math.sign(travel) === pending.direction) pending.reach = Math.max(pending.reach, reach);
       if (Math.sign(vx) === pending.direction) pending.force = Math.max(pending.force, force);
       if (Math.sign(vx) === pending.direction && speed > pending.peak.speed) {
         pending.peak = { time, speed, verticalSpeed: vy, y: sample.y, confidence };
@@ -115,6 +131,7 @@ export class SwingDetector {
         side: this.sideOf(pending.direction),
         power01: clamp((pending.force - MIN_POWER_SPEED) / (FULL_POWER_SPEED - MIN_POWER_SPEED)),
         confidence: pending.peak.confidence,
+        travel: pending.reach,
         peakTimestampMs: pending.peak.time,
         onsetTimestampMs: pending.startedAt,
         // Where the stroke will finish: high above the shoulders, or down by the waist.
@@ -123,24 +140,14 @@ export class SwingDetector {
       };
     }
 
-    let travel = 0;
-    let reach = 0;
-    for (const kept of this.samples) {
-      const sideways = sample.x - kept.x;
-      const distance = Math.hypot(sideways, Math.max(0, sample.y - kept.y));
-      if (Math.abs(sideways) >= MIN_SIDEWAYS_TRAVEL && distance > reach) {
-        reach = distance;
-        travel = sideways;
-      }
-    }
-    if (reach < STROKE_TRAVEL) return undefined;
+    if (reach < this.minTravel) return undefined;
     const direction = Math.sign(travel) as -1 | 1;
     if (this.last) {
       const since = time - this.last.time;
       if (since < REFRACTORY_MS || (direction !== this.last.direction && since < RETURN_IGNORE_MS)) return undefined;
     }
     this.last = { direction, time };
-    this.pending = { direction, force, startedAt: time, peak: { time, speed, verticalSpeed: vy, y: sample.y, confidence } };
+    this.pending = { direction, force, reach, startedAt: time, peak: { time, speed, verticalSpeed: vy, y: sample.y, confidence } };
     return { kind: 'onset', timestampMs: time, side: this.sideOf(direction) };
   }
 

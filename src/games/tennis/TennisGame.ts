@@ -13,7 +13,8 @@ import { RestartGesture } from '../core/restartGesture';
 import { createAthlete, createRacket } from './athlete';
 import { createTennisEffects } from './effects';
 import { buildTennisStadium } from './stadium';
-import { advanceBall, createBall, solveOutgoing, timeAtPlane, type BallState } from './ballistics';
+import { LEARNING_TRAVEL, TennisTutorial } from './tutorial';
+import { advanceBall, createBall, solveOutgoing, solveOverNet, timeAtPlane, type BallState } from './ballistics';
 import { adjudicateContact, DEFAULT_GEOMETRY, strokeHeight, type ContactOutcome } from './contactAdjudicator';
 import { adaptOpponentSkill, createOpponentAi, decideReturn, DEFAULT_OPPONENT_AI_CONFIG, type OpponentAiState } from './opponentAi';
 import { ballAtPlannedContact, resolveScheduledOpponentReturn, type OpponentHitPlan } from './opponentReturn';
@@ -61,6 +62,7 @@ type Phase =
   | { kind: 'opponent-serve'; hitAtMs: number }
   | { kind: 'rally' }
   | { kind: 'point-over'; resumeAtMs: number }
+  | { kind: 'tutorial' }
   | { kind: 'match-over' };
 
 interface TapeEntry {
@@ -91,6 +93,10 @@ export class TennisGame {
   private swingDirection = 1;
   private serveStroke = false;
   private fastServe = false;
+  private tutorial?: TennisTutorial;
+  private readonly skipTutorial = new RestartGesture();
+  private framingAdvice?: string;
+  private seen = false;
   private tossArmed = false;
   /** Learned from the rallies: whichever arm last returned a ball holds the racket. */
   private racketHand: Hand = 'right';
@@ -140,6 +146,7 @@ export class TennisGame {
     canvas: HTMLCanvasElement,
     private readonly onHud: (state: GameHudState) => void,
     private readonly audio?: ProceduralAudio,
+    private readonly options: { tutorial?: boolean; onStrokeTravel?: (travel: number) => void } = {},
   ) {
     this.crowd = buildTennisStadium(this.scene).crowd;
     this.effects = createTennisEffects(this.scene);
@@ -153,6 +160,12 @@ export class TennisGame {
     ));
     // Lower the resolution if frames get slow; the pose worker shares the same machine.
     this.loop.onQualityChange = () => {};
+    if (options.tutorial) {
+      this.tutorial = new TennisTutorial();
+      this.phase = { kind: 'tutorial' };
+      this.status = 'Aquecimento';
+      options.onStrokeTravel?.(LEARNING_TRAVEL);
+    }
     this.hudTimer = window.setInterval(() => this.publishHud(), 200);
   }
 
@@ -173,6 +186,10 @@ export class TennisGame {
       return;
     }
     if (event.type !== 'swing') return;
+    if (this.tutorial) {
+      this.tutorialSwing(event);
+      return;
+    }
     const height = strokeHeight(event.contactY ?? 0, event.side);
     this.swingLift = height === 'high' ? 1 : height === 'low' ? -1 : 0;
     this.resolveSwing({
@@ -188,13 +205,24 @@ export class TennisGame {
   /** Played with the body only. */
   onKey(): void {}
 
-  setHandsRaised(raised: boolean): void { this.restart.setHandsRaised(raised); }
+  setHandsRaised(raised: boolean): void {
+    this.restart.setHandsRaised(raised);
+    this.skipTutorial.setHandsRaised(raised);
+  }
+
+  setTracking(tracking: string): void { this.seen = tracking.startsWith('TRACKING'); }
+
+  setFraming(advice: string | undefined): void { this.framingAdvice = advice; }
 
   /**
    * First of the two serving gestures: lifting the free hand throws the ball at once, like letting a
    * real one go. Only the free hand counts, so a racket stroke can never be read as a toss.
    */
   setTossHand(hand: Hand | undefined): void {
+    if (this.tutorial) {
+      this.tutorialToss(hand);
+      return;
+    }
     if (hand === this.racketHand || !hand) {
       this.tossArmed = true;
       return;
@@ -212,6 +240,58 @@ export class TennisGame {
 
   private holdingServe(): boolean {
     return this.phase.kind === 'player-serve' && Math.max(this.lastSimulationTimeMs, nowMs()) < this.tossAtMs;
+  }
+
+  // ---------------------------------------------------------------- warm-up
+
+  private tutorialToss(hand: Hand | undefined): void {
+    const free = hand !== undefined && hand !== this.tutorial!.racketHand;
+    const lifted = free && this.tossArmed;
+    this.tossArmed = !free;
+    const step = this.tutorial!.step;
+    if (!lifted || !this.tutorial!.toss()) return;
+    this.tossedWith = hand;
+    this.ball = createBall({ x: this.playerX - SERVE_CONTACT_X_OFFSET, y: SERVE_HOLD_HEIGHT, z: BASELINE_Z + 0.1 }, { x: 0, y: TOSS_VY, z: 0 }, 'player');
+    this.setFeedback(step === 'serve' ? 'BATA!' : '✔ LANÇAMENTO', 'good');
+    this.audio?.bounce(0.5);
+    this.checkTutorialDone();
+  }
+
+  private tutorialSwing(event: Extract<SportActionEvent, { type: 'swing' }>): void {
+    const step = this.tutorial!.step;
+    if (!this.tutorial!.swing(event)) return;
+    const name = event.side === 'forehand' ? 'FOREHAND' : 'BACKHAND';
+    this.setFeedback(step === 'serve' ? '✔ SAQUE' : `✔ ${name}`, 'good');
+    this.audio?.racket(0.6);
+    // Send a ball off the racket, so the stroke is felt here too.
+    const from = { x: this.playerX + SERVE_CONTACT_X_OFFSET, y: 1.2, z: PLAYER_HOME_Z - 0.6 };
+    this.ball = createBall(from, solveOverNet(from, { x: event.side === 'forehand' ? -2 : 2, z: -7 }, 1), 'player');
+    this.effects.impact(from, 0.6);
+    this.checkTutorialDone();
+  }
+
+  private checkTutorialDone(): void {
+    const tutorial = this.tutorial!;
+    if (!tutorial.done) return;
+    this.racketHand = tutorial.racketHand;
+    this.options.onStrokeTravel?.(tutorial.strokeTravel);
+    this.tutorial = undefined;
+    this.ball = null;
+    this.tossedWith = undefined;
+    this.audio?.milestone();
+    this.setFeedback('PRONTO! VAMOS JOGAR', 'good');
+    this.phase = { kind: 'point-over', resumeAtMs: Math.max(this.lastSimulationTimeMs, nowMs()) + 1800 };
+  }
+
+  private stepTutorial(dt: number): void {
+    this.skipTutorial.step(dt);
+    if (this.skipTutorial.progress01 >= 1) this.tutorial!.skip();
+    this.tutorial!.tick(dt, this.seen);
+    if (this.ball) {
+      this.ball = advanceBall(this.ball, dt);
+      if (this.ball.bounces > 1 || this.ball.position.z < -12) this.ball = null;
+    }
+    this.checkTutorialDone();
   }
 
   // ---------------------------------------------------------------- swing resolution
@@ -399,6 +479,9 @@ export class TennisGame {
 
   private stepPhase(dt: number, now: number): void {
     switch (this.phase.kind) {
+      case 'tutorial':
+        this.stepTutorial(dt);
+        break;
       case 'point-over':
         if (now >= this.phase.resumeAtMs) this.startPoint(now);
         break;
@@ -703,6 +786,7 @@ export class TennisGame {
     const playerServing = this.phase.kind === 'player-serve';
     const opponentServing = this.phase.kind === 'opponent-serve';
     this.player.root.position.set(this.playerX, 0, playerServing ? BASELINE_Z + 0.45 : PLAYER_HOME_Z);
+    this.opponent.root.visible = this.phase.kind !== 'tutorial';
     this.opponent.root.position.set(this.opponentX, 0, opponentServing ? -BASELINE_Z - 0.45 : OPPONENT_HOME_Z);
     const serving = this.phase.kind === 'player-serve' ? (nowMs() < this.tossAtMs ? 'hold' : 'toss') : undefined;
     const struck = this.serveStroke && this.swingAnimT < 1;
@@ -733,6 +817,18 @@ export class TennisGame {
   }
 
   private publishHud(): void {
+    if (this.tutorial) {
+      const text = this.tutorial.text;
+      this.onHud({
+        score: 0,
+        label: '',
+        speed01: 0,
+        status: this.status,
+        feedback: this.feedback,
+        banner: { title: text.title, detail: this.framingAdvice ?? text.detail },
+      });
+      return;
+    }
     const labels = pointLabels(this.score);
     this.onHud({
       score: this.score.games.player,

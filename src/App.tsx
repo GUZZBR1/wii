@@ -35,8 +35,6 @@ const ACTIVITY_LABEL: Record<ActivityKind, string> = {
   striking: 'LUTA',
 };
 const MUTE_STORAGE_KEY = 'wii-web-sports.muted.v1';
-/** Confirmed swings in the opening practice before the tennis match starts. */
-const PRACTICE_SWINGS = 3;
 
 const inHandMenu = (screen: Screen) => screen === 'home' || screen === 'title' || screen === 'games';
 const modeForScreen = (screen: Screen): VisionMode => (inHandMenu(screen) ? 'hand' : 'pose');
@@ -90,6 +88,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const poseFramesRef = useRef(0);
   /** Capture-to-game delay of the last pose, shown by `?fps`. */
   const poseDelayRef = useRef(0);
+  const [headCut, setHeadCut] = useState(false);
+  const [crossed, setCrossed] = useState(false);
   const recentFramesRef = useRef<PoseSnapshot[]>([]);
   const photoTrailRef = useRef(new PhotoTrail());
   const [keepPhotos] = useState(() => new URLSearchParams(window.location.search).has('fotos'));
@@ -98,35 +98,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
   /** Diagnostic recording: owned here, fed by onPose, ended by the script, G or the camera stopping. */
   const recorderRef = useRef<PoseRecorder | undefined>(undefined);
   const [recordingPrompt, setRecordingPrompt] = useState<string>();
-  const [tennisPractice, setTennisPractice] = useState(false);
-  const practiceRef = useRef(false);
-  const [practiceHint, setPracticeHint] = useState<string>();
-  const [practiceHits, setPracticeHits] = useState(0);
-
-  function changeTennisPractice(active: boolean) {
-    practiceRef.current = active;
-    pipelineRef.current.resetSwings();
-    setPracticeHits(0);
-    setPracticeHint(undefined);
-    setTennisPractice(active);
-  }
-
-  const [headCut, setHeadCut] = useState(false);
-  const [crossed, setCrossed] = useState(false);
-
-  // Tennis opens with a short practice, as a warm-up: a few confirmed swings and the match starts.
-  const practiceDone = tennisPractice && practiceHits >= PRACTICE_SWINGS;
-  useEffect(() => {
-    if (!practiceDone) return;
-    const timer = window.setTimeout(() => {
-      practiceRef.current = false;
-      pipelineRef.current.resetSwings();
-      setPracticeHits(0);
-      setPracticeHint(undefined);
-      setTennisPractice(false);
-    }, 1200);
-    return () => window.clearTimeout(timer);
-  }, [practiceDone]);
 
   useEffect(() => {
     audioRef.current.setMuted(muted);
@@ -166,8 +137,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
     recorderRef.current = undefined;
     setRecordingPrompt(undefined);
     setHeadCut(false);
-    setPracticeHint(undefined);
-    setPracticeHits(0);
     headWarningRef.current.reset();
     recentFramesRef.current = [];
     photoTrailRef.current.clear();
@@ -266,21 +235,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setFraming?.(framingAdvice(raw), handsHidden(raw));
       engineRef.current?.setHandsRaised?.(handsRaised(raw));
       engineRef.current?.setTossHand?.(raisedTossHand(raw));
-      if (practiceRef.current) {
-        const advice = framingAdvice(raw);
-        const { scaleReady, wrists } = result.swingTracking;
-        const visibleWrists = wrists.filter(({ hand }) => {
-          const wrist = raw.landmarks[hand === 'left' ? 15 : 16];
-          return wrist && wrist.x >= 0 && wrist.x <= 1 && wrist.y >= 0 && wrist.y <= 1
-            && (wrist.visibility ?? wrist.presence ?? 0) >= 0.35;
-        });
-        setPracticeHint(advice ?? (visibleWrists.length === 0 ? 'Mostre o pulso que vai rebater'
-          : !scaleReady || !visibleWrists.some(({ tracked }) => tracked) ? 'Mantenha o braço visível para a câmera'
-          : 'Faça uma rebatida de lado a lado'));
-        if (result.events.some(({ type }) => type === 'swing')) setPracticeHits((hits) => hits + 1);
-      } else {
-        for (const event of result.events) dispatchEvent(event);
-      }
+      for (const event of result.events) dispatchEvent(event);
     },
   };
 
@@ -464,10 +419,14 @@ export default function App({ exit }: { exit?: ReactNode }) {
     void startCamera();
   }, [startCamera]);
 
+  const onStrokeTravel = useCallback((travel: number) => { pipelineRef.current.setStrokeTravel(travel); }, []);
+
   const play = (next: Sport, distance: Goal = 100) => {
     setGoal(distance);
     void audioRef.current.unlock();
-    if (practiceRef.current !== (next === 'tennis')) changeTennisPractice(next === 'tennis');
+    // The tennis warm-up sets its own stroke length; every game starts from the default.
+    pipelineRef.current.setStrokeTravel(1.9);
+    pipelineRef.current.resetSwings();
     setSport(next);
     sportRef.current = next;
     setHandPanelOpen(false);
@@ -493,25 +452,17 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && !tennisPractice && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} armsCrossed={crossed} onExit={() => setScreen('games')} />}
+    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} armsCrossed={crossed} onExit={() => setScreen('games')} onStrokeTravel={onStrokeTravel} />}
     {screen === 'home' && <HomeMenu exit={exit} onGames={() => setScreen('title')} />}
     {screen === 'title' && <TitleMenu onStart={() => setScreen('games')} onBack={() => setScreen('home')} />}
     {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} onBack={() => setScreen('title')} />}
 
-    {screen === 'play' && tennisPractice && <section className="game-over tennis-practice" aria-label="Treino de rebatidas">
-      <h2>{practiceDone ? 'Pronto! Vamos jogar' : 'Aquecimento'}</h2>
-      <p>Faça {PRACTICE_SWINGS} rebatidas de lado a lado para começar a partida.</p>
-      <p role="status">{cameraOn ? practiceHint ?? 'Posicione-se diante da câmera' : 'Ative a câmera para treinar'}</p>
-      <p aria-live="polite" className="practice-count">{Math.min(practiceHits, PRACTICE_SWINGS)} de {PRACTICE_SWINGS}</p>
-      <button type="button" onClick={() => changeTennisPractice(false)}>Pular</button>
-    </section>}
-    {screen === 'play' && !tennisPractice && headCut && <div className="framing-hint" role="alert">Sua cabeça saiu do quadro · incline a câmera para cima ou afaste-se</div>}
+    {screen === 'play' && headCut && <div className="framing-hint" role="alert">Sua cabeça saiu do quadro · incline a câmera para cima ou afaste-se</div>}
     {screen === 'play' && keepPhotos && <div className="photo-notice">● guardando fotos dos últimos 20 s · E salva</div>}
     {recordingPrompt && <div className="recording-prompt" role="status">● {recordingPrompt}</div>}
 
     {screen === 'play' && <div className="hud-dock">
-      <button type="button" className="dock-btn" onClick={() => { if (practiceRef.current) changeTennisPractice(false); setScreen('games'); }}>‹ Jogos</button>
-      {sport === 'tennis' && !tennisPractice && <button type="button" className="dock-btn" onClick={() => { if (window.confirm('Abrir o treino encerra a partida atual. Abrir treino?')) changeTennisPractice(true); }}>Treinar rebatidas</button>}
+      <button type="button" className="dock-btn" onClick={() => setScreen('games')}>‹ Jogos</button>
       <button type="button" className="dock-btn round" onClick={toggleMute} title={muted ? 'Áudio desligado' : 'Áudio ligado'}>{muted ? '×' : '♫'}</button>
     </div>}
 

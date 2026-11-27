@@ -21,7 +21,7 @@ npm ci
 npm run dev
 ```
 
-O servidor local imprime a URL de desenvolvimento. A primeira ação **Ativar câmera** solicita permissão. Os dois jogos se jogam só com o corpo: o atletismo enquadra o jogador e faz um aquecimento de 5 s que aprende o máximo daquela pessoa e câmera; o tênis abre com três rebatidas de aquecimento; levantar as duas mãos joga de novo. Como tudo funciona, o que foi medido e o que falta estão em [docs/jogos-pelo-corpo.md](docs/jogos-pelo-corpo.md); o índice da documentação está em [docs/README.md](docs/README.md).
+O servidor local imprime a URL de desenvolvimento. A primeira ação **Ativar câmera** solicita permissão. Os dois jogos se jogam só com o corpo: o atletismo enquadra o jogador e faz um aquecimento de 5 s que aprende o máximo daquela pessoa e câmera; o tênis abre com um aquecimento guiado na quadra; levantar as duas mãos joga de novo. Como tudo funciona, o que foi medido e o que falta estão em [docs/jogos-pelo-corpo.md](docs/jogos-pelo-corpo.md); o índice da documentação está em [docs/README.md](docs/README.md).
 
 ```bash
 npm test

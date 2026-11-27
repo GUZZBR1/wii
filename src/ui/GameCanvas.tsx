@@ -35,15 +35,18 @@ interface Props {
   /** The player is holding their arms crossed; on a result screen that leads back to the menu. */
   armsCrossed?: boolean;
   onExit?: () => void;
+  /** Receives the stroke length the tennis warm-up settles on. */
+  onStrokeTravel?: (travel: number) => void;
 }
 
 /** Restarting remounts the whole run, so a new game starts from a clean engine and canvas. */
 export function GameCanvas(props: Props) {
   const [run, setRun] = useState(0);
-  return <GameRun key={run} {...props} onRestart={() => setRun((value) => value + 1)} />;
+  // The warm-up opens the first match only; playing again goes straight to the court.
+  return <GameRun key={run} {...props} tutorial={run === 0} onRestart={() => setRun((value) => value + 1)} />;
 }
 
-function GameRun({ sport, onEngine, tracking, audio, goal = 100, armsCrossed = false, onExit, onRestart }: Props & { onRestart: () => void }) {
+function GameRun({ sport, onEngine, tracking, audio, goal = 100, armsCrossed = false, onExit, onStrokeTravel, tutorial, onRestart }: Props & { onRestart: () => void; tutorial: boolean }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hud, setHud] = useState<GameHudState>({ score: 0, label: '00000', speed01: 0, status: 'Pronto para jogar' });
   const hudRef = useRef(setHud);
@@ -64,6 +67,9 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, armsCrossed = f
   const over = Boolean(hud.finished || hud.tennis?.winner);
   const crossedRef = useRef(armsCrossed);
   crossedRef.current = armsCrossed;
+  const travelRef = useRef(onStrokeTravel);
+  travelRef.current = onStrokeTravel;
+  const tutorialRef = useRef(tutorial);
   const exitRef = useRef(onExit);
   exitRef.current = onExit;
   const [leave01, setLeave01] = useState(0);
@@ -107,7 +113,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, armsCrossed = f
           ? new (await import('../games/track/TrackGame')).TrackGame(canvas, updateHud)
           : sport === 'athletics'
             ? new (await import('../games/athletics/AthleticsGame')).AthleticsGame(canvas, updateHud, audio, goal)
-            : new (await import('../games/tennis/TennisGame')).TennisGame(canvas, updateHud, audio);
+            : new (await import('../games/tennis/TennisGame')).TennisGame(canvas, updateHud, audio, { tutorial: tutorialRef.current, onStrokeTravel: (travel) => travelRef.current?.(travel) });
         if (disposed) { engine.dispose(); return; }
         game = engine;
         engineRef.current = engine;

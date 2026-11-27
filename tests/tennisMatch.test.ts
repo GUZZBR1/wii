@@ -162,3 +162,25 @@ it('throws at once when the free hand rises, and only the racket hand strikes', 
   }
 });
 
+
+it('opens with the warm-up and starts the match once it is done', () => {
+  const huds: { banner?: { title: string } }[] = [];
+  const travels: number[] = [];
+  const game = new TennisGame(document.createElement('canvas'), (hud) => huds.push(hud), undefined, { tutorial: true, onStrokeTravel: (travel) => travels.push(travel) });
+  const state = game as unknown as { phase: { kind: string }; publishHud(): void };
+  const swing = (side: 'forehand' | 'backhand') => game.onAction({ type: 'swing', id: 1, timestampMs: 0, confidence: 1, trackingState: 'tracked', source: 'cv', hand: 'right', side, power01: 0.5, travel: 3, contactY: 0, verticalSpeed: 0 });
+  try {
+    state.publishHud();
+    expect(huds.at(-1)?.banner?.title).toBe('Dê 3 raquetadas');
+    for (const side of ['forehand', 'forehand', 'forehand', 'backhand', 'backhand'] as const) swing(side);
+    for (let i = 0; i < 4; i += 1) {
+      game.setTossHand(undefined);
+      game.setTossHand('left');
+      if (i >= 2) swing('forehand');
+    }
+    expect(state.phase.kind).toBe('point-over');
+    expect(travels).toEqual([1.6, 1.9]);
+  } finally {
+    game.dispose();
+  }
+});

@@ -74,6 +74,8 @@ export type SportActionEvent =
   | ActionBase & { type: 'swing-start'; hand: Hand; side: 'forehand' | 'backhand' }
   | ActionBase & {
       type: 'swing';
+      /** How far the wrist travelled, in shoulder widths. */
+      travel?: number;
       /** The wrist that made the stroke. */
       hand: Hand;
       side: 'forehand' | 'backhand';

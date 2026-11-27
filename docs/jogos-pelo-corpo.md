@@ -14,7 +14,7 @@ O menu tem dois jogos, os dois controlados só pelo corpo, sem teclado nem mouse
 1. No menu, escolhe com a **mão** (cursor da mão): Atletismo e a distância, ou Tênis.
 2. O jogo prepara a pessoa:
    - **Atletismo:** enquadramento e um aquecimento de 5 s correndo com tudo.
-   - **Tênis:** três rebatidas de aquecimento.
+   - **Tênis:** um aquecimento guiado na quadra, sem adversário: raquetadas, o outro lado, lançamento e saque.
 3. Joga.
 4. No fim, **levanta as duas mãos** por 1,5 s para jogar de novo.
 
@@ -85,7 +85,10 @@ físico do golpe, não quando o evento chega.
 
 Neste estado:
 - quadra com áreas de saque e segundo saque, placar de games e pontos, melhor de 3 games;
-- abre com **três rebatidas de aquecimento** (`App.tsx`), que dizem o que a câmera não está vendo;
+- abre com um **aquecimento na quadra** (`tutorial.ts`): 3 raquetadas, 2 do outro lado, 2 lançamentos e 2
+  saques. Cada um avança quando é reconhecido; sem progresso, explica aos 10 s e segue aos 22 s; as duas
+  mãos levantadas pulam. Ele aprende a **mão da raquete** e o **tamanho do golpe** da pessoa (entre 1,6 e
+  1,9 largura de ombro, nunca mais rígido que o padrão). Só no primeiro jogo; "jogar de novo" vai direto;
 - estádio de grama com arquibancadas, torcida e árvores (`stadium.ts`), e câmera baixa atrás do jogador;
 - tenistas no estilo Mii, com mãos soltas e raquete grande (`athlete.ts`);
 - janela de acerto generosa (±0,5 s) e bola lenta, com um **anel no chão que fecha** quando é hora de bater;

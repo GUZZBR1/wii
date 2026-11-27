@@ -10,6 +10,8 @@ export interface GameHudState {
   speed01: number;
   status: string;
   feedback?: HudFeedback;
+  /** Large instruction over the court. */
+  banner?: { title: string; detail?: string };
   tennis?: {
     points: Readonly<Record<"player" | "opponent", string>>;
     games: Readonly<Record<"player" | "opponent", number>>;
