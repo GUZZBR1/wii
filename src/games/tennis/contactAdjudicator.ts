@@ -61,11 +61,12 @@ export const DEFAULT_GEOMETRY: ContactGeometry = {
 };
 
 /** Finish heights in shoulder widths above the shoulder line. */
-const HIGH_FINISH = 1.4;
+// A backhand ends higher than a forehand without meaning to, so each side has its own line.
+const HIGH_FINISH = { forehand: 1.4, backhand: 2 };
 const LOW_FINISH = -0.5;
 
-export function strokeHeight(contactY: number): 'high' | 'normal' | 'low' {
-  return contactY >= HIGH_FINISH ? 'high' : contactY <= LOW_FINISH ? 'low' : 'normal';
+export function strokeHeight(contactY: number, side: 'forehand' | 'backhand'): 'high' | 'normal' | 'low' {
+  return contactY >= HIGH_FINISH[side] ? 'high' : contactY <= LOW_FINISH ? 'low' : 'normal';
 }
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));
@@ -158,7 +159,7 @@ export function adjudicateContact(query: AdjudicationQuery): ContactOutcome {
   // Depth follows pace: harder shots land deeper; flight time is imposed by the pace.
   const depthT = clamp01((forwardSpeed - geo.minForwardSpeed) / (geo.maxForwardSpeed - geo.minForwardSpeed));
   // Where the stroke finished shapes the arc: above the head lobs deep, below the chest skims the net.
-  const height = strokeHeight(swing.contactY);
+  const height = strokeHeight(swing.contactY, swing.side);
   const targetZ = height === 'high' ? geo.deepTargetZ : geo.shallowTargetZ + (geo.deepTargetZ - geo.shallowTargetZ) * depthT;
   const flightTime = ((ballAtPeak.position.z - targetZ) / forwardSpeed) * (height === 'high' ? 1.5 : height === 'low' ? 0.85 : 1);
 

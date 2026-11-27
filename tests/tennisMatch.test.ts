@@ -105,6 +105,8 @@ it.each([-900, -300, 0, 400, 1500])('puts any serve stroke in play, %i ms from t
     clock.mockReturnValue(1100);
     game.setTossHand(false);
     game.setTossHand(true);
+    clock.mockReturnValue(1900);
+    game.setTossHand(true);
     const { idealHitMs } = state.phase as unknown as { idealHitMs: number };
     state.resolveSwing({ side: 'forehand', power01: 0, verticalSpeed: 0, contactY: -1, peakTimestampMs: idealHitMs + offsetMs });
     expect(state.phase.kind).toBe('rally');
@@ -150,7 +152,13 @@ it('holds the serve until a hand is lifted, then strikes on the swing', () => {
     expect(state.phase.kind).toBe('player-serve');
     game.setTossHand(false);
     game.setTossHand(true);
-    clock.mockReturnValue(1900);
+    clock.mockReturnValue(2000);
+    game.setTossHand(true); // still short of the hold: a passing stroke does not throw
+    swing();
+    expect(state.phase.kind).toBe('player-serve');
+    clock.mockReturnValue(2300);
+    game.setTossHand(true);
+    clock.mockReturnValue(2600);
     swing();
     expect(state.phase.kind).toBe('rally');
   } finally {

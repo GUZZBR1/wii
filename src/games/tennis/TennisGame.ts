@@ -46,6 +46,7 @@ const SERVE_CONTACT_X_OFFSET = 0.35;
 const SERVE_HOLD_HEIGHT = 1.15;
 /** The ball goes up by itself if no lifted hand is seen for this long. */
 const SERVE_HOLD_MS = 6000;
+const TOSS_HOLD_MS = 750;
 /** Ideal contact slightly past the apex on the way down. */
 const SERVE_IDEAL_MS = (TOSS_VY / 9.8 + 0.12) * 1000;
 const OPPONENT_TOSS_MS = 800;
@@ -90,6 +91,7 @@ export class TennisGame {
   private serveStroke = false;
   private fastServe = false;
   private tossArmed = false;
+  private handUpSinceMs?: number;
   private swingLift: -1 | 0 | 1 = 0;
   private opponentReturns = 0;
   private opponentBeaten = false;
@@ -165,7 +167,7 @@ export class TennisGame {
       return;
     }
     if (event.type !== 'swing') return;
-    const height = strokeHeight(event.contactY ?? 0);
+    const height = strokeHeight(event.contactY ?? 0, event.side);
     this.swingLift = height === 'high' ? 1 : height === 'low' ? -1 : 0;
     this.resolveSwing({
       side: event.side,
@@ -181,13 +183,21 @@ export class TennisGame {
 
   setHandsRaised(raised: boolean): void { this.restart.setHandsRaised(raised); }
 
-  /** First of the two serving gestures: lifting a hand throws the ball up; the stroke then serves it. */
+  /** First of the two serving gestures: holding a hand up throws the ball; the stroke then serves it. */
   setTossHand(raised: boolean): void {
+    if (!raised) {
+      this.tossArmed = true;
+      this.handUpSinceMs = undefined;
+      return;
+    }
     // The hand has to come up during this serve: one left up from before does not throw.
-    const lifted = raised && this.tossArmed;
-    this.tossArmed = !raised;
-    if (!lifted || !this.holdingServe() || this.phase.kind !== 'player-serve') return;
+    if (!this.tossArmed || !this.holdingServe()) return;
     const now = Math.max(this.lastSimulationTimeMs, nowMs());
+    this.handUpSinceMs ??= now;
+    // Held, not passing through: a stroke keeps the hand at face height for up to two thirds of a second.
+    if (now - this.handUpSinceMs < TOSS_HOLD_MS) return;
+    this.tossArmed = false;
+    this.handUpSinceMs = undefined;
     this.tossAtMs = now;
     this.phase = { kind: 'player-serve', idealHitMs: now + SERVE_IDEAL_MS };
     this.status = 'Agora bata!';
@@ -245,7 +255,7 @@ export class TennisGame {
   ): void {
     if (this.phase.kind !== 'player-serve') return;
     if (this.holdingServe()) {
-      this.setFeedback('LEVANTE A MÃO PARA JOGAR A BOLA', 'neutral');
+      this.setFeedback('SEGURE A MÃO NO ALTO', 'neutral');
       return;
     }
     const contact = createBall({ x: this.playerX + SERVE_CONTACT_X_OFFSET, y: SERVE_CONTACT_HEIGHT, z: BASELINE_Z + 0.35 }, { x: 0, y: -1, z: 0 }, 'player');
@@ -388,7 +398,7 @@ export class TennisGame {
         // Toss missed and the ball came back down: re-toss quietly, no penalty.
         if (this.ball && this.ball.position.y <= 0.6 && this.ball.velocity.y < 0) {
           this.tossBall(now);
-          this.status = 'Seu saque: levante uma mão para jogar a bola';
+          this.status = 'Seu saque: segure uma mão no alto para jogar a bola';
         }
         break;
       }
@@ -429,7 +439,7 @@ export class TennisGame {
     this.opponentBeaten = false;
     if (this.score.server === 'player') {
       this.tossBall(now);
-      this.status = 'Seu saque: levante uma mão para jogar a bola';
+      this.status = 'Seu saque: segure uma mão no alto para jogar a bola';
     } else {
       this.ball = createBall({ x: this.serveX, y: SERVE_HOLD_HEIGHT, z: -BASELINE_Z - 0.35 }, { x: 0, y: 0, z: 0 }, 'opponent');
       this.tape = [{ tMs: now, ball: this.ball }];
@@ -446,6 +456,7 @@ export class TennisGame {
     this.tape = [{ tMs: now, ball: this.ball }];
     this.phase = { kind: 'player-serve', idealHitMs: this.tossAtMs + SERVE_IDEAL_MS };
     this.tossArmed = false;
+    this.handUpSinceMs = undefined;
   }
 
   private stepBall(dt: number, now: number): void {

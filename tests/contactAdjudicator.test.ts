@@ -3,6 +3,7 @@ import { createBall, type BallState } from '../src/games/tennis/ballistics';
 import {
   adjudicateContact,
   spatialTimingErrorMs,
+  strokeHeight,
   type AdjudicationQuery,
   type SwingContactInput,
 } from '../src/games/tennis/contactAdjudicator';
@@ -171,4 +172,10 @@ describe('finish height', () => {
     expect(at(1.6).outgoing.y).toBeGreaterThan(at(0.2).outgoing.y);
     expect(at(-1).outgoing.y).toBeLessThan(at(0.2).outgoing.y);
   });
+});
+
+it('asks more height of a backhand before lobbing it', () => {
+  expect(strokeHeight(1.6, 'forehand')).toBe('high');
+  expect(strokeHeight(1.6, 'backhand')).toBe('normal');
+  expect(strokeHeight(2.1, 'backhand')).toBe('high');
 });

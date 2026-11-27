@@ -94,7 +94,8 @@ Neste estado:
   força e ângulo;
 - forehand e backhand **aparecem diferentes**: o boneco fica ao lado da bola e recua a raquete para o lado
   dela, o golpe sai do lado reconhecido, o rastro é amarelo (forehand) ou azul (backhand) e o nome aparece;
-- **saque em dois gestos**, como no Wii: levantar uma mão joga a bola, a raquetada saca. Sem mão vista
+- **saque em dois gestos**, como no Wii: segurar uma mão no alto por 0,75 s joga a bola, a raquetada saca
+  (durante um golpe a mão passa pelo rosto por até 0,67 s). Sem mão vista
   por 6 s, a bola sobe sozinha;
 - a **altura** em que o golpe termina muda a bola: acima da cabeça sai alta, abaixo do peito sai rasante;
 - um quadro borrado no meio do golpe é pulado. Antes ele apagava o golpe, e a volta do braço era lida
