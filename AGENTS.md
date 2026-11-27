@@ -71,7 +71,7 @@ Before changing shared state or worker↔main boundaries (`packages/core/src/pro
 
 ## Commit & Pull Request Guidelines
 
-Short imperative subjects (`Add initial project structure`), one logical change per commit. PRs explain the change and motivation, link issues when available, and list the commands run for verification.
+Short imperative subjects (`Add initial project structure`), one logical change per commit. PRs explain the change and motivation, link issues when available, and list the commands run for verification. Always open pull requests against `santleme/wii` (`upstream`) targeting `main` (from the `GUZZBR1` fork branch), rather than `GUZZBR1/wii` (`origin`), unless explicitly asked otherwise.
 
 ## Security & Configuration
 

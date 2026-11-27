@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { PropKind } from './biomes';
 import { scrollZ } from './scroll';
 
@@ -87,14 +88,14 @@ type Slot = { group: THREE.Group; variants: Record<PropKind, THREE.Group>; shown
 export class SceneryPool {
   readonly group = new THREE.Group();
   private readonly geometries: Record<Shape, THREE.BufferGeometry> = {
-    box: new THREE.BoxGeometry(1, 1, 1),
-    cylinder: new THREE.CylinderGeometry(0.5, 0.5, 1, 8),
-    cone: new THREE.ConeGeometry(0.5, 1, 8),
+    box: new RoundedBoxGeometry(1, 1, 1, 2, 0.08),
+    cylinder: new THREE.CylinderGeometry(0.5, 0.5, 1, 16),
+    cone: new THREE.ConeGeometry(0.5, 1, 16),
     // Four-sided cone turned so its base is a unit square aligned with the walls.
     roof: new THREE.ConeGeometry(Math.SQRT1_2, 1, 4).rotateY(Math.PI / 4),
-    ball: new THREE.IcosahedronGeometry(0.5, 1),
+    ball: new THREE.SphereGeometry(0.5, 16, 12),
   };
-  private readonly materials = new Map<number, THREE.MeshLambertMaterial>();
+  private readonly materials = new Map<number, THREE.MeshStandardMaterial>();
   private readonly slots: Slot[] = [];
 
   constructor(props: readonly PropKind[]) {
@@ -141,12 +142,13 @@ export class SceneryPool {
     for (const [shape, color, sx, sy, sz, x, y, z] of parts) {
       let material = this.materials.get(color);
       if (!material) {
-        material = new THREE.MeshLambertMaterial({ color, flatShading: true });
+        material = new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0 });
         this.materials.set(color, material);
       }
       const mesh = new THREE.Mesh(this.geometries[shape], material);
       mesh.scale.set(sx, sy, sz);
       mesh.position.set(x, y, z);
+      mesh.castShadow = true;
       // Parts never move inside their variant.
       mesh.updateMatrix();
       mesh.matrixAutoUpdate = false;

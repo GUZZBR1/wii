@@ -2,7 +2,7 @@ import { type CSSProperties, type MouseEvent, type ReactNode, useEffect, useStat
 import type { Sport } from './GameCanvas';
 
 const SPORTS: { id: Sport; name: string; hint: string }[] = [
-  { id: 'track', name: 'Corrida', hint: 'Corra no lugar, salte e troque de raia' },
+  { id: 'athletics', name: 'Corrida', hint: 'Uma volta de 400 m no estádio Resort' },
   { id: 'tennis', name: 'Tênis', hint: 'Balance o braço para rebater' },
   { id: 'boxing', name: 'Boxe', hint: 'Soque para a frente e incline o corpo para esquivar' },
 ];
