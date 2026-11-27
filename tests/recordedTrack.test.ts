@@ -20,6 +20,13 @@ const recordings = import.meta.glob('./recordings/{corrida,erro}-*.json', { quer
  * detector improves; lowering one is accepting a regression. The recordings are personal and local, so
  * these only guard on a machine that has them.
  */
+/**
+ * E saves the last 20 seconds whatever the player was doing, so the `erro-` prefix says nothing about
+ * the movement. Only clips someone has checked as arm movement with no running are listed here.
+ */
+const ARMS_ONLY_CLIPS = ['erro-CPU-1795803374564'];
+const armsOnlyClips = Object.entries(recordings).filter(([path]) => ARMS_ONLY_CLIPS.some((clip) => path.endsWith(`/${clip}.json`)));
+
 interface Floor { run: number; arms: number; side: number; stop: number; runJump?: number; walk?: number }
 const FLOORS: Record<string, Floor> = {
   'corrida-CPU-1795731825430': { run: 85, arms: 3, side: 20, stop: 12 },
@@ -58,7 +65,7 @@ describe('recording script and replay', () => {
 });
 
 describe.skipIf(Object.keys(recordings).length === 0)('scoreboard for real recordings', () => {
-  it.each(Object.entries(recordings).filter(([name]) => name.includes('erro-')))('%s: a mistake clip of arm movement feeds no race effort end to end', (_name, raw) => {
+  it.each(armsOnlyClips)('%s: a clip labelled as arm movement feeds no race effort end to end', (_name, raw) => {
     const recording = parsePoseRecording(raw);
     const frames = recording.frames.map((frame) => frame.snapshot);
     const pipeline = new ActionPipeline();
