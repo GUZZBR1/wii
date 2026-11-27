@@ -75,7 +75,8 @@ export class ActionPipeline {
     if (torsoTracking.state === 'tracked' || (shouldersConfident && oneHipVisible)) {
       const sample = this.torsoChannel.update(current, this.jump.suppressesCadence);
       const jumped = sample ? this.jump.update(sample) : false;
-      this.effort01 = this.intensity.update(snapshot.timestampMs, sample?.shoulders);
+      const body = sample?.shoulders;
+      this.effort01 = this.intensity.update(snapshot.timestampMs, body && { ...body, shoulders: (body.left + body.right) / 2 });
       const cadence = this.cadence.update(sample, snapshot.timestampMs, this.jump.suppressesCadence);
       controls = { sprintSpeed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm, trackingState: 'tracked' };
       const base = this.eventBase(snapshot, Math.max(torsoTracking.confidence, 0.55));

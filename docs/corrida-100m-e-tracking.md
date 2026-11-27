@@ -36,18 +36,18 @@ Fases:
 
 ### Medidor de intensidade
 
-Vale o maior entre dois sinais, de 0 a 1:
+Uma medida só: **o quanto a pessoa se move por segundo**. Soma a velocidade vertical dos pulsos (em
+relação aos ombros) e a da cabeça, em larguras de ombro, o que cancela a distância da câmera. Cresce
+com o ritmo **e** com o tamanho do movimento, de forma contínua. Sem mãos na imagem, usa só o corpo.
 
-- **Bombeio dos braços:** quantas vezes por segundo os pulsos trocam qual está mais alto. É uma
-  frequência, então ângulo e distância da câmera pesam pouco. É o sinal principal: a pessoa gravada
-  trota "deslizando", com braços fortes e quase sem sobe e desce.
-- **Balanço da cabeça**, em larguras de ombro, para quem corre sem usar os braços.
+Substituiu duas versões anteriores: o balanço da cabeça ignorava quem trota "deslizando", e a contagem
+de alternâncias dos pulsos travava em 100% num bombeio forte e ignorava braços curtos junto ao corpo.
 
-Nas gravações bem enquadradas: parado 0–0,04; só braços devagar 0,10–0,29; andando 0,05–0,11;
-correndo 0,62–0,78. Com a cabeça fora do quadro os valores pioram.
+Nas gravações, em larguras de ombro por segundo: parado 0,02–0,3; andando até 0,7; correndo 1,2–2,8.
+O aquecimento aprende o máximo de cada pessoa, com 15% de folga acima dele.
 
-Limitações conhecidas: mexer só os braços rende velocidade (aceito nesta prova); mãos fora da imagem
-ou movimento de braço pequeno e junto ao corpo não contam; andar quase não gera velocidade.
+Limitações conhecidas: mexer só os braços rende velocidade, e muito (aceito nesta prova); andar rende
+pouco; o ângulo da câmera ainda muda o valor bruto, compensado pelo aquecimento.
 
 ## Corrida com obstáculos
 

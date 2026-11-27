@@ -2,43 +2,52 @@ import { describe, expect, it } from 'vitest';
 import { IntensityMeter } from '../src/kinematics/intensity';
 
 const WIDTH = 0.2;
-/** Steps/second of alternating wrists and a head bounce in shoulder widths, for a few seconds. */
-function level({ swaps = 0, armSw = 0.4, bounceSw = 0, seconds = 5 }) {
+/** Arms swinging in opposition `hz` times a second, `armSw` shoulder widths each way, and a head bounce. */
+function level({ hz = 0, armSw = 0, bounceSw = 0, hands = true, jitterSw = 0 }) {
   const meter = new IntensityMeter();
-  let value = 0;
-  for (let t = 0; t <= seconds * 1000; t += 33) {
-    // One swap per half cycle of the left-minus-right wrist signal.
-    const arms = armSw * WIDTH * Math.sin(Math.PI * swaps * (t / 1000));
-    const y = bounceSw * WIDTH * Math.SQRT2 * Math.sin((2 * Math.PI * 2.7 * t) / 1000);
-    value = meter.update(t, { head: 0.3 + y, left: 0.5 + y, right: 0.5 + y, width: WIDTH, arms });
+  let value = 0, seed = 1;
+  const noise = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return (seed / 4294967296 - 0.5) * 2 * jitterSw * WIDTH; };
+  for (let t = 0; t <= 5000; t += 33) {
+    const swing = armSw * WIDTH * Math.sin((2 * Math.PI * hz * t) / 1000);
+    const y = bounceSw * WIDTH * Math.sin((2 * Math.PI * hz * 2 * t) / 1000);
+    value = meter.update(t, {
+      head: 0.3 + y + noise(), shoulders: 0.5 + y, width: WIDTH,
+      leftWrist: hands ? 0.8 + swing + noise() : Number.NaN, rightWrist: hands ? 0.8 - swing + noise() : Number.NaN,
+    });
   }
   return value;
 }
 
 describe('running intensity', () => {
-  it('is zero standing still', () => {
+  it('is zero standing still, even with landmark jitter', () => {
     expect(level({})).toBe(0);
+    expect(level({ jitterSw: 0.01 })).toBe(0);
   });
 
-  it('rises with how fast the arms pump, with no bounce at all', () => {
-    const [slow, run, sprint] = [1.3, 2.7, 3.6].map((swaps) => level({ swaps }));
-    expect(slow).toBeLessThan(0.25);
-    expect(run).toBeGreaterThan(0.4);
-    expect(sprint).toBeGreaterThan(run!);
+  it('grows with the pace of the arms', () => {
+    const [slow, middle, fast] = [0.8, 1.4, 2].map((hz) => level({ hz, armSw: 0.5 }));
+    expect(middle).toBeGreaterThan(slow! + 0.1);
+    expect(fast).toBeGreaterThan(middle! + 0.1);
+    expect(fast).toBeLessThan(1);
   });
 
-  it('ignores hands that barely move', () => {
-    expect(level({ swaps: 3, armSw: 0.1 })).toBe(0);
+  it('grows with the size of the movement, and still counts compact arms', () => {
+    const [compact, wide] = [0.2, 0.6].map((armSw) => level({ hz: 1.4, armSw }));
+    expect(compact).toBeGreaterThan(0.05);
+    expect(wide).toBeGreaterThan(compact! + 0.2);
   });
 
-  it('still reads someone who bounces without pumping the arms', () => {
-    expect(level({ bounceSw: 0.07 })).toBeGreaterThan(0.6);
+  it('reads the body when the hands are out of view', () => {
+    expect(level({ hz: 1.4, bounceSw: 0.12, hands: false })).toBeGreaterThan(0.3);
   });
 
   it('fades instead of dropping when the player cannot be read', () => {
     const meter = new IntensityMeter();
     let value = 0;
-    for (let t = 0; t <= 4000; t += 33) value = meter.update(t, { head: 0.3, left: 0.5, right: 0.5, width: WIDTH, arms: 0.08 * Math.sin(Math.PI * 3 * (t / 1000)) });
+    for (let t = 0; t <= 4000; t += 33) {
+      const swing = 0.1 * Math.sin((2 * Math.PI * 1.4 * t) / 1000);
+      value = meter.update(t, { head: 0.3, shoulders: 0.5, width: WIDTH, leftWrist: 0.8 + swing, rightWrist: 0.8 - swing });
+    }
     const after = meter.update(4200);
     expect(after).toBeGreaterThan(value * 0.6);
     expect(after).toBeLessThan(value);

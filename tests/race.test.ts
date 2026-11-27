@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { COUNTDOWN_S, FRAMED_S, FRAMING_PATIENCE_S, NO_BODY_ADVICE, Race, RACE_METRES, WARMUP_RETRIES, WARMUP_S } from '../src/games/sprint/race';
+import { COUNTDOWN_S, FRAMED_S, HEADROOM, FRAMING_PATIENCE_S, NO_BODY_ADVICE, Race, RACE_METRES, WARMUP_RETRIES, WARMUP_S } from '../src/games/sprint/race';
 
 const run = (race: Race, seconds: number, each?: () => void) => {
   for (let i = 0; i < Math.round(seconds * 60); i += 1) { each?.(); race.step(1 / 60); }
@@ -57,9 +57,11 @@ describe('100 m race', () => {
     for (const best of [0.4, 0.8]) {
       const race = started(best);
       race.setEffort(best);
-      expect(race.effort01).toBe(1);
+      expect(race.effort01).toBeCloseTo(1 / HEADROOM, 5);
       race.setEffort(best / 2);
-      expect(race.effort01).toBeCloseTo(0.5, 5);
+      expect(race.effort01).toBeCloseTo(0.5 / HEADROOM, 5);
+      race.setEffort(best * HEADROOM);
+      expect(race.effort01).toBeCloseTo(1, 5);
     }
   });
 
@@ -107,7 +109,7 @@ describe('100 m race', () => {
     const [easy, good, flat] = [finish(0.45), finish(0.65), finish(0.9)];
     expect(easy.finishS!).toBeGreaterThan(good.finishS!);
     expect(good.finishS!).toBeGreaterThan(flat.finishS!);
-    expect([easy.place, good.place, flat.place]).toEqual([4, 2, 1]);
+    expect([easy.place, good.place, flat.place]).toEqual([4, 3, 1]);
     expect(flat.distance).toBeGreaterThanOrEqual(RACE_METRES);
   });
 

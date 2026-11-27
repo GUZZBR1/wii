@@ -16,12 +16,14 @@ export const WARMUP_RETRIES = 2;
 /** Camera readings under this are rest, not slow running. */
 const REST_EFFORT = 0.05;
 /** A warm-up this weak was not understood: repeat it, then fall back to the default reference. */
-const MIN_TRIED_EFFORT = 0.15;
+const MIN_TRIED_EFFORT = 0.12;
 /** However gentle the warm-up, full speed never costs less than this reading. */
-const MIN_REFERENCE = 0.3;
-const DEFAULT_REFERENCE = 0.7;
-/** Speed at the player's own full effort: 100 m in about 13 s. */
-export const TOP_SPEED = 8;
+const MIN_REFERENCE = 0.25;
+const DEFAULT_REFERENCE = 0.6;
+/** Room above the warm-up: matching it is fast, and pushing harder still makes a difference. */
+export const HEADROOM = 1.15;
+/** Speed at the top of the scale; matching the warm-up gives about 7.4 m/s, 100 m in some 14 s. */
+export const TOP_SPEED = 8.5;
 /** How fast the speed catches up: quicker to build than to lose, so a missed stride costs little. */
 const GAIN_TAU_S = 0.5;
 const LOSS_TAU_S = 1.4;
@@ -74,7 +76,7 @@ export class Race {
   }
 
   get effort01(): number {
-    return this.effort < REST_EFFORT ? 0 : Math.min(1, this.effort / this.reference);
+    return this.effort < REST_EFFORT ? 0 : Math.min(1, this.effort / (this.reference * HEADROOM));
   }
 
   step(dt: number): void {

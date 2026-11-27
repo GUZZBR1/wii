@@ -13,7 +13,7 @@ export interface TorsoVerticalSample {
   /** Slower semi-amplitude estimate used to distinguish takeoff from sustained bounce. */
   sustainedOscillationAmplitude: number;
   /** Shoulder and head heights and the (slowly measured) shoulder width, in the same units, for the bounce detector. */
-  shoulders: { left: number; right: number; width: number; head: number; x: number; arms: number };
+  shoulders: { left: number; right: number; width: number; head: number; x: number; leftWrist: number; rightWrist: number };
 }
 
 const MIN_TORSO_HEIGHT = 0.03;
@@ -37,6 +37,11 @@ const ATTACK_TAU_MS = 150;
 const SUSTAINED_ATTACK_TAU_MS = 500;
 const RELEASE_TAU_MS = 1000;
 const MAX_ADAPTIVE_FREEZE_MS = 1200;
+
+/** Wrist height in width units, NaN when it is not in view. */
+function wristHeight(wrist: PoseSnapshot['landmarks'][number] | undefined, aspect: number): number {
+  return wrist && (wrist.visibility ?? 0) >= 0.3 ? wrist.y * aspect : Number.NaN;
+}
 
 /**
  * Shared vertical channel for the torso: image-space shoulder-midpoint (and hip-midpoint when
@@ -120,7 +125,7 @@ export class TorsoVerticalChannel {
     }
     if (this.widthScale === undefined) return undefined;
     const shoulderHeights = { left: leftShoulder.y * aspect, right: rightShoulder.y * aspect, width: this.widthScale, head: (l[0]?.y ?? Number.NaN) * aspect, x: shoulders.x,
-      arms: l[15] && l[16] && Math.min(l[15].visibility ?? 0, l[16].visibility ?? 0) >= 0.3 ? (l[15].y - l[16].y) * aspect : Number.NaN };
+      leftWrist: wristHeight(l[15], aspect), rightWrist: wristHeight(l[16], aspect) };
     const position = this.positionFilter.filter(raw, snapshot.timestampMs);
     if (this.baseline === undefined) {
       this.baseline = position;
