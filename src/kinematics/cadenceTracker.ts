@@ -162,9 +162,16 @@ export class CadenceTracker {
     this.movingSince = this.moving ? Math.min(this.movingSince, nowMs) : Number.POSITIVE_INFINITY;
     if (this.moving) this.lastStrideAt = nowMs;
     if (this.moving || this.lateralActive) this.lastMovingAt = nowMs;
-    const strideEvidence = this.intervals.length >= STRIDES_CORROBORATING
-      && this.intervals.every((interval) => interval >= STRIDE_MIN_INTERVAL_MS && interval <= STRIDE_MAX_INTERVAL_MS)
-      && Math.max(...this.intervals) <= Math.min(...this.intervals) * STRIDE_REGULARITY;
+    // Corroboration judges the latest strides alone, never the whole speed history: a slow or
+    // uneven start must not delay the verdict once the rhythm is real. The pace test uses the
+    // mean across the sequence — the span over the strides — because a single frame-quantized
+    // interval can land a frame either side of the true stride; the irregularity ratio stays a
+    // separate check on the individual intervals.
+    const recentStrides = this.intervals.slice(-STRIDES_CORROBORATING);
+    const meanStride = recentStrides.reduce((sum, interval) => sum + interval, 0) / recentStrides.length;
+    const strideEvidence = recentStrides.length >= STRIDES_CORROBORATING
+      && meanStride >= STRIDE_MIN_INTERVAL_MS && meanStride <= STRIDE_MAX_INTERVAL_MS
+      && Math.max(...recentStrides) <= Math.min(...recentStrides) * STRIDE_REGULARITY;
     if ((!this.moving && !this.lateralActive && nowMs - this.lastMovingAt >= RUN_TRUST_HOLD_MS)
       || nowMs - this.lastStrideAt >= LATERAL_BRIDGE_CAP_MS) this.trusted = false;
     else if (!this.trusted && this.moving && nowMs - this.movingSince >= RUN_TRUST_MS
