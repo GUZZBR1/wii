@@ -96,3 +96,26 @@ it('plays again when both hands are held up after the match, and not before they
     game.dispose();
   }
 });
+
+it.each([-900, -300, 0, 400, 1500])('puts any serve stroke in play, %i ms from the apex', (offsetMs) => {
+  const { game, state } = match();
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(1000);
+  try {
+    state.startPoint(1000);
+    const { idealHitMs } = state.phase as unknown as { idealHitMs: number };
+    clock.mockReturnValue(1100);
+    state.resolveSwing({ side: 'forehand', power01: 0, verticalSpeed: 0, contactY: -1, peakTimestampMs: idealHitMs + offsetMs });
+    expect(state.phase.kind).toBe('rally');
+    for (let now = 1100; now < 3500 && state.ball && state.ball.bounces === 0 && state.faults === 0; now += 1000 / 60) {
+      state.stepBall(1 / 60, now);
+    }
+    // First bounce reached on the far side: no net, no fault, no point against.
+    expect(state.ball?.bounces).toBe(1);
+    expect(state.ball!.position.z).toBeLessThan(0);
+    expect(state.faults).toBe(0);
+    expect(state.score.points.opponent).toBe(0);
+  } finally {
+    clock.mockRestore();
+    game.dispose();
+  }
+});

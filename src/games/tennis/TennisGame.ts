@@ -38,6 +38,9 @@ const TAPE_WINDOW_MS = 1200;
 const POINT_PAUSE_S = 2.0;
 const TOSS_VY = 5.4; // apex ≈ 1.49 m above the release
 const SERVE_CONTACT_X_OFFSET = 0.35;
+const SERVE_CONTACT_HEIGHT = 2.4;
+/** Beyond this, a mistimed serve would leave the service box. */
+const SERVE_TIMING_SPREAD_MS = 150;
 
 type Phase =
   | { kind: 'player-serve'; idealHitMs: number }
@@ -181,25 +184,26 @@ export class TennisGame {
     this.applyPlayerOutcome(outcome, ballAtPeak, simulationSwing.peakTimestampMs, now, false, wallNow);
   }
 
+  /**
+   * Serving cannot be missed, as in the console game: any stroke during the toss strikes the ball
+   * from the top and lands in the right box. Timing against the apex only changes pace and angle.
+   */
   private resolveServe(
     swing: { side: 'forehand' | 'backhand'; power01: number; verticalSpeed: number; contactY: number; peakTimestampMs: number },
     now: number,
     wallNow: number,
   ): void {
-    if (this.phase.kind !== 'player-serve' || !this.ball) return;
-    const ballAtPeak = this.rewind(swing.peakTimestampMs);
-    if (!ballAtPeak) return;
-    // Temporal override: the toss defines its own ideal instant (just past the apex), and the
-    // generous reach matches the serve's high contact — the serve teaches the timing mechanic.
+    if (this.phase.kind !== 'player-serve') return;
+    const contact = createBall({ x: this.playerX + SERVE_CONTACT_X_OFFSET, y: SERVE_CONTACT_HEIGHT, z: BASELINE_Z + 0.35 }, { x: 0, y: -1, z: 0 }, 'player');
     const outcome = adjudicateContact({
-      ballAtPeak,
-      playerX: this.playerX + SERVE_CONTACT_X_OFFSET,
+      ballAtPeak: contact,
+      playerX: contact.position.x,
       movementPenalty01: 0,
       swing,
-      timingErrorOverrideMs: swing.peakTimestampMs - this.phase.idealHitMs,
-      geometry: { reachRadius: 2.2, playerZ: BASELINE_Z + 1, maxTimingMs: 600 },
+      timingErrorOverrideMs: Math.max(-SERVE_TIMING_SPREAD_MS, Math.min(SERVE_TIMING_SPREAD_MS, swing.peakTimestampMs - this.phase.idealHitMs)),
+      geometry: { playerZ: BASELINE_Z + 1 },
     });
-    this.applyPlayerOutcome(outcome, ballAtPeak, swing.peakTimestampMs, now, true, wallNow);
+    this.applyPlayerOutcome(outcome, contact, now, now, true, wallNow);
   }
 
   private applyPlayerOutcome(
@@ -355,7 +359,7 @@ export class TennisGame {
     this.opponentHitPlan = null;
     if (this.score.server === 'player') {
       this.tossBall(now);
-      this.status = 'Seu saque — raquetada no ápice!';
+      this.status = 'Seu saque — faça uma raquetada';
     } else {
       this.ball = createBall({ x: this.serveX, y: 2.2, z: -BASELINE_Z - 0.35 }, { x: 0, y: 0, z: 0 }, 'opponent');
       this.tape = [{ tMs: now, ball: this.ball }];
@@ -587,7 +591,7 @@ export class TennisGame {
     const portrait = Math.max(0, 1.35 - this.camera.aspect);
     // Low and just behind the player, drifting with them, as in the console game.
     const follow = this.playerX * 0.45;
-    this.camera.position.set(follow, 4.4 + portrait * 3, 16.2 + portrait * 8);
+    this.camera.position.set(follow, 5.2 + portrait * 3, 16.2 + portrait * 8);
     this.camera.lookAt(follow * 0.5, 0.2, 0);
     const ball = this.ball;
     const incoming = ball && this.phase.kind === 'rally' && ball.lastHitter === 'opponent' && ball.velocity.z > 0.5;

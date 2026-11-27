@@ -90,6 +90,8 @@ Neste estado:
 - janela de acerto generosa (±0,5 s) e bola lenta, com um **anel no chão que fecha** quando é hora de bater;
 - golpe com arco e rastro, clarão e tremida no impacto, som de raquete, torcida que pula e aplaude e placar
   falado pelo navegador (`effects.ts`, `audio.ts`);
+- **o saque não se erra**: qualquer raquetada durante o lançamento entra na área certa; o momento só muda
+  força e ângulo;
 - reinício pelas mãos.
 
 ### Detector de raquetada (`src/kinematics/swingDetector.ts`)
