@@ -18,7 +18,8 @@ O menu tem dois jogos, os dois controlados só pelo corpo, sem teclado nem mouse
 3. Joga.
 4. No fim, **levanta as duas mãos** por 1,5 s para jogar de novo.
 
-Voltar ao menu ainda exige clicar em "‹ Jogos".
+Para voltar ao menu pela tela de resultado, **cruza os antebraços em X** diante do peito por 1,5 s
+(`armsCrossed`, em `framing.ts`). No meio de uma partida, ainda é preciso clicar em "‹ Jogos".
 
 ## 2. Do quadro da câmera ao jogo
 
@@ -168,7 +169,7 @@ não reiniciar nada sem querer.
 2. Mais gravações de tênis (outra pessoa, golpes suaves, canhoto).
 3. Pelo menos três outras pessoas, com critério definido antes: a barra enche correndo, fica vazia
    parado, correr forte é claramente mais rápido que correr leve, e as rebatidas são reconhecidas.
-4. Voltar ao menu com um gesto.
+4. Sair de uma partida em andamento sem mouse.
 5. Ajustar o ritmo dos rivais e a escala de velocidade, hoje um primeiro chute.
 6. Diagnosticar travamentos de câmera com `?fps`.
 7. Opcional: avaliar em [UTD-MHAD](https://personal.utdallas.edu/~kehtar/UTD-MHAD.html) (8 pessoas

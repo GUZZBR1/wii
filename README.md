@@ -65,6 +65,7 @@ Os dois jogos do menu não têm teclado.
 | Correr (atletismo) | Corra no lugar bombeando os braços; quanto mais forte, mais rápido |
 | Rebater (tênis) | Raquetada de lado a lado; cedo cruza, tarde vai reto |
 | Jogar de novo | Levante as duas mãos por 1,5 s |
+| Voltar ao menu (tela de resultado) | Cruze os antebraços em X por 1,5 s |
 
 <div align="center">
 <picture>

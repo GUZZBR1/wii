@@ -9,7 +9,7 @@ import { PhotoTrail } from './cv/diagnostics/photoTrail';
 import { TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
 import { downloadRecording, noteArrival, PoseRecorder, rememberFrame } from './cv/diagnostics/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
-import { framingAdvice, handsHidden, handsRaised, oneHandRaised, HeadWarning } from './kinematics/framing';
+import { framingAdvice, handsHidden, armsCrossed, handsRaised, oneHandRaised, HeadWarning } from './kinematics/framing';
 import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
 import { HandCursorDetector } from './kinematics/handCursor';
 import { ProceduralAudio } from './games/audio';
@@ -112,6 +112,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   }
 
   const [headCut, setHeadCut] = useState(false);
+  const [crossed, setCrossed] = useState(false);
 
   // Tennis opens with a short practice, as a warm-up: a few confirmed swings and the match starts.
   const practiceDone = tennisPractice && practiceHits >= PRACTICE_SWINGS;
@@ -250,6 +251,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
         else finishRecording();
       }
       setHeadCut(headWarningRef.current.update(raw));
+      setCrossed(armsCrossed(raw));
       // Implicit calibration: every observed frame is evidence. The current profile is a
       // continuously improving estimate, never a mode the player has to enter or watch.
       profileRef.current = calibratorRef.current.update(raw, pipelineRef.current.laneZone) ?? profileRef.current;
@@ -491,7 +493,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && !tennisPractice && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} />}
+    {screen === 'play' && !tennisPractice && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} armsCrossed={crossed} onExit={() => setScreen('games')} />}
     {screen === 'home' && <HomeMenu exit={exit} onGames={() => setScreen('title')} />}
     {screen === 'title' && <TitleMenu onStart={() => setScreen('games')} onBack={() => setScreen('home')} />}
     {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} onBack={() => setScreen('title')} />}

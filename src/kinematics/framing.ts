@@ -94,3 +94,18 @@ export function oneHandRaised(snapshot: PoseSnapshot): boolean {
   });
   return (left!.up && !right!.raised) || (right!.up && !left!.raised);
 }
+
+/**
+ * Forearms crossed in an X before the chest: the way back to the menu. Each wrist sits clearly past
+ * the other, below the shoulders (so it can never read as the raised hands that play again).
+ */
+export function armsCrossed(snapshot: PoseSnapshot): boolean {
+  const [leftShoulder, rightShoulder, leftWrist, rightWrist] = [11, 12, 15, 16].map((index) => snapshot.landmarks[index]);
+  if (!leftShoulder || !rightShoulder || !leftWrist || !rightWrist) return false;
+  if ((leftWrist.visibility ?? 0) < 0.5 || (rightWrist.visibility ?? 0) < 0.5) return false;
+  const width = Math.abs(leftShoulder.x - rightShoulder.x);
+  const shoulderY = Math.min(leftShoulder.y, rightShoulder.y);
+  // Facing the camera the right wrist is normally at the smaller x.
+  return rightWrist.x - leftWrist.x > width * 0.25
+    && [leftWrist, rightWrist].every((wrist) => wrist.y > shoulderY && wrist.y < shoulderY + width * 1.8);
+}

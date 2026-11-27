@@ -3,6 +3,7 @@ import type { SportActionEvent } from '../cv/protocol';
 import type { AthleticsHudState } from '../games/athletics/AthleticsGame';
 import type { Goal } from '../games/athletics/race';
 import type { ProceduralAudio } from '../games/audio';
+import { RestartGesture } from '../games/core/restartGesture';
 import type { GameHudState as CoreHudState } from '../games/core/hud';
 import type { GameHudState as TrackHudState } from '../games/track/TrackGame';
 
@@ -31,6 +32,9 @@ interface Props {
   audio?: ProceduralAudio;
   /** Race distance for athletics, picked in the menu. */
   goal?: Goal;
+  /** The player is holding their arms crossed; on a result screen that leads back to the menu. */
+  armsCrossed?: boolean;
+  onExit?: () => void;
 }
 
 /** Restarting remounts the whole run, so a new game starts from a clean engine and canvas. */
@@ -39,7 +43,7 @@ export function GameCanvas(props: Props) {
   return <GameRun key={run} {...props} onRestart={() => setRun((value) => value + 1)} />;
 }
 
-function GameRun({ sport, onEngine, tracking, audio, goal = 100, onRestart }: Props & { onRestart: () => void }) {
+function GameRun({ sport, onEngine, tracking, audio, goal = 100, armsCrossed = false, onExit, onRestart }: Props & { onRestart: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hud, setHud] = useState<GameHudState>({ score: 0, label: '00000', speed01: 0, status: 'Pronto para jogar' });
   const hudRef = useRef(setHud);
@@ -55,6 +59,32 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, onRestart }: Pr
   const restartRef = useRef(onRestart);
   restartRef.current = onRestart;
   useEffect(() => { if (restartByBody) restartRef.current(); }, [restartByBody]);
+
+  // Same rules as playing again: only after the result has been seen, and from arms that were down.
+  const over = Boolean(hud.finished || hud.tennis?.winner);
+  const crossedRef = useRef(armsCrossed);
+  crossedRef.current = armsCrossed;
+  const exitRef = useRef(onExit);
+  exitRef.current = onExit;
+  const [leave01, setLeave01] = useState(0);
+  useEffect(() => {
+    if (!over) { setLeave01(0); return; }
+    const gesture = new RestartGesture();
+    let last = performance.now();
+    const timer = window.setInterval(() => {
+      const now = performance.now();
+      gesture.setHandsRaised(crossedRef.current);
+      gesture.step((now - last) / 1000);
+      last = now;
+      setLeave01(gesture.progress01);
+      if (gesture.progress01 >= 1) {
+        window.clearInterval(timer);
+        exitRef.current?.();
+      }
+    }, 100);
+    return () => window.clearInterval(timer);
+  }, [over]);
+  const leaveBar = <div className="restart-gesture"><b style={{ width: `${leave01 * 100}%` }} /><span>Cruze os braços em X para voltar ao menu</span></div>;
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -113,6 +143,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, onRestart }: Pr
       <h2>{hud.tennis.winner === 'player' ? 'Você venceu!' : 'Adversário venceu'}</h2>
       <p>{hud.tennis.games.player} × {hud.tennis.games.opponent} games</p>
       <div className="restart-gesture"><b style={{ width: `${hud.tennis.restart01 * 100}%` }} /><span>Levante as duas mãos para jogar de novo</span></div>
+      {leaveBar}
       <button type="button" onClick={onRestart}>Jogar de novo</button>
     </section>}
     {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${('kind' in hud.feedback ? hud.feedback.kind : hud.feedback.tone)}`}>
@@ -134,6 +165,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, onRestart }: Pr
         <li key={runner.name} className={runner.you ? 'current' : ''}><span>{index + 1}º {runner.name}</span><span>{runner.time}</span></li>
       ))}</ol>
       <div className="restart-gesture"><b style={{ width: `${hud.finished.restart01 * 100}%` }} /><span>Levante as duas mãos para correr de novo</span></div>
+      {leaveBar}
       <button type="button" onClick={onRestart}>Correr de novo</button>
     </div>}
     {hud.result && <div className="game-over" role="dialog" aria-label="Fim de corrida">

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
-import { oneHandRaised, framingAdvice, handsRaised, HeadWarning, upsideDown } from '../src/kinematics/framing';
+import { armsCrossed, oneHandRaised, framingAdvice, handsRaised, HeadWarning, upsideDown } from '../src/kinematics/framing';
 import { calibration, pose } from './fixtures/syntheticPose';
 
 const flipped = (time: number) => {
@@ -64,4 +64,18 @@ it('reads one lifted hand as the serve toss, not two and not a hand at the chest
   expect(at(0.05, 0.05)).toBe(false);
   expect(at(0.2, 0.43)).toBe(false);
   expect(at(0.43, 0.43)).toBe(false);
+});
+
+it('reads forearms crossed before the chest, not arms at rest, raised or merely together', () => {
+  const at = (leftX: number, rightX: number, y: number) => {
+    const snapshot = pose(0);
+    const landmarks = snapshot.landmarks.map((point, i) => (i === 15 ? { ...point, x: leftX, y } : i === 16 ? { ...point, x: rightX, y } : point));
+    return armsCrossed({ ...snapshot, landmarks });
+  };
+  // Synthetic shoulders at x 0.43 and 0.57, y 0.15.
+  expect(at(0.45, 0.55, 0.28)).toBe(true);
+  expect(at(0.39, 0.61, 0.43)).toBe(false);
+  expect(at(0.5, 0.51, 0.28)).toBe(false);
+  expect(at(0.45, 0.55, 0.05)).toBe(false);
+  expect(at(0.45, 0.55, 0.6)).toBe(false);
 });
