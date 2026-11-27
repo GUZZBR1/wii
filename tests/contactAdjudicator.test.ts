@@ -167,8 +167,8 @@ describe('finish height', () => {
   };
 
   it('lobs a high finish, skims a low one and leaves the middle alone', () => {
-    expect([at(1.2).height, at(0.2).height, at(-1).height]).toEqual(['high', 'normal', 'low']);
-    expect(at(1.2).outgoing.y).toBeGreaterThan(at(0.2).outgoing.y);
+    expect([at(1.6).height, at(0.2).height, at(-1).height]).toEqual(['high', 'normal', 'low']);
+    expect(at(1.6).outgoing.y).toBeGreaterThan(at(0.2).outgoing.y);
     expect(at(-1).outgoing.y).toBeLessThan(at(0.2).outgoing.y);
   });
 });

@@ -38,6 +38,7 @@ const RACKET_REACH_X = 0.6;
 const TAPE_WINDOW_MS = 1200;
 const POINT_PAUSE_S = 1.2;
 const SURE_RETURNS = 3;
+const SWING_ANIM_START = 0.2;
 /** An opponent to rally with: it misses now and then, more under pressure. */
 const RALLY_AI = { ...DEFAULT_OPPONENT_AI_CONFIG, generosity: 0.45, qualityPressure: 0.2 };
 const TOSS_VY = 5.4; // apex ≈ 1.49 m above the release
@@ -150,7 +151,8 @@ export class TennisGame {
     if (event.type === 'swing-start') {
       // A right-hander's forehand starts on the right, the backhand across the body; mirrored for the left.
       this.swingDirection = (event.hand === 'right') === (event.side === 'forehand') ? 1 : -1;
-      this.swingAnimT = 0;
+      // By the time the stroke is recognised the arm is well on its way; so is the racket.
+      this.swingAnimT = SWING_ANIM_START;
       this.serveStroke = this.phase.kind === 'player-serve';
       return;
     }

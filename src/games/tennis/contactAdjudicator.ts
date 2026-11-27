@@ -61,7 +61,7 @@ export const DEFAULT_GEOMETRY: ContactGeometry = {
 };
 
 /** Finish heights in shoulder widths above the shoulder line. */
-const HIGH_FINISH = 0.9;
+const HIGH_FINISH = 1.4;
 const LOW_FINISH = -0.5;
 
 const clamp01 = (value: number) => Math.min(1, Math.max(0, value));

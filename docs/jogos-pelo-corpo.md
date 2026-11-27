@@ -101,6 +101,9 @@ Neste estado:
 - o adversário **devolve sempre as 3 primeiras bolas** do ponto; depois pode errar, mais sob pressão, e
   fica visivelmente longe da bola quando erra;
 - `?fps` mostra o atraso entre a captura do quadro e a chegada ao jogo;
+- a altura final é **prevista** pela velocidade com que o braço sobe, sem esperar o braço chegar.
+  Antecipar a animação foi medido e descartado: ganhava uns 60 ms e criava 41 movimentos falsos para 63
+  golpes;
 - reinício pelas mãos.
 
 ### Detector de raquetada (`src/kinematics/swingDetector.ts`)

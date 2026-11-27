@@ -8,7 +8,7 @@ export interface SwingSignal {
   peakTimestampMs: number;
   /** Frame where the onset threshold was crossed — the stroke's physical start. */
   onsetTimestampMs: number;
-  /** Highest wrist position of the stroke relative to the shoulders, in shoulder widths, up positive. */
+  /** Expected finish height of the stroke relative to the shoulders, in shoulder widths, up positive. */
   contactY: number;
   /** Vertical wrist speed at the peak in shoulder widths/s, up positive — topspin/slice proxy. */
   verticalSpeed: number;
@@ -32,6 +32,9 @@ export type SwingOutput =
  * count: that is the arm settling back.
  */
 const STROKE_TRAVEL = 1.9;
+/** The arm keeps rising after the stroke is recognised: finish height ≈ height + rise speed × this. */
+const FOLLOW_THROUGH_S = 0.04;
+const MAX_FOLLOW_THROUGH = 0.8;
 const MIN_SIDEWAYS_TRAVEL = 0.8;
 const STROKE_WINDOW_MS = 270;
 /** After a stroke, the arm coming back the other way is not a second stroke. */
@@ -114,8 +117,8 @@ export class SwingDetector {
         confidence: pending.peak.confidence,
         peakTimestampMs: pending.peak.time,
         onsetTimestampMs: pending.startedAt,
-        // Where the stroke finished: high above the shoulders, or down by the waist.
-        contactY: Math.max(pending.peak.y, sample.y),
+        // Where the stroke will finish: high above the shoulders, or down by the waist.
+        contactY: Math.max(pending.peak.y, sample.y) + Math.min(MAX_FOLLOW_THROUGH, Math.max(0, pending.peak.verticalSpeed) * FOLLOW_THROUGH_S),
         verticalSpeed: pending.peak.verticalSpeed,
       };
     }

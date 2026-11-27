@@ -176,7 +176,7 @@ Consultado em [MiiWiki](https://miiwiki.org/wiki/Tennis) e
 | Movimento automático; o jogador só rebate | Igual |
 | Tempo e altura da raquetada definem a direção | O tempo define o lado; onde o golpe termina define o arco |
 | Saque: lança a bola e bate; no topo sai um saque rápido com rastro branco | Igual, mas o lançamento é automático |
-| Baixo para alto faz lob; alto para baixo faz slice | Terminar acima da cabeça: bola alta. Terminar abaixo do peito: rasante |
+| Baixo para alto faz lob; alto para baixo faz slice | Terminar bem acima da cabeça (altura prevista pela velocidade de subida): bola alta. Terminar abaixo do peito: rasante |
 | Sempre em duplas | Simples |
 | 1 game, melhor de 3 ou de 5; 15, 30, 40 e vantagem | Melhor de 3 |
 | Torcida de Miis | Torcida simples |
