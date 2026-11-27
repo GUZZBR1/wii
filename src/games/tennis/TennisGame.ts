@@ -10,13 +10,14 @@ import {
   MAX_FRAME_DELTA_SECONDS,
 } from '../core/fixedStepTiming';
 import { RestartGesture } from '../core/restartGesture';
-import { createAthlete } from './athlete';
+import { createAthlete, createRacket } from './athlete';
+import { buildTennisStadium } from './stadium';
 import { advanceBall, createBall, solveOutgoing, timeAtPlane, type BallState } from './ballistics';
 import { adjudicateContact, type ContactOutcome } from './contactAdjudicator';
 import { adaptOpponentSkill, createOpponentAi, decideReturn, type OpponentAiState } from './opponentAi';
 import { ballAtPlannedContact, resolveScheduledOpponentReturn, type OpponentHitPlan } from './opponentReturn';
 import { crossesNetBelowCord } from './rallyPhysics';
-import { BASELINE_Z, COURT_HALF_WIDTH, groundImpact, legalLanding, LINE_WIDTH, NET_HALF_WIDTH, NET_HEIGHT, SERVICE_LINE_Z, serviceSide } from './court';
+import { BASELINE_Z, COURT_HALF_WIDTH, groundImpact, legalLanding, NET_HEIGHT, serviceSide } from './court';
 import { awardPoint, createScore, pointLabels, type PlayerSide, type TennisScoreState } from './tennisScore';
 
 /**
@@ -28,7 +29,6 @@ import { awardPoint, createScore, pointLabels, type PlayerSide, type TennisScore
  * Time base: performance.now() milliseconds, because peakTimestampMs lives in it.
  */
 
-const NET_Z = 0;
 const OPPONENT_CONTACT_PLANE_Z = -7.2;
 const PLAYER_HOME_Z = 8.3;
 const OPPONENT_HOME_Z = -8.3;
@@ -56,9 +56,9 @@ const nowMs = () => performance.now();
 
 export class TennisGame {
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(48, 1, 0.1, 90);
+  private readonly camera = new THREE.PerspectiveCamera(48, 1, 0.1, 200);
   private readonly ballMesh = new THREE.Mesh(
-    new THREE.SphereGeometry(0.18, 12, 10),
+    new THREE.SphereGeometry(0.2, 16, 12),
     new THREE.MeshStandardMaterial({ color: 0xd8ff54, emissive: 0x4d7020, emissiveIntensity: 0.45 }),
   );
   private readonly player = createAthlete(0xf79432, 0);
@@ -106,65 +106,9 @@ export class TennisGame {
     private readonly onHud: (state: GameHudState) => void,
     private readonly audio?: ProceduralAudio,
   ) {
-    this.scene.background = new THREE.Color(0xb8e0f4);
-    this.scene.fog = new THREE.Fog(0xb8e0f4, 27, 66);
-    this.camera.position.set(0, 7.5, 14.5);
-    this.camera.lookAt(0, 1, -3);
-    this.scene.add(new THREE.HemisphereLight(0xe3f4d5, 0x1a2c1e, 2));
-    const sun = new THREE.DirectionalLight(0xffefc4, 3);
-    sun.position.set(-5, 9, 8);
-    this.scene.add(sun);
-
-    const court = new THREE.Mesh(new THREE.PlaneGeometry(9.4, 22), new THREE.MeshStandardMaterial({ color: 0x38866a, roughness: 0.8 }));
-    court.rotation.x = -Math.PI / 2;
-    this.scene.add(court);
-    const surround = new THREE.Mesh(new THREE.PlaneGeometry(40, 60), new THREE.MeshStandardMaterial({ color: 0x335974, roughness: 1 }));
-    surround.rotation.x = -Math.PI / 2;
-    surround.position.y = -0.02;
-    this.scene.add(surround);
-
-    const lineMat = new THREE.MeshBasicMaterial({ color: 0xe8ebd7 });
-    const addLine = (w: number, d: number, x: number, z: number) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(w, 0.02, d), lineMat);
-      m.position.set(x, 0.015, z);
-      this.scene.add(m);
-    };
-    const singlesWidth = 2 * COURT_HALF_WIDTH + LINE_WIDTH;
-    for (const z of [-BASELINE_Z, BASELINE_Z]) addLine(9.2, LINE_WIDTH, 0, z);
-    for (const z of [-SERVICE_LINE_Z, SERVICE_LINE_Z]) addLine(singlesWidth, LINE_WIDTH, 0, z);
-    for (const x of [-4.55, 4.55, -COURT_HALF_WIDTH, COURT_HALF_WIDTH]) addLine(LINE_WIDTH, 2 * BASELINE_Z, x, 0);
-    addLine(LINE_WIDTH, 2 * SERVICE_LINE_Z, 0, 0);
-    for (const z of [-BASELINE_Z + 0.12, BASELINE_Z - 0.12]) addLine(LINE_WIDTH, 0.24, 0, z);
-
-    const netWidth = NET_HALF_WIDTH * 2;
-    const strands: number[] = [];
-    for (let x = -NET_HALF_WIDTH; x <= NET_HALF_WIDTH; x += 0.115) strands.push(x, 0.04, NET_Z, x, NET_HEIGHT, NET_Z);
-    for (let y = 0.04; y <= NET_HEIGHT; y += 0.085) strands.push(-NET_HALF_WIDTH, y, NET_Z, NET_HALF_WIDTH, y, NET_Z);
-    const mesh = new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(strands, 3));
-    this.scene.add(new THREE.LineSegments(mesh, new THREE.LineBasicMaterial({ color: 0x24444d })));
-    const tape = new THREE.Mesh(new THREE.BoxGeometry(netWidth, 0.055, 0.055), lineMat);
-    tape.position.y = NET_HEIGHT;
-    this.scene.add(tape);
-    const postMat = new THREE.MeshStandardMaterial({ color: 0x304e63 });
-    for (const x of [-NET_HALF_WIDTH, NET_HALF_WIDTH]) {
-      const post = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.075, 1.05, 8), postMat);
-      post.position.set(x, 0.525, 0);
-      this.scene.add(post);
-    }
-    const wall = new THREE.Mesh(new THREE.BoxGeometry(22, 1.7, 0.2), postMat);
-    wall.position.set(0, 0.85, -13);
-    this.scene.add(wall);
-    const canopyMaterial = new THREE.MeshStandardMaterial({ color: 0x548a58 });
-    for (let i = 0; i < 9; i += 1) {
-      const tree = new THREE.Mesh(new THREE.IcosahedronGeometry(1.4 + (i % 3) * 0.28, 1), canopyMaterial);
-      tree.position.set(-13 + i * 3.2, 2.8 + (i % 3) * 0.3, -15 - (i % 2));
-      this.scene.add(tree);
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.23, 2.3, 7), postMat);
-      trunk.position.set(tree.position.x, 1.15, tree.position.z);
-      this.scene.add(trunk);
-    }
-    this.player.grip.add(this.makeRacket());
-    this.opponent.grip.add(this.makeRacket());
+    buildTennisStadium(this.scene);
+    this.player.grip.add(createRacket(0x2563c9));
+    this.opponent.grip.add(createRacket(0xcf3d3d));
     this.ballShadow.rotation.x = -Math.PI / 2;
     this.bounceRing.rotation.x = -Math.PI / 2;
     this.scene.add(this.player.root, this.opponent.root, this.ballMesh, this.ballShadow, this.bounceRing);
@@ -172,17 +116,6 @@ export class TennisGame {
       this.update(dt, simulationTimeMs, wallTimeMs)
     ));
     this.hudTimer = window.setInterval(() => this.publishHud(), 200);
-  }
-
-  private makeRacket(): THREE.Group {
-    const group = new THREE.Group();
-    const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.03, 0.35, 6), new THREE.MeshStandardMaterial({ color: 0x5a4632 }));
-    handle.position.y = 0.17;
-    group.add(handle);
-    const head = new THREE.Mesh(new THREE.TorusGeometry(0.16, 0.02, 6, 14), new THREE.MeshStandardMaterial({ color: 0xcf3d3d }));
-    head.position.y = 0.45;
-    group.add(head);
-    return group;
   }
 
   // ---------------------------------------------------------------- input
@@ -623,8 +556,10 @@ export class TennisGame {
     this.player.animate(this.playerStride, this.playerMotion, this.swingAnimT, this.swingDirection);
     this.opponent.animate(this.opponentStride, -this.opponentMotion, this.opponentSwingT, 1);
     const portrait = Math.max(0, 1.35 - this.camera.aspect);
-    this.camera.position.set(0, 8.2 + portrait * 3, 18 + portrait * 8);
-    this.camera.lookAt(0, 0.75, 0);
+    // Low and just behind the player, drifting with them, as in the console game.
+    const follow = this.playerX * 0.45;
+    this.camera.position.set(follow, 4.4 + portrait * 3, 16.2 + portrait * 8);
+    this.camera.lookAt(follow * 0.5, 0.2, 0);
   }
 
   // ---------------------------------------------------------------- hud & lifecycle

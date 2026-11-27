@@ -85,7 +85,8 @@ físico do golpe, não quando o evento chega.
 Neste estado:
 - quadra com áreas de saque e segundo saque, placar de games e pontos, melhor de 3 games;
 - abre com **três rebatidas de aquecimento** (`App.tsx`), que dizem o que a câmera não está vendo;
-- tenistas com a paleta e as proporções do Mii (`athlete.ts`);
+- estádio de grama com arquibancadas, torcida e árvores (`stadium.ts`), e câmera baixa atrás do jogador;
+- tenistas no estilo Mii, com mãos soltas e raquete grande (`athlete.ts`);
 - reinício pelas mãos.
 
 ### Detector de raquetada (`src/kinematics/swingDetector.ts`)

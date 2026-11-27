@@ -1,59 +1,96 @@
 import * as THREE from 'three';
 
+/** A Wii-style player: big head, tapered shirt, short legs, floating hands, racket in the right one. */
 export function createAthlete(shirt: number, facing: number) {
   const root = new THREE.Group();
   root.rotation.y = facing;
-  const torso = new THREE.Group();
-  torso.position.y = 0.88;
-  root.add(torso);
-  const fabric = new THREE.MeshStandardMaterial({ color: shirt });
-  // Mii palette and proportions, the same as the athletics runner: big head, sweatband.
-  const skin = new THREE.MeshStandardMaterial({ color: 0xf2c29a });
-  const hair = new THREE.MeshStandardMaterial({ color: 0x4a2f22 });
-  const band = new THREE.MeshStandardMaterial({ color: 0x2f9be8 });
-  const shorts = new THREE.MeshStandardMaterial({ color: 0x26334b });
-  const shoe = new THREE.MeshStandardMaterial({ color: 0xf7f6eb });
-  const add = (parent: THREE.Group, geometry: THREE.BufferGeometry, material: THREE.Material, x: number, y: number, z = 0) => {
-    const mesh = new THREE.Mesh(geometry, material);
+  const material = (color: number) => new THREE.MeshStandardMaterial({ color, roughness: 0.65 });
+  const fabric = material(shirt);
+  // Palette shared with the athletics runner.
+  const skin = material(0xf2c29a);
+  const hair = material(0x4a2f22);
+  const band = material(0x2f9be8);
+  const trousers = material(0xe9edf0);
+  const shoe = material(0xfbfbf4);
+  const dark = material(0x222831);
+  const add = (parent: THREE.Object3D, geometry: THREE.BufferGeometry, paint: THREE.Material, x: number, y: number, z = 0) => {
+    const mesh = new THREE.Mesh(geometry, paint);
     mesh.position.set(x, y, z);
     parent.add(mesh);
+    return mesh;
   };
-  add(torso, new THREE.CapsuleGeometry(0.29, 0.32, 4, 10), fabric, 0, 0.3);
-  add(torso, new THREE.SphereGeometry(0.33, 16, 12), skin, 0, 0.95);
-  add(torso, new THREE.SphereGeometry(0.336, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2.4), hair, 0, 1.0);
-  add(torso, new THREE.CylinderGeometry(0.338, 0.338, 0.09, 20, 1, true), band, 0, 1.04);
+  const group = (parent: THREE.Object3D, x: number, y: number, z = 0) => {
+    const node = new THREE.Group();
+    node.position.set(x, y, z);
+    parent.add(node);
+    return node;
+  };
+
+  const shadow = add(root, new THREE.CircleGeometry(0.46, 20), new THREE.MeshBasicMaterial({ color: 0x10301c, transparent: true, opacity: 0.35, depthWrite: false }), 0, 0.022);
+  shadow.rotation.x = -Math.PI / 2;
+
+  const torso = group(root, 0, 0.6);
+  const profile = [[0, -0.04], [0.2, 0], [0.24, 0.2], [0.29, 0.46], [0.24, 0.62], [0.1, 0.7], [0, 0.72]].map(([x, y]) => new THREE.Vector2(x, y));
+  add(torso, new THREE.LatheGeometry(profile, 20), fabric, 0, 0);
+  add(torso, new THREE.SphereGeometry(0.43, 24, 18), skin, 0, 1.1);
+  // Hair wraps the back of the head, which is what the player's camera sees.
+  add(torso, new THREE.SphereGeometry(0.445, 24, 14, 0, Math.PI * 2, 0, Math.PI * 0.55), hair, 0, 1.12, 0.03).rotation.x = 0.35;
+  add(torso, new THREE.CylinderGeometry(0.437, 0.437, 0.08, 24, 1, true), band, 0, 1.24);
+  for (const x of [-0.15, 0.15]) add(torso, new THREE.SphereGeometry(0.04, 8, 6), dark, x, 1.12, -0.41);
+
   const legs = [-1, 1].map((side) => {
-    const leg = new THREE.Group();
-    leg.position.set(side * 0.15, 0.83, 0);
-    root.add(leg);
-    add(leg, new THREE.CapsuleGeometry(0.115, 0.18, 4, 8), shorts, 0, -0.17);
-    add(leg, new THREE.CapsuleGeometry(0.075, 0.24, 4, 8), skin, 0, -0.49);
-    add(leg, new THREE.BoxGeometry(0.19, 0.15, 0.31), shoe, 0, -0.73, -0.05);
+    const leg = group(root, side * 0.13, 0.6);
+    add(leg, new THREE.CapsuleGeometry(0.095, 0.26, 4, 10), trousers, 0, -0.22);
+    add(leg, new THREE.CapsuleGeometry(0.1, 0.14, 4, 10), shoe, 0, -0.5, -0.07).rotation.x = Math.PI / 2;
     return leg;
   });
-  const arms = [-1, 1].map((side) => {
-    const arm = new THREE.Group();
-    arm.position.set(side * 0.32, 0.48, 0);
-    torso.add(arm);
-    add(arm, new THREE.CapsuleGeometry(0.085, 0.29, 4, 8), skin, 0, -0.2);
-    return arm;
-  });
-  const grip = new THREE.Group();
-  grip.position.set(0, -0.39, -0.03);
-  grip.rotation.z = -1.25;
-  arms[1]!.add(grip);
+
+  const [freeHand, racketHand] = [-1, 1].map((side) => {
+    const hand = group(torso, side * 0.46, 0.2, -0.06);
+    add(hand, new THREE.SphereGeometry(0.105, 12, 10), skin, 0, 0);
+    return hand;
+  }) as [THREE.Group, THREE.Group];
+
+  const grip = group(racketHand, 0, 0, 0);
+  grip.rotation.z = -1.1;
 
   return {
     root, grip,
     animate(stride: number, speed: number, swing: number, direction: number) {
-      const step = Math.sin(stride * 10) * Math.min(1, Math.abs(speed) / 3);
+      const step = Math.sin(stride * 9) * Math.min(1, Math.abs(speed) / 3);
       const arc = Math.sin(Math.PI * swing);
-      torso.rotation.set(0, arc * direction * 0.8, -speed * 0.035);
-      torso.position.y = 0.88 + Math.abs(step) * 0.055;
-      legs[0]!.rotation.x = step * 0.6;
-      legs[1]!.rotation.x = -step * 0.6;
-      arms[0]!.rotation.set(-0.45 + step * 0.24, 0, -0.25);
-      arms[1]!.rotation.set(-0.55 - arc * 1.2, arc * direction, 0.35 + arc * 1.35);
+      // Sweep from one side of the body to the other over the stroke; at rest the angle is zero.
+      const sweep = swing < 1 ? Math.cos(Math.PI * swing) * direction : 0;
+      torso.rotation.set(0, sweep * 0.9, -speed * 0.04);
+      torso.position.y = 0.6 + Math.abs(step) * 0.07;
+      legs[0]!.rotation.x = step * 0.7;
+      legs[1]!.rotation.x = -step * 0.7;
+      freeHand.position.set(-0.46, 0.2 + step * 0.08, -0.06 - step * 0.12);
+      racketHand.position.set(0.46 + arc * 0.28 * direction, 0.2 + arc * 0.3, -0.06 - arc * 0.45);
+      grip.rotation.set(-arc * 0.9, sweep * 1.1, -1.1);
     },
   };
+}
+
+/** Oversized oval head with strings, so the stroke reads from across the court. */
+export function createRacket(frame: number): THREE.Group {
+  const group = new THREE.Group();
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.045, 0.36, 8), new THREE.MeshStandardMaterial({ color: 0x24282e }));
+  handle.position.y = 0.12;
+  const rim = new THREE.Mesh(new THREE.TorusGeometry(0.25, 0.028, 8, 28), new THREE.MeshStandardMaterial({ color: frame, roughness: 0.35 }));
+  rim.position.y = 0.6;
+  rim.scale.y = 1.25;
+  const strings: number[] = [];
+  for (let i = -3; i <= 3; i += 1) {
+    const offset = i * 0.065;
+    const reach = Math.sqrt(0.25 ** 2 - offset ** 2);
+    strings.push(offset, 0.6 - reach * 1.25, 0, offset, 0.6 + reach * 1.25, 0);
+    strings.push(-reach, 0.6 + offset * 1.25, 0, reach, 0.6 + offset * 1.25, 0);
+  }
+  const mesh = new THREE.LineSegments(
+    new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(strings, 3)),
+    new THREE.LineBasicMaterial({ color: 0xf4f6f0 }),
+  );
+  group.add(handle, rim, mesh);
+  return group;
 }
