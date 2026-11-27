@@ -71,9 +71,8 @@ describe('effort-gate trust in the cadence tracker', () => {
       if (feed(poseWithHipBounce(t, y)).running) { firstOpen = t; break; }
     }
     // The five-second warm-up needs 1.5 s of usable effort: opening must leave that plus slack,
-    // so anything under three seconds passes the race. The honest chain costs one stride over the
-    // distorted-window admission — the partial first interval of a chain never counts — and still
-    // opens near 2.6 s, where the extended five-stride wait used to push it past 3.5 s and lose.
+    // so anything under three seconds passes the race, where the extended five-stride wait used to
+    // push it past 3.5 s and lose.
     expect(firstOpen).toBeLessThan(3000);
   });
 
@@ -99,8 +98,7 @@ describe('effort-gate trust in the cadence tracker', () => {
       results.push({ t, ...result });
     }
     const firstOpen = results.find((r) => r.running)?.t ?? Number.POSITIVE_INFINITY;
-    // The fast rhythm starts at 2000 ms; three honest strides — the chain's partial first
-    // interval never counts — plus detection latency open not long after, never waiting for the
+    // The fast rhythm starts at 2000 ms; three honest strides plus detection latency open not long after, never waiting for the
     // seven-interval speed history to clear the slow start, which would push past five seconds.
     expect(firstOpen).toBeLessThan(4400);
     expect(firstOpen).toBeGreaterThan(2000);
@@ -130,6 +128,53 @@ describe('effort-gate trust in the cadence tracker', () => {
       });
       expect(verdicts.every((running) => !running), `phase ${phase} opened the gate`).toBe(true);
     }
+  });
+
+  it('never opens for a slow bob that uneven frame spacing makes look like a stride', () => {
+    // 511 ms is slower than the 500 ms cutoff, but rises stamped on these frames read 500, 490, 500.
+    const jitter = [5, 14, 14, 6, 5, 9];
+    const uneven = Array.from({ length: 180 }, (_, i) => 55 * i + jitter[i % jitter.length]!);
+    const results = drive(uneven, (t) => 0.025 * Math.sin((2 * Math.PI * (t + 228)) / 511), () => 0);
+    expect(results.every((r) => !r.running)).toBe(true);
+  });
+
+  it('reopens promptly for a centered jog that stopped for the countdown', () => {
+    // The countdown asks the player to stop and go again on the signal, at every rise alignment.
+    let slowest = 0;
+    for (let phase = 0; phase < 470; phase += 24) {
+      const { feed } = cadenceHarness();
+      let opened = Number.POSITIVE_INFINITY;
+      for (let t = 0; t < 12_000 && opened === Number.POSITIVE_INFINITY; t += 42) {
+        const jogging = t < 3000 || t >= 6000;
+        const y = jogging ? 0.024 * Math.sin((2 * Math.PI * (t + phase)) / 470) : 0;
+        if (feed(poseWithHipBounce(t, y)).running && t >= 6000) opened = t - 6000;
+      }
+      slowest = Math.max(slowest, opened);
+    }
+    expect(slowest).toBeLessThan(2500);
+  });
+
+  it('renews the lateral bridge on bounces too brief to confirm', () => {
+    // Weak candidacy: a dip every 2.4 s on a swaying body never confirms `moving`, yet keeps the
+    // verdict past the bridge cap that closes it for flat sway.
+    const { feed } = cadenceHarness();
+    const channel = new TorsoVerticalChannel();
+    const witness = new BounceDetector();
+    for (const t of times) feed(poseWithHipBounce(t, bounce(t), undefined, sway(t)));
+    const start = times.at(-1)! + 33;
+    const tail = [];
+    for (let t = start; t <= start + 12_000; t += 33) {
+      const u = (t - start) % 2400;
+      const snapshot = poseWithHipBounce(t, u < 400 ? 0.025 * Math.sin((Math.PI * u) / 400) : 0, undefined, sway(t));
+      const sample = channel.update(snapshot)!;
+      const { left, right, width, head } = sample.shoulders;
+      const seen = witness.update(t, left, right, width, head);
+      const result = feed(snapshot);
+      if (t > start + 6000) tail.push({ ...result, ...seen });
+    }
+    expect(tail.some((r) => r.candidate)).toBe(true);
+    expect(tail.every((r) => !r.moving)).toBe(true);
+    expect(tail.every((r) => r.running)).toBe(true);
   });
 
   it('never opens for a slow bob however long it persists', () => {

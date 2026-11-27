@@ -54,10 +54,12 @@ function moved(samples: readonly Sample[]): number {
   return mids.length > 1 ? Math.max(...mids) - Math.min(...mids) : 0;
 }
 
-/** `rise` marks one stride's upward crossing, timed even before the run is confirmed. `candidate`
- * is the raw per-frame window verdict before any sustain or hold: weak but honest evidence — the
+/** `rise` marks one stride's upward crossing, timed even before the run is confirmed. `riseAt` is
+ * when the body crossed, interpolated between the two frames around it: frame timestamps alone are up
+ * to a frame late, enough to pass a slow bob off as a stride. `witnessed` is false when the body was
+ * already above at the first look, so the crossing's time is unknown. `candidate` is the raw per-frame window verdict before any sustain or hold: weak but honest evidence — the
  * together and head tests mean swaying without bouncing never produces it. */
-export interface Bounce { moving: boolean; rise: boolean; candidate: boolean }
+export interface Bounce { moving: boolean; rise: boolean; riseAt: number; witnessed: boolean; candidate: boolean }
 
 export class BounceDetector {
   private samples: Sample[] = [];
@@ -72,7 +74,7 @@ export class BounceDetector {
   update(t: number, left: number, right: number, width: number, head: number): Bounce {
     this.samples.push({ t, left, right, head });
     this.samples = this.samples.filter((sample) => t - sample.t <= WINDOW_MS);
-    if (t - this.samples[0]!.t < MIN_SPAN_MS) return { moving: this.isMoving(t), rise: false, candidate: false };
+    if (t - this.samples[0]!.t < MIN_SPAN_MS) return { moving: this.isMoving(t), rise: false, riseAt: t, witnessed: false, candidate: false };
     const times = this.samples.map((sample) => sample.t);
     const l = detrend(times, this.samples.map((sample) => sample.left));
     const r = detrend(times, this.samples.map((sample) => sample.right));
@@ -102,12 +104,16 @@ export class BounceDetector {
 
     // One step per rise through the window's middle (image y falls as the body rises).
     const height = -(l.at(-1)! + r.at(-1)!) / 2 / width;
-    let rise = false;
+    let rise = false, witnessed = false, riseAt = t;
     if (!this.above && height > spread / 2) {
       this.above = true;
+      // The previous frame, read against this window's trend and threshold.
+      const before = -(l.at(-2)! + r.at(-2)!) / 2 / width;
+      witnessed = before <= spread / 2;
+      if (witnessed) riseAt = times.at(-2)! + (t - times.at(-2)!) * (spread / 2 - before) / (height - before);
       if (spread >= MIN_SPREAD_SW && t - this.lastRiseAt >= MIN_STEP_INTERVAL_MS) { rise = true; this.lastRiseAt = t; }
     } else if (this.above && height < -spread / 2) this.above = false;
-    return { moving: this.isMoving(t), rise, candidate };
+    return { moving: this.isMoving(t), rise, riseAt, witnessed, candidate };
   }
 
   isMoving(t: number): boolean { return t <= this.until && t > this.blockedUntil; }

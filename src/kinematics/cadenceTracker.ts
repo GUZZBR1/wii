@@ -69,7 +69,7 @@ const STRIDE_MIN_INTERVAL_MS = 60_000 / 260;
 /** Fastest-to-slowest ratio the corroborating strides may span — uneven bobbing is wider. */
 const STRIDE_REGULARITY = 1.6;
 /**
- * A short sequence can average a slower bob down into the band when frame quantization lands in
+ * A short sequence can average a slower bob down into the band when timing noise lands in
  * its favor, so averaging alone earns nothing: either the latest strides each read in band, or
  * the longer window has to agree — its quantization error shrinks with every stride added.
  */
@@ -107,7 +107,8 @@ export class CadenceTracker {
   private lateralActive = false;
   private suspended = false;
   private ranBeforeJump = false;
-  private freshChain = true;
+  /** Whether the last rise's time is trustworthy enough to measure an interval from. */
+  private lastStepWitnessed = false;
 
   /** `suspend` (a jump in flight) holds the current verdict and ignores the airborne samples. */
   update(sample: TorsoVerticalSample | undefined, nowMs: number, suspend = false): CadenceResult {
@@ -139,19 +140,14 @@ export class CadenceTracker {
       // Right after a jump the window is still filling; the run it interrupted carries on meanwhile.
       this.moving = bounce.moving;
       if (bounce.rise) {
-        const interval = sample.timestampMs - this.lastStepAt;
-        // After a pause the old pace says nothing about the new one. Nor does the first interval
-        // of a chain: the detector emits its first rise mid-cycle while its window still fills,
-        // and always late, so that interval spans a partial stride — a slower bob quantizes into
-        // a deceptively fast reading. The chain itself still advances on rise timing.
-        if (interval <= MAX_STEP_INTERVAL_MS) {
-          if (!this.freshChain) this.intervals = [...this.intervals, interval].slice(-STEPS_AVERAGED);
-          this.freshChain = false;
-        } else {
-          this.intervals = [];
-          this.freshChain = true;
-        }
-        this.lastStepAt = sample.timestampMs;
+        const interval = bounce.riseAt - this.lastStepAt;
+        // After a pause the old pace says nothing about the new one. An interval measured from an
+        // unwitnessed rise spans an unknown part of a stride — it starts late, so a slower bob
+        // would read deceptively fast.
+        if (interval > MAX_STEP_INTERVAL_MS) this.intervals = [];
+        else if (this.lastStepWitnessed) this.intervals = [...this.intervals, interval].slice(-STEPS_AVERAGED);
+        this.lastStepAt = bounce.riseAt;
+        this.lastStepWitnessed = bounce.witnessed;
         if (this.moving) {
           this.lastStepSide = this.lastStepSide === 'left' ? 'right' : 'left';
           step = this.lastStepSide;
@@ -186,12 +182,12 @@ export class CadenceTracker {
     if (this.moving || this.lateralActive) this.lastMovingAt = nowMs;
     // Corroboration judges the latest strides alone, never the whole speed history: a slow or
     // uneven start must not delay the verdict once the rhythm is real. Every interval in the
-    // record spans a full stride — the partial first one of each chain never enters it — so a
+    // record spans a full stride — one measured from an unwitnessed rise never enters it — so a
     // reading strictly inside the band is honest evidence of running pace. The fast path takes
     // three such readings; when admission rests on the average instead, the extended window must
-    // agree — the span over more strides absorbs the frame quantization a short one cannot.
+    // agree — the span over more strides absorbs the timing noise a short one cannot.
     const inBand = (interval: number) => interval >= STRIDE_MIN_INTERVAL_MS && interval <= STRIDE_MAX_INTERVAL_MS;
-    // A boundary reading alone is no evidence: a slower bob quantizes down onto exactly the
+    // A boundary reading alone is no evidence: a slower bob can read exactly the
     // cutoff, so the fast path needs at least one reading strictly below it — something a
     // slower bob can never produce — while the rest may sit anywhere inside the band.
     const strictlyInBand = (interval: number) => interval > STRIDE_MIN_INTERVAL_MS && interval < STRIDE_MAX_INTERVAL_MS;
@@ -231,6 +227,6 @@ export class CadenceTracker {
     this.lastStrideAt = Number.NEGATIVE_INFINITY;
     this.lateralWindow = [];
     this.lateralActive = false;
-    this.suspended = this.ranBeforeJump = false;
+    this.suspended = this.ranBeforeJump = this.lastStepWitnessed = false;
   }
 }
