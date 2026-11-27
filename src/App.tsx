@@ -7,7 +7,7 @@ import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { PhotoTrail } from './cv/photoTrail';
 import { downloadRecording, PoseRecorder, rememberFrame } from './cv/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
-import { HeadWarning } from './kinematics/framing';
+import { framingAdvice, HeadWarning } from './kinematics/framing';
 import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
 import { HandCursorDetector } from './kinematics/handCursor';
 import { ProceduralAudio } from './games/audio';
@@ -219,6 +219,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       drawPose(overlayRef.current, videoRef.current, current);
       engineRef.current?.setLaneZone?.(result.controls.laneZone);
       engineRef.current?.setEffort?.(result.effort01);
+      engineRef.current?.setFraming?.(framingAdvice(raw));
       for (const event of result.events) dispatchEvent(event);
     },
   };

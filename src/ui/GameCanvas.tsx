@@ -4,7 +4,7 @@ import type { ProceduralAudio } from '../games/audio';
 import type { GameHudState as CoreHudState } from '../games/core/hud';
 import type { GameHudState as TrackHudState } from '../games/track/TrackGame';
 
-type GameHudState = Omit<TrackHudState, 'feedback'> & { feedback?: TrackHudState['feedback'] | CoreHudState['feedback']; finished?: { title: string; detail: string } };
+type GameHudState = Omit<TrackHudState, 'feedback'> & { feedback?: TrackHudState['feedback'] | CoreHudState['feedback']; finished?: { title: string; detail: string }; framing?: boolean };
 
 const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }> = {
   sprint: { score: 'DISTÂNCIA', speed: 'INTENSIDADE', controls: 'espaço várias vezes para correr' },
@@ -14,7 +14,7 @@ const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }
 import { forwardKeyDown } from './keys';
 
 export type Sport = 'sprint' | 'track' | 'tennis';
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort01: number): void; resetLaneZone?(): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort01: number): void; setFraming?(advice: string | undefined): void; resetLaneZone?(): void; dispose(): void }
 
 interface Props {
   sport: Sport;
@@ -80,7 +80,7 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
     };
   }, [sport, onEngine, audio]);
 
-  return <div className="game-viewport">
+  return <div className={hud.framing ? 'game-viewport is-framing' : 'game-viewport'}>
     <canvas ref={canvasRef} />
     <div className="game-hud"><div><span>{HUD_TEXT[sport].score}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{HUD_TEXT[sport].speed}</span><strong>{sport === 'tennis' ? hud.status.split(' · ').at(-1) : `${Math.round(hud.speed01 * 100)}%`}</strong></div></div>
     {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${('kind' in hud.feedback ? hud.feedback.kind : hud.feedback.tone)}`}>

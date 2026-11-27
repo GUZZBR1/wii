@@ -1,11 +1,22 @@
 /**
- * The 100 m, with no rendering: the player's speed follows how hard they run, with momentum, against
- * three runners of fixed pace. Pure, so every rule is testable.
+ * The 100 m, with no rendering. Before the start the player is framed and then runs flat out for a few
+ * seconds, which sets what "full effort" means for that body, camera and angle. In the race the speed
+ * follows that share of effort, with momentum, against three runners. Pure, so every rule is testable.
  */
 export const RACE_METRES = 100;
 export const COUNTDOWN_S = 3;
-/** Full effort. A real recording runs at 0.6–0.85 effort, about 5.5–7.7 m/s. */
-export const TOP_SPEED = 9;
+export const WARMUP_S = 5;
+/** The picture has to stay good this long before the warm-up starts. */
+export const FRAMED_S = 1;
+/** Camera readings under this are rest, not slow running. */
+const REST_EFFORT = 0.05;
+/** A warm-up this weak means the player did not try: keep the default reference instead. */
+const MIN_TRIED_EFFORT = 0.15;
+/** However gentle the warm-up, full speed never costs less than this reading. */
+const MIN_REFERENCE = 0.3;
+const DEFAULT_REFERENCE = 0.7;
+/** Speed at the player's own full effort: 100 m in about 13 s. */
+export const TOP_SPEED = 8;
 /** How fast the speed catches up: quicker to build than to lose, so a missed stride costs little. */
 const GAIN_TAU_S = 0.5;
 const LOSS_TAU_S = 1.4;
@@ -14,13 +25,20 @@ const TAP_EFFORT = 0.22;
 const TAP_FADE_PER_S = 0.9;
 
 export interface Rival { name: string; pace: number; distance: number; finishS?: number }
-export type Phase = 'countdown' | 'racing' | 'finished';
+export type Phase = 'framing' | 'warmup' | 'countdown' | 'racing' | 'finished';
 
 const RIVALS = [{ name: 'Bia', pace: 5.1 }, { name: 'Caio', pace: 5.8 }, { name: 'Davi', pace: 6.5 }];
 
 export class Race {
-  phase: Phase = 'countdown';
+  phase: Phase = 'framing';
   countdown = COUNTDOWN_S;
+  warmupLeft = WARMUP_S;
+  /** What the camera asks the player to change; null until it has said anything. */
+  advice: string | undefined | null = null;
+  private framedFor = 0;
+  /** The camera reading that counts as this player's full effort. */
+  reference = DEFAULT_REFERENCE;
+  private readonly warmup: number[] = [];
   elapsedS = 0;
   distance = 0;
   speed = 0;
@@ -34,13 +52,38 @@ export class Race {
     this.effort = Number.isFinite(effort01) ? Math.min(1, Math.max(0, effort01)) : 0;
   }
 
+  /** Undefined means the picture is good. */
+  setFraming(advice: string | undefined): void { this.advice = advice; }
+
   tap(): void {
+    // A keyboard player has nothing to frame or warm up.
+    if (this.phase === 'framing' || this.phase === 'warmup') { this.phase = 'countdown'; return; }
     if (this.phase === 'racing') this.taps = Math.min(1, this.taps + TAP_EFFORT);
   }
 
-  get effort01(): number { return Math.max(this.effort, this.taps); }
+  get effort01(): number {
+    const camera = this.effort < REST_EFFORT ? 0 : Math.min(1, this.effort / this.reference);
+    return Math.max(camera, this.taps);
+  }
 
   step(dt: number): void {
+    if (this.phase === 'framing') {
+      this.framedFor = this.advice === undefined ? this.framedFor + dt : 0;
+      if (this.framedFor >= FRAMED_S) this.phase = 'warmup';
+      return;
+    }
+    if (this.phase === 'warmup') {
+      this.warmupLeft -= dt;
+      // The first seconds are getting up to pace.
+      if (this.warmupLeft < WARMUP_S - 2) this.warmup.push(this.effort);
+      if (this.warmupLeft <= 1e-9) {
+        // Near the top of what was read, ignoring one-off spikes.
+        const peak = [...this.warmup].sort((a, b) => a - b)[Math.floor(this.warmup.length * 0.8)] ?? 0;
+        this.reference = peak < MIN_TRIED_EFFORT ? DEFAULT_REFERENCE : Math.max(MIN_REFERENCE, peak);
+        this.phase = 'countdown';
+      }
+      return;
+    }
     if (this.phase === 'countdown') {
       this.countdown -= dt;
       if (this.countdown <= 1e-9) this.phase = 'racing';

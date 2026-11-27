@@ -12,6 +12,8 @@ export interface SprintHudState {
   status: string;
   banner?: { title: string; detail?: string };
   finished?: { title: string; detail: string };
+  /** The camera picture should be shown large. */
+  framing?: boolean;
 }
 
 const LANE_X = [-2.25, -0.75, 0.75, 2.25];
@@ -124,9 +126,13 @@ export class SprintGame {
 
   setEffort(effort01: number): void { this.race.setEffort(effort01); }
 
+  setFraming(advice: string | undefined): void { this.race.setFraming(advice); }
+
   setTracking(tracking: string): void {
     // A player the camera lost stops pushing; momentum fades on its own.
-    if (tracking === 'SEM POSE') this.race.setEffort(0);
+    if (tracking !== 'SEM POSE') return;
+    this.race.setEffort(0);
+    if (this.race.advice !== null) this.race.setFraming('Apareça na câmera');
   }
 
   onKey(key: string): void {
@@ -156,7 +162,13 @@ export class SprintGame {
   private publish(): void {
     const { race } = this;
     const metres = Math.min(RACE_METRES, Math.floor(race.distance));
-    const banner = race.phase === 'countdown' ? { title: String(Math.ceil(race.countdown)), detail: 'Prepare-se: corra no lugar quando zerar' } : undefined;
+    const banner = race.phase === 'framing'
+      ? race.advice === undefined
+        ? { title: 'Ótimo!', detail: 'Fique aí' }
+        : { title: 'Ajuste a câmera', detail: race.advice ?? 'Ligue a câmera, ou aperte espaço para jogar no teclado' }
+      : race.phase === 'warmup'
+      ? { title: 'CORRA COM TUDO!', detail: `Aquecimento: estou aprendendo o seu máximo · ${Math.ceil(race.warmupLeft)}` }
+      : race.phase === 'countdown' ? { title: String(Math.ceil(race.countdown)), detail: 'Pare. Corra quando zerar' } : undefined;
     const finished = race.finishS !== undefined
       ? { title: `${race.place}º lugar`, detail: `${race.finishS.toFixed(2)} s nos ${RACE_METRES} metros` }
       : undefined;
@@ -167,6 +179,7 @@ export class SprintGame {
       status: race.phase === 'racing' ? `${race.place}º lugar · ${race.elapsedS.toFixed(1)} s` : race.phase === 'finished' ? 'Chegada!' : 'Corra no lugar com a câmera, ou aperte espaço várias vezes',
       banner,
       finished,
+      framing: race.phase === 'framing' || race.phase === 'warmup',
     };
     const key = JSON.stringify(state);
     if (key === this.lastHud) return;

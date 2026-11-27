@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
-import { HeadWarning, upsideDown } from '../src/kinematics/framing';
+import { framingAdvice, HeadWarning, upsideDown } from '../src/kinematics/framing';
 import { calibration, pose } from './fixtures/syntheticPose';
 
 const flipped = (time: number) => {
@@ -21,6 +21,17 @@ describe('framing', () => {
     expect(at(2700, -0.1)).toBe(true);
     expect(at(2800, 0.01)).toBe(true);
     expect(at(2900, 0.05)).toBe(false);
+  });
+
+  it('says what to change before a race, and nothing when the picture is good', () => {
+    const base = pose(0);
+    const at = (change: (index: number, x: number, y: number) => { x?: number; y?: number }) =>
+      framingAdvice({ ...base, landmarks: base.landmarks.map((point, index) => ({ ...point, ...change(index, point.x, point.y) })) });
+    const framed = (index: number) => (index === 0 ? { y: 0.2 } : {});
+    expect(at(framed)).toBeUndefined();
+    expect(at((index) => (index === 0 ? { y: 0.02 } : {}))).toMatch(/cima/);
+    expect(at((index, x) => (index === 0 ? { y: 0.2 } : { x: 0.5 + (x - 0.5) * 4 }))).toMatch(/Afaste/);
+    expect(at((index, x) => (index === 0 ? { y: 0.2 } : { x: x + 0.3 }))).toMatch(/meio/);
   });
 
   it('never drives the game from an upside-down skeleton', () => {
