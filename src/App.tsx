@@ -23,11 +23,11 @@ import { HandPanel } from './ui/HandPanel';
 import { PerfMeter } from './ui/PerfMeter';
 import { HAND_IDLE } from './ui/handCursorTypes';
 import { drawHand, drawPose } from './ui/PoseOverlay';
-import { GamesMenu, HomeMenu, TitleMenu } from './ui/WiiMenu';
+import { GamesMenu, HomeMenu } from './ui/WiiMenu';
 import { WiiSplash } from './ui/WiiSplash';
 import './arena.css';
 
-type Screen = 'home' | 'title' | 'games' | 'play';
+type Screen = 'home' | 'games' | 'play';
 type VisionMode = 'hand' | 'pose';
 
 const ACTIVITY_LABEL: Record<ActivityKind, string> = {
@@ -38,7 +38,7 @@ const ACTIVITY_LABEL: Record<ActivityKind, string> = {
 };
 const MUTE_STORAGE_KEY = 'wii-web-sports.muted.v1';
 
-const inHandMenu = (screen: Screen) => screen === 'home' || screen === 'title' || screen === 'games';
+const inHandMenu = (screen: Screen) => screen === 'home' || screen === 'games';
 const modeForScreen = (screen: Screen): VisionMode => (inHandMenu(screen) ? 'hand' : 'pose');
 
 function readMutedPreference(): boolean {
@@ -448,14 +448,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
     setHandPanelOpen(false);
   }, [stopCamera]);
 
-  const openHandPanel = useCallback(() => {
-    HandClient.warmVisionAssets();
-    setHandPanelOpen(true);
-  }, []);
-
   const handBack = useCallback(() => {
-    if (screenRef.current === 'games') setScreen('title');
-    else if (screenRef.current === 'title') setScreen('home');
+    if (screenRef.current === 'games') setScreen('home');
     else if (handPanelOpen) closeHandPanel();
   }, [closeHandPanel, handPanelOpen]);
 
@@ -463,9 +457,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
   return <div className="stage">
     {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} crossedPose={crossedPoseRef} onExit={() => setScreen('games')} onStrokeTravel={onStrokeTravel} />}
-    {screen === 'home' && <HomeMenu exit={exit} onGames={() => setScreen('title')} />}
-    {screen === 'title' && <TitleMenu onStart={() => setScreen('games')} onBack={() => setScreen('home')} />}
-    {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} onBack={() => setScreen('title')} />}
+    {screen === 'home' && <HomeMenu exit={exit} onGames={() => setScreen('games')} />}
+    {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} />}
 
     {screen === 'play' && headCut && <div className="framing-hint" role="alert">Sua cabeça saiu do quadro · incline a câmera para cima ou afaste-se</div>}
     {screen === 'play' && keepPhotos && <div className="photo-notice">● guardando fotos dos últimos 20 s · E salva</div>}
@@ -476,9 +469,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
       <button type="button" className="dock-btn round" onClick={toggleMute} title={muted ? 'Áudio desligado' : 'Áudio ligado'}>{muted ? '×' : '♫'}</button>
     </div>}
 
-    {menu && !handPanelOpen && <div className="hud-dock">
-      <button type="button" className="dock-btn" onClick={openHandPanel}>MÃO</button>
-    </div>}
     {menu && handPanelOpen && <HandPanel
       sourceRef={videoRef} canvasRef={handOverlayRef} cameraOn={cameraOn} status={cameraStatus} synced={handInput.synced}
       onStart={() => void startCamera()} onClose={closeHandPanel}
