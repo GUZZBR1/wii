@@ -8,6 +8,7 @@ export interface PoseClientCallbacks {
 export interface PoseClientAssets {
   wasmBaseUrl: string;
   modelUrl: string;
+  cpuModelUrl?: string;
 }
 
 export class PoseClient {
@@ -125,15 +126,19 @@ export class PoseClient {
         this.activeDelegate = message.to;
         this.callbacks?.onStatus('fallback', 'GPU indisponível; usando CPU.');
       } else if (message.type === 'ERROR') {
-        if (message.stage === 'detect') {
+        // A fatal error belongs to the current worker, even after its frame was acknowledged.
+        if (message.stage === 'detect' && !message.fatal) {
           if (this.inFlight?.requestId !== message.requestId || this.inFlight.captureEpoch !== message.captureEpoch) return;
           this.releaseFrame(message.requestId, message.captureEpoch);
-          if (!message.fatal && message.captureEpoch !== this.captureEpoch) return;
+          if (message.captureEpoch !== this.captureEpoch) return;
         }
-        this.callbacks?.onStatus(message.fatal ? 'error' : 'fallback', message.message);
         if (message.fatal) {
+          const callbacks = this.callbacks;
           this.completeInitialization(new Error(message.message));
           this.dispose();
+          callbacks?.onStatus('error', message.message);
+        } else {
+          this.callbacks?.onStatus('fallback', message.message);
         }
       } else if (message.type === 'POSE') {
         if (this.inFlight?.requestId !== message.requestId || this.inFlight.captureEpoch !== message.captureEpoch) return;
@@ -201,7 +206,9 @@ export class PoseClient {
     this.lastTimestamp = timestampMs;
     let bitmap: ImageBitmap | undefined;
     try {
-      bitmap = await createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'low' });
+      bitmap = video.videoWidth > 640
+        ? await createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'medium' })
+        : await createImageBitmap(video);
       if (!this.capturing || captureEpoch !== this.captureEpoch || !this.worker) {
         bitmap.close();
         this.releaseFrame(requestId, captureEpoch);
@@ -223,13 +230,16 @@ export class PoseClient {
   }
 
   private confidence(points: PoseSnapshot['landmarks']): number {
-    const indices = [11, 12, 23, 24];
+    // Upper-body shoulders [11, 12] anchor presence: running arms and high knees routinely
+    // self-occlude the hips [23, 24] in a front-facing webcam without losing the player.
+    const indices = [11, 12];
     if (indices.some((index) => !points[index])) return 0;
     return Math.min(...indices.map((index) => {
       const point = points[index]!;
       const visibility = point.visibility ?? point.presence ?? 0;
       const presence = point.presence ?? point.visibility ?? 0;
-      return Math.min(visibility, presence);
+      const score = Math.min(visibility, presence);
+      return Number.isFinite(score) ? score : 0;
     }));
   }
 }

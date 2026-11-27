@@ -145,6 +145,31 @@ describe('PoseClient capture sessions', () => {
     client.dispose();
   });
 
+  it('reports a fatal fallback failure after the triggering pose has already released the frame', async () => {
+    vi.stubGlobal('Worker', FakeWorker);
+    vi.stubGlobal('location', { origin: 'http://localhost' });
+    vi.stubGlobal('window', { setTimeout, clearTimeout });
+    vi.stubGlobal('HTMLMediaElement', { HAVE_CURRENT_DATA: 2 });
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => ({ close: vi.fn() })));
+
+    const client = new PoseClient();
+    const callbacks = { onPose: vi.fn(), onStatus: vi.fn() };
+    await client.init(callbacks);
+    const worker = FakeWorker.instance!;
+    const video = makeVideo();
+    client.beginCapture(video, callbacks);
+    video.fireFrame(10);
+    await flushCapture();
+    const frame = worker.sent.find((message) => message.type === 'FRAME')!;
+    const request = { requestId: frame.requestId, captureEpoch: frame.captureEpoch };
+    worker.reply({ type: 'POSE', ...request, timestampMs: 10, landmarks: [], worldLandmarks: [], frameWidth: 640, frameHeight: 480 });
+    expect(callbacks.onPose).toHaveBeenCalledOnce();
+
+    worker.reply({ type: 'ERROR', stage: 'detect', fatal: true, ...request, message: 'CPU initialization failed' });
+    expect(callbacks.onStatus).toHaveBeenLastCalledWith('error', 'CPU initialization failed');
+    expect(client.isReady).toBe(false);
+  });
+
   it('releases the pending frame on a non-fatal error from the old session without notifying the new one', async () => {
     const bitmap = { close: vi.fn() } as unknown as ImageBitmap;
     vi.stubGlobal('Worker', FakeWorker);

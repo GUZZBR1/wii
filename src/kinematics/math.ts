@@ -24,3 +24,8 @@ export function landmarkConfidence(...points: Point3[]): number {
     return Number.isFinite(confidence) ? confidence : 0;
   }));
 }
+
+export function visibleImagePoint(point: Point3 | undefined, minimumConfidence: number): point is Point3 {
+  return point !== undefined && landmarkConfidence(point) >= minimumConfidence
+    && point.x >= 0 && point.x <= 1 && point.y >= 0 && point.y <= 1;
+}

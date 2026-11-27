@@ -181,15 +181,15 @@ describe('hand cursor hand validation', () => {
 describe('hand cursor distance-sensitive active zone', () => {
   it('shrinks the zone for a close hand so the screen edge is reached before the camera edge', () => {
     const detector = new HandCursorDetector();
-    let state = detector.update(hand(0, { scale: 0.3, tipX: 0.25, tipY: 0.5 }));
+    let state = detector.update(hand(0, { scale: 0.3, tipX: 0.37, tipY: 0.5 }));
     for (let time = 100; time <= 1000; time += 100) {
-      state = detector.update(hand(time, { scale: 0.3, tipX: 0.25, tipY: 0.5 }));
+      state = detector.update(hand(time, { scale: 0.3, tipX: 0.37, tipY: 0.5 }));
     }
-    expect(state.activeZone.minX).toBeCloseTo(0.25);
-    expect(state.activeZone.maxX).toBeCloseTo(0.75);
-    expect(state.activeZone.minY).toBeCloseTo(0.25);
-    expect(state.activeZone.maxY).toBeCloseTo(0.75);
-    // camera x 0.25 mirrors to pointer x 0.75, the inner edge of the shrunk zone
+    expect(state.activeZone.minX).toBeCloseTo(0.37);
+    expect(state.activeZone.maxX).toBeCloseTo(0.63);
+    expect(state.activeZone.minY).toBeCloseTo(0.37);
+    expect(state.activeZone.maxY).toBeCloseTo(0.63);
+    // camera x 0.37 mirrors to pointer x 0.63, the inner edge of the shrunk zone
     expect(state.x).toBeCloseTo(1);
   });
 
