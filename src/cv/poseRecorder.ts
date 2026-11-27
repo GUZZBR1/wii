@@ -2,6 +2,7 @@ import { createPoseRecording, serializePoseRecording } from '@wii/spatial-core';
 import type { Delegate, PoseSnapshot } from './protocol';
 import { MEDIAPIPE_WASM_VERSION, POSE_FULL_MODEL_SHA8, POSE_MODEL_SHA8 } from './mediapipeAssets';
 import { segmentAt } from './recordingScript';
+import type { Photo } from './photoTrail';
 
 const CLIP_MS = 20_000;
 
@@ -28,8 +29,8 @@ export class PoseRecorder {
 
   get frameCount(): number { return this.frames.length; }
 
-  serialize(delegate: Delegate, modelSha256: string): string {
-    return serializePoseRecording(createPoseRecording(this.frames, {
+  serialize(delegate: Delegate, modelSha256: string, photos: readonly Photo[] = []): string {
+    const text = serializePoseRecording(createPoseRecording(this.frames, {
       kind: 'mediapipe',
       tasksVisionVersion: MEDIAPIPE_WASM_VERSION,
       modelSha256,
@@ -37,17 +38,19 @@ export class PoseRecorder {
       runningMode: 'VIDEO',
       runtime: { userAgent: navigator.userAgent, platform: navigator.platform },
     }));
+    // An extra field the recording parser ignores.
+    return photos.length ? JSON.stringify({ ...JSON.parse(text), photos }) : text;
   }
 }
 
 /** GPU runs the full model and CPU the lite one; the recording must say which it measured. */
-export async function downloadRecording(recorder: PoseRecorder, delegate: Delegate, prefix = 'corrida'): Promise<void> {
+export async function downloadRecording(recorder: PoseRecorder, delegate: Delegate, prefix = 'corrida', photos: readonly Photo[] = []): Promise<void> {
   const modelName = delegate === 'GPU' ? `pose_landmarker_full.${POSE_FULL_MODEL_SHA8}.task` : `pose_landmarker_lite.${POSE_MODEL_SHA8}.task`;
   const sums = await (await fetch(`${import.meta.env.BASE_URL}mediapipe/models/SHA256SUMS`)).text();
   const sha = sums.split(/\r?\n/).find((line) => line.trim().endsWith(modelName))?.trim().split(/\s+/)[0];
   if (!sha) throw new Error(`Modelo ${modelName} não está no SHA256SUMS.`);
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([recorder.serialize(delegate, sha)], { type: 'application/json' }));
+  link.href = URL.createObjectURL(new Blob([recorder.serialize(delegate, sha, photos)], { type: 'application/json' }));
   link.download = `${prefix}-${delegate}-${Date.now()}.json`;
   link.click();
   URL.revokeObjectURL(link.href);
