@@ -57,7 +57,7 @@ it('switches the camera back to hand tracking when play exits to the games menu'
   Object.defineProperty(navigator, 'mediaDevices', { value: { getUserMedia }, configurable: true });
   Object.defineProperty(HTMLMediaElement.prototype, 'readyState', { get: () => 2, configurable: true });
   Object.defineProperty(HTMLMediaElement, 'HAVE_CURRENT_DATA', { value: 2, configurable: true });
-  window.matchMedia = (query: string) => ({ matches: true, media: query }) as MediaQueryList;
+  window.matchMedia = (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList;
 
   const container = document.createElement('div');
   document.body.appendChild(container);
