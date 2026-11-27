@@ -27,7 +27,7 @@ const BOXING_TRAINING_CONTROLS = {
   bag: 'E ou socos no ritmo  ·  W A S D mover',
   dodge: '← → esquivar  ·  A / D circular para sair da linha  ·  W / S ajustar distância',
 } as const;
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; resetLaneZone?(): void; setGuard?(guard: boolean | undefined): void; setDepthMove?(move: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; resetLaneZone?(): void; setGuard?(guard: boolean | undefined): void; setDepthMove?(move: -1 | 0 | 1 | undefined): void; setDepthSpeed?(speed: number | undefined): void; setLateralDash?(dash: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
 
 interface Props {
   sport: Sport;

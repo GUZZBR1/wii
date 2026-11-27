@@ -22,13 +22,15 @@ import {
 import { opponentProfile, type OpponentProfile, type OpponentProfileId } from './opponentProfiles';
 import { createPunchingBag, type PunchingBag } from './punchingBag';
 import {
+  createOpponentMotion,
   inPunchRange,
   moveAround,
   OPPONENT_START,
+  type OpponentMotion,
   PLAYER_START,
   type RingPosition,
   rightOf,
-  stepOpponentPosition,
+  stepOpponentMotion,
 } from './ringMovement';
 import { buildBoxingRing, type BoxingRing } from './ringScene';
 import {
@@ -60,7 +62,24 @@ const KEY_PUNCH_COOLDOWN_MS = 250;
 const COUNTER_WINDOW_MS = 1100;
 const GUARD_KEYS = new Set(['arrowdown', 'q']);
 const PUNCH_KEY = 'e';
-const PUNCH_ANIM_S = 0.24;
+/** The glove snaps out and comes back slower; together they are one punch animation. */
+const PUNCH_OUT_S = 0.08;
+const PUNCH_RETURN_S = 0.18;
+const PUNCH_ANIM_S = PUNCH_OUT_S + PUNCH_RETURN_S;
+/** Stiffness of the exponential tail of the glove's way back. */
+const PUNCH_RETURN_STIFFNESS = 5;
+/** Animation freeze on a clean hit; the fight clock and the rules keep running. */
+const HITSTOP_S = 0.045;
+const GUARD_LOWERED = 0.35;
+/** Angular frequency of the critically damped guard spring (1/s). */
+const GUARD_SPRING = 24;
+/** Camera roll in radians while dodging aside and, on top of that, while dashing. */
+const DODGE_ROLL = 0.035;
+const DASH_ROLL = 0.045;
+/** A body hop sidesteps this far along the arc, over this long, at most this often. */
+const DASH_DISTANCE_M = 0.6;
+const DASH_MS = 180;
+const DASH_REFRACTORY_MS = 500;
 const OPPONENT_HIT_S = 0.35;
 const ZONE_WIDTH = 0.7;
 const ZONE_HISTORY_MS = 1000;
@@ -84,6 +103,15 @@ const MOVE_KEYS: Record<string, { forward: number; strafe: number }> = {
   d: { forward: 0, strafe: 1 },
 };
 const clampUnit = (value: number) => Math.max(-1, Math.min(1, value));
+const PLANTED: Readonly<Required<MiiBoxerFootwork>> = Object.freeze({ speed01: 0, forward: 0, strafe: 0 });
+
+/** Glove extension 0..1 at `ageS` into a punch: eased out fast, then damped back to the guard. */
+function punchReach(ageS: number): number {
+  if (ageS >= PUNCH_ANIM_S) return 0;
+  if (ageS < PUNCH_OUT_S) return 1 - (1 - ageS / PUNCH_OUT_S) ** 3;
+  const damped = (t: number) => (1 + PUNCH_RETURN_STIFFNESS * t) * Math.exp(-PUNCH_RETURN_STIFFNESS * t);
+  return (damped((ageS - PUNCH_OUT_S) / PUNCH_RETURN_S) - damped(1)) / (1 - damped(1));
+}
 const HANDS = ['left', 'right'] as const;
 
 export interface BoxingGameOptions {
@@ -150,11 +178,20 @@ export class BoxingGame {
   private lean: Zone = 0;
   private leanHeldMs = 0;
   private cameraDepth: -1 | 0 | 1 = 0;
+  private cameraDepthSpeed: number | undefined;
+  /** Last dash value from the camera, to act on its rising edge only. */
+  private cameraDash: -1 | 0 | 1 = 0;
+  private dash: { direction: -1 | 1; msLeft: number } | undefined;
+  private dashReadyAtMs = 0;
   private readonly moveKeys = new Set<string>();
   private playerPos: RingPosition = PLAYER_START;
-  private opponentPos: RingPosition = OPPONENT_START;
-  private circleDirection: -1 | 1 = 1;
+  private opponentMotion: OpponentMotion = createOpponentMotion();
   private dodgeOffset = 0;
+  /** The camera's damped copy of `playerPos`. */
+  private eye: RingPosition = PLAYER_START;
+  private cameraRoll = 0;
+  private gloveGuard = { value: GUARD_LOWERED, velocity: 0 };
+  private hitstop = { delayS: 0, leftS: 0 };
   private keyGuard = false;
   /** The punch key alternates arms, so two taps are a one-two. */
   private nextKeyHand: Hand = 'right';
@@ -165,7 +202,6 @@ export class BoxingGame {
   private punchAnimS: Record<Hand, number> = { left: PUNCH_ANIM_S, right: PUNCH_ANIM_S };
   private opponentHitS = 0;
   private hitShakeS = 0;
-  private opponentFootwork: Required<MiiBoxerFootwork> = { speed01: 0, forward: 0, strafe: 0 };
   private keyPunchAtMs: Record<Hand, number> = { left: Number.NEGATIVE_INFINITY, right: Number.NEGATIVE_INFINITY };
   private status = 'Soque quando a guarda abrir';
   private feedback: HudFeedback | undefined;
@@ -186,7 +222,7 @@ export class BoxingGame {
     if (this.mode === 'bag') {
       this.opponentBoxer = undefined;
       this.bagTrainer = new PunchingBagTrainer();
-      this.opponentPos = BAG_POSITION;
+      this.opponentMotion = createOpponentMotion(BAG_POSITION);
     } else {
       this.opponentBoxer = createMiiBoxer({
         shirtColor: this.profile.shirtColor,
@@ -251,6 +287,26 @@ export class BoxingGame {
     this.cameraDepth = move ?? 0;
   }
 
+  /** Continuous footwork, -1..1 toward the opponent; it overrides the depth step while defined. */
+  setDepthSpeed(speed: number | undefined): void {
+    this.cameraDepthSpeed = speed !== undefined && Number.isFinite(speed) ? clampUnit(speed) : undefined;
+  }
+
+  /** A body hop sidesteps once when it appears; holding the value does nothing more. */
+  setLateralDash(dash: -1 | 0 | 1 | undefined): void {
+    const next = dash ?? 0;
+    const rising = next !== 0 && next !== this.cameraDash;
+    this.cameraDash = next;
+    const movable = this.fighting() || this.trainingActive();
+    if (!rising || !movable || this.fightMs < this.dashReadyAtMs) return;
+    this.dash = { direction: next, msLeft: DASH_MS };
+    this.dashReadyAtMs = this.fightMs + DASH_REFRACTORY_MS;
+  }
+
+  private get opponentPos(): RingPosition {
+    return this.opponentMotion.position;
+  }
+
   private guarding(): boolean {
     return this.keyGuard || this.cameraGuard;
   }
@@ -275,7 +331,7 @@ export class BoxingGame {
     if (event.peakTimestampMs < this.runningSinceWallMs) return;
     if (this.fighting()) {
       const ageMs = Math.min(MAX_PUNCH_LOOKBACK_MS, Math.max(0, performance.now() - event.peakTimestampMs));
-      this.landPunch(event.power01, this.fightMs - ageMs);
+      this.landPunch(event.hand, event.power01, this.fightMs - ageMs);
       return;
     }
     // Confirmation lags the peak: a punch that peaked before the bell still counts. The fight
@@ -283,7 +339,7 @@ export class BoxingGame {
     if (this.gate.phase !== 'running' || this.roundEndedWallMs === undefined) return;
     const beforeBellMs = this.roundEndedWallMs - event.peakTimestampMs;
     if (beforeBellMs < 0 || beforeBellMs > MAX_PUNCH_LOOKBACK_MS) return;
-    this.landPunch(event.power01, this.fightMs - beforeBellMs, applyLatePunch);
+    this.landPunch(event.hand, event.power01, this.fightMs - beforeBellMs, applyLatePunch);
   }
 
   onKey(key: string): void {
@@ -307,7 +363,7 @@ export class BoxingGame {
       this.punchAnimS[hand] = 0;
       this.audio?.whoosh(KEY_PUNCH_POWER01);
       if (this.mode === 'bag') this.landBagPunch(KEY_PUNCH_POWER01, hand);
-      else this.landPunch(KEY_PUNCH_POWER01, this.fightMs);
+      else this.landPunch(hand, KEY_PUNCH_POWER01, this.fightMs);
     }
   }
 
@@ -332,7 +388,7 @@ export class BoxingGame {
     return this.mode === 'fight' ? this.fighting() : this.mode === 'bag' && this.trainingActive();
   }
 
-  private landPunch(power01: number, atMs: number, apply = applyPlayerPunch): void {
+  private landPunch(hand: Hand, power01: number, atMs: number, apply = applyPlayerPunch): void {
     const sample = [...this.zoneHistory].reverse().find((entry) => entry.atMs <= atMs);
     if (!(sample?.inRange ?? inPunchRange(this.playerPos, this.opponentPos))) {
       this.setFeedback('LONGE DEMAIS', 'neutral');
@@ -347,6 +403,7 @@ export class BoxingGame {
     if (result.damage > 0) {
       if (counter) this.counter = undefined; // one counter per dodge
       this.opponentHitS = OPPONENT_HIT_S;
+      this.freezeOnImpact(hand);
       this.setFeedback(result.ko ? 'NOCAUTE!' : counter ? 'CONTRA-ATAQUE!' : 'ACERTOU!', 'good');
       this.audio?.punchImpact(0.4 + 0.6 * power01, false);
       if (counter || result.ko) this.audio?.crowdReact(result.ko ? 1 : 0.7);
@@ -366,7 +423,22 @@ export class BoxingGame {
     this.bag?.hit(hand, power01);
     this.spawnBagImpact(power01);
     const events = this.bagTrainer.punch({ timeSeconds: this.fightMs / 1000, strength01: power01 });
+    if (events.some(({ kind }) => kind === 'hit')) this.freezeOnImpact(hand);
     this.applyBagEvents(events);
+  }
+
+  /** The player's punches freeze when the glove arrives; a punch taken freezes at once. */
+  private freezeOnImpact(hand?: Hand): void {
+    this.hitstop = { delayS: hand ? Math.max(0, PUNCH_OUT_S - this.punchAnimS[hand]) : 0, leftS: HITSTOP_S };
+  }
+
+  /** The part of `dt` that animations advance by, once any hitstop has taken its share. */
+  private animationStep(dt: number): number {
+    const before = Math.min(this.hitstop.delayS, dt);
+    const frozen = Math.min(this.hitstop.leftS, dt - before);
+    this.hitstop.delayS -= before;
+    this.hitstop.leftS -= frozen;
+    return dt - frozen;
   }
 
   // ---------------------------------------------------------------- update
@@ -382,14 +454,29 @@ export class BoxingGame {
     this.syncPhase();
     if (this.gate.phase === 'running') this.step(dt * 1000);
     if (this.gate.phase !== 'paused') {
-      this.animTimeS += dt;
-      for (const hand of HANDS) this.punchAnimS[hand] = Math.min(PUNCH_ANIM_S, this.punchAnimS[hand] + dt);
-      this.opponentHitS = Math.max(0, this.opponentHitS - dt);
-      this.hitShakeS = Math.max(0, this.hitShakeS - dt);
-      this.bag?.update(dt);
-      this.sparks.update(dt);
+      const animDt = this.animationStep(dt);
+      this.animTimeS += animDt;
+      for (const hand of HANDS) this.punchAnimS[hand] = Math.min(PUNCH_ANIM_S, this.punchAnimS[hand] + animDt);
+      this.stepGloveGuard(animDt);
+      this.opponentHitS = Math.max(0, this.opponentHitS - animDt);
+      this.hitShakeS = Math.max(0, this.hitShakeS - animDt);
+      this.bag?.update(animDt);
+      this.sparks.update(animDt);
     }
     this.poseScene(dt);
+  }
+
+  /** Exact critically damped spring step: no overshoot from rest, stable for any `dt`. */
+  private stepGloveGuard(dt: number): void {
+    const target = this.guarding() ? 1 : GUARD_LOWERED;
+    const { value, velocity } = this.gloveGuard;
+    const offset = value - target;
+    const drive = velocity + GUARD_SPRING * offset;
+    const decay = Math.exp(-GUARD_SPRING * dt);
+    this.gloveGuard = {
+      value: target + (offset + drive * dt) * decay,
+      velocity: (velocity - GUARD_SPRING * drive * dt) * decay,
+    };
   }
 
   private step(dtMs: number): void {
@@ -488,39 +575,50 @@ export class BoxingGame {
     }
     this.leanHeldMs = this.lean === 0 ? 0 : this.leanHeldMs + dtMs;
     if (this.leanHeldMs > LEAN_CIRCLE_AFTER_MS) strafe += this.lean * BODY_MOVE_SPEED;
-    forward += this.cameraDepth * BODY_MOVE_SPEED;
-    // Keys and body together are no faster than the keys alone.
+    forward += (this.cameraDepthSpeed ?? this.cameraDepth) * BODY_MOVE_SPEED;
+    // Keys and body together are no faster than the keys alone; a dash is a burst on top.
     const limit = (speed: number) => clampUnit(speed / KEY_MOVE_SPEED) * KEY_MOVE_SPEED * dtS;
-    this.playerPos = moveAround(this.playerPos, this.opponentPos, limit(forward), limit(strafe));
+    this.playerPos = moveAround(this.playerPos, this.opponentPos, limit(forward), limit(strafe) + this.stepDash(dtMs));
+  }
+
+  /** Meters of sidestep the running dash contributes to this step. */
+  private stepDash(dtMs: number): number {
+    if (!this.dash) return 0;
+    const { direction, msLeft } = this.dash;
+    const stepMs = Math.min(dtMs, msLeft);
+    this.dash = msLeft - stepMs > 1e-6 ? { direction, msLeft: msLeft - stepMs } : undefined;
+    return (direction * DASH_DISTANCE_M * stepMs) / DASH_MS;
   }
 
   private moveFighters(dtMs: number): void {
     this.movePlayer(dtMs);
 
-    const dtS = dtMs / 1000;
-    const beforeX = this.opponentPos.x;
-    const beforeZ = this.opponentPos.z;
-    const moved = stepOpponentPosition(this.opponentPos, this.playerPos, this.ai.phase.kind, this.circleDirection, dtS);
-    this.opponentPos = moved.position;
-    this.circleDirection = moved.direction;
-    this.updateOpponentFootwork((this.opponentPos.x - beforeX) / dtS, (this.opponentPos.z - beforeZ) / dtS);
+    this.opponentMotion = stepOpponentMotion(
+      this.opponentMotion,
+      this.playerPos,
+      {
+        phase: this.ai.phase.kind,
+        skill: this.profile.skill,
+        playerPunching: HANDS.some((hand) => this.punchAnimS[hand] < PUNCH_ANIM_S),
+      },
+      dtMs / 1000,
+      this.rng,
+    );
   }
 
-  private updateOpponentFootwork(velocityX: number, velocityZ: number): void {
-    const speed = Math.hypot(velocityX, velocityZ);
-    if (speed < 1e-6) {
-      this.opponentFootwork.speed01 = 0;
-      this.opponentFootwork.forward = 0;
-      this.opponentFootwork.strafe = 0;
-      return;
-    }
-    const distance = Math.hypot(this.playerPos.x - this.opponentPos.x, this.playerPos.z - this.opponentPos.z) || 1;
-    const forwardX = (this.playerPos.x - this.opponentPos.x) / distance;
-    const forwardZ = (this.playerPos.z - this.opponentPos.z) / distance;
+  /** The opponent's velocity seen from its own stance; its feet are planted outside the fight. */
+  private opponentFootwork(): Required<MiiBoxerFootwork> {
+    const { x, z } = this.opponentMotion.velocity;
+    const speed = Math.hypot(x, z);
+    if (!this.fighting() || speed < 1e-6) return PLANTED;
     const right = rightOf(this.opponentPos, this.playerPos);
-    this.opponentFootwork.speed01 = Math.min(1, speed / OPPONENT_FORWARD_SPEED);
-    this.opponentFootwork.forward = clampUnit((velocityX * forwardX + velocityZ * forwardZ) / OPPONENT_FORWARD_SPEED);
-    this.opponentFootwork.strafe = clampUnit((velocityX * right.x + velocityZ * right.z) / OPPONENT_CIRCLE_SPEED);
+    // Unit vector toward the player; `right` turned back a quarter.
+    const ahead = { x: right.z, z: -right.x };
+    return {
+      speed01: Math.min(1, speed / OPPONENT_FORWARD_SPEED),
+      forward: clampUnit((x * ahead.x + z * ahead.z) / OPPONENT_FORWARD_SPEED),
+      strafe: clampUnit((x * right.x + z * right.z) / OPPONENT_CIRCLE_SPEED),
+    };
   }
 
   /** Lane zone for training: explicit lean/key input wins, but real displacement off center also counts. */
@@ -557,6 +655,7 @@ export class BoxingGame {
     } else {
       this.spawnPlayerImpact(0.85, 'hit');
       this.hitShakeS = 0.3;
+      this.freezeOnImpact();
       this.setFeedback(result.ko ? 'NOCAUTE…' : 'LEVOU UM SOCO', 'bad');
       this.audio?.punchImpact(0.85, false);
     }
@@ -594,6 +693,7 @@ export class BoxingGame {
         } else {
           this.spawnPlayerImpact(0.8, 'hit');
           this.hitShakeS = 0.3;
+          this.freezeOnImpact();
           this.setFeedback(event.outcome === 'late' ? 'TARDE DEMAIS' : 'LEVOU UM SOCO', 'bad');
           this.audio?.punchImpact(0.85, false);
         }
@@ -621,10 +721,9 @@ export class BoxingGame {
     this.counter = undefined;
     this.zoneHistory = [];
     this.playerPos = PLAYER_START;
-    this.opponentPos = OPPONENT_START;
-    this.circleDirection = 1;
+    this.opponentMotion = createOpponentMotion(OPPONENT_START);
     this.leanHeldMs = 0;
-    this.opponentFootwork = { speed01: 0, forward: 0, strafe: 0 };
+    this.dash = undefined;
     this.ai = createOpponentAi(this.fightMs, this.rng, this.profile.skill);
     this.runningSinceWallMs = performance.now();
   }
@@ -634,9 +733,10 @@ export class BoxingGame {
     this.fightMs = 0;
     this.zoneHistory = [];
     this.playerPos = PLAYER_START;
-    this.opponentPos = this.mode === 'bag' ? BAG_POSITION : OPPONENT_START;
+    this.opponentMotion = createOpponentMotion(this.mode === 'bag' ? BAG_POSITION : OPPONENT_START);
     this.leanHeldMs = 0;
-    this.opponentFootwork = { speed01: 0, forward: 0, strafe: 0 };
+    this.dash = undefined;
+    this.dashReadyAtMs = 0; // the training clock restarted
     if (this.mode === 'bag') {
       this.bagTrainer = new PunchingBagTrainer();
       this.bag?.reset();
@@ -676,13 +776,21 @@ export class BoxingGame {
   private placeFighters(blend: number): void {
     const { playerPos, opponentPos } = this;
     this.dodgeOffset += (this.zone * ZONE_WIDTH - this.dodgeOffset) * blend;
+    this.eye = {
+      x: this.eye.x + (playerPos.x - this.eye.x) * blend,
+      z: this.eye.z + (playerPos.z - this.eye.z) * blend,
+    };
+    // Tilting into the move: negative roll leans the view to the right.
+    const roll = -(this.zone * DODGE_ROLL + (this.dash?.direction ?? 0) * DASH_ROLL);
+    this.cameraRoll += (roll - this.cameraRoll) * blend;
     const right = rightOf(playerPos, opponentPos);
     this.camera.position.set(
-      playerPos.x + right.x * this.dodgeOffset,
+      this.eye.x + right.x * this.dodgeOffset,
       CAMERA_EYE_Y + Math.sin(this.hitShakeS * 70) * this.hitShakeS * 0.12,
-      playerPos.z + right.z * this.dodgeOffset,
+      this.eye.z + right.z * this.dodgeOffset,
     );
     this.camera.lookAt(opponentPos.x, RING_CANVAS_Y + 1.35, opponentPos.z);
+    this.camera.rotateZ(this.cameraRoll);
     this.bag?.root.position.set(opponentPos.x, RING_CANVAS_Y, opponentPos.z);
     if (this.opponentBoxer) {
       let telegraphOffset = 0;
@@ -716,19 +824,21 @@ export class BoxingGame {
       return phase.impactAtMs - this.fightMs <= 220 ? 'punch' : 'windup';
     }
     if (phase.kind === 'guard') return 'guard';
-    return 'idle';
+    return this.match.winner || this.breakMsLeft > 0 ? 'idle' : 'recover';
   }
 
   private poseGloves(): void {
-    const reach = (hand: Hand) => Math.sin((this.punchAnimS[hand] / PUNCH_ANIM_S) * Math.PI);
     this.gloves.animate(this.animTimeS, {
-      guard: this.guarding() ? 1 : 0.35,
-      leftPunch: reach('left'),
-      rightPunch: reach('right'),
+      guard: this.gloveGuard.value,
+      leftPunch: punchReach(this.punchAnimS.left),
+      rightPunch: punchReach(this.punchAnimS.right),
     });
     if (this.opponentBoxer) {
-      this.opponentBoxer.setState(this.opponentAnimationState());
-      this.opponentBoxer.animate(this.animTimeS, this.opponentFootwork);
+      const state = this.opponentAnimationState();
+      const { phase } = this.ai;
+      const attacking = (state === 'windup' || state === 'punch') && phase.kind === 'windup';
+      this.opponentBoxer.setState(state, attacking ? phase.hand : undefined);
+      this.opponentBoxer.animate(this.animTimeS, this.opponentFootwork());
     }
   }
 

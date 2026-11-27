@@ -351,6 +351,128 @@ describe('BoxingGame footwork', () => {
   });
 });
 
+describe('BoxingGame body controls and animation', () => {
+  type Spot = { x: number; z: number };
+  const internals = (game: object) =>
+    game as unknown as {
+      playerPos: Spot;
+      opponentPos: Spot;
+      opponentMotion: { position: Spot; velocity: Spot; clockS: number };
+      opponentBoxer: { setState(state: string, hand?: string): void };
+      camera: { position: Spot };
+    };
+  const gap = (game: object) => {
+    const { playerPos, opponentPos } = internals(game);
+    return Math.hypot(playerPos.x - opponentPos.x, playerPos.z - opponentPos.z);
+  };
+  /** Arc length of the player around the (motionless, in bag mode) opponent. */
+  const arc = (game: object) => {
+    const { playerPos, opponentPos } = internals(game);
+    return Math.atan2(playerPos.x - opponentPos.x, playerPos.z - opponentPos.z) * gap(game);
+  };
+
+  it('walks in proportionally to the depth speed, which overrides the depth step', () => {
+    const advance = (speed: number) => {
+      const fight = start({ mode: 'bag' });
+      const before = gap(fight.game);
+      fight.game.setDepthMove(-1);
+      fight.game.setDepthSpeed(speed);
+      fight.run(0.3);
+      return before - gap(fight.game);
+    };
+    expect(advance(0.5)).toBeGreaterThan(0.05);
+    expect(advance(1)).toBeCloseTo(2 * advance(0.5), 5);
+    expect(advance(0)).toBe(0);
+  });
+
+  it('falls back to the depth step once the depth speed has no opinion', () => {
+    const fight = start({ mode: 'bag' });
+    const before = gap(fight.game);
+    fight.game.setDepthSpeed(1);
+    fight.game.setDepthSpeed(undefined);
+    fight.game.setDepthMove(-1);
+    fight.run(0.3);
+    expect(gap(fight.game)).toBeGreaterThan(before + 0.1);
+  });
+
+  it.each([-1, 1] as const)('sidesteps once per dash rising edge (%s)', (side) => {
+    const fight = start({ mode: 'bag' });
+    const distance = gap(fight.game);
+    const hold = (seconds: number) => {
+      for (let step = 0; step < Math.round(seconds / STEP_S); step += 1) {
+        fight.game.setLateralDash(side);
+        fight.run(STEP_S);
+      }
+    };
+    hold(1);
+    expect(arc(fight.game)).toBeCloseTo(side * 0.6, 5);
+    expect(gap(fight.game)).toBeCloseTo(distance, 5);
+
+    fight.game.setLateralDash(0);
+    hold(0.5);
+    expect(arc(fight.game)).toBeCloseTo(side * 1.2, 5);
+  });
+
+  it('ignores a second hop inside the refractory', () => {
+    const fight = start({ mode: 'bag' });
+    fight.game.setLateralDash(1);
+    fight.run(0.2);
+    fight.game.setLateralDash(0);
+    fight.game.setLateralDash(1);
+    fight.run(0.5);
+    expect(arc(fight.game)).toBeCloseTo(0.6, 5);
+  });
+
+  it('winds up and punches with the hand the AI chose', () => {
+    const { game, run } = start(); // rng 0 picks the left hand
+    const setState = vi.spyOn(internals(game).opponentBoxer, 'setState');
+    run(1);
+    expect(setState).toHaveBeenLastCalledWith('windup', 'left');
+    run(0.4);
+    expect(setState).toHaveBeenLastCalledWith('punch', 'left');
+  });
+
+  it('shows the recover pose while the AI recovers', () => {
+    const { game, run } = start();
+    const setState = vi.spyOn(internals(game).opponentBoxer, 'setState');
+    run(1.8);
+    expect(setState).toHaveBeenLastCalledWith('recover', undefined);
+  });
+
+  it('starts the next round with a fresh opponent motion', () => {
+    const { game, run, setMatch } = start();
+    run(0.3);
+    setMatch({ roundMsLeft: 100 });
+    run(0.2);
+    expect(internals(game).opponentMotion.clockS).toBeGreaterThan(0);
+    run(2.89); // stop right as the break ends
+    for (let step = 0; step < 20 && internals(game).opponentMotion.clockS > 0; step += 1) run(STEP_S);
+    expect(internals(game).opponentMotion).toMatchObject({ position: { x: 0, z: -0.85 }, velocity: { x: 0, z: 0 }, clockS: 0 });
+  });
+
+  it('eases the camera after the player instead of snapping to it', () => {
+    const { game, run } = start({ mode: 'bag' });
+    const before = internals(game).camera.position.z;
+    internals(game).playerPos = { x: 0, z: 2.4 };
+    run(STEP_S);
+    expect(internals(game).camera.position.z).toBeGreaterThan(before);
+    expect(internals(game).camera.position.z).toBeLessThan(2.4);
+    run(1);
+    expect(internals(game).camera.position.z).toBeCloseTo(2.4, 3);
+  });
+
+  it('freezes the glove at impact without freezing the fight clock', () => {
+    const { game, run } = start();
+    const state = game as unknown as { fightMs: number; animTimeS: number };
+    run(1);
+    const { fightMs, animTimeS } = state;
+    game.onKey('e'); // lands during the windup
+    run(0.2);
+    expect(state.fightMs - fightMs).toBeCloseTo(200, 5);
+    expect(state.animTimeS - animTimeS).toBeCloseTo(0.2 - 0.045, 5);
+  });
+});
+
 describe('BoxingGame opponent profiles', () => {
   it.each([
     ['rookie', 0.25],

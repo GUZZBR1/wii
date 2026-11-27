@@ -127,6 +127,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
     engineRef.current?.resetLaneZone?.();
     engineRef.current?.setGuard?.(undefined);
     engineRef.current?.setDepthMove?.(undefined);
+    engineRef.current?.setDepthSpeed?.(undefined);
+    engineRef.current?.setLateralDash?.(undefined);
     contextRef.current.reset();
     resetCalibration();
     drawPose(overlayRef.current, videoRef.current);
@@ -156,6 +158,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setLaneZone?.(result.controls.laneZone);
       engineRef.current?.setGuard?.(result.controls.guard);
       engineRef.current?.setDepthMove?.(result.controls.ringDepthMove);
+      engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01);
+      engineRef.current?.setLateralDash?.(result.controls.lateralDash);
       for (const event of result.events) dispatchEvent(event);
     },
   };
