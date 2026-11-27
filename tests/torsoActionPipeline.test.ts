@@ -43,15 +43,19 @@ describe('torso action pipeline integration', () => {
   );
 
   it('distinguishes running intensity when hidden hips are estimated above the shoulders', () => {
-    const measure = (amplitude: number) => {
+    const measure = (amplitude: number, running = true) => {
       const pipeline = new ActionPipeline();
       const results = [];
       for (let timeMs = 0; timeMs <= 3000; timeMs += 33) {
+        // Arms only feed running effort while the torso bounces: head and shoulders oscillate
+        // at running cadence here, and the arm swing amplitude scales the effort on top.
+        const bounceY = running ? 0.016 * Math.sin((2 * Math.PI * 2.5 * timeMs) / 1000) : 0;
         const snapshot = pose(timeMs);
         const swing = amplitude * Math.sin((2 * Math.PI * 1.5 * timeMs) / 1000);
         const landmarks = snapshot.landmarks.map((point, index) => {
           if (index >= 23) return { ...point, y: 0.1, visibility: 0, presence: 0 };
           if (index === 15 || index === 16) return { ...point, y: point.y + (index === 15 ? swing : -swing) };
+          if (index === 0 || index === 11 || index === 12) return { ...point, y: point.y + bounceY };
           return point;
         });
         results.push(pipeline.update({ ...snapshot, landmarks }));
@@ -59,7 +63,7 @@ describe('torso action pipeline integration', () => {
       return results.at(-1)!;
     };
 
-    const still = measure(0);
+    const still = measure(0, false);
     const easy = measure(0.08);
     const hard = measure(0.16);
     expect(still.rawEffort).toBe(0);

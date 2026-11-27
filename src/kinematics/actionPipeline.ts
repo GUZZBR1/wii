@@ -97,8 +97,8 @@ export class ActionPipeline {
       const sample = this.torsoChannel.update(current);
       const jumped = sample ? this.jump.update(sample) : false;
       const body = sample?.shoulders;
-      rawEffort = this.intensity.update(snapshot.timestampMs, body && { ...body, shoulders: (body.left + body.right) / 2 });
       const cadence = this.cadence.update(sample, snapshot.timestampMs, this.jump.suppressesCadence);
+      rawEffort = this.intensity.update(snapshot.timestampMs, body && { ...body, shoulders: (body.left + body.right) / 2 }, cadence.running);
       controls = { sprintSpeed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm, trackingState: 'tracked' };
       const base = this.eventBase(snapshot, Math.max(torsoTracking.confidence, 0.55));
       events.push({ ...base, id: this.nextId++, type: 'sprint', speed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm });

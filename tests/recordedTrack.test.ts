@@ -2,6 +2,9 @@ import { parsePoseRecording } from '@wii/spatial-core';
 import { describe, expect, it } from 'vitest';
 import { segmentAt, TRACK_RECORDING_SCRIPT } from '../src/cv/diagnostics/recordingScript';
 import { PoseRecorder, rememberFrame } from '../src/cv/diagnostics/poseRecorder';
+import { AdaptiveCalibrator } from '../src/cv/adaptiveCalibrator';
+import type { CalibrationProfile } from '../src/cv/protocol';
+import { ActionPipeline } from '../src/kinematics/actionPipeline';
 import { replayTrack, summarize } from './fixtures/replayTrack';
 import { pose } from './fixtures/syntheticPose';
 
@@ -55,6 +58,20 @@ describe('recording script and replay', () => {
 });
 
 describe.skipIf(Object.keys(recordings).length === 0)('scoreboard for real recordings', () => {
+  it.each(Object.entries(recordings).filter(([name]) => name.includes('erro-')))('%s: a mistake clip of arm movement feeds no race effort end to end', (_name, raw) => {
+    const recording = parsePoseRecording(raw);
+    const frames = recording.frames.map((frame) => frame.snapshot);
+    const pipeline = new ActionPipeline();
+    const calibrator = new AdaptiveCalibrator();
+    let profile: CalibrationProfile | undefined;
+    let peak = 0;
+    for (const snapshot of frames) {
+      profile = calibrator.update(snapshot, pipeline.laneZone) ?? profile;
+      peak = Math.max(peak, pipeline.update(snapshot, profile).rawEffort);
+    }
+    expect(peak, 'arm movement without running fed the race effort').toBe(0);
+  });
+
   it.each(Object.entries(recordings))('%s', (name, raw) => {
     const recording = parsePoseRecording(raw);
     const frames = recording.frames.map((frame) => frame.snapshot);
@@ -69,6 +86,13 @@ describe.skipIf(Object.keys(recordings).length === 0)('scoreboard for real recor
     if (!floor) return;
     expect(summary.still, 'standing still moved the runner').toBeLessThanOrEqual(2);
     expect(summary.arms, 'arms alone moved the runner').toBeLessThanOrEqual(floor.arms);
+    // The channel the athletics race actually consumes: arms without a torso bounce must not
+    // feed any effort at all, and real running must register strongly through the gate.
+    // Big scripted swings can jolt the torso enough to open the bounce gate for a moment in the
+    // hardest clip; the separation from real running (>= 0.1) stays wide. Broken-framing clips
+    // (floor.run below 50) cannot score run effort because the tracker loses the body.
+    expect(summary.armsEffort, 'arms alone fed the race effort').toBeLessThanOrEqual(0.03);
+    if (floor.run >= 50) expect(summary.runEffort, 'running no longer feeds the race effort').toBeGreaterThanOrEqual(0.1);
     expect(summary.side, 'changing lanes moved the runner').toBeLessThanOrEqual(floor.side);
     expect(summary.stop, 'the runner kept going after the stop').toBeLessThanOrEqual(floor.stop);
     expect(summary.run, 'running was missed').toBeGreaterThanOrEqual(floor.run);

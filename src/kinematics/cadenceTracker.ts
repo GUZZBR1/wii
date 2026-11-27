@@ -3,7 +3,7 @@ import { median } from './math';
 import type { TorsoVerticalSample } from './torsoVertical';
 import { WalkDetector } from './walk';
 
-export interface CadenceResult { cadenceSpm: number; speed01: number; step?: 'left' | 'right' }
+export interface CadenceResult { cadenceSpm: number; speed01: number; step?: 'left' | 'right'; running: boolean }
 
 /** Assumed pace until two steps have been timed: a relaxed run in place. */
 const DEFAULT_SPM = 150;
@@ -18,6 +18,12 @@ const MAX_WALK_SPM = 130;
  * Steps/min to game speed, interpolated. Anchors follow the CADENCE-Adults studies (100 steps/min is a
  * moderate walk; walking turns into running around 135-140). Those were measured moving forward, not in place.
  */
+/**
+ * A jolt when the player starts moving their arms can fool the bounce verdict for a frame or two
+ * (real clips: ~150 ms at 257 spm). Running is only trusted once the verdict persists this long;
+ * the trust then holds without flapping through stride gaps and closes the instant the bounce stops.
+ */
+const RUN_TRUST_MS = 300;
 const SPEED_BY_CADENCE = [[40, 0.1], [100, 0.3], [137.5, 0.55], [200, 1]] as const;
 
 export function speedFromCadence(spm: number): number {
@@ -44,6 +50,7 @@ export class CadenceTracker {
   private lastStepSide: 'left' | 'right' = 'right';
   private moving = false;
   private movingSince = Number.POSITIVE_INFINITY;
+  private trusted = false;
   private suspended = false;
   private ranBeforeJump = false;
 
@@ -91,12 +98,14 @@ export class CadenceTracker {
       this.walking = false;
     }
     this.movingSince = this.moving ? Math.min(this.movingSince, nowMs) : Number.POSITIVE_INFINITY;
+    if (!this.moving) this.trusted = false;
+    else if (!this.trusted && nowMs - this.movingSince >= RUN_TRUST_MS) this.trusted = true;
     // Running wins: its bounce also sways.
     if (!this.moving) return this.walking
-      ? { cadenceSpm: this.walkSpm, speed01: speedFromCadence(this.walkSpm), step }
-      : { cadenceSpm: 0, speed01: 0, step };
+      ? { cadenceSpm: this.walkSpm, speed01: speedFromCadence(this.walkSpm), step, running: false }
+      : { cadenceSpm: 0, speed01: 0, step, running: false };
     const cadenceSpm = this.intervals.length ? 60_000 / median(this.intervals) : DEFAULT_SPM;
-    return { cadenceSpm, speed01: speedFromCadence(cadenceSpm), step };
+    return { cadenceSpm, speed01: speedFromCadence(cadenceSpm), step, running: this.trusted };
   }
 
   reset(): void {
@@ -109,6 +118,7 @@ export class CadenceTracker {
     this.lastStepSide = 'right';
     this.moving = false;
     this.movingSince = Number.POSITIVE_INFINITY;
+    this.trusted = false;
     this.suspended = this.ranBeforeJump = false;
   }
 }

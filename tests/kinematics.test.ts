@@ -507,18 +507,25 @@ describe('action pipeline (upper-body only)', () => {
 
 it('keeps the effort timestamp through low confidence and collapsed shoulders until a new velocity is measured', () => {
   const pipeline = new ActionPipeline();
-  for (const time of [0, 33, 66, 99]) pipeline.update(pose(time));
-  const dim = pipeline.update(pose(132, { confidence: 0.4 }));
+  // The effort channel only measures while the bounce verdict trusts the run, so every frame
+  // here keeps the torso oscillating at running cadence after an initial warm-up.
+  const bouncing = (time: number, options?: Parameters<typeof pose>[1]) => {
+    const base = pose(time, options);
+    const dy = 0.016 * Math.sin((2 * Math.PI * 2.5 * time) / 1000);
+    return { ...base, landmarks: base.landmarks.map((point, index) => [0, 11, 12, 23, 24].includes(index) ? { ...point, y: point.y + dy } : point) };
+  };
+  for (let time = 0; time <= 1200; time += 33) pipeline.update(bouncing(time));
+  for (const time of [1233, 1266, 1299, 1332]) pipeline.update(bouncing(time));
+  const dim = pipeline.update(bouncing(1365, { confidence: 0.4 }));
   expect(dim.snapshot.trackingState).toBe('tracked');
-  expect(dim.effortSampleAtMs).toBe(99);
+  expect(dim.effortSampleAtMs).toBe(1332);
 
-  const collapsed = pose(165);
+  const collapsed = bouncing(1398);
   const landmarks = [...collapsed.landmarks];
   landmarks[12] = { ...landmarks[11]! };
-  expect(pipeline.update({ ...collapsed, landmarks }).effortSampleAtMs).toBe(99);
+  expect(pipeline.update({ ...collapsed, landmarks }).effortSampleAtMs).toBe(1332);
 
-  const recovered = pipeline.update(pose(198, { wristVertical: 0.3 }));
-  expect(recovered.effortSampleAtMs).toBe(99);
-  expect(recovered.rawEffort).toBe(0);
-  expect(pipeline.update(pose(231, { wristVertical: 0.3 })).effortSampleAtMs).toBe(231);
+  const recovered = pipeline.update(bouncing(1431, { wristVertical: 0.3 }));
+  expect(recovered.effortSampleAtMs).toBe(1332);
+  expect(pipeline.update(bouncing(1464, { wristVertical: 0.3 })).effortSampleAtMs).toBe(1464);
 });

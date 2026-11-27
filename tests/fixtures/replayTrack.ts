@@ -28,17 +28,24 @@ export function summarize(frames: readonly PoseSnapshot[]) {
   const first = frames[0]?.timestampMs ?? 0;
   const rows = frames.flatMap((snapshot) => {
     profile = calibrator.update(snapshot, pipeline.laneZone) ?? profile;
-    const { controls } = pipeline.update(snapshot, profile);
+    const { controls, rawEffort } = pipeline.update(snapshot, profile);
     const current = segmentAt(snapshot.timestampMs - first);
-    return current ? [{ kind: current.segment.kind, intoS: current.segment.seconds - current.remainingMs / 1000, moving: controls.sprintSpeed01 > 0 }] : [];
+    return current ? [{ kind: current.segment.kind, intoS: current.segment.seconds - current.remainingMs / 1000, moving: controls.sprintSpeed01 > 0, effort: rawEffort }] : [];
   });
   const share = (kinds: SegmentKind[], fromS = 0) => {
     const chosen = rows.filter((row) => kinds.includes(row.kind) && row.intoS >= fromS);
     return chosen.length ? Math.round((100 * chosen.filter((row) => row.moving).length) / chosen.length) : -1;
   };
+  const meanEffort = (kinds: SegmentKind[], fromS = 0) => {
+    const chosen = rows.filter((row) => kinds.includes(row.kind) && row.intoS >= fromS);
+    return chosen.length ? chosen.reduce((sum, row) => sum + row.effort, 0) / chosen.length : -1;
+  };
   return {
     still: share(['still']),
     arms: share(['arms']),
+    // The race input: mean raw effort per segment. Arms without a bounce must read zero.
+    armsEffort: meanEffort(['arms']),
+    runEffort: meanEffort(['run'], 6),
     // After 6 s the player is surely running; 1.5 s after "stop" they are surely meant to be stopped.
     run: share(['run'], 6),
     stop: share(['stop'], 1.5),

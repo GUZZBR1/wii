@@ -31,10 +31,15 @@ export class IntensityMeter {
 
   get sampleAtMs(): number | null { return this.measuredAtMs; }
 
-  /** One frame; `body` is undefined when the player cannot be read, and the level then fades. */
-  update(t: number, body?: Body): number {
-    const speed = body ? this.measure(t, body) : undefined;
-    if (!body) this.previous = undefined;
+  /**
+   * One frame; `body` is undefined when the player cannot be read, and the level then fades.
+   * `moving` is the torso-bounce verdict: without it the movement is not running (arms waved
+   * in place reach the same speeds), so it feeds nothing — the level fades through the normal
+   * release instead of a hard cut, and reopens without a step when the bounce returns.
+   */
+  update(t: number, body?: Body, moving = true): number {
+    const speed = body && moving ? this.measure(t, body) : undefined;
+    if (!body || !moving) this.previous = undefined;
     if (speed === undefined) {
       this.speeds.length = 0;
     } else {
