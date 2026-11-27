@@ -3,7 +3,7 @@ import type { SportActionEvent } from '../../cv/protocol';
 import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
 import type { Feedback } from '../track/feedback';
-import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, type Pace } from '../track/gait';
+import { adjudicationDt, applySprint, applyStep, easeSpeed, type Gait, gaitFor, type Pace } from '../track/gait';
 import { RunGate } from '../track/runGate';
 import type { GameHudState } from '../track/TrackGame';
 import { createMiiRunner, type MiiRunner } from './miiRunner';
@@ -60,6 +60,8 @@ export class AthleticsGame {
   private introTime = 0;
   private pace: Pace = { owner: 'camera', speed01: 0, cadenceSpm: 0 };
   private gait: Gait = 'idle';
+  /** Wall time of the last camera pace reading; older than the gait's limit and the race holds still. */
+  private lastSprintInputAtMs?: number;
   private outcome?: { place: number; best: number; isNew: boolean };
   private feedback?: Feedback;
   private lastHud = '';
@@ -71,7 +73,9 @@ export class AthleticsGame {
     goalMeters: Goal = 400,
   ) {
     this.race = new Race(goalMeters);
-    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt));
+    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) =>
+      this.update(dt, wallTimeMs),
+    );
     this.stadium = buildStadium(this.scene, this.loop.renderer);
     this.loop.onQualityChange = (tier) => this.stadium.setShadows(tier === 0);
     this.rivals = RIVALS.map(({ lane, shirt, speed01 }) => ({
@@ -106,7 +110,10 @@ export class AthleticsGame {
 
   onAction(event: SportActionEvent): void {
     if (event.type === 'step') this.pace = applyStep(this.pace);
-    if (event.type === 'sprint') this.pace = applySprint(this.pace, event);
+    if (event.type === 'sprint') {
+      this.pace = applySprint(this.pace, event);
+      this.lastSprintInputAtMs = event.timestampMs;
+    }
   }
 
   onKey(key: string): void {
@@ -143,12 +150,15 @@ export class AthleticsGame {
     this.chaseTarget.set(at.x + at.tangentX * 5, 1.1, at.z + at.tangentZ * 5);
   }
 
-  private update(dt: number): void {
+  private update(dt: number, wallTimeMs: number): void {
     const introDone = this.introTime >= INTRO_S;
     if (!introDone) this.introTime = Math.min(INTRO_S, this.introTime + dt);
     else this.gate.advance(dt);
-    // A pause freezes everyone; after the finish line the limbs ease to rest.
-    if (this.gate.phase === 'running') this.step(dt);
+    // A pause or a silent camera freezes the whole race, rivals included, so nobody gains on a
+    // stale reading; after the finish line the limbs ease to rest.
+    const inputAgeMs = this.lastSprintInputAtMs === undefined ? 0 : Math.max(0, wallTimeMs - this.lastSprintInputAtMs);
+    const raceDt = adjudicationDt(this.pace, dt, inputAgeMs);
+    if (this.gate.phase === 'running' && raceDt > 0) this.step(raceDt);
     this.drawAll(dt);
 
     if (this.introTime < INTRO_S) {

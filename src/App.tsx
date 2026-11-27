@@ -99,7 +99,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const dispatchEvent = useCallback((event: SportActionEvent) => {
     engineRef.current?.onAction(event);
     if (sportRef.current !== 'tennis') {
-      if (event.type === 'jump') audioRef.current.jump();
+      // Only the track has jumps; athletics still hears its steps.
+      if (event.type === 'jump' && sportRef.current === 'track') audioRef.current.jump();
       if (event.type === 'step') audioRef.current.step(event.side);
     }
   }, []);

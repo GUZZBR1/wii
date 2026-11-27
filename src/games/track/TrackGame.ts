@@ -352,6 +352,8 @@ export class TrackGame {
     this.items.length = 0;
     this.scene.remove(this.sceneryPool.group, this.dustPool.mesh, this.skyDome.mesh);
     this.removeEnvironment?.();
+    // Lights are not meshes, so the scene-wide disposal leaves the shadow map to us.
+    this.sun.dispose();
     this.loop.dispose();
     this.itemAssets.dispose();
     this.sceneryPool.dispose();
