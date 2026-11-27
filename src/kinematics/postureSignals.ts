@@ -6,6 +6,10 @@ const MIN_SHOULDER_WIDTH = 0.03;
 export const ENTER_LANE_SW = 0.12;
 /** Back to center inside this displacement — the hysteresis gap keeps zone noise from flapping lanes. */
 export const EXIT_LANE_SW = 0.05;
+/** The width used as the unit never drops below this share of the recently observed width. */
+const WIDTH_FLOOR_RATIO = 0.9;
+/** How fast the observed width follows shoulders that stay narrower, e.g. after stepping back. */
+const WIDTH_DECAY_MS = 3000;
 
 /**
  * Lane control by body position, not gesture: the lane follows where the player's torso actually
@@ -19,6 +23,8 @@ export const EXIT_LANE_SW = 0.05;
 export class LanePositionTracker {
   private readonly filter = new OneEuroFilter({ minCutoff: 1.2, beta: 0.4, derivativeCutoff: 1 });
   private zone: -1 | 0 | 1 = 0;
+  /** Widest recent shoulder width, decaying toward the current one. */
+  private reference?: { width: number; atMs: number };
 
   /** The lane zone the body currently occupies, or undefined when the shoulders are unreadable. */
   update(snapshot: PoseSnapshot, calibration: CalibrationProfile): -1 | 0 | 1 | undefined {
@@ -32,7 +38,13 @@ export class LanePositionTracker {
     const width = Math.hypot(leftShoulder.x - rightShoulder.x, (leftShoulder.y - rightShoulder.y) * aspect);
     if (!Number.isFinite(width) || width < MIN_SHOULDER_WIDTH) return undefined;
     const centerX = (leftShoulder.x + rightShoulder.x) / 2;
-    const displacement = (calibration.image.shoulderCenterX0 - centerX) / width;
+    // Torso yaw (a punch) foreshortens the shoulder line for a moment. Dividing by that narrow
+    // width would inflate a small sway into a lane change, so the unit is floored.
+    const elapsedMs = this.reference ? Math.max(0, snapshot.timestampMs - this.reference.atMs) : 0;
+    const decayed = this.reference ? width + (this.reference.width - width) * Math.exp(-elapsedMs / WIDTH_DECAY_MS) : width;
+    const reference = Math.max(width, decayed);
+    this.reference = { width: reference, atMs: snapshot.timestampMs };
+    const displacement = (calibration.image.shoulderCenterX0 - centerX) / Math.max(width, reference * WIDTH_FLOOR_RATIO);
     const u = this.filter.filter(displacement, snapshot.timestampMs);
     if (this.zone === 0) {
       if (u >= ENTER_LANE_SW) this.zone = 1;
@@ -45,5 +57,5 @@ export class LanePositionTracker {
   /** The zone the state machine currently believes the body occupies — even while updates pause. */
   get currentZone(): -1 | 0 | 1 { return this.zone; }
 
-  reset(): void { this.filter.reset(); this.zone = 0; }
+  reset(): void { this.filter.reset(); this.zone = 0; this.reference = undefined; }
 }

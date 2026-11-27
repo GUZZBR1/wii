@@ -82,6 +82,22 @@ export type SportActionEvent =
       contactY: number;
       /** Vertical wrist speed at the peak in shoulder widths/s, up positive — topspin/slice proxy. */
       verticalSpeed: number;
+    }
+  /**
+   * Unconfirmed real-time notice that an arm started extending forward. Feints and aborted
+   * punches fire it too: use it for animation, never for adjudication.
+   */
+  | ActionBase & { type: 'punch-start'; hand: Hand }
+  /** Confirmed punch: the arm reached extension with enough forward wrist travel. */
+  | ActionBase & {
+      type: 'punch';
+      hand: Hand;
+      /** Peak forward wrist speed mapped to 0..1. */
+      power01: number;
+      /** Frame with the highest forward wrist speed. */
+      peakTimestampMs: number;
+      /** Frame where the onset conditions were met; the punch's physical start. */
+      onsetTimestampMs: number;
     };
 
 export interface ContinuousControls {
@@ -100,6 +116,11 @@ export interface ContinuousControls {
    * without the dropped-step desync that relative lane events had.
    */
   laneZone?: -1 | 0 | 1;
+  /**
+   * Both fists are currently raised in front of the upper body. Restated every frame like the lane
+   * zone; undefined while the camera has no opinion, which consumers must read as not guarding.
+   */
+  guard?: boolean;
 }
 
 interface ActionBase {

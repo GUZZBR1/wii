@@ -4,6 +4,7 @@ import type { Sport } from './GameCanvas';
 const SPORTS: { id: Sport; name: string; hint: string }[] = [
   { id: 'track', name: 'Corrida', hint: 'Corra no lugar, salte e troque de raia' },
   { id: 'tennis', name: 'Tênis', hint: 'Balance o braço para rebater' },
+  { id: 'boxing', name: 'Boxe', hint: 'Soque para a frente e incline o corpo para esquivar' },
 ];
 
 const SLOTS = Array.from({ length: 12 }, (_, i) => `slot-${i}`);

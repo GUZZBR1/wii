@@ -2,6 +2,7 @@ import type { CalibrationProfile, ContinuousControls, Hand, PoseSnapshot, SportA
 import { CadenceTracker } from './cadenceTracker';
 import { JumpDetector } from './jumpDetector';
 import { LanePositionTracker } from './postureSignals';
+import { isGuardingPose, PunchDetector } from './punchDetector';
 import { SWING_MAX_DURATION_MS, SwingDetector, type SwingSignal } from './swingDetector';
 import { TorsoVerticalChannel } from './torsoVertical';
 import { TrackingGate } from './trackingGate';
@@ -31,6 +32,10 @@ export class ActionPipeline {
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
     { hand, wrist, gate: new TrackingGate([], 'world'), detector: new SwingDetector(hand) }
+  ));
+  /** One detector per arm. No cross-hand arbitration: a one-two is two real punches. */
+  private readonly punches = ([['right', 14, 16], ['left', 13, 15]] as const).map(([hand, elbow, wrist]) => (
+    { hand, elbow, wrist, gate: new TrackingGate([], 'world'), detector: new PunchDetector(hand) }
   ));
   private lastSwingAt = Number.NEGATIVE_INFINITY;
   /** Confirmed swing held back while the other wrist still has one in flight, so the stronger wins. */
@@ -133,6 +138,24 @@ export class ActionPipeline {
       }
     }
 
+    if (calibration && swingScaleReady && torsoTracking.state === 'tracked') {
+      controls = { ...controls, guard: isGuardingPose(current, calibration) };
+    }
+
+    for (const { hand, elbow, wrist, gate, detector } of this.punches) {
+      const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, elbow, wrist], 'world');
+      if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
+      else if (tracking.state === 'degraded') detector.interruptRearm();
+      if (!calibration || !swingScaleReady || tracking.state !== 'tracked') continue;
+      const output = detector.update(current, calibration);
+      if (output?.kind === 'onset') {
+        events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'punch-start', hand });
+      } else if (output?.kind === 'confirmed') {
+        const { power01, confidence, peakTimestampMs, onsetTimestampMs } = output;
+        events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'punch', hand, power01, peakTimestampMs, onsetTimestampMs });
+      }
+    }
+
     return { snapshot: current, events, controls, kinematicsMs: performance.now() - start };
   }
 
@@ -170,7 +193,7 @@ export class ActionPipeline {
   /** Returns the events the game still needs, such as stopping a sprint in progress. */
   reset(): SportActionEvent[] {
     const stopped = this.stopSprint(performance.now(), 0, 'lost');
-    this.bodyGate.reset(); this.torsoGate.reset(); this.swings.forEach(({ gate }) => { gate.reset(); });
+    this.bodyGate.reset(); this.torsoGate.reset(); this.swings.forEach(({ gate }) => { gate.reset(); }); this.punches.forEach(({ gate }) => { gate.reset(); });
     this.resetDetectors();
     this.coast = undefined;
     return stopped;
@@ -186,5 +209,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.punches.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }

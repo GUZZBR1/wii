@@ -1,14 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import type { SportActionEvent } from '../cv/protocol';
 import type { ProceduralAudio } from '../games/audio';
+import type { BoxingScoreboard } from '../games/boxing/BoxingGame';
 import type { GameHudState as CoreHudState } from '../games/core/hud';
 import type { GameHudState as TrackHudState } from '../games/track/TrackGame';
 
-type GameHudState = Omit<TrackHudState, 'feedback'> & { feedback?: TrackHudState['feedback'] | CoreHudState['feedback'] };
+type GameHudState = Omit<TrackHudState, 'feedback'> & { feedback?: TrackHudState['feedback'] | CoreHudState['feedback']; boxing?: BoxingScoreboard };
 import { forwardKeyDown } from './keys';
 
-export type Sport = 'track' | 'tennis';
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; resetLaneZone?(): void; dispose(): void }
+export type Sport = 'track' | 'tennis' | 'boxing';
+const CONTROLS: Record<Sport, string> = {
+  track: '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar',
+  tennis: 'espaço bater  ·  timing define a direção',
+  boxing: '← → esquivar  ·  A / D socar  ·  segure ↓ ou S para defender',
+};
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; resetLaneZone?(): void; setGuard?(guard: boolean | undefined): void; onKeyUp?(key: string): void; dispose(): void }
 
 interface Props {
   sport: Sport;
@@ -44,7 +50,12 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
       void audio?.unlock();
       game?.onKey(event.key);
     };
+    const keyup = (event: KeyboardEvent) => game?.onKeyUp?.(event.key);
+    // A key released while the window is unfocused never reports it.
+    const blur = () => { for (const key of ['ArrowDown', 's']) game?.onKeyUp?.(key); };
     window.addEventListener('keydown', keydown);
+    window.addEventListener('keyup', keyup);
+    window.addEventListener('blur', blur);
     const mount = async () => {
       try {
         const canvas = canvasRef.current;
@@ -52,7 +63,9 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
         const updateHud = (state: GameHudState) => hudRef.current(state);
         const engine: GameEngineHandle = sport === 'track'
           ? new (await import('../games/track/TrackGame')).TrackGame(canvas, updateHud)
-          : new (await import('../games/tennis/TennisGame')).TennisGame(canvas, updateHud, audio);
+          : sport === 'tennis'
+            ? new (await import('../games/tennis/TennisGame')).TennisGame(canvas, updateHud, audio)
+            : new (await import('../games/boxing/BoxingGame')).BoxingGame(canvas, updateHud, audio);
         if (disposed) { engine.dispose(); return; }
         game = engine;
         engineRef.current = engine;
@@ -66,6 +79,8 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
     return () => {
       disposed = true;
       window.removeEventListener('keydown', keydown);
+      window.removeEventListener('keyup', keyup);
+      window.removeEventListener('blur', blur);
       game?.dispose();
       engineRef.current = null;
       onEngine(null);
@@ -74,7 +89,9 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
 
   return <div className="game-viewport">
     <canvas ref={canvasRef} />
-    <div className="game-hud"><div><span>{sport === 'track' ? 'SCORE' : 'PONTOS'}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{sport === 'track' ? 'RITMO' : 'MIRA'}</span><strong>{sport === 'track' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>
+    {sport === 'boxing'
+      ? hud.boxing && <BoxingHud {...hud.boxing} />
+      : <div className="game-hud"><div><span>{sport === 'track' ? 'SCORE' : 'PONTOS'}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{sport === 'track' ? 'RITMO' : 'MIRA'}</span><strong>{sport === 'track' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>}
     {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${('kind' in hud.feedback ? hud.feedback.kind : hud.feedback.tone)}`}>
       <span>{hud.feedback.text}</span>
     </div>}
@@ -90,6 +107,21 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
       <button type="button" ref={(button) => button?.focus()} onClick={onRestart}>Jogar de novo</button>
     </div>}
     <div className="game-ready"><i className={tracking.startsWith('TRACKING') ? 'ready' : ''} />{hud.status}</div>
-    <div className="game-controls">{sport === 'track' ? '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' : 'espaço bater  ·  timing define a direção'}</div>
+    <div className="game-controls">{CONTROLS[sport]}</div>
+  </div>;
+}
+
+function BoxingHud({ playerHp, opponentHp, maxHp, round, rounds, secondsLeft }: BoxingScoreboard) {
+  const fighter = (name: string, hp: number, side: 'player' | 'opponent') => <div className={`boxing-card boxing-fighter ${side}`}>
+    <p className="boxing-name"><span className="boxing-label">{name}</span><strong className="boxing-value">{hp}</strong></p>
+    <div className="boxing-bar" aria-hidden="true"><div className="boxing-fill" style={{ width: `${(100 * hp) / maxHp}%` }} /></div>
+  </div>;
+  return <div className="boxing-hud">
+    {fighter('VOCÊ', playerHp, 'player')}
+    <div className="boxing-card boxing-clock">
+      <span className="boxing-label">ROUND {round}/{rounds}</span>
+      <strong className="boxing-value">{Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}</strong>
+    </div>
+    {fighter('CPU', opponentHp, 'opponent')}
   </div>;
 }

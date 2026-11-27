@@ -138,6 +138,45 @@ describe('aspect-corrected shoulder width', () => {
   });
 });
 
+describe('torso yaw while punching', () => {
+  /** Yaw foreshortens the 2D shoulder line to `widthRatio` and nudges its center sideways. */
+  const turned = (timeMs: number, widthRatio: number, shiftSw: number) => {
+    const snapshot = pose(timeMs, { shiftUserRightSw: shiftSw });
+    const center = (snapshot.landmarks[11]!.x + snapshot.landmarks[12]!.x) / 2;
+    const landmarks = snapshot.landmarks.map((point, index) =>
+      index === 11 || index === 12 ? { ...point, x: center + (point.x - center) * widthRatio } : point);
+    return { ...snapshot, landmarks };
+  };
+
+  const zonesWhileTurning = (shiftSw: number) => {
+    const tracker = new LanePositionTracker();
+    for (let time = 0; time <= 990; time += 33) tracker.update(pose(time), calibration());
+    const zones = new Set<number>();
+    for (let time = 1023; time <= 1500; time += 33) {
+      zones.add(tracker.update(turned(time, 0.5, shiftSw), calibration()) ?? 0);
+    }
+    return [...zones];
+  };
+
+  it.each([0.08, -0.08])('does not read a %f sw nudge with foreshortened shoulders as a dodge', (shiftSw) => {
+    expect(zonesWhileTurning(shiftSw)).toEqual([0]);
+  });
+
+  it('still follows a real lean made while turned', () => {
+    expect(zonesWhileTurning(0.3)).toContain(1);
+  });
+
+  it('regains full sensitivity after the player stays farther from the camera', () => {
+    const tracker = new LanePositionTracker();
+    for (let time = 0; time <= 990; time += 33) tracker.update(pose(time), calibration());
+    for (let time = 1023; time <= 15000; time += 33) tracker.update(turned(time, 0.6, 0), calibration());
+    let zone: number | undefined;
+    // 0.08 neutral widths is 0.133 of the new, narrower shoulders: past the 0.12 entry.
+    for (let time = 15033; time <= 16000; time += 33) zone = tracker.update(turned(time, 0.6, 0.08), calibration());
+    expect(zone).toBe(1);
+  });
+});
+
 describe('lane position control through the real pipeline and calibrator', () => {
   function drivePipeline(timeline: { atMs: number; shiftSw: number; rampMs?: number }[], totalMs: number) {
     const calibrator = new AdaptiveCalibrator();

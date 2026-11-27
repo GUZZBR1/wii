@@ -70,6 +70,7 @@
   .scene { aspect-ratio: 16/9; }
   .preview.tennis .scene { background: linear-gradient(90deg, #0000 49.6%, #fff 49.6% 50.4%, #0000 50.4%) 50% 100% / 100% 40% no-repeat, linear-gradient(#0000 68%, #fff 68% 70%, #0000 70%), linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #3f8f4b 42% 48%, #3f78b5 48%); }
   .preview.track .scene { background: linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #4e9e52 42% 52%, #0000 52%), repeating-linear-gradient(#c8603f 0 13%, #fff 13% 14%); }
+  .preview.boxing .scene { background: radial-gradient(circle at 38% 58%, #d64545 0 9%, #0000 9.5%), radial-gradient(circle at 62% 58%, #2f6fd0 0 9%, #0000 9.5%), repeating-linear-gradient(#0000 0 8%, #fff 8% 9.5%, #0000 9.5% 14%) 50% 70% / 100% 40% no-repeat, linear-gradient(#26313b 0 52%, #d9c9a3 52%); }
   .preview figcaption { padding: 12px; text-align: center; font-weight: 700; }
 
   /* jogo em tela cheia */
@@ -88,6 +89,18 @@
   .game-controls { left: 15px; bottom: 12px; max-width: calc(100vw - 260px); padding: 6px 14px; }
 
   /* corrida: combo, contagem/pausa e feedback */
+  .boxing-hud { position: absolute; left: 18px; right: 18px; top: 15px; display: flex; align-items: flex-start; gap: 12px; pointer-events: none; z-index: 3; }
+  .boxing-card { padding: 6px 14px; border: 3px solid var(--blue); border-radius: 18px; background: var(--gloss); box-shadow: var(--shadow); }
+  .boxing-fighter { flex: 1; min-width: 0; }
+  .boxing-name { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 4px; }
+  .boxing-label { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 1px; }
+  .boxing-value { font-size: 22px; }
+  .boxing-bar { display: flex; height: 12px; overflow: hidden; border-radius: 999px; background: #0b4a6e33; }
+  .boxing-fill { background: #d64545; transition: width .2s; }
+  .boxing-clock { display: flex; flex-direction: column; align-items: center; white-space: nowrap; }
+  .opponent .boxing-name { flex-direction: row-reverse; }
+  .opponent .boxing-bar { justify-content: flex-end; }
+  .opponent .boxing-fill { background: #2f6fd0; }
   .game-hud em { color: #23823f; font-style: normal; font-weight: 800; font-size: 14px; }
   .game-banner { position: absolute; left: 0; right: 0; top: 22%; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 16px; color: #fff; text-align: center; text-shadow: 0 3px 10px #000c; pointer-events: none; z-index: 4; }
   .game-banner strong { font-size: 68px; font-weight: 800; }
