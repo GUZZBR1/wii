@@ -57,10 +57,17 @@ const RUN_TRUST_HOLD_MS = 2000;
 const LATERAL_BRIDGE_CAP_MS = 4500;
 /**
  * Rhythm corroborates centered running: bouncing in place with both feet shifts no weight, so
- * the lateral channel stays quiet — but a few consecutive strides at running cadence are
- * evidence violent arm swinging never produces (one flicker in eight seconds of real clips).
+ * the lateral channel stays quiet — but consecutive strides at running cadence are evidence
+ * violent arm swinging never produces (one flicker in eight seconds of real clips). The
+ * intervals must sit at running pace and near one another: a slow or irregular bob is not a
+ * stride however long it persists. 150 spm is a relaxed run in place; the band is generous.
  */
 const STRIDES_CORROBORATING = 3;
+const STRIDE_MIN_SPM = 120;
+const STRIDE_MAX_INTERVAL_MS = 60_000 / STRIDE_MIN_SPM;
+const STRIDE_MIN_INTERVAL_MS = 60_000 / 260;
+/** Fastest-to-slowest ratio the corroborating strides may span — uneven bobbing is wider. */
+const STRIDE_REGULARITY = 1.6;
 const SPEED_BY_CADENCE = [[40, 0.1], [100, 0.3], [137.5, 0.55], [200, 1]] as const;
 
 export function speedFromCadence(spm: number): number {
@@ -149,13 +156,19 @@ export class CadenceTracker {
       this.moving = this.bounce.isMoving(nowMs);
       this.walking = false;
     }
+    // A rise long gone says nothing now; without this the stale history would corroborate any
+    // single torso jolt back into running. The pace estimate keeps resetting on the next rise.
+    if (nowMs - this.lastStepAt > MAX_STEP_INTERVAL_MS) this.intervals = [];
     this.movingSince = this.moving ? Math.min(this.movingSince, nowMs) : Number.POSITIVE_INFINITY;
     if (this.moving) this.lastStrideAt = nowMs;
     if (this.moving || this.lateralActive) this.lastMovingAt = nowMs;
+    const strideEvidence = this.intervals.length >= STRIDES_CORROBORATING
+      && this.intervals.every((interval) => interval >= STRIDE_MIN_INTERVAL_MS && interval <= STRIDE_MAX_INTERVAL_MS)
+      && Math.max(...this.intervals) <= Math.min(...this.intervals) * STRIDE_REGULARITY;
     if ((!this.moving && !this.lateralActive && nowMs - this.lastMovingAt >= RUN_TRUST_HOLD_MS)
       || nowMs - this.lastStrideAt >= LATERAL_BRIDGE_CAP_MS) this.trusted = false;
     else if (!this.trusted && this.moving && nowMs - this.movingSince >= RUN_TRUST_MS
-      && (this.lateralActive || this.intervals.length >= STRIDES_CORROBORATING)) this.trusted = true;
+      && (this.lateralActive || strideEvidence)) this.trusted = true;
     // Running wins: its bounce also sways.
     if (!this.moving) return this.walking
       ? { cadenceSpm: this.walkSpm, speed01: speedFromCadence(this.walkSpm), step, running: this.trusted }

@@ -59,6 +59,33 @@ describe('effort-gate trust in the cadence tracker', () => {
     expect(shuffled.at(-1)!.running).toBe(false);
   });
 
+  it('never opens for a slow bob however long it persists', () => {
+    // Feet planted, no sway: a small torso bob every 800 ms (~75 bpm) is not a stride.
+    const slowBob = (t: number) => 0.016 * Math.sin((2 * Math.PI * 1.25 * t) / 1000);
+    const results = drive(times, slowBob, () => 0);
+    expect(results.every((r) => !r.running)).toBe(true);
+  });
+
+  it('never opens for an irregular bob at running average pace', () => {
+    // The average rate matches running but the spacing swings wildly — not a stride rhythm.
+    const irregular = (t: number) => 0.016 * Math.sin((2 * Math.PI * (1.5 + Math.sin(t / 700)) * t) / 1000);
+    const results = drive(times, irregular, () => 0);
+    expect(results.every((r) => !r.running)).toBe(true);
+  });
+
+  it('does not reopen on a single jolt after stopping, however long the run before it', () => {
+    const { feed } = cadenceHarness();
+    for (const t of times) feed(poseWithHipBounce(t, bounce(t), undefined, sway(t)));
+    expect(times.map((t) => feed(poseWithHipBounce(t, bounce(t), undefined, sway(t)))).at(-1)!.running).toBe(true);
+    // Stand still long enough for the verdict to close and the stride history to expire.
+    let t = times.at(-1)!;
+    for (t += 33; t <= times.at(-1)! + 5200; t += 33) feed(poseWithHipBounce(t, 0, undefined, 0));
+    // One brief upward jolt without a rise chain: the old strides must not corroborate it.
+    const jolt = [];
+    for (; t <= times.at(-1)! + 5200 + 1500; t += 33) jolt.push(feed(poseWithHipBounce(t, t % 400 < 200 ? -0.02 : 0, undefined, 0)));
+    expect(jolt.every((r) => !r.running)).toBe(true);
+  });
+
   it('closes when everything stops', () => {
     const { feed } = cadenceHarness();
     for (const t of times) feed(poseWithHipBounce(t, bounce(t), undefined, sway(t)));
