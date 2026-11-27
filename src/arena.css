@@ -120,6 +120,10 @@
   .game-over.finish h2 { color: var(--blue); }
   .game-goals { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; margin: 0; padding: 0; border: 0; z-index: 9; }
   .game-goals button[aria-pressed='true'] { background: var(--blue); color: #fff; }
+  .boxing-setup { flex-direction: column; align-items: center; gap: 8px; }
+  .boxing-select-row { display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .boxing-select-row > span { padding: 0 4px; color: #fff; font-size: 11px; font-weight: 800; letter-spacing: 1px; text-shadow: 0 2px 8px #000c; }
+  .boxing-training-card { flex: 1; display: flex; flex-direction: column; align-items: center; white-space: nowrap; }
   .game-over h3 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
   .game-over p { margin: 0; }
   .game-over ol { margin: 0 0 14px; padding: 0; list-style: none; }

@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SportActionEvent } from '../src/cv/protocol';
-import type { BoxingHudState } from '../src/games/boxing/BoxingGame';
+import type { BoxingGameOptions, BoxingHudState } from '../src/games/boxing/BoxingGame';
 import type { BoxingState } from '../src/games/boxing/boxingRules';
 
 type UpdateFn = (dt: number) => void;
@@ -27,10 +27,10 @@ beforeEach(() => {
 });
 afterEach(() => vi.restoreAllMocks());
 
-/** With rng 0 the opponent guards 700 ms, then winds up for 800 ms and resolves 150 ms later. */
-function start() {
+/** With rng 0 the default opponent guards 675 ms, then winds up for 790 ms and resolves 150 ms later. */
+function start(options: BoxingGameOptions = {}) {
   let hud: BoxingHudState | undefined;
-  const game = new BoxingGame(document.createElement('canvas'), (state) => { hud = state; }, undefined, () => 0);
+  const game = new BoxingGame(document.createElement('canvas'), (state) => { hud = state; }, undefined, () => 0, options);
   const run = (seconds: number) => {
     for (let step = 0; step < Math.round(seconds / STEP_S); step += 1) {
       wallMs += STEP_S * 1000;
@@ -348,5 +348,70 @@ describe('BoxingGame footwork', () => {
     fight.run(3.2); // bell and break
     expect(spots(fight.game)).toMatchObject({ playerPos: { x: 0, z: 1.85 } });
     expect(gap(fight.game)).toBeCloseTo(2.7);
+  });
+});
+
+describe('BoxingGame opponent profiles', () => {
+  it.each([
+    ['rookie', 0.25],
+    ['aggressive', 0.55],
+    ['technical', 0.85],
+  ] as const)('uses the %s skill in fight mode', (opponent, skill) => {
+    const { game } = start({ opponent });
+    expect((game as unknown as { ai: { skill: number } }).ai.skill).toBe(skill);
+  });
+});
+
+describe('BoxingGame training modes', () => {
+  it('scores a punching-bag punch on the rhythm and publishes precision, combo and score', () => {
+    const { game, run, read } = start({ mode: 'bag' });
+    run(1 - STEP_S); // the countdown's final fixed step is already the first running step
+
+    game.onAction(punch(wallMs));
+
+    const training = read().boxing.training;
+    expect(training).toMatchObject({ kind: 'bag', score: 200, combo: 1 });
+    expect(training?.precision01).toBeCloseTo(1, 5);
+    expect(read().feedback?.text).toBe('100% · +200');
+  });
+
+  it('reports missed punching-bag beats while the training clock runs', () => {
+    const { run, read } = start({ mode: 'bag' });
+    run(2);
+
+    expect(read().boxing.training).toMatchObject({ kind: 'bag', score: 0, combo: 0 });
+    expect(read().feedback?.text).toBe('PERDEU O RITMO');
+  });
+
+  it('lets ring displacement count as the safe lane in the dodge challenge', () => {
+    const fight = start({ mode: 'dodge' });
+    fight.game.onKey('q');
+    fight.run(0.5);
+    fight.game.onKeyUp('q');
+    fight.run(0.7);
+
+    expect(fight.read().boxing.training).toMatchObject({
+      kind: 'dodge',
+      score: 100,
+      attacksResolved: 1,
+      attacksRemaining: 5,
+      hitsTaken: 0,
+    });
+    expect(fight.read().feedback?.text).toBe('ESQUIVOU!');
+  });
+
+  it('counts a hit and the remaining attacks when the player stays in the threatened lane', () => {
+    const { run, read } = start({ mode: 'dodge' });
+    run(1.2);
+
+    expect(read().boxing.training).toMatchObject({
+      kind: 'dodge',
+      score: 0,
+      attacksResolved: 1,
+      attacksRemaining: 5,
+      hitsTaken: 1,
+      hitsRemaining: 2,
+    });
+    expect(read().feedback?.text).toBe('LEVOU UM SOCO');
   });
 });
