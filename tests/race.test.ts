@@ -1,32 +1,72 @@
 import { describe, expect, it } from 'vitest';
-import { COUNTDOWN_S, FRAMED_S, HEADROOM, FRAMING_PATIENCE_S, NO_BODY_ADVICE, Race, RACE_METRES, RESTART_AFTER_S, RESTART_HOLD_S, WARMUP_RETRIES, WARMUP_S } from '../src/games/sprint/race';
+import { COUNTDOWN_S, EFFORT_EXPIRES_S, FRAMED_S, HEADROOM, FRAMING_PATIENCE_S, NO_BODY_ADVICE, Race, RESTART_AFTER_S, RESTART_HOLD_S, WARMUP_RETRIES, WARMUP_S } from '../src/games/athletics/race';
+
+const RACE_METRES = 100;
+/** The camera sends a reading every frame; `feed` sets the one it keeps sending. */
+const camera = new WeakMap<Race, number>();
+const feed = (race: Race, effort: number) => { camera.set(race, effort); race.setEffort(effort); };
 
 const run = (race: Race, seconds: number, each?: () => void) => {
-  for (let i = 0; i < Math.round(seconds * 60); i += 1) { each?.(); race.step(1 / 60); }
+  for (let i = 0; i < Math.round(seconds * 60); i += 1) {
+    each?.();
+    const effort = camera.get(race);
+    if (effort !== undefined) feed(race, effort);
+    race.step(1 / 60);
+  }
 };
 /** Through framing and warm-up, running flat out at the given camera reading. */
 const warmedUp = (best: number) => {
   const race = new Race();
   race.setFraming(undefined);
   run(race, FRAMED_S);
-  race.setEffort(best);
+  feed(race, best);
   run(race, WARMUP_S);
   while (race.phase === 'warmup') run(race, WARMUP_S);
-  race.setEffort(0);
+  feed(race, 0);
   return race;
 };
 const started = (best = 0.9) => { const race = warmedUp(best); run(race, COUNTDOWN_S); return race; };
 const finish = (effort: number) => {
   const race = started();
-  race.setEffort(effort);
+  feed(race, effort);
   run(race, 90);
   return race;
 };
 
-describe('100 m race', () => {
+describe('athletics race', () => {
+  it('stops the runner when the camera goes silent, instead of running on its last reading', () => {
+    const race = started();
+    feed(race, 0.9);
+    run(race, 3);
+    camera.delete(race); // readings stop arriving, with no error
+    run(race, EFFORT_EXPIRES_S + 0.1);
+    expect(race.effort01).toBe(0);
+    const at = race.distance;
+    run(race, 5);
+    expect(race.distance - at).toBeLessThan(10);
+  });
+
+  it('times each 100 m split once and stops at the chosen distance', () => {
+    for (const goal of [100, 200, 400] as const) {
+      const race = new Race(goal);
+      race.setFraming(undefined);
+      run(race, FRAMED_S);
+      feed(race, 0.8);
+      while (race.phase !== 'finished') run(race, 1);
+      expect(race.splits.map((split) => split.metres)).toEqual(Array.from({ length: goal / 100 }, (_, i) => (i + 1) * 100));
+      expect(race.finishS).toBe(race.splits.at(-1)!.seconds);
+      expect(race.splits.every((split, i, all) => i === 0 || split.seconds > all[i - 1]!.seconds)).toBe(true);
+    }
+  });
+
+  it('runs rivals a little slower over longer distances', () => {
+    const [sprint, lap] = [new Race(100), new Race(400)];
+    expect(lap.rivals[2]!.pace).toBeLessThan(sprint.rivals[2]!.pace);
+  });
+
   it('waits for a good picture before anything starts', () => {
     const race = new Race();
-    race.setEffort(1);
+    feed(race, 1);
     run(race, 10);
     race.setFraming('Incline a câmera para cima');
     run(race, 5);
@@ -47,7 +87,7 @@ describe('100 m race', () => {
 
   it('holds everyone on the blocks during the countdown', () => {
     const race = warmedUp(0.8);
-    race.setEffort(1);
+    feed(race, 1);
     run(race, COUNTDOWN_S - 0.1);
     expect([race.phase, race.distance, race.rivals[0]!.distance]).toEqual(['countdown', 0, 0]);
   });
@@ -56,18 +96,18 @@ describe('100 m race', () => {
     // The same flat-out run read low by a badly placed camera is still full speed.
     for (const best of [0.4, 0.8]) {
       const race = started(best);
-      race.setEffort(best);
+      feed(race, best);
       expect(race.effort01).toBeCloseTo(1 / HEADROOM, 5);
-      race.setEffort(best / 2);
+      feed(race, best / 2);
       expect(race.effort01).toBeCloseTo(0.5 / HEADROOM, 5);
-      race.setEffort(best * HEADROOM);
+      feed(race, best * HEADROOM);
       expect(race.effort01).toBeCloseTo(1, 5);
     }
   });
 
   it('does not take a lazy warm-up as the maximum', () => {
     const race = started(0.02);
-    race.setEffort(0.2);
+    feed(race, 0.2);
     expect(race.effort01).toBeLessThan(0.4);
   });
 
@@ -88,7 +128,7 @@ describe('100 m race', () => {
     const race = new Race();
     race.setFraming(undefined);
     run(race, FRAMED_S);
-    race.setEffort(0.7);
+    feed(race, 0.7);
     run(race, 3);
     expect([race.energy01, race.coaching]).toEqual([1, undefined]);
   });
@@ -103,7 +143,7 @@ describe('100 m race', () => {
 
   it('runs again only when hands are lowered and then held up after the result', () => {
     const race = started();
-    race.setEffort(0.9);
+    feed(race, 0.9);
     race.setHandsRaised(true); // still pumping across the line
     run(race, 90);
     expect(race.restart01).toBe(0);
@@ -134,10 +174,10 @@ describe('100 m race', () => {
 
   it('keeps momentum through a short dip in the reading', () => {
     const race = started();
-    race.setEffort(0.8);
+    feed(race, 0.8);
     run(race, 3);
     const speed = race.speed;
-    race.setEffort(0);
+    feed(race, 0);
     run(race, 0.4);
     expect(race.speed).toBeGreaterThan(speed * 0.7);
   });

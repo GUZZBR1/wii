@@ -14,6 +14,7 @@ import { HandCursorDetector } from './kinematics/handCursor';
 import { ProceduralAudio } from './games/audio';
 import { CameraPip } from './ui/CameraPip';
 import { GameCanvas, type GameEngineHandle, type Sport } from './ui/GameCanvas';
+import type { Goal } from './games/athletics/race';
 import { HandCursor } from './ui/HandCursor';
 import { HandPanel } from './ui/HandPanel';
 import { PerfMeter } from './ui/PerfMeter';
@@ -56,7 +57,8 @@ function writeMutedPreference(muted: boolean): void {
 export default function App({ exit }: { exit?: ReactNode }) {
   const [splash, setSplash] = useState(true);
   const [screen, setScreen] = useState<Screen>('home');
-  const [sport, setSport] = useState<Sport>('track');
+  const [sport, setSport] = useState<Sport>('athletics');
+  const [goal, setGoal] = useState<Goal>(100);
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraStatus, setCameraStatus] = useState('Permissão da câmera ainda não solicitada');
   const [tracking, setTracking] = useState('SEM POSE');
@@ -438,7 +440,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
     void startCamera();
   }, [startCamera]);
 
-  const play = (next: Sport) => {
+  const play = (next: Sport, distance: Goal = 100) => {
+    setGoal(distance);
     void audioRef.current.unlock();
     if (practiceRef.current) changeTennisPractice(false);
     setSport(next);
@@ -466,7 +469,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && !tennisPractice && <GameCanvas key={sport} sport={sport} onEngine={onEngine} tracking={tracking} audio={audioRef.current} />}
+    {screen === 'play' && !tennisPractice && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} />}
     {screen === 'home' && <HomeMenu exit={exit} onGames={() => setScreen('title')} />}
     {screen === 'title' && <TitleMenu onStart={() => setScreen('games')} onBack={() => setScreen('home')} />}
     {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} onBack={() => setScreen('title')} />}

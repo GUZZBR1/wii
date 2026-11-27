@@ -1,4 +1,5 @@
 import { type CSSProperties, type MouseEvent, type ReactNode, useEffect, useState } from 'react';
+import { GOALS, type Goal } from '../games/athletics/race';
 import type { Sport } from './GameCanvas';
 
 const SPORTS: { id: Sport; name: string; hint: string }[] = [
@@ -98,8 +99,10 @@ export function TitleMenu({ onStart, onBack }: { onStart: () => void; onBack: ()
   </section>;
 }
 
-export function GamesMenu({ onPick, onBack, onHome }: { onPick: (sport: Sport) => void; onBack: () => void; onHome: () => void }) {
+export function GamesMenu({ onPick, onBack, onHome }: { onPick: (sport: Sport, goal?: Goal) => void; onBack: () => void; onHome: () => void }) {
   const [preview, setPreview] = useState<Sport>('athletics');
+  /** Athletics asks for a distance first; big buttons, so the hand cursor can pick one. */
+  const [choosingGoal, setChoosingGoal] = useState(false);
   const hint = SPORTS.find((s) => s.id === preview)?.hint;
 
   return <section className="menu sports-menu" aria-label="Escolha a modalidade">
@@ -109,9 +112,12 @@ export function GamesMenu({ onPick, onBack, onHome }: { onPick: (sport: Sport) =
     </header>
     <div className="menu-body">
       <div className="sport-list">
-        {SPORTS.map((s) => <button key={s.id} type="button" className={preview === s.id ? 'wii-btn selected' : 'wii-btn'}
-          onPointerEnter={() => setPreview(s.id)} onFocus={() => setPreview(s.id)} onClick={() => onPick(s.id)}>{s.name}</button>)}
-        <button type="button" className="wii-btn back" onClick={onBack}>Voltar</button>
+        {choosingGoal
+          ? GOALS.map((goal) => <button key={goal} type="button" className="wii-btn" onClick={() => onPick('athletics', goal)}>{goal} metros</button>)
+          : SPORTS.map((s) => <button key={s.id} type="button" className={preview === s.id ? 'wii-btn selected' : 'wii-btn'}
+            onPointerEnter={() => setPreview(s.id)} onFocus={() => setPreview(s.id)}
+            onClick={() => (s.id === 'athletics' ? setChoosingGoal(true) : onPick(s.id))}>{s.name}</button>)}
+        <button type="button" className="wii-btn back" onClick={() => (choosingGoal ? setChoosingGoal(false) : onBack())}>Voltar</button>
       </div>
       <figure className={`preview ${preview === 'athletics' ? 'track' : preview}`}>
         <div className="scene" />
