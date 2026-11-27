@@ -111,7 +111,9 @@ export class BounceDetector {
       const before = -(l.at(-2)! + r.at(-2)!) / 2 / width;
       witnessed = before <= spread / 2;
       if (witnessed) riseAt = times.at(-2)! + (t - times.at(-2)!) * (spread / 2 - before) / (height - before);
-      if (spread >= MIN_SPREAD_SW && t - this.lastRiseAt >= MIN_STEP_INTERVAL_MS) { rise = true; this.lastRiseAt = t; }
+      // Spaced on the same basis cadence is measured on: frame times can bunch two real strides closer
+      // than the floor. An unwitnessed crossing falls back to its frame time.
+      if (spread >= MIN_SPREAD_SW && riseAt - this.lastRiseAt >= MIN_STEP_INTERVAL_MS) { rise = true; this.lastRiseAt = riseAt; }
     } else if (this.above && height < -spread / 2) this.above = false;
     return { moving: this.isMoving(t), rise, riseAt, witnessed, candidate };
   }

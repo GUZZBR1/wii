@@ -138,17 +138,43 @@ describe('effort-gate trust in the cadence tracker', () => {
     expect(results.every((r) => !r.running)).toBe(true);
   });
 
+  it('opens and feeds effort for a fast centered jog on uneven frames', () => {
+    // 240 ms strides at about 18 fps: two crossings 236 ms apart can be detected by frames only
+    // 217 ms apart, and dropping the second merges two strides into an irregular reading.
+    const jitter = [5, 14, 14, 6, 5, 9];
+    const { feed } = cadenceHarness();
+    const pipeline = new ActionPipeline();
+    let opened = false;
+    let peak = 0;
+    for (let i = 0; i < 150; i++) {
+      const t = 55 * i + jitter[i % jitter.length]!;
+      const snapshot = poseWithHipBounce(t, 0.016 * Math.sin((2 * Math.PI * (t + 10)) / 240));
+      opened ||= feed(snapshot).running;
+      peak = Math.max(peak, pipeline.update(snapshot).rawEffort);
+    }
+    expect(opened).toBe(true);
+    expect(peak).toBeGreaterThan(0);
+  });
+
   it('reopens promptly for a centered jog that stopped for the countdown', () => {
     // The countdown asks the player to stop and go again on the signal, at every rise alignment.
     let slowest = 0;
     for (let phase = 0; phase < 470; phase += 24) {
       const { feed } = cadenceHarness();
       let opened = Number.POSITIVE_INFINITY;
+      let openedBefore = false;
+      let closedInPause = false;
       for (let t = 0; t < 12_000 && opened === Number.POSITIVE_INFINITY; t += 42) {
         const jogging = t < 3000 || t >= 6000;
         const y = jogging ? 0.024 * Math.sin((2 * Math.PI * (t + phase)) / 470) : 0;
-        if (feed(poseWithHipBounce(t, y)).running && t >= 6000) opened = t - 6000;
+        const { running } = feed(poseWithHipBounce(t, y));
+        if (t < 3000) openedBefore ||= running;
+        else if (t < 6000) closedInPause = !running;
+        else if (running) opened = t - 6000;
       }
+      // Without both, the time to reopen would measure a gate that never moved.
+      expect(openedBefore, `phase ${phase} never opened before the pause`).toBe(true);
+      expect(closedInPause, `phase ${phase} stayed open through the pause`).toBe(true);
       slowest = Math.max(slowest, opened);
     }
     expect(slowest).toBeLessThan(2500);
