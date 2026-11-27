@@ -32,8 +32,13 @@ const armsOnlyClips = Object.entries(recordings).filter(([path]) => ARMS_ONLY_CL
  * they exist so a detector change cannot silently bring back the intermittent fill the player
  * reported: peak 0.63 / mean 0.20 / 131 of 202 frames with effort when added.
  */
-const RUNNING_CLIPS: Record<string, { peak: number; mean: number; effortFrames: number }> = {
+const RUNNING_CLIPS: Record<string, { peak: number; mean: number; effortFrames: number; tailMean?: number }> = {
   'erro-CPU-1795806065324': { peak: 0.4, mean: 0.1, effortFrames: 0.4 },
+  // Farther from the camera the vertical bounce barely reaches the candidacy floors: before weak
+  // candidacy refreshed the lateral bridge, this run filled for seven seconds and then died at the
+  // bridge cap with the player still running — the last four seconds read 0.024 mean effort. After
+  // the fix they read 0.67, and the whole clip: peak 0.87 / mean 0.32 / 62% of frames.
+  'erro-CPU-1795816707547': { peak: 0.5, mean: 0.15, effortFrames: 0.45, tailMean: 0.3 },
 };
 const runningClips = Object.entries(recordings).filter(([path]) => Object.keys(RUNNING_CLIPS).some((clip) => path.endsWith(`/${clip}.json`)));
 
@@ -103,18 +108,24 @@ describe.skipIf(Object.keys(recordings).length === 0)('scoreboard for real recor
     const pipeline = new ActionPipeline();
     const calibrator = new AdaptiveCalibrator();
     let profile: CalibrationProfile | undefined;
-    let peak = 0, sum = 0, withEffort = 0;
+    let peak = 0, sum = 0, withEffort = 0, tailSum = 0, tailN = 0;
+    const first = frames[0]!.timestampMs;
+    const endS = (frames.at(-1)!.timestampMs - first) / 1000;
     for (const snapshot of frames) {
       profile = calibrator.update(snapshot, pipeline.laneZone) ?? profile;
       const effort = pipeline.update(snapshot, profile).rawEffort;
       peak = Math.max(peak, effort);
       sum += effort;
       if (effort > 0.01) withEffort++;
+      if ((snapshot.timestampMs - first) / 1000 >= endS - 4) { tailSum += effort; tailN++; }
     }
     const floor = RUNNING_CLIPS[Object.keys(RUNNING_CLIPS).find((clip) => _name.endsWith(`/${clip}.json`))!]!;
     expect(peak, 'running barely registered').toBeGreaterThanOrEqual(floor.peak);
     expect(sum / frames.length, 'running filled weakly overall').toBeGreaterThanOrEqual(floor.mean);
     expect(withEffort / frames.length, 'the fill was intermittent').toBeGreaterThanOrEqual(floor.effortFrames);
+    // A run that dies while the player is still going barely moves its global averages: the tail
+    // is where the death shows.
+    if (floor.tailMean !== undefined) expect(tailSum / tailN, 'the fill died while the player was still running').toBeGreaterThanOrEqual(floor.tailMean);
   });
 
   it.each(Object.entries(recordings))('%s', (name, raw) => {

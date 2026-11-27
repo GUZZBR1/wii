@@ -54,8 +54,10 @@ function moved(samples: readonly Sample[]): number {
   return mids.length > 1 ? Math.max(...mids) - Math.min(...mids) : 0;
 }
 
-/** `rise` marks one stride's upward crossing, timed even before the run is confirmed. */
-export interface Bounce { moving: boolean; rise: boolean }
+/** `rise` marks one stride's upward crossing, timed even before the run is confirmed. `candidate`
+ * is the raw per-frame window verdict before any sustain or hold: weak but honest evidence — the
+ * together and head tests mean swaying without bouncing never produces it. */
+export interface Bounce { moving: boolean; rise: boolean; candidate: boolean }
 
 export class BounceDetector {
   private samples: Sample[] = [];
@@ -70,7 +72,7 @@ export class BounceDetector {
   update(t: number, left: number, right: number, width: number, head: number): Bounce {
     this.samples.push({ t, left, right, head });
     this.samples = this.samples.filter((sample) => t - sample.t <= WINDOW_MS);
-    if (t - this.samples[0]!.t < MIN_SPAN_MS) return { moving: this.isMoving(t), rise: false };
+    if (t - this.samples[0]!.t < MIN_SPAN_MS) return { moving: this.isMoving(t), rise: false, candidate: false };
     const times = this.samples.map((sample) => sample.t);
     const l = detrend(times, this.samples.map((sample) => sample.left));
     const r = detrend(times, this.samples.map((sample) => sample.right));
@@ -105,7 +107,7 @@ export class BounceDetector {
       this.above = true;
       if (spread >= MIN_SPREAD_SW && t - this.lastRiseAt >= MIN_STEP_INTERVAL_MS) { rise = true; this.lastRiseAt = t; }
     } else if (this.above && height < -spread / 2) this.above = false;
-    return { moving: this.isMoving(t), rise };
+    return { moving: this.isMoving(t), rise, candidate };
   }
 
   isMoving(t: number): boolean { return t <= this.until && t > this.blockedUntil; }

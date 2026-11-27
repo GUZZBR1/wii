@@ -119,6 +119,7 @@ export class CadenceTracker {
       this.moving = this.ranBeforeJump;
     }
     this.suspended = suspend;
+    let bounceCandidate = false;
     if (suspend) { this.walk.reset(); this.walking = false; }
     if (suspend) this.bounce.forgetJump(nowMs, this.ranBeforeJump);
     if (sample && !suspend) {
@@ -134,6 +135,7 @@ export class CadenceTracker {
         else if (rms < 0.036) this.lateralActive = false;
       }
       const bounce = this.bounce.update(sample.timestampMs, sample.shoulders.left, sample.shoulders.right, sample.shoulders.width, sample.shoulders.head);
+      bounceCandidate = bounce.candidate;
       // Right after a jump the window is still filling; the run it interrupted carries on meanwhile.
       this.moving = bounce.moving;
       if (bounce.rise) {
@@ -177,6 +179,10 @@ export class CadenceTracker {
     if (nowMs - this.lastStepAt > MAX_STEP_INTERVAL_MS) this.intervals = [];
     this.movingSince = this.moving ? Math.min(this.movingSince, nowMs) : Number.POSITIVE_INFINITY;
     if (this.moving) this.lastStrideAt = nowMs;
+    // Sustained weight transfer with any vertical bounce at all is running; only lateral sway with a
+    // truly flat torso must hit the bridge cap. Weak candidacy never fires for sway — the together
+    // test sees the shoulders tilt against each other — so corroborated this way it is honest.
+    if (bounceCandidate && this.lateralActive) this.lastStrideAt = nowMs;
     if (this.moving || this.lateralActive) this.lastMovingAt = nowMs;
     // Corroboration judges the latest strides alone, never the whole speed history: a slow or
     // uneven start must not delay the verdict once the rhythm is real. Every interval in the
