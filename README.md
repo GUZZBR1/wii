@@ -4,7 +4,7 @@
 
 # Wii Web Sports Arena
 
-**Seu corpo é o controle.** Uma arena arcade no navegador com corrida de obstáculos e tênis, controlada por pose via webcam.
+**Seu corpo é o controle.** Uma arena arcade no navegador com prova de 100 metros, corrida de obstáculos e tênis, controlada por pose via webcam.
 
 </div>
 
@@ -21,7 +21,7 @@ npm ci
 npm run dev
 ```
 
-O servidor local imprime a URL de desenvolvimento. A primeira ação **Ativar câmera** solicita permissão. Não há etapa manual de calibração: corrida e salto entram assim que o torso é rastreado, enquanto escala corporal, postura neutra e referências das mãos convergem continuamente em segundo plano conforme você joga. A mão da raquete é detectada pelo movimento. Se a câmera não estiver disponível, setas e espaço continuam funcionando.
+O servidor local imprime a URL de desenvolvimento. A primeira ação **Ativar câmera** solicita permissão. Os 100 metros enquadram o jogador e fazem um aquecimento curto antes da largada; nos obstáculos e no tênis não há etapa manual de calibração. A técnica, o que foi medido e o que falta estão em [docs/corrida-100m-e-tracking.md](docs/corrida-100m-e-tracking.md) (em andamento). A mão da raquete é detectada pelo movimento. Se a câmera não estiver disponível, setas e espaço continuam funcionando.
 
 ```bash
 npm test
@@ -49,7 +49,7 @@ O build copia a variante module do WASM do MediaPipe fixado no lockfile para `pu
 - `src/ui/`: canvas do jogo em tela cheia, seletor de modalidade e PiP da câmera.
 - `tests/`: fixtures sintéticas e testes determinísticos dos detectores.
 
-O vídeo é processado no dispositivo e não é enviado ao servidor do jogo. O MediaPipe informa que pode enviar métricas de desempenho e utilização da API ao Google; o aviso aparece no PiP da câmera. O app usa a variante Lite do Pose Landmarker, hospedada localmente com o app; os modelos Full de pose e de mão também são versionados e verificados, para o pacote `@wii/spatial-core`. Consulte [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+O vídeo é processado no dispositivo e não é enviado ao servidor do jogo. O MediaPipe informa que pode enviar métricas de desempenho e utilização da API ao Google; o aviso aparece no PiP da câmera. Por padrão o app roda a visão na CPU com a variante Lite do Pose Landmarker; `?delegate=gpu` usa a GPU com o modelo Full. Todos os modelos são hospedados com o app, versionados e verificados. Consulte [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Deploy
 
@@ -59,9 +59,10 @@ No Vercel, use a raiz do repositório como Root Directory, `npm run build` como 
 
 | Ação | Webcam | Teclado |
 | --- | --- | --- |
-| Correr | Ande ou corra no lugar | Seta para baixo alterna andar / correr / parar |
+| 100 metros | Corra no lugar bombeando os braços | Espaço várias vezes |
+| Correr (obstáculos) | Ande ou corra no lugar | Seta para baixo alterna andar / correr / parar |
 | Pular | Salto vertical | Espaço ou seta para cima |
-| Trocar de raia | Incline o tronco | Setas esquerda/direita |
+| Trocar de raia | Incline o tronco ou dê um passo ao lado | Setas esquerda/direita |
 | Bater no tênis | Raquetada dominante | Espaço |
 
 <div align="center">
