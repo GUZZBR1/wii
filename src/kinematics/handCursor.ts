@@ -66,7 +66,7 @@ const DEFAULT_ZONE: HandCursorZone = { minX: 0, maxX: 1, minY: 0, maxY: 1 };
 const DEFAULT_HAND_SMOOTHING: OneEuroOptions = { minCutoff: 1.0, beta: 5.0, derivativeCutoff: 1.0 };
 const SCALE_MIN = 0.1;
 const SCALE_MAX = 0.3;
-const MAX_MARGIN = 0.25;
+const MAX_MARGIN = 0.37;
 const SCALE_TAU_MS = 250;
 
 function finite(point: Point3 | undefined): point is Point3 {
