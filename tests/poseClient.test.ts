@@ -9,6 +9,7 @@ class FakeWorker {
   readonly sent: WorkerRequest[] = [];
   readonly transfers: Transferable[][] = [];
   throwOnNextFrame = false;
+  terminated = false;
 
   constructor(_url: URL, _options: WorkerOptions) { FakeWorker.instance = this; }
 
@@ -24,7 +25,7 @@ class FakeWorker {
     }
   }
 
-  terminate(): void {}
+  terminate(): void { this.terminated = true; }
 
   reply(message: WorkerReply): void {
     this.onmessage?.({ data: message } as MessageEvent<WorkerReply>);
@@ -89,6 +90,60 @@ describe('PoseClient capture sessions', () => {
     expect(createImageBitmapMock).not.toHaveBeenCalled();
     expect(worker.sent.filter((message) => message.type === 'FRAME')).toHaveLength(0);
     client.dispose();
+  });
+
+  it('disposes the pose worker on a late fatal error while a newer frame is in flight', async () => {
+    const bitmap = { close: vi.fn() } as unknown as ImageBitmap;
+    vi.stubGlobal('Worker', FakeWorker);
+    vi.stubGlobal('location', { origin: 'http://localhost' });
+    vi.stubGlobal('window', { setTimeout, clearTimeout });
+    vi.stubGlobal('HTMLMediaElement', { HAVE_CURRENT_DATA: 2 });
+    vi.stubGlobal('createImageBitmap', vi.fn(async () => bitmap));
+
+    const client = new PoseClient();
+    const onPose = vi.fn();
+    const onStatus = vi.fn();
+    await client.init({ onPose, onStatus });
+    const worker = FakeWorker.instance!;
+    const video = makeVideo();
+    client.beginCapture(video, { onPose, onStatus });
+
+    video.fireFrame(10);
+    await flushCapture();
+    const frame = worker.sent.find((message) => message.type === 'FRAME');
+    if (frame?.type !== 'FRAME') throw new Error('Expected a pose frame');
+
+    worker.reply({
+      type: 'POSE',
+      requestId: frame.requestId,
+      captureEpoch: frame.captureEpoch,
+      timestampMs: frame.timestampMs,
+      landmarks: visibleLandmarks(),
+      worldLandmarks: visibleLandmarks(),
+      frameWidth: 640,
+      frameHeight: 480,
+    });
+    await flushCapture();
+    expect(onPose).toHaveBeenCalledOnce();
+
+    video.fireFrame(20);
+    await flushCapture();
+    const currentFrame = worker.sent.filter((message) => message.type === 'FRAME').at(-1);
+    if (currentFrame?.type !== 'FRAME') throw new Error('Expected a newer pose frame');
+    expect(currentFrame.requestId).toBeGreaterThan(frame.requestId);
+
+    worker.reply({
+      type: 'ERROR',
+      stage: 'detect',
+      fatal: true,
+      requestId: frame.requestId,
+      captureEpoch: frame.captureEpoch,
+      message: 'CPU fallback failed after the pose result.',
+    });
+
+    expect(onStatus).toHaveBeenCalledWith('error', 'CPU fallback failed after the pose result.');
+    expect(client.isReady).toBe(false);
+    expect(worker.terminated).toBe(true);
   });
 
   it('discards an old pose after restart and releases backpressure for the new session', async () => {

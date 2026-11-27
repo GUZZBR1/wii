@@ -111,6 +111,31 @@ flowchart LR
 - [x] `npm run build` e `npm run check:articles` passaram; Biome passou com 28 avisos CSS existentes e nenhum aviso na pasta de cinemática; `git diff --check` passou.
 - [x] Revisão independente confirmou os padrões aninhados, o relógio explícito e ausência de novos achados ou falsos positivos.
 
+## Rodada 3 — erro fatal tardio dos Workers
+
+### Invariantes de estado e ordenação
+
+| Item | Decisão/estado observado |
+| --- | --- |
+| Donos | Cada `PoseClient`/`HandClient` possui seu Worker e estado `inFlight`; o Worker possui o Landmarker e decide quando a inferência/fallback deixou o Worker inutilizável. |
+| Leitores/escritores | Os Workers enviam resposta de quadro e podem, depois, enviar o resultado da tentativa de fallback. Os clientes leem ambos na mesma fila de mensagens; uma resposta de quadro não encerra o ciclo de vida do Worker. |
+| Vida útil | O Worker só é considerado atual quando ainda coincide com `this.worker`; `dispose()` invalida o cliente, fecha o worker e libera qualquer pedido ainda pendente. |
+| Buffers | O bitmap é transferido no `postMessage(FRAME)` e fechado pelo Worker. Um erro posterior de fallback não devolve nem altera a posse do bitmap. |
+| Invalidação | Erros recuperáveis continuam exigindo o pedido atual (`requestId` e `captureEpoch` para pose, `requestId` para mão). Erro fatal do Worker não é rejeitado por correlação de quadro, pois descreve a saúde global do Worker. |
+| Ponto de commit | Receber erro fatal do Worker ainda ativo encerra o provider e reporta erro, mesmo se `POSE`/`HAND` já tiver liberado o quadro ou um quadro posterior estiver em voo. |
+| Progresso | Ao encerrar, o cliente resolve o pedido pendente e interrompe captura; erros recuperáveis liberam somente o pedido correlacionado e deixam quadros futuros prosseguirem. |
+| Exceções | A mensagem fatal preserva o status para a UI; o callback é capturado antes do `dispose()`, que limpa os callbacks internos. |
+
+### Mudança e verificação
+
+- O fallback por latência posta o resultado (`POSE`/`HAND`) e pode falhar depois ao inicializar CPU. A auditoria confirmou que os dois clientes descartavam o erro fatal atrasado por exigir que seu pedido ainda estivesse `inFlight`. Ao rebasear sobre a main atual, `PoseClient` já continha a invalidação do Worker ativo; essa semântica foi preservada e ganhou regressão explícita. `HandClient` ainda descartava o erro fatal atrasado.
+- Foram adicionados testes determinísticos que primeiro reproduzem o resultado, iniciam outro quadro em voo e então entregam o erro fatal antigo. Ambos falhavam no pai original do lote; na main atual, o caso de pose já passa e o de mão exige a correção.
+- `PoseClient` preserva o tratamento existente na main e sua nova regressão; `HandClient` agora trata erro fatal como condição do Worker ativo, liberando qualquer pedido restante. Erros não fatais mantêm a validação por ID/epoch.
+- Os workers continuam com protocolos e configuração específicos. A auditoria não recomenda uma abstração genérica de Worker; a decisão de extrair somente a máquina de fallback fica pendente até comparar custos e transições.
+- Suíte completa: 54 arquivos e 442 testes Vitest passaram; os cinco testes Node de qualidade também passaram. Os replays usaram somente os JSON locais existentes, ligados temporariamente e removidos do worktree após a execução.
+- `npm run build`, `npm run check:articles`, `npx biome lint src/kinematics` e `git diff --check` passaram. `npm run lint` passou com 28 avisos CSS já existentes; nenhum aviso novo apareceu em kinematics.
+- Revisão independente do caso com frame mais novo pendente não encontrou achados concretos.
+
 ## Ciclo de melhoria
 
 Cada lote termina com código migrado, teste na interface apropriada, exclusão segura da implementação substituída, restrição contra regressão quando aplicável e commit próprio. A lista ordenada e as decisões pendentes ficam em [architecture-backlog.md](architecture-backlog.md); decisões que passem o critério ADR ficam em `docs/adr/`.

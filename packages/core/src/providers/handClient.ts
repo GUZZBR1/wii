@@ -118,10 +118,15 @@ export class HandClient {
           this.failInitialization(worker, new Error(message.message));
           return;
         }
-        if (this.inFlight?.requestId !== message.requestId) return;
+        if (!message.fatal && this.inFlight?.requestId !== message.requestId) return;
+        if (message.fatal) {
+          const callbacks = this.callbacks;
+          this.dispose();
+          callbacks?.onStatus('error', message.message);
+          return;
+        }
         this.releaseFrame(message.requestId);
-        this.callbacks?.onStatus(message.fatal ? 'error' : 'fallback', message.message);
-        if (message.fatal) this.dispose();
+        this.callbacks?.onStatus('fallback', message.message);
       } else if (message.type === 'HAND') {
         if (this.inFlight?.requestId !== message.requestId) return;
         this.releaseFrame(message.requestId, { timestampMs: message.timestampMs, hands: message.hands });
