@@ -22,7 +22,7 @@ const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }
   athletics: { score: 'TEMPO', speed: 'INTENSIDADE', controls: 'corra no lugar, mexendo os braços' },
   tennis: { score: 'PONTOS', speed: 'MIRA', controls: 'raquetada no tempo da bola: cedo cruza, tarde vai reto' },
 };
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort01: number): void; setHandsRaised?(raised: boolean): void; setTossHand?(raised: boolean): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort01: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean): void; setTossHand?(raised: boolean): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; dispose(): void }
 
 interface Props {
   sport: Sport;

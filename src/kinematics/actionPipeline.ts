@@ -33,6 +33,7 @@ export class ActionPipeline {
   private readonly jump = new JumpDetector();
   private readonly intensity = new IntensityMeter();
   private effort01 = 0;
+  private effortSampleAtMs?: number;
   private readonly lanePosition = new LanePositionTracker();
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
@@ -56,7 +57,7 @@ export class ActionPipeline {
     this.heldSwing = undefined;
   }
 
-  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number; effort01: number; swingTracking: { scaleReady: boolean; wrists: readonly { hand: Hand; tracked: boolean }[] } } {
+  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number; effort01: number; effortSampleAtMs: number | null; swingTracking: { scaleReady: boolean; wrists: readonly { hand: Hand; tracked: boolean }[] } } {
     const start = performance.now();
     // An impossible skeleton is a frame without a player, so every gate treats it as a blackout.
     if (upsideDown(snapshot)) snapshot = { ...snapshot, landmarks: [], worldLandmarks: [] };
@@ -85,6 +86,7 @@ export class ActionPipeline {
       const sample = this.torsoChannel.update(current);
       const jumped = sample ? this.jump.update(sample) : false;
       const body = sample?.shoulders;
+      if (body) this.effortSampleAtMs = snapshot.timestampMs;
       this.effort01 = this.intensity.update(snapshot.timestampMs, body && { ...body, shoulders: (body.left + body.right) / 2 });
       const cadence = this.cadence.update(sample, snapshot.timestampMs, this.jump.suppressesCadence);
       controls = { sprintSpeed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm, trackingState: 'tracked' };
@@ -173,7 +175,7 @@ export class ActionPipeline {
       }
     }
 
-    return { snapshot: current, events, controls, kinematicsMs: performance.now() - start, effort01: this.effort01, swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked }) => ({ hand, tracked })) } };
+    return { snapshot: current, events, controls, kinematicsMs: performance.now() - start, effort01: this.effort01, effortSampleAtMs: this.effortSampleAtMs ?? null, swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked }) => ({ hand, tracked })) } };
   }
 
   /**
@@ -229,5 +231,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.effort01 = 0; this.torsoChannel.reset(); this.lanePosition.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.effort01 = 0; this.effortSampleAtMs = undefined; this.torsoChannel.reset(); this.lanePosition.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }

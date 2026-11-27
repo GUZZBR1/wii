@@ -504,3 +504,20 @@ describe('action pipeline (upper-body only)', () => {
     expect(events.filter((event) => event.type === 'jump' && event.timestampMs < 3000)).toHaveLength(0);
   });
 });
+
+it('keeps the effort timestamp through low confidence and collapsed shoulders', () => {
+  const pipeline = new ActionPipeline();
+  for (const time of [0, 33, 66]) pipeline.update(pose(time));
+  const dim = pipeline.update(pose(99, { confidence: 0.4 }));
+  expect(dim.snapshot.trackingState).toBe('tracked');
+  expect(dim.effortSampleAtMs).toBe(66);
+
+  const collapsed = pose(132);
+  const landmarks = [...collapsed.landmarks];
+  landmarks[12] = { ...landmarks[11]! };
+  expect(pipeline.update({ ...collapsed, landmarks }).effortSampleAtMs).toBe(66);
+
+  const recovered = pipeline.update(pose(165, { wristVertical: 0.3 }));
+  expect(recovered.effortSampleAtMs).toBe(165);
+  expect(recovered.effort01).toBe(0);
+});

@@ -260,7 +260,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       setTracking(current.trackingState === 'tracked' ? `TRACKING${activity}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
       drawPose(overlayRef.current, videoRef.current, current);
       engineRef.current?.setLaneZone?.(result.controls.laneZone);
-      engineRef.current?.setEffort?.(result.effort01);
+      engineRef.current?.setEffort?.(result.effort01, result.effortSampleAtMs);
       engineRef.current?.setFraming?.(framingAdvice(raw), handsHidden(raw));
       engineRef.current?.setHandsRaised?.(handsRaised(raw));
       engineRef.current?.setTossHand?.(oneHandRaised(raw));

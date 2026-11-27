@@ -71,7 +71,7 @@ export class AthleticsGame {
     goal: Goal = 100,
   ) {
     this.race = new Race(goal);
-    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt));
+    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) => this.update(dt, wallTimeMs));
     this.stadium = buildStadium(this.scene, this.loop.renderer);
     this.loop.onQualityChange = (tier) => this.stadium.setShadows(tier === 0);
     this.rivals = RIVAL_SHIRTS.map((shirt, i) => ({ mii: createMiiRunner(shirt), lane: i + 1, stridePhase: i, lean: 0 }));
@@ -102,7 +102,7 @@ export class AthleticsGame {
   /** Played with the body only. */
   onKey(): void {}
 
-  setEffort(effort01: number): void { this.race.setEffort(effort01); }
+  setEffort(effort01: number, sampleAtMs?: number | null): void { this.race.setEffort(effort01, sampleAtMs); }
 
   setFraming(advice: string | undefined, handsHidden?: boolean): void { this.race.setFraming(advice, handsHidden); }
 
@@ -141,14 +141,14 @@ export class AthleticsGame {
     this.chaseTarget.set(at.x + at.tangentX * 5, 1.1, at.z + at.tangentZ * 5);
   }
 
-  private update(dt: number): void {
+  private update(dt: number, wallTimeMs: number): void {
     const { race } = this;
     if (this.introTime < INTRO_S) this.introTime = Math.min(INTRO_S, this.introTime + dt);
     // The countdown waits for the opening shot; framing and warm-up can run under it.
     if (this.introTime >= INTRO_S || race.phase === 'framing' || race.phase === 'warmup') {
       const before = race.rivals.map((rival) => rival.distance);
       const splits = race.splits.length;
-      race.step(dt);
+      race.step(dt, wallTimeMs);
       this.rivalSpeeds = race.rivals.map((rival, i) => (rival.distance - before[i]!) / Math.max(dt, 1e-6));
       for (const split of race.splits.slice(splits)) this.announce(split);
     }

@@ -68,15 +68,18 @@ export class Race {
   readonly splits: Split[] = [];
   private effort = 0;
   private effortAgeS = 0;
+  private effortSampleAtMs?: number | null;
 
   constructor(readonly goal: Goal = 100) {
     this.rivals = RIVALS.map((rival) => ({ ...rival, pace: rival.pace * GOAL_PACE[goal], distance: 0 }));
   }
 
   /** The camera's latest reading, 0–1. */
-  setEffort(effort01: number): void {
+  setEffort(effort01: number, sampleAtMs?: number | null): void {
     this.effort = Number.isFinite(effort01) ? Math.min(1, Math.max(0, effort01)) : 0;
-    this.effortAgeS = 0;
+    if (sampleAtMs === null) this.effortAgeS = Infinity;
+    else if (sampleAtMs === undefined || sampleAtMs !== this.effortSampleAtMs) this.effortAgeS = 0;
+    this.effortSampleAtMs = sampleAtMs;
   }
 
   /** The latest reading, or nothing once it is too old to trust. */
@@ -108,8 +111,10 @@ export class Race {
     return this.reading < REST_EFFORT ? 0 : Math.min(1, this.reading / (this.reference * HEADROOM));
   }
 
-  step(dt: number): void {
-    this.effortAgeS += dt;
+  step(dt: number, wallTimeMs?: number): void {
+    this.effortAgeS = wallTimeMs !== undefined && typeof this.effortSampleAtMs === 'number'
+      ? Math.max(0, (wallTimeMs - this.effortSampleAtMs) / 1000)
+      : this.effortAgeS + dt;
     if (this.phase === 'framing') {
       this.framedFor = this.advice === undefined ? this.framedFor + dt : 0;
       if (this.advice !== null && this.advice !== NO_BODY_ADVICE) this.seenFor += dt;

@@ -46,6 +46,25 @@ describe('athletics race', () => {
     expect(race.distance - at).toBeLessThan(10);
   });
 
+  it.each([15, 30])('expires repeated degraded readings at %i fps and accepts a fresh sample', (fps) => {
+    const race = started();
+    const sampleAtMs = 1000;
+    const frameMs = 1000 / fps;
+    for (let frame = 1; frame <= fps; frame += 1) {
+      race.setEffort(0.8, sampleAtMs);
+      const elapsedMs = frame * frameMs;
+      race.step(1 / 60, sampleAtMs + elapsedMs);
+      if (elapsedMs < 499) expect(race.effort01).toBeGreaterThan(0);
+      if (elapsedMs > 501) expect(race.effort01).toBe(0);
+    }
+    race.setEffort(0, 2000 + frameMs);
+    race.step(1 / 60, 2000 + frameMs);
+    expect(race.effort01).toBe(0);
+    race.setEffort(0.8, 2000 + 2 * frameMs);
+    race.step(1 / 60, 2000 + 2 * frameMs);
+    expect(race.effort01).toBeGreaterThan(0);
+  });
+
   it('times each 100 m split once and stops at the chosen distance', () => {
     for (const goal of [100, 200, 400] as const) {
       const race = new Race(goal);
