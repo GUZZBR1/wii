@@ -131,6 +131,18 @@ export interface ContinuousControls {
    * Restated every frame; undefined while the camera has no opinion.
    */
   ringDepthMove?: -1 | 0 | 1;
+  /**
+   * Signed continuous approach speed from apparent body size, -1..1: positive toward the camera,
+   * zero inside the dead band. Held at its last value while a punch is in flight, so torso yaw
+   * cannot read as a step back. Undefined while the camera has no opinion.
+   */
+  ringDepth01?: number;
+  /**
+   * A fast sideways hop of the trunk+hip center: ±1 (player's right positive) for the frames of a
+   * detected hop, at most ~250 ms, then 0. Consumers act on the rising edge. Undefined while the
+   * camera has no opinion.
+   */
+  lateralDash?: -1 | 0 | 1;
 }
 
 interface ActionBase {
