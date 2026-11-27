@@ -9,7 +9,7 @@ const SCRIPT_MS = TRACK_RECORDING_SCRIPT.reduce((total, segment) => total + segm
 // Local, gitignored recordings: the scoreboard prints only when there is something to measure.
 // The one `corrida-GPU-…` scores low on running (26%) because of framing, not thresholds: the nose was
 // above the picture in 189 of its 297 running frames and the tracker lost the body (37 empty, 54 upside down).
-const recordings = import.meta.glob('./recordings/*.json', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
+const recordings = import.meta.glob('./recordings/{corrida,erro}-*.json', { query: '?raw', import: 'default', eager: true }) as Record<string, string>;
 
 /**
  * Floors per recording, a little under what the detector scored when they were set: percent of frames

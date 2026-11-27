@@ -2,7 +2,7 @@
  * Roteiro da gravação de diagnóstico. Fonte única: a tela mostra estas instruções e o replay
  * (tests/recordedTrack.test.ts) usa os mesmos tempos para julgar o que o detector fez.
  */
-export type SegmentKind = 'warmup' | 'still' | 'arms' | 'run' | 'stop' | 'jump' | 'center' | 'left' | 'right' | 'walk' | 'runjump' | 'hops';
+export type SegmentKind = 'warmup' | 'still' | 'arms' | 'run' | 'stop' | 'jump' | 'center' | 'left' | 'right' | 'walk' | 'runjump' | 'hops' | 'forehand' | 'backhand' | 'prepare' | 'occlusion';
 
 export interface Segment { kind: SegmentKind; seconds: number; prompt: string }
 
@@ -27,10 +27,19 @@ export const TRACK_RECORDING_SCRIPT: readonly Segment[] = [
   { kind: 'hops', seconds: 10, prompt: 'PULE várias vezes SEGUIDAS, sem correr' },
 ];
 
+export const TENNIS_RECORDING_SCRIPT: readonly Segment[] = [
+  { kind: 'still', seconds: 5, prompt: 'Fique no centro, com os ombros e o braço visíveis' },
+  ...(['forehand', 'backhand'] as const).flatMap((kind) =>
+    Array.from({ length: 3 }, (_, i) => ({ kind, seconds: 4, prompt: `Faça um ${kind} (${i + 1} de 3)` })),
+  ),
+  { kind: 'prepare', seconds: 6, prompt: 'Prepare a rebatida devagar, sem completar o golpe' },
+  { kind: 'occlusion', seconds: 6, prompt: 'Tire o pulso do quadro e volte sem rebater' },
+];
+
 /** The segment running `elapsedMs` after the first recorded frame; undefined once the script is over. */
-export function segmentAt(elapsedMs: number): { segment: Segment; index: number; remainingMs: number } | undefined {
+export function segmentAt(elapsedMs: number, script = TRACK_RECORDING_SCRIPT): { segment: Segment; index: number; remainingMs: number } | undefined {
   let end = 0;
-  for (const [index, segment] of TRACK_RECORDING_SCRIPT.entries()) {
+  for (const [index, segment] of script.entries()) {
     end += segment.seconds * 1000;
     if (elapsedMs < end) return { segment, index, remainingMs: end - elapsedMs };
   }

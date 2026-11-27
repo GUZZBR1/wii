@@ -1,7 +1,7 @@
 import { createPoseRecording, serializePoseRecording } from '@wii/spatial-core';
 import type { Delegate, PoseSnapshot } from './protocol';
 import { MEDIAPIPE_WASM_VERSION, POSE_FULL_MODEL_SHA8, POSE_MODEL_SHA8 } from './mediapipeAssets';
-import { segmentAt } from './recordingScript';
+import { segmentAt, TRACK_RECORDING_SCRIPT } from './recordingScript';
 import type { Photo } from './photoTrail';
 
 const CLIP_MS = 20_000;
@@ -17,12 +17,12 @@ export function rememberFrame(recent: PoseSnapshot[], snapshot: PoseSnapshot): P
 export class PoseRecorder {
   private readonly frames: PoseSnapshot[];
 
-  constructor(frames: readonly PoseSnapshot[] = []) { this.frames = [...frames]; }
+  constructor(frames: readonly PoseSnapshot[] = [], private readonly script = TRACK_RECORDING_SCRIPT) { this.frames = [...frames]; }
 
   /** Stores the frame and returns what the player should be doing now; undefined ends the script. */
   push(snapshot: PoseSnapshot): ReturnType<typeof segmentAt> {
     const first = this.frames[0]?.timestampMs ?? snapshot.timestampMs;
-    const current = segmentAt(snapshot.timestampMs - first);
+    const current = segmentAt(snapshot.timestampMs - first, this.script);
     if (current) this.frames.push(snapshot);
     return current;
   }

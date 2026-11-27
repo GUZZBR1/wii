@@ -5,6 +5,7 @@ import { AdaptiveCalibrator } from './cv/adaptiveCalibrator';
 import { observeEarlyRejection } from './cv/observeEarlyRejection';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { PhotoTrail } from './cv/photoTrail';
+import { TENNIS_RECORDING_SCRIPT } from './cv/recordingScript';
 import { downloadRecording, PoseRecorder, rememberFrame } from './cv/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
 import { framingAdvice, handsHidden, handsRaised, HeadWarning } from './kinematics/framing';
@@ -89,6 +90,19 @@ export default function App({ exit }: { exit?: ReactNode }) {
   /** Diagnostic recording: owned here, fed by onPose, ended by the script, G or the camera stopping. */
   const recorderRef = useRef<PoseRecorder | undefined>(undefined);
   const [recordingPrompt, setRecordingPrompt] = useState<string>();
+  const [tennisPractice, setTennisPractice] = useState(false);
+  const practiceRef = useRef(false);
+  const [practiceHint, setPracticeHint] = useState<string>();
+  const [practiceHits, setPracticeHits] = useState(0);
+
+  function changeTennisPractice(active: boolean) {
+    practiceRef.current = active;
+    pipelineRef.current.resetSwings();
+    setPracticeHits(0);
+    setPracticeHint(undefined);
+    setTennisPractice(active);
+  }
+
   const [headCut, setHeadCut] = useState(false);
 
   useEffect(() => {
@@ -128,6 +142,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
     recorderRef.current = undefined;
     setRecordingPrompt(undefined);
     setHeadCut(false);
+    setPracticeHint(undefined);
+    setPracticeHits(0);
     headWarningRef.current.reset();
     recentFramesRef.current = [];
     photoTrailRef.current.clear();
@@ -154,10 +170,10 @@ export default function App({ exit }: { exit?: ReactNode }) {
     setRecordingPrompt(undefined);
     const delegate = poseClientRef.current?.delegate;
     if (!recorder?.frameCount || !delegate) return;
-    void downloadRecording(recorder, delegate).catch((error: unknown) => {
+    void downloadRecording(recorder, delegate, sport === 'tennis' ? 'tenis' : 'corrida').catch((error: unknown) => {
       setCameraStatus(error instanceof Error ? error.message : 'Não foi possível salvar a gravação.');
     });
-  }, []);
+  }, [sport]);
 
   useEffect(() => {
     if (screen === 'play') pipelineRef.current.recenterLane();
@@ -166,18 +182,18 @@ export default function App({ exit }: { exit?: ReactNode }) {
   // G starts/stops a recording during a camera run. Detectors and calibration restart with it,
   // so replaying the file from a cold start reproduces what happened live.
   useEffect(() => {
-    if (screen !== 'play' || sport === 'tennis' || !cameraOn) return;
+    if (screen !== 'play' || !cameraOn) return;
     const toggle = (event: KeyboardEvent) => {
       const delegate = poseClientRef.current?.delegate;
       if (event.key.toLowerCase() === 'e' && !event.repeat && delegate && recentFramesRef.current.length) {
-        void downloadRecording(new PoseRecorder(recentFramesRef.current), delegate, 'erro', photoTrailRef.current.all).catch(() => setCameraStatus('Não foi possível salvar o trecho.'));
+        void downloadRecording(new PoseRecorder(recentFramesRef.current), delegate, sport === 'tennis' ? 'tenis-erro' : 'erro', photoTrailRef.current.all).catch(() => setCameraStatus('Não foi possível salvar o trecho.'));
         return;
       }
       if (event.key.toLowerCase() !== 'g' || event.repeat) return;
       if (recorderRef.current) { finishRecording(); return; }
       for (const stop of pipelineRef.current.reset()) dispatchEvent(stop);
       resetCalibration();
-      recorderRef.current = new PoseRecorder();
+      recorderRef.current = new PoseRecorder([], sport === 'tennis' ? TENNIS_RECORDING_SCRIPT : undefined);
       setRecordingPrompt('Gravando…');
     };
     window.addEventListener('keydown', toggle);
@@ -221,7 +237,21 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setEffort?.(result.effort01);
       engineRef.current?.setFraming?.(framingAdvice(raw), handsHidden(raw));
       engineRef.current?.setHandsRaised?.(handsRaised(raw));
-      for (const event of result.events) dispatchEvent(event);
+      if (practiceRef.current) {
+        const advice = framingAdvice(raw);
+        const { scaleReady, wrists } = result.swingTracking;
+        const visibleWrists = wrists.filter(({ hand }) => {
+          const wrist = raw.landmarks[hand === 'left' ? 15 : 16];
+          return wrist && wrist.x >= 0 && wrist.x <= 1 && wrist.y >= 0 && wrist.y <= 1
+            && (wrist.visibility ?? wrist.presence ?? 0) >= 0.35;
+        });
+        setPracticeHint(advice ?? (visibleWrists.length === 0 ? 'Mostre o pulso que vai rebater'
+          : !scaleReady || !visibleWrists.some(({ tracked }) => tracked) ? 'Mantenha o braço visível para a câmera'
+          : 'Faça uma rebatida de lado a lado'));
+        if (result.events.some(({ type }) => type === 'swing')) setPracticeHits((hits) => hits + 1);
+      } else {
+        for (const event of result.events) dispatchEvent(event);
+      }
     },
   };
 
@@ -403,6 +433,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
   const play = (next: Sport) => {
     void audioRef.current.unlock();
+    if (practiceRef.current) changeTennisPractice(false);
     setSport(next);
     sportRef.current = next;
     setHandPanelOpen(false);
@@ -428,17 +459,25 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && <GameCanvas key={sport} sport={sport} onEngine={onEngine} tracking={tracking} audio={audioRef.current} />}
+    {screen === 'play' && !tennisPractice && <GameCanvas key={sport} sport={sport} onEngine={onEngine} tracking={tracking} audio={audioRef.current} />}
     {screen === 'home' && <HomeMenu exit={exit} onGames={() => setScreen('title')} />}
     {screen === 'title' && <TitleMenu onStart={() => setScreen('games')} onBack={() => setScreen('home')} />}
     {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} onBack={() => setScreen('title')} />}
 
-    {screen === 'play' && headCut && <div className="framing-hint" role="alert">Sua cabeça saiu do quadro · incline a câmera para cima ou afaste-se</div>}
+    {screen === 'play' && tennisPractice && <section className="game-over tennis-practice" aria-label="Treino de rebatidas">
+      <h2>Treino de rebatidas</h2>
+      <p>Centralize o tronco e deixe espaço dos lados para mover o braço.</p>
+      <p role="status">{cameraOn ? practiceHint ?? 'Posicione-se diante da câmera' : 'Ative a câmera para treinar'}</p>
+      <p aria-live="polite">Rebatidas confirmadas: {practiceHits}</p>
+      <button type="button" onClick={() => changeTennisPractice(false)}>Jogar</button>
+    </section>}
+    {screen === 'play' && !tennisPractice && headCut && <div className="framing-hint" role="alert">Sua cabeça saiu do quadro · incline a câmera para cima ou afaste-se</div>}
     {screen === 'play' && keepPhotos && <div className="photo-notice">● guardando fotos dos últimos 20 s · E salva</div>}
     {recordingPrompt && <div className="recording-prompt" role="status">● {recordingPrompt}</div>}
 
     {screen === 'play' && <div className="hud-dock">
-      <button type="button" className="dock-btn" onClick={() => setScreen('games')}>‹ Jogos</button>
+      <button type="button" className="dock-btn" onClick={() => { if (practiceRef.current) changeTennisPractice(false); setScreen('games'); }}>‹ Jogos</button>
+      {sport === 'tennis' && !tennisPractice && <button type="button" className="dock-btn" onClick={() => { if (window.confirm('Abrir o treino encerra a partida atual. Abrir treino?')) changeTennisPractice(true); }}>Treinar rebatidas</button>}
       <button type="button" className="dock-btn round" onClick={toggleMute} title={muted ? 'Áudio desligado' : 'Áudio ligado'}>{muted ? '×' : '♫'}</button>
     </div>}
 

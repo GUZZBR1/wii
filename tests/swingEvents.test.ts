@@ -131,6 +131,20 @@ describe('pipeline swing-start and enriched events', () => {
     expect(start!.timestampMs).toBeLessThan(swing!.timestampMs);
   });
 
+  it('discards a practice swing when entering the match', () => {
+    const pipeline = new ActionPipeline();
+    const profile = calibration();
+    for (const time of [0, 33, 66]) pipeline.update(pose(time), profile);
+    const onset = pipeline.update(pose(100, { wristLateral: -0.3 }), profile);
+    expect(onset.events.some(({ type }) => type === 'swing-start')).toBe(true);
+
+    pipeline.resetSwings();
+    const events = [150, 200, 250].flatMap((time) => (
+      pipeline.update(pose(time, { wristLateral: 0.2 }), profile).events
+    ));
+    expect(events.some(({ type }) => type === 'swing')).toBe(false);
+  });
+
   it('carries contact height, vertical speed and onset time on the confirmed swing', () => {
     const swing = trackedSwing('right').find((event) => event.type === 'swing');
     expect(swing?.type).toBe('swing');

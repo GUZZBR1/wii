@@ -47,7 +47,16 @@ export class ActionPipeline {
   /** Last moving sprint measurement and when it was taken — the input coasting decays from. */
   private coast?: { speed01: number; cadenceSpm: number; measuredAt: number };
 
-  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number; effort01: number } {
+  resetSwings(): void {
+    for (const { gate, detector } of this.swings) {
+      gate.reset();
+      detector.reset();
+    }
+    this.lastSwingAt = Number.NEGATIVE_INFINITY;
+    this.heldSwing = undefined;
+  }
+
+  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; kinematicsMs: number; effort01: number; swingTracking: { scaleReady: boolean; wrists: readonly { hand: Hand; tracked: boolean }[] } } {
     const start = performance.now();
     // An impossible skeleton is a frame without a player, so every gate treats it as a blackout.
     if (upsideDown(snapshot)) snapshot = { ...snapshot, landmarks: [], worldLandmarks: [] };
@@ -163,7 +172,7 @@ export class ActionPipeline {
       }
     }
 
-    return { snapshot: current, events, controls, kinematicsMs: performance.now() - start, effort01: this.effort01 };
+    return { snapshot: current, events, controls, kinematicsMs: performance.now() - start, effort01: this.effort01, swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked }) => ({ hand, tracked })) } };
   }
 
   /**
