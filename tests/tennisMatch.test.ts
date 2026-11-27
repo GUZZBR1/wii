@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { expect, it, vi } from 'vitest';
-import { createBall, type BallState } from '../src/games/tennis/ballistics';
+import { advanceBall, createBall, type BallState } from '../src/games/tennis/ballistics';
 import { TennisGame } from '../src/games/tennis/TennisGame';
 import type { TennisScoreState } from '../src/games/tennis/tennisScore';
 
@@ -276,6 +276,60 @@ it('defers assistance while a stroke is pending, and the confirmed stroke contro
     state.resolveSwing({ hand: 'right', side: 'forehand', power01: 0.9, verticalSpeed: 0, contactY: 0, peakTimestampMs: 800 });
     expect(state.ball.lastHitter).toBe('player');
     expect(Math.abs(state.ball.velocity.z)).toBeGreaterThan(17);
+    help.helpWithMotion(1000);
+    expect(Math.abs(state.ball.velocity.z)).toBeGreaterThan(17);
+  } finally {
+    clock.mockRestore();
+    game.dispose();
+  }
+});
+
+it('keeps a deferred assist at its original contact time through the second bounce', () => {
+  const { game, state } = match();
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(1190);
+  const help = state as unknown as { helpWithMotion(now: number): void };
+  try {
+    // First bounce behind the contact plane; the second bounce happens 245 ms after the plane.
+    const atPlane = {
+      ...createBall({ x: 0, y: 0.4408775, z: 7.2 }, { x: 0, y: -0.599, z: 6.8 }, 'opponent'),
+      bounces: 1,
+    };
+    state.phase = { kind: 'rally' };
+    state.ball = advanceBall(atPlane, 0.19);
+    state.tape = [{ tMs: 999, ball: atPlane }];
+    game.setArmMotions([{ hand: 'right', sideways: 1 }]);
+    game.setSwingTracking({
+      scaleReady: true,
+      wrists: [
+        { hand: 'right', tracked: true, pending: true, arbitrating: false },
+        { hand: 'left', tracked: true, pending: false, arbitrating: false },
+      ],
+    });
+    help.helpWithMotion(1190);
+    expect(state.ball.lastHitter).toBe('opponent');
+
+    for (let step = 1; step <= 4; step += 1) {
+      const now = 1190 + step * 1000 / 60;
+      clock.mockReturnValue(now);
+      state.stepBall(1 / 60, now);
+    }
+    expect(state.pendingPoint).toBeDefined();
+    const deadAt = state.pendingPoint!.deadAt;
+    expect(deadAt).toBeCloseTo(1245, 3);
+
+    clock.mockReturnValue(1550);
+    game.setSwingTracking({
+      scaleReady: true,
+      wrists: [
+        { hand: 'right', tracked: true, pending: false, arbitrating: false },
+        { hand: 'left', tracked: true, pending: false, arbitrating: false },
+      ],
+    });
+    state.resolveSwing({ hand: 'right', side: 'forehand', power01: 0.9, verticalSpeed: 0, contactY: 0, peakTimestampMs: deadAt + 1 });
+    expect(state.ball.lastHitter).toBe('opponent');
+
+    help.helpWithMotion(1550);
+    expect(state.ball.lastHitter).toBe('player');
   } finally {
     clock.mockRestore();
     game.dispose();

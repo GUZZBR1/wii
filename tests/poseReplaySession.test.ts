@@ -57,6 +57,7 @@ describe('pose replay worker session', () => {
     });
     await expect(firstSample).resolves.toBeUndefined();
     expect(session.delegate).toBe('CPU');
+    expect(session.hasMixedConfigurationSamples).toBe(false);
 
     const nextSample = session.detect({ close: vi.fn() } as unknown as ImageBitmap, 100);
     const nextFrame = worker.messages.filter((message) => message.type === 'FRAME').at(-1);
@@ -68,6 +69,32 @@ describe('pose replay worker session', () => {
     };
     worker.emit(poseReply);
     await expect(nextSample).resolves.toEqual(poseReply);
+  });
+
+  it('marks a fallback that follows successful primary-model samples as a mixed-configuration run', async () => {
+    vi.stubGlobal('window', { setTimeout, clearTimeout });
+    const worker = new FakeWorker();
+    const session = new PoseWorkerSession(worker as unknown as Worker, 'GPU');
+    const initialization = session.initialize('/wasm', '/pose-full.task', '/pose-lite.task');
+    worker.emit({ type: 'READY', delegate: 'GPU' });
+    await initialization;
+
+    for (const timestampMs of [0, 33, 66, 100, 133]) {
+      const sample = session.detect({ close: vi.fn() } as unknown as ImageBitmap, timestampMs);
+      const frame = worker.messages.filter((message) => message.type === 'FRAME').at(-1);
+      if (frame?.type !== 'FRAME') throw new Error('Expected a frame request.');
+      worker.emit({
+        type: 'POSE', requestId: frame.requestId, captureEpoch: frame.captureEpoch,
+        timestampMs, landmarks: [], worldLandmarks: [], frameWidth: 640, frameHeight: 360,
+      });
+      await expect(sample).resolves.toBeDefined();
+    }
+    expect(session.hasMixedConfigurationSamples).toBe(false);
+    expect(() => session.assertSingleConfigurationRun()).not.toThrow();
+
+    worker.emit({ type: 'FALLBACK', from: 'GPU', to: 'CPU', reason: 'GPU slow' });
+    expect(session.hasMixedConfigurationSamples).toBe(true);
+    expect(() => session.assertSingleConfigurationRun()).toThrow(/mixed-configuration replay/);
   });
 
   it('rejects a frame when CPU inference fails after fallback', async () => {

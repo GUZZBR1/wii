@@ -82,6 +82,19 @@ interface TapeEntry {
   playerSpeed?: number;
 }
 
+interface DeferredAssist {
+  /** The tape array is replaced with every new flight or point, so its identity scopes the assist. */
+  flightTape: readonly TapeEntry[];
+  swing: {
+    side: 'forehand' | 'backhand';
+    power01: number;
+    verticalSpeed: number;
+    contactY: number;
+    peakTimestampMs: number;
+  };
+  swingDirection: 1 | -1;
+}
+
 const nowMs = () => performance.now();
 
 export class TennisGame {
@@ -107,6 +120,7 @@ export class TennisGame {
   /** Last clear arm movement and when it was seen, for the last-moment help. */
   private armMotion?: ArmMotion & { atMs: number };
   private swingTracking?: SwingTracking & { atMs: number };
+  private deferredAssist?: DeferredAssist;
   private tutorial?: TennisTutorial;
   private readonly skipTutorial = new RestartGesture();
   private framingAdvice?: string;
@@ -298,6 +312,15 @@ export class TennisGame {
    * comes first, and is what earns pace and direction.
    */
   private helpWithMotion(now: number): void {
+    const saved = this.deferredAssist;
+    if (saved?.flightTape === this.tape) {
+      if (this.hasSwingCandidate()) return;
+      this.deferredAssist = undefined;
+      this.commitAssist(saved);
+      return;
+    }
+    this.deferredAssist = undefined;
+
     const motion = this.armMotion;
     const ball = this.ball;
     if (!motion || !ball) return;
@@ -312,18 +335,29 @@ export class TennisGame {
       lateS = (ball.position.z - DEFAULT_GEOMETRY.contactPlaneZ) / ball.velocity.z;
       if (lateS < HELP_AFTER_S || (nowMs() - motion.atMs) / 1000 > lateS + HELP_BEFORE_S) return;
     }
-    if (this.hasSwingCandidate()) return;
+    const forehand = (motion.hand === 'right') === (motion.sideways > 0);
+    const assist = {
+      swing: {
+        side: forehand ? 'forehand' as const : 'backhand' as const,
+        power01: 0.35,
+        verticalSpeed: 0,
+        contactY: 0,
+        // Judged as if it met the ball at the ideal instant.
+        peakTimestampMs: nowMs() - (this.phase.kind === 'player-serve' ? 0 : lateS * 1000),
+      },
+      swingDirection: (forehand === (motion.hand === 'right') ? 1 : -1) as 1 | -1,
+    };
+    if (this.hasSwingCandidate()) {
+      this.deferredAssist ??= { flightTape: this.tape, ...assist };
+      return;
+    }
+    this.commitAssist(assist);
+  }
+
+  private commitAssist(assist: Omit<DeferredAssist, 'flightTape'>): void {
     this.armMotion = undefined;
-    const forehand = (motion.hand === 'right') === motion.sideways > 0;
-    this.resolveSwing({
-      side: forehand ? 'forehand' : 'backhand',
-      power01: 0.35,
-      verticalSpeed: 0,
-      contactY: 0,
-      // Judged as if it met the ball at the ideal instant.
-      peakTimestampMs: nowMs() - (this.phase.kind === 'player-serve' ? 0 : lateS * 1000),
-    });
-    this.swingDirection = forehand === (motion.hand === 'right') ? 1 : -1;
+    this.resolveSwing(assist.swing);
+    this.swingDirection = assist.swingDirection;
     this.swingAnimT = SWING_ANIM_START;
     this.swingLift = 0;
   }
@@ -485,7 +519,7 @@ export class TennisGame {
     this.pendingPoint = undefined;
     this.servingFlight = isServe;
     this.ball = createBall(ballAtPeak.position, outgoing, 'player');
-    this.tape = [{ tMs: peakMs, ball: this.ball }];
+    this.replaceFlightTape([{ tMs: peakMs, ball: this.ball }]);
     this.lastSimulationTimeMs = Math.max(this.lastSimulationTimeMs, now);
     this.lastWallTimeMs = wallNow;
     this.wallToSimulationOffsetMs = now - wallNow;
@@ -507,6 +541,11 @@ export class TennisGame {
     if (this.fastServe) this.setFeedback('SAQUE FORTE!', 'good');
     const heightLabel = outcome.height === 'high' ? ' · ALTA' : outcome.height === 'low' ? ' · RASANTE' : '';
     this.status = isServe ? 'Saque diagonal' : `${dirLabel}${heightLabel}${spinLabel}`;
+  }
+
+  private replaceFlightTape(entries: TapeEntry[]): void {
+    this.tape = entries;
+    this.deferredAssist = undefined;
   }
 
   /** Ball state at the given timestamp, reconstructed from the tape of the current flight. */
@@ -599,7 +638,7 @@ export class TennisGame {
           const targetX = -Math.sign(this.serveX) * (1.2 + Math.random() * 1.3);
           const velocity = solveOutgoing(from, { x: targetX, z: 3.5 + Math.random() }, 1.25);
           this.ball = createBall(from, velocity, 'opponent');
-          this.tape = [{ tMs: now, ball: this.ball }];
+          this.replaceFlightTape([{ tMs: now, ball: this.ball }]);
           this.opponentSwingT = 0;
           this.opponentServed = true;
           this.servingFlight = true;
@@ -625,7 +664,7 @@ export class TennisGame {
       this.status = 'Seu saque: lance com a mão livre e bata com a raquete';
     } else {
       this.ball = createBall({ x: this.serveX, y: SERVE_HOLD_HEIGHT, z: -BASELINE_Z - 0.35 }, { x: 0, y: 0, z: 0 }, 'opponent');
-      this.tape = [{ tMs: now, ball: this.ball }];
+      this.replaceFlightTape([{ tMs: now, ball: this.ball }]);
       this.phase = { kind: 'opponent-serve', hitAtMs: now + OPPONENT_TOSS_MS };
       this.status = 'Saque do adversário…';
     }
@@ -637,7 +676,7 @@ export class TennisGame {
     // Held until a hand is lifted (setTossHand); thrown anyway after a while, so nobody gets stuck.
     this.ball = createBall({ ...from, y: SERVE_HOLD_HEIGHT }, { x: 0, y: 0, z: 0 }, 'player');
     this.tossAtMs = now + SERVE_HOLD_MS;
-    this.tape = [{ tMs: now, ball: this.ball }];
+    this.replaceFlightTape([{ tMs: now, ball: this.ball }]);
     this.phase = { kind: 'player-serve', idealHitMs: this.tossAtMs + SERVE_IDEAL_MS };
     this.tossArmed = false;
   }
@@ -738,7 +777,7 @@ export class TennisGame {
         { x: decision.targetX, z: decision.targetZ },
         decision.flightTimeSeconds,
       );
-      this.tape = [{ tMs: now, ball: this.ball }];
+      this.replaceFlightTape([{ tMs: now, ball: this.ball }]);
       this.servingFlight = false;
       this.opponentSwingT = 0;
       this.opponentServed = false;
@@ -795,7 +834,7 @@ export class TennisGame {
       else this.audio?.failure();
     }
     this.ball = null;
-    this.tape = [];
+    this.replaceFlightTape([]);
     this.callScore(result);
     if (youWon) {
       this.cheerS = 1.8;

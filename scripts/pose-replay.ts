@@ -1,7 +1,7 @@
 import { createPoseRecording, parsePoseRecording } from '@wii/spatial-core';
 import type { Point3, PoseRecording, PoseSnapshot, WorkerReply } from '@wii/spatial-core';
 import { MEDIAPIPE_WASM_VERSION } from '../src/cv/mediapipeAssets';
-import { poseReplayModelFiles } from './poseReplayAssets';
+import { type PoseReplayModelChoice, poseReplayModelFiles } from './poseReplayAssets';
 import { PoseWorkerSession } from './poseReplaySession';
 import { seekVideoTo, waitForVideoFrame } from './poseReplayVideo';
 
@@ -11,6 +11,7 @@ const MAX_CLIP_BYTES = 256 * 1024 * 1024;
 const videoInput = document.querySelector<HTMLInputElement>('#video-file')!;
 const referenceInput = document.querySelector<HTMLInputElement>('#reference-file')!;
 const delegateInput = document.querySelector<HTMLSelectElement>('#delegate')!;
+const modelInput = document.querySelector<HTMLSelectElement>('#model')!;
 const imageToleranceInput = document.querySelector<HTMLInputElement>('#image-tolerance')!;
 const worldToleranceInput = document.querySelector<HTMLInputElement>('#world-tolerance')!;
 const confidenceToleranceInput = document.querySelector<HTMLInputElement>('#confidence-tolerance')!;
@@ -61,11 +62,11 @@ async function verifiedModel(sums: string, modelName: string) {
   return { modelUrl, modelSha256: actualHash };
 }
 
-async function modelAssets(delegate: 'CPU' | 'GPU') {
+async function modelAssets(delegate: 'CPU' | 'GPU', choice: PoseReplayModelChoice) {
   const sumsResponse = await fetch('/mediapipe/models/SHA256SUMS');
   if (!sumsResponse.ok) throw new Error('Could not read the local MediaPipe model checksum manifest.');
   const sums = await sumsResponse.text();
-  const files = poseReplayModelFiles(delegate);
+  const files = poseReplayModelFiles(delegate, choice);
   const primary = await verifiedModel(sums, files.modelFile);
   const cpu = files.cpuModelFile === files.modelFile ? primary : await verifiedModel(sums, files.cpuModelFile);
   return {
@@ -178,7 +179,7 @@ async function run(): Promise<void> {
   await loadVideo(videoFile);
   const videoHash = await sha256(await videoFile.arrayBuffer());
   const requestedDelegate = delegateInput.value as 'CPU' | 'GPU';
-  const model = await modelAssets(requestedDelegate);
+  const model = await modelAssets(requestedDelegate, modelInput.value as PoseReplayModelChoice);
   const worker = new Worker(new URL('../packages/core/src/providers/pose.worker.ts', import.meta.url), { type: 'module' });
   activeWorker = worker;
   const session = new PoseWorkerSession(worker, requestedDelegate);
@@ -195,6 +196,7 @@ async function run(): Promise<void> {
       ? await createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'medium' })
       : await createImageBitmap(video);
     const reply = await session.detect(bitmap, timestampMs);
+    session.assertSingleConfigurationRun();
     if (!reply) {
       droppedFrameCount += 1;
       report.textContent = `Processed ${sequence + 1}/${frameCount} sampled frames (${droppedFrameCount} dropped)…`;
