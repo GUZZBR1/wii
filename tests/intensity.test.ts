@@ -18,6 +18,19 @@ function level({ hz = 0, armSw = 0, bounceSw = 0, hands = true, jitterSw = 0 }) 
   return value;
 }
 
+it('adds the torso lateral speed to the effort while the gate is open', () => {
+  const meter = new IntensityMeter();
+  const body = (t: number, lateralAmplitude: number) => ({
+    head: 0.3, shoulders: 0.5, width: WIDTH, x: lateralAmplitude * Math.sin((2 * Math.PI * 2 * t) / 1000), leftWrist: 0.8, rightWrist: 0.8,
+  });
+  let still = 0;
+  for (let t = 0; t <= 3000; t += 33) still = meter.update(t, body(t, 0), true);
+  const meter2 = new IntensityMeter();
+  let swaying = 0;
+  for (let t = 0; t <= 3000; t += 33) swaying = meter2.update(t, body(t, 0.1), true);
+  expect(swaying).toBeGreaterThan(still + 0.05);
+});
+
 describe('running intensity', () => {
   it('is zero standing still, even with landmark jitter', () => {
     expect(level({})).toBe(0);

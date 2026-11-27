@@ -8,10 +8,12 @@ import { WalkDetector } from './walk';
  * shoulders barely bounce — a player watching the screen stabilizes their upper body, and the
  * movement is irregular drift as much as step-frequency sway. Waving the arms while standing
  * still keeps the weight centered: real clips measure 0.02-0.03 shoulder widths of lateral
- * spread for arm waving against 0.06-0.13 for running. Opening the effort gate takes vertical
- * bounce and weight transfer together: even violent arm swinging can bounce the torso, but it
- * never shifts the body's weight. Once open, either channel holds the gate through flat
- * stretches. The lateral channel never drives cadence speed, so sidesteps don't sprint.
+ * spread for arm waving against 0.06-0.13 for running. The effort gate opens when vertical
+ * bounce is corroborated — either by weight transfer or by rhythmic strides: even violent arm
+ * swinging can bounce the torso, but it never shifts the body's weight nor keeps a step rhythm.
+ * Once open, either channel holds the gate through flat stretches — but weight transfer alone
+ * can only bridge a few seconds without fresh stride evidence, or a sideways shuffle would run
+ * the race. The lateral channel never drives cadence speed, so sidesteps don't sprint.
  */
 const LATERAL_WINDOW_MS = 1000;
 const LATERAL_MIN_SPAN_MS = 500;
@@ -46,6 +48,19 @@ const RUN_TRUST_MS = 300;
  * measures no effort even while the trust is open, so the long close only bridges strides.
  */
 const RUN_TRUST_HOLD_MS = 2000;
+/**
+ * Weight transfer may bridge flat stretches between stride bursts, but not sustain the verdict
+ * alone: a sideways shuffle is lateral motion too, and without a cap it would renew the trust
+ * forever. Real flat jogging shows vertical stride evidence at least this often (the player's
+ * own clips gap at most ~4.2 s), while pure shuffling never strides again.
+ */
+const LATERAL_BRIDGE_CAP_MS = 4500;
+/**
+ * Rhythm corroborates centered running: bouncing in place with both feet shifts no weight, so
+ * the lateral channel stays quiet — but a few consecutive strides at running cadence are
+ * evidence violent arm swinging never produces (one flicker in eight seconds of real clips).
+ */
+const STRIDES_CORROBORATING = 3;
 const SPEED_BY_CADENCE = [[40, 0.1], [100, 0.3], [137.5, 0.55], [200, 1]] as const;
 
 export function speedFromCadence(spm: number): number {
@@ -74,6 +89,7 @@ export class CadenceTracker {
   private movingSince = Number.POSITIVE_INFINITY;
   private trusted = false;
   private lastMovingAt = Number.NEGATIVE_INFINITY;
+  private lastStrideAt = Number.NEGATIVE_INFINITY;
   private lateralWindow: { t: number; x: number; width: number }[] = [];
   private lateralActive = false;
   private suspended = false;
@@ -134,9 +150,12 @@ export class CadenceTracker {
       this.walking = false;
     }
     this.movingSince = this.moving ? Math.min(this.movingSince, nowMs) : Number.POSITIVE_INFINITY;
+    if (this.moving) this.lastStrideAt = nowMs;
     if (this.moving || this.lateralActive) this.lastMovingAt = nowMs;
-    if (!this.moving && !this.lateralActive && nowMs - this.lastMovingAt >= RUN_TRUST_HOLD_MS) this.trusted = false;
-    else if (!this.trusted && this.moving && this.lateralActive && nowMs - this.movingSince >= RUN_TRUST_MS) this.trusted = true;
+    if ((!this.moving && !this.lateralActive && nowMs - this.lastMovingAt >= RUN_TRUST_HOLD_MS)
+      || nowMs - this.lastStrideAt >= LATERAL_BRIDGE_CAP_MS) this.trusted = false;
+    else if (!this.trusted && this.moving && nowMs - this.movingSince >= RUN_TRUST_MS
+      && (this.lateralActive || this.intervals.length >= STRIDES_CORROBORATING)) this.trusted = true;
     // Running wins: its bounce also sways.
     if (!this.moving) return this.walking
       ? { cadenceSpm: this.walkSpm, speed01: speedFromCadence(this.walkSpm), step, running: this.trusted }
@@ -157,6 +176,7 @@ export class CadenceTracker {
     this.movingSince = Number.POSITIVE_INFINITY;
     this.trusted = false;
     this.lastMovingAt = Number.NEGATIVE_INFINITY;
+    this.lastStrideAt = Number.NEGATIVE_INFINITY;
     this.lateralWindow = [];
     this.lateralActive = false;
     this.suspended = this.ranBeforeJump = false;

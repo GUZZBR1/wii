@@ -42,6 +42,25 @@ describe('torso action pipeline integration', () => {
     },
   );
 
+  it('feeds effort for a centered rhythmic jog even without sideways sway', () => {
+    // Bouncing in place with both feet: strong rhythmic vertical strides, arms pumping, but the
+    // weight never transfers sideways — the lateral channel stays quiet and cannot corroborate.
+    const pipeline = new ActionPipeline();
+    let peak = 0;
+    for (let timeMs = 0; timeMs <= 3000; timeMs += 33) {
+      const bounceY = 0.016 * Math.sin((2 * Math.PI * 2.5 * timeMs) / 1000);
+      const swing = 0.1 * Math.sin((2 * Math.PI * 2.5 * timeMs) / 1000);
+      const snapshot = pose(timeMs);
+      const landmarks = snapshot.landmarks.map((point, index) => {
+        if (index === 15 || index === 16) return { ...point, y: point.y + (index === 15 ? swing : -swing) };
+        if (index === 0 || index === 11 || index === 12) return { ...point, y: point.y + bounceY };
+        return point;
+      });
+      peak = Math.max(peak, pipeline.update({ ...snapshot, landmarks }).rawEffort);
+    }
+    expect(peak).toBeGreaterThan(0.1);
+  });
+
   it('distinguishes running intensity when hidden hips are estimated above the shoulders', () => {
     const measure = (amplitude: number, running = true) => {
       const pipeline = new ActionPipeline();

@@ -75,6 +75,14 @@ describe('recording script and replay', () => {
 });
 
 describe.skipIf(Object.keys(recordings).length === 0)('scoreboard for real recordings', () => {
+  it('registers the arm-only negative control instead of skipping it silently', () => {
+    // The zero-effort guarantee is the whole point of the gate; running the scoreboard without
+    // any labelled arm-only clip must be loud, or a detector regression can slip in unnoticed.
+    // Record a clip waving the arms without running (E saves the last 20 s) and add its name
+    // to ARMS_ONLY_CLIPS.
+    expect(armsOnlyClips.length, 'no recording is labelled as arm movement — see ARMS_ONLY_CLIPS').toBeGreaterThan(0);
+  });
+
   it.each(armsOnlyClips)('%s: a clip labelled as arm movement feeds no race effort end to end', (_name, raw) => {
     const recording = parsePoseRecording(raw);
     const frames = recording.frames.map((frame) => frame.snapshot);
