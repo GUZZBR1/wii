@@ -5,8 +5,8 @@ import { createMiiRunner } from '../athletics/miiRunner';
 import { addRoomEnvironment } from '../core/environment';
 import { GameLoop } from '../core/GameLoop';
 import { type BiomeSpec, biomeAt } from './biomes';
-import { awardText, type Feedback, SHAKE_DURATION_S, shakeOffset } from './feedback';
-import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type Pace, stumble } from './gait';
+import { type Feedback, awardText, SHAKE_DURATION_S, shakeOffset } from './feedback';
+import { adjudicationDt, applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type Pace, stumble } from './gait';
 import { HurdleFlow, type ItemKind, RUNNER_Z } from './hurdleFlow';
 import { ItemAssets } from './itemAssets';
 import { JUMP_DURATION_S, jumpHeight } from './jump';
@@ -55,8 +55,8 @@ export class TrackGame {
   private readonly runner = new THREE.Group();
   private readonly mii = createMiiRunner();
   private readonly sun = new THREE.DirectionalLight(0xffffff, 2.2);
-  private surfaceMap?: THREE.CanvasTexture;
-  private readonly removeEnvironment: () => void;
+  private readonly trackMaterial = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 });
+  private removeEnvironment?: () => void;
   private readonly stripes: THREE.Mesh[] = [];
   private readonly skyDome = createSkyDome();
   private readonly sceneryPool = new SceneryPool(biomeAt(0).current.props);
@@ -72,6 +72,7 @@ export class TrackGame {
   private readonly loop: GameLoop;
   private readonly hudTimer: number;
   private lane = 0;
+  private cameraLaneZone: -1 | 0 | 1 | undefined;
   /** Speed asked for by the player and who set it; `shownSpeed` eases toward it. */
   private pace: Pace = { owner: 'camera', speed01: 0, cadenceSpm: 0 };
   private shownSpeed = 0;
@@ -80,9 +81,11 @@ export class TrackGame {
   private readonly score = new TrackScore();
   private readonly hurdleFlow = new HurdleFlow();
   private jumpTime = 0;
+  private jumpSource: 'camera' | 'keyboard' = 'camera';
   private travelled = 0;
   /** Seconds actually spent moving: standing still, pauses and countdowns do not speed the run up. */
   private movingTime = 0;
+  private lastSprintInputAtMs?: number;
   private readonly laneHistory: Lane[] = [];
   private lastHud = '';
   private feedback?: Feedback;
@@ -95,18 +98,23 @@ export class TrackGame {
     this.scene.background = null;
     this.camera.position.set(0, 3.1, 9.4);
     this.camera.lookAt(0, 1.4, -8);
-    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt));
-    const { renderer } = this.loop;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.shadowMap.enabled = true;
-    this.removeEnvironment = addRoomEnvironment(this.scene, renderer);
-    this.loop.onQualityChange = (tier) => { this.sun.castShadow = tier === 0; };
-    this.setupScene(renderer.capabilities.getMaxAnisotropy());
+    this.setupScene();
     this.applyBiome();
+    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) => this.update(dt, wallTimeMs));
+    const { renderer } = this.loop;
+    // Tests swap the loop for one without a renderer; the scene itself does not need it.
+    if (renderer) {
+      renderer.toneMapping = THREE.ACESFilmicToneMapping;
+      renderer.shadowMap.enabled = true;
+      this.removeEnvironment = addRoomEnvironment(this.scene, renderer);
+      this.trackMaterial.map = surfaceTexture(renderer.capabilities.getMaxAnisotropy());
+      this.trackMaterial.map.repeat.set(1, 90 / SURFACE_TILE);
+      this.loop.onQualityChange = (tier) => { this.sun.castShadow = tier === 0; };
+    }
     this.hudTimer = window.setInterval(() => this.publishHud(), 80);
   }
 
-  private setupScene(anisotropy: number): void {
+  private setupScene(): void {
     const fog = new THREE.Fog(0xd0eafc, 22, 64);
     this.scene.fog = fog;
     const hemi = new THREE.HemisphereLight(0xffffff, 0xffffff, 1.3);
@@ -120,10 +128,7 @@ export class TrackGame {
     sun.position.copy(SHADOW_CENTER).add(SUN_OFFSET);
     this.scene.add(hemi, sun, sun.target, this.skyDome.mesh, this.sceneryPool.group, this.dustPool.mesh);
     const surface = (roughness = 0.85) => new THREE.MeshStandardMaterial({ roughness, metalness: 0 });
-    const ground = surface(), curb = surface(0.6), stripe = surface(0.6);
-    this.surfaceMap = surfaceTexture(anisotropy);
-    this.surfaceMap.repeat.set(1, 90 / SURFACE_TILE);
-    const track = new THREE.MeshStandardMaterial({ map: this.surfaceMap, roughness: 0.9, metalness: 0 });
+    const ground = surface(), curb = surface(0.6), stripe = surface(0.6), track = this.trackMaterial;
     const flat = (width: number, length: number, material: THREE.Material, y: number, z: number) => {
       const mesh = new THREE.Mesh(new THREE.PlaneGeometry(width, length), material);
       mesh.rotation.x = -Math.PI / 2; mesh.position.set(0, y, z); mesh.receiveShadow = true; this.scene.add(mesh);
@@ -177,12 +182,34 @@ export class TrackGame {
     this.publishHud();
   }
 
+  /**
+   * Camera lane authority: the zone is the position the player's body actually occupies, so it
+   * applies absolutely — never as a step — whenever it changes, in any game phase. Keyboard
+   * steps still write the lane directly and hold until the body zone changes again; while the
+   * zone is undefined the camera has no opinion and the keyboard owns the lane outright.
+   * The comparison rests on the last DEFINED zone, not current availability: reacquiring the
+   * same zone after a blurry frame is not a body movement and must not steamroll a keyboard
+   * pick made during the drop.
+   */
+  setLaneZone(zone: -1 | 0 | 1 | undefined): void {
+    if (zone === undefined) return;
+    if (zone !== this.cameraLaneZone) this.lane = zone;
+    this.cameraLaneZone = zone;
+  }
+
+  /** Ends the camera session's lane authority: the next session reasserts from a clean comparison. */
+  resetLaneZone(): void {
+    this.cameraLaneZone = undefined;
+  }
+
   onAction(event: SportActionEvent): void {
     if (event.type === 'step') this.pace = applyStep(this.pace);
-    if (event.type === 'sprint') this.pace = applySprint(this.pace, event);
+    if (event.type === 'sprint') {
+      this.lastSprintInputAtMs = event.timestampMs;
+      this.pace = applySprint(this.pace, event);
+    }
     if (this.result || this.gate.phase !== 'running') return;
-    if (event.type === 'jump') { this.jumpTime = JUMP_DURATION_S; this.status = 'Salto!'; }
-    if (event.type === 'lane') { this.lane = Math.max(-1, Math.min(1, this.lane + (event.direction === 'left' ? -1 : 1))); }
+    if (event.type === 'jump') { this.jumpTime = JUMP_DURATION_S; this.jumpSource = 'camera'; this.status = 'Salto!'; }
   }
 
   onKey(key: string): void {
@@ -192,7 +219,7 @@ export class TrackGame {
     if (this.gate.phase !== 'running' && pressed !== 'arrowdown' && pressed !== 's') return;
     if (key === 'ArrowLeft' || key.toLowerCase() === 'a') this.lane = Math.max(-1, this.lane - 1);
     if (key === 'ArrowRight' || key.toLowerCase() === 'd') this.lane = Math.min(1, this.lane + 1);
-    if (key === ' ' || key === 'ArrowUp' || key.toLowerCase() === 'w') this.jumpTime = JUMP_DURATION_S;
+    if (key === ' ' || key === 'ArrowUp' || key.toLowerCase() === 'w') { this.jumpTime = JUMP_DURATION_S; this.jumpSource = 'keyboard'; }
     if (key === 'ArrowDown' || key.toLowerCase() === 's') {
       // Keyboard cycles stopped → walking → running and keeps the pick until the player steps on camera.
       this.pace = { owner: 'keyboard', speed01: nextPace(this.pace.speed01), cadenceSpm: 0 };
@@ -204,7 +231,7 @@ export class TrackGame {
     this.publishHud();
   }
 
-  private update(dt: number): void {
+  private update(dt: number, wallTimeMs: number): void {
     // Everything below is frozen until the gate opens: no travel, score, jump or judging.
     if (this.result) return;
     this.gate.advance(dt);
@@ -217,7 +244,9 @@ export class TrackGame {
     if (gait !== this.gait) this.status = GAIT_STATUS[gait];
     this.gait = gait;
 
-    this.score.advance(dt, speed);
+    const cameraInputAgeMs = this.lastSprintInputAtMs !== undefined ? Math.max(0, wallTimeMs - this.lastSprintInputAtMs) : 0;
+    const physicsDt = adjudicationDt(this.pace, dt, cameraInputAgeMs);
+    this.score.advance(physicsDt, speed);
     this.runner.position.x += (this.lane * 1.5 - this.runner.position.x) * Math.min(1, dt * 10);
     // Lean into the lane change, upright again on arrival.
     this.runner.rotation.z = THREE.MathUtils.damp(this.runner.rotation.z, (this.runner.position.x - this.lane * 1.5) * 0.14, 14, dt);
@@ -226,7 +255,8 @@ export class TrackGame {
     if (gait !== 'idle') this.stridePhase += dt * Math.PI * (this.pace.cadenceSpm || 70 + speed * 130) / 60;
     this.mii.animate(this.stridePhase, gait === 'idle' ? 0 : speed, 0);
     if (this.jumpTime > 0) {
-      this.jumpTime = Math.max(0, this.jumpTime - dt);
+      const jumpDt = this.jumpSource === 'keyboard' ? dt : physicsDt;
+      this.jumpTime = Math.max(0, this.jumpTime - jumpDt);
       this.runner.position.y = jumpHeight(this.jumpTime);
       if (this.jumpTime === 0) {
         this.status = GAIT_STATUS[gait];
@@ -238,12 +268,13 @@ export class TrackGame {
       this.runner.position.y = 0;
       if (gait === 'run' && Math.floor(this.stridePhase / Math.PI) !== lastStep) this.dustPool.emit(this.runner.position.x, RUNNER_Z + 0.2, 2);
     }
-    if (speed > 0) this.movingTime += dt;
+    if (speed > 0) this.movingTime += physicsDt;
     const boost = timeBoost(this.movingTime);
-    const advance = dt * speed * 22 * boost;
+    const advance = physicsDt * speed * 22 * boost;
     const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
     this.travelled += advance;
-    if (this.surfaceMap) this.surfaceMap.offset.y = (this.surfaceMap.offset.y + advance / SURFACE_TILE) % 1;
+    const { map } = this.trackMaterial;
+    if (map) map.offset.y = (map.offset.y + advance / SURFACE_TILE) % 1;
     for (const stripe of this.stripes) stripe.position.z = scrollZ(stripe.position.z, advance, SCENERY_MIN_Z, SCENERY_MAX_Z);
     this.sceneryPool.update(advance, this.applyBiome().props);
     this.dustPool.update(dt, advance);
@@ -320,7 +351,7 @@ export class TrackGame {
     for (const item of this.items) this.scene.remove(item.group);
     this.items.length = 0;
     this.scene.remove(this.sceneryPool.group, this.dustPool.mesh, this.skyDome.mesh);
-    this.removeEnvironment();
+    this.removeEnvironment?.();
     this.loop.dispose();
     this.itemAssets.dispose();
     this.sceneryPool.dispose();

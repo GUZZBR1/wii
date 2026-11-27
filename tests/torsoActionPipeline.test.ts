@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
-import { calibration, poseWithHipBounce } from './fixtures/syntheticPose';
+import { calibration, pose, poseWithHipBounce } from './fixtures/syntheticPose';
 
 const TORSO_HEIGHT = 0.4;
 
@@ -23,6 +23,24 @@ function runningRise(timeMs: number): number {
 }
 
 describe('torso action pipeline integration', () => {
+  it('keeps cadence and jump active without a calibration profile', () => {
+    const pipeline = new ActionPipeline();
+    const frames = [];
+
+    for (let timeMs = 0; timeMs <= 7200; timeMs += 33) {
+      const rise = runningRise(timeMs) + jumpRise(timeMs);
+      const result = pipeline.update(poseWithHipBounce(timeMs, -rise * TORSO_HEIGHT));
+      frames.push({ timeMs, ...result });
+    }
+
+    const jumps = frames.flatMap((frame) => frame.events).filter((event) => event.type === 'jump');
+    expect(jumps).toHaveLength(1);
+    expect(frames.some((frame) => frame.controls.sprintSpeed01 > 0)).toBe(true);
+    expect(frames.at(-1)!.controls.trackingState).toBe('tracked');
+    expect(frames.flatMap((frame) => frame.events).filter((event) => event.type === 'swing' || event.type === 'swing-start')).toHaveLength(0);
+    expect(frames.every((frame) => frame.controls.laneZone === undefined)).toBe(true);
+  });
+
   it('keeps cadence alive when a jump overlaps continuous running', () => {
     const pipeline = new ActionPipeline();
     const frames = [];
@@ -52,4 +70,36 @@ describe('torso action pipeline integration', () => {
 
     expect(jumps).toHaveLength(0);
   });
+
+
+  it('keeps lane quiet until the online neutral estimate has converged', () => {
+    const run = (neutral01: number) => {
+      const pipeline = new ActionPipeline();
+      const profile = { ...calibration(), readiness: { scale01: 1, neutral01 } };
+      let zone: number | undefined;
+      for (let time = 0; time <= 500; time += 33) {
+        zone = pipeline.update(pose(time, { shiftUserRightSw: time < 150 ? 0 : 0.25 }), profile).controls.laneZone ?? zone;
+      }
+      return zone;
+    };
+
+    expect(run(0)).toBeUndefined();
+    expect(run(1)).toBe(1);
+  });
+
+  it('keeps swing quiet until the online body scale is trustworthy', () => {
+    const run = (scale01: number) => {
+      const pipeline = new ActionPipeline();
+      const profile = { ...calibration(), readiness: { scale01, neutral01: 1 } };
+      for (const time of [0, 33, 66]) pipeline.update(pose(time), profile);
+      return [
+        ...pipeline.update(pose(100, { wristLateral: -0.3 }), profile).events,
+        ...pipeline.update(pose(150, { wristLateral: 0.2 }), profile).events,
+      ].filter((event) => event.type === 'swing' || event.type === 'swing-start');
+    };
+
+    expect(run(0)).toHaveLength(0);
+    expect(run(1).length).toBeGreaterThan(0);
+  });
+
 });

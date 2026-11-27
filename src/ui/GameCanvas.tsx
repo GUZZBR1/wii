@@ -18,7 +18,7 @@ const HUD_TEXT: Record<Sport, { score: string; controls: string }> = {
   athletics: { score: 'TEMPO', controls: '↑ / espaço acelerar  ·  ↓ desacelerar' },
   tennis: { score: 'PONTOS', controls: 'espaço bater  ·  timing define a direção' },
 };
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; resetLaneZone?(): void; dispose(): void }
 
 interface Props {
   sport: Sport;

@@ -12,7 +12,7 @@ function targetAt(x: number, y: number): HTMLElement | null {
 /** Traduz o cursor de mão em hover, clique e voltar no DOM. */
 export function useHandHitTest(input: HandCursorInput, active: boolean, onBack: () => void) {
   const { visible, x, y, pinchRelease, backProgress } = input;
-  const enabled = active && visible;
+  const enabled = active && visible && input.synced;
   const hovered = useRef<HTMLElement | null>(null);
   const released = useRef(false);
   const backDone = useRef(false);

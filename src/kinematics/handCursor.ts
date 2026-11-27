@@ -5,6 +5,7 @@ export interface MenuHandSnapshot {
   timestampMs: number;
   landmarks: readonly Point3[];
   handedness?: Hand | 'Left' | 'Right';
+  handednessScore?: number;
   /** bitmap.height / bitmap.width; corrige distâncias normalizadas fora do quadrado. */
   aspectY?: number;
 }
@@ -21,7 +22,7 @@ export interface HandCursorOptions {
   syncDurationMs?: number;
   maxFrameGapMs?: number;
   lossGraceMs?: number;
-  pointerAnchor?: 'tip' | 'midIndex';
+  pointerAnchor?: 'tip' | 'midIndex' | 'middleMcp';
   smoothing?: OneEuroOptions;
   pinchOnRatio?: number;
   pinchOffRatio?: number;
@@ -54,6 +55,7 @@ const INDEX_MCP = 5;
 const INDEX_PIP = 6;
 const INDEX_TIP = 8;
 const MIDDLE_MCP = 9;
+const PINKY_MCP = 17;
 const FINGERS = [
   [INDEX_MCP, INDEX_PIP, 7, INDEX_TIP],
   [MIDDLE_MCP, 10, 11, 12],
@@ -61,6 +63,11 @@ const FINGERS = [
   [17, 18, 19, 20],
 ] as const;
 const DEFAULT_ZONE: HandCursorZone = { minX: 0, maxX: 1, minY: 0, maxY: 1 };
+const DEFAULT_HAND_SMOOTHING: OneEuroOptions = { minCutoff: 1.0, beta: 5.0, derivativeCutoff: 1.0 };
+const SCALE_MIN = 0.1;
+const SCALE_MAX = 0.3;
+const MAX_MARGIN = 0.25;
+const SCALE_TAU_MS = 250;
 
 function finite(point: Point3 | undefined): point is Point3 {
   return point !== undefined && Number.isFinite(point.x) && Number.isFinite(point.y);
@@ -73,7 +80,13 @@ function imageDistance(a: Point3, b: Point3, aspectY: number): number {
 function usableHand(points: readonly Point3[], aspectY: number): boolean {
   if (points.length < 21) return false;
   for (let index = 0; index < 21; index++) if (!finite(points[index])) return false;
-  return imageDistance(points[WRIST]!, points[MIDDLE_MCP]!, aspectY) > 1e-6;
+  if (imageDistance(points[WRIST]!, points[MIDDLE_MCP]!, aspectY) < 0.03) return false;
+  const xs = points.slice(0, 21).map((point) => point.x);
+  const ys = points.slice(0, 21).map((point) => point.y);
+  const width = Math.max(...xs) - Math.min(...xs);
+  const height = (Math.max(...ys) - Math.min(...ys)) * aspectY;
+  const boxRatio = width / Math.max(height, 1e-6);
+  return boxRatio >= 0.25 && boxRatio <= 3.5;
 }
 
 function pinchRatio(points: readonly Point3[], aspectY: number): number {
@@ -129,10 +142,12 @@ function validZone(zone: HandCursorZone): boolean {
 export class HandCursorDetector {
   private readonly initialZone: HandCursorZone;
   private activeZone: HandCursorZone;
+  private readonly fixedZone: boolean;
+  private smoothedScale?: number;
   private readonly syncDurationMs: number;
   private readonly maxFrameGapMs: number;
   private readonly lossGraceMs: number;
-  private readonly pointerAnchor: 'tip' | 'midIndex';
+  private readonly pointerAnchor: 'tip' | 'midIndex' | 'middleMcp';
   private readonly backHoldMs: number;
   private readonly fistEnterStraightness: number;
   private readonly fistReleaseStraightness: number;
@@ -162,10 +177,11 @@ export class HandCursorDetector {
     this.initialZone = { ...(options.activeZone ?? DEFAULT_ZONE) };
     if (!validZone(this.initialZone)) throw new Error('Hand cursor active zone must be inside 0..1 with min < max');
     this.activeZone = { ...this.initialZone };
+    this.fixedZone = options.activeZone !== undefined;
     this.syncDurationMs = options.syncDurationMs ?? 200;
     this.maxFrameGapMs = options.maxFrameGapMs ?? 250;
-    this.lossGraceMs = options.lossGraceMs ?? 750;
-    this.pointerAnchor = options.pointerAnchor ?? 'midIndex';
+    this.lossGraceMs = options.lossGraceMs ?? 300;
+    this.pointerAnchor = options.pointerAnchor ?? 'middleMcp';
     this.backHoldMs = options.backHoldMs ?? 500;
     this.fistEnterStraightness = options.fistEnterStraightness ?? 0.65;
     this.fistReleaseStraightness = options.fistReleaseStraightness ?? 0.8;
@@ -176,20 +192,21 @@ export class HandCursorDetector {
     if (this.pinchOnRatio >= this.pinchOffRatio) throw new Error('Pinch on-ratio must be below the off-ratio');
     this.pinchCooldownMs = options.pinchCooldownMs ?? 250;
     this.pinchPressMs = options.pinchPressMs ?? 90;
-    this.xFilter = new OneEuroFilter(options.smoothing);
-    this.yFilter = new OneEuroFilter(options.smoothing);
+    this.xFilter = new OneEuroFilter(options.smoothing ?? DEFAULT_HAND_SMOOTHING);
+    this.yFilter = new OneEuroFilter(options.smoothing ?? DEFAULT_HAND_SMOOTHING);
   }
 
   update(snapshot: MenuHandSnapshot): HandCursorState {
     const aspectY = snapshot.aspectY ?? 1;
-    const present = usableHand(snapshot.landmarks, aspectY);
-    if (!present) return this.missing(snapshot.timestampMs);
+    const lowConfidence = snapshot.handednessScore !== undefined && snapshot.handednessScore < 0.75;
+    if (lowConfidence || !usableHand(snapshot.landmarks, aspectY)) return this.missing(snapshot.timestampMs);
 
     const points = snapshot.landmarks;
     const timestampMs = snapshot.timestampMs;
     if (this.lostSinceMs !== undefined && timestampMs - this.lostSinceMs >= this.lossGraceMs) {
       this.synced = false;
       this.presenceMs = 0;
+      this.smoothedScale = undefined;
     }
     const raw = this.pointer(points);
     const gap = this.lastTimestampMs === undefined ? 0 : timestampMs - this.lastTimestampMs;
@@ -200,6 +217,7 @@ export class HandCursorDetector {
       this.xFilter.reset();
       this.yFilter.reset();
       if (gap < 0) this.presenceMs = 0;
+      this.smoothedScale = undefined;
       this.lastFreePosition = undefined;
       this.pinchActive = false;
       this.pinchCandidateSinceMs = undefined;
@@ -216,6 +234,20 @@ export class HandCursorDetector {
     if (justSynced) {
       this.xFilter.reset();
       this.yFilter.reset();
+    }
+
+    if (!this.fixedZone) {
+      const rawScale = Math.max(
+        imageDistance(points[WRIST]!, points[MIDDLE_MCP]!, aspectY),
+        imageDistance(points[INDEX_MCP]!, points[PINKY_MCP]!, aspectY),
+      );
+      if (this.smoothedScale === undefined) this.smoothedScale = rawScale;
+      else {
+        const alpha = 1 - Math.exp(-Math.max(gap, 0) / SCALE_TAU_MS);
+        this.smoothedScale += alpha * (rawScale - this.smoothedScale);
+      }
+      const margin = clamp((this.smoothedScale - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * MAX_MARGIN;
+      this.activeZone = { minX: margin, maxX: 1 - margin, minY: margin, maxY: 1 - margin };
     }
 
     const mapped = this.mapToScreen(raw);
@@ -325,7 +357,7 @@ export class HandCursorDetector {
     if (!pinching && !pinchCandidate && !fist) this.lastFreePosition = candidate;
     this.lastPosition = position;
     return {
-      visible: true,
+      visible: this.synced,
       x: position.x,
       y: position.y,
       syncProgress: this.synced ? 1 : this.syncProgress(),
@@ -341,6 +373,7 @@ export class HandCursorDetector {
     this.synced = false;
     this.presenceMs = 0;
     this.activeZone = { ...this.initialZone };
+    this.smoothedScale = undefined;
     this.lostSinceMs = undefined;
     this.missingSinceMs = undefined;
     this.lastTimestampMs = undefined;
@@ -365,6 +398,7 @@ export class HandCursorDetector {
       if (timestampMs - this.lostSinceMs >= this.lossGraceMs) {
         this.synced = false;
         this.presenceMs = 0;
+        this.smoothedScale = undefined;
       }
     }
     this.pinchActive = false;
@@ -390,6 +424,7 @@ export class HandCursorDetector {
   }
 
   private pointer(points: readonly Point3[]): { x: number; y: number } {
+    if (this.pointerAnchor === 'middleMcp') return { x: 1 - points[MIDDLE_MCP]!.x, y: points[MIDDLE_MCP]!.y };
     const tip = points[INDEX_TIP]!;
     const base = points[INDEX_MCP]!;
     const cameraX = this.pointerAnchor === 'tip' ? tip.x : (tip.x + base.x) / 2;

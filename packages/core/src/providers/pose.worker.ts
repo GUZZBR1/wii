@@ -111,6 +111,8 @@ self.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
       type: 'POSE', requestId, captureEpoch, timestampMs,
       landmarks: simplify(result.landmarks[0]),
       worldLandmarks: simplify(result.worldLandmarks[0]),
+      frameWidth: bitmap.width,
+      frameHeight: bitmap.height,
     } satisfies WorkerReply);
     // Latency verdict on real frames: the GPU delegate over software GL costs ~96-243 ms/frame
     // without ever throwing, so only timing evidence can catch it. Decided once, early.
