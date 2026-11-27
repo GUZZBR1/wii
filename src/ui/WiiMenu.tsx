@@ -7,6 +7,7 @@ import type { HandCursorInput } from './handCursorTypes';
 const SPORTS: { id: Sport; name: string; hint: string }[] = [
   { id: 'athletics', name: 'Atletismo', hint: 'Corra no lugar e dispute a prova no estádio' },
   { id: 'tennis', name: 'Tênis', hint: 'Balance o braço para rebater' },
+  { id: 'boxing', name: 'Boxe', hint: 'Soque para a frente e incline o corpo para esquivar' },
 ];
 
 const SLOTS = Array.from({ length: 12 }, (_, i) => `slot-${i}`);

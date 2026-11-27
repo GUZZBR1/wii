@@ -141,13 +141,16 @@ export class AdaptiveCalibrator {
   private poseDisagreementSince?: number;
   private centerStarvedSince?: number;
   private laneZone: -1 | 0 | 1 = 0;
+  private centerBandSw = EXIT_LANE_SW;
 
   /**
    * Consumes one frame. `laneZone` is the lane state machine's current zone: it is the only
    * reliable discriminator between stance and control input inside the hysteresis band — while
    * the zone is center, no lane is held, so a band displacement must be the player's stance.
+   * `centerBandSw` is that machine's return-to-center displacement: boxing's dodge is far tighter.
    */
-  update(snapshot: PoseSnapshot, laneZone: -1 | 0 | 1): CalibrationProfile | undefined {
+  update(snapshot: PoseSnapshot, laneZone: -1 | 0 | 1, centerBandSw = EXIT_LANE_SW): CalibrationProfile | undefined {
+    this.centerBandSw = centerBandSw;
     const now = snapshot.timestampMs;
     this.laneZone = laneZone;
     const core = this.extractCore(snapshot);
@@ -296,7 +299,7 @@ export class AdaptiveCalibrator {
     // it is the player's stance when the zone is center — no lane was ever entered to hold.
     // Zone-center evidence is therefore admitted at any deviation: transitory dodge frames leak
     // in, but they are brief and symmetric while stance is sustained, and the mode is consensus.
-    const isPosture = (deviationSw: number, laneZone: number) => deviationSw < EXIT_LANE_SW || laneZone === 0;
+    const isPosture = (deviationSw: number, laneZone: number) => deviationSw < this.centerBandSw || laneZone === 0;
     const admitted = deviations.filter(({ sample, deviationSw }) => isPosture(deviationSw, sample.laneZone)).length;
     // Escape hatch: if almost nothing counts as neutral evidence for a long stretch, the player
     // is not holding a lane — nobody holds one for half a minute — they physically moved, and
@@ -346,7 +349,7 @@ export class AdaptiveCalibrator {
         shoulderWidth,
         readyWristLocal: Object.keys(readyWristLocal).length ? readyWristLocal : undefined,
       },
-      image: { shoulderCenterX0 },
+      image: { shoulderCenterX0, shoulderWidth0: median(this.coreObservations.map((sample) => sample.imageShoulderWidth)) },
       quality: {
         validFrameRatio: clamp(coverage.ratio),
         medianConfidence: median(this.coreObservations.map((sample) => sample.confidence)),
@@ -421,7 +424,8 @@ export class AdaptiveCalibrator {
         shoulderWidth,
         readyWristLocal: Object.keys(readyWristLocal).length ? readyWristLocal : undefined,
       },
-      image: { shoulderCenterX0 },
+      // The depth reference does not follow the player: see CalibrationProfile.
+      image: { shoulderCenterX0, shoulderWidth0: current.image.shoulderWidth0 ?? target.image.shoulderWidth0 },
       quality: target.quality,
       readiness: target.readiness,
     };

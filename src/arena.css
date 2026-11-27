@@ -63,6 +63,7 @@
   .game-card.is-front:hover, .game-card.is-front:focus-visible { box-shadow: 0 14px 34px #0b4a6e99, 0 0 0 8px #ffffffcc; }
   .game-card.tennis .scene { background: linear-gradient(90deg, #0000 49.6%, #fff 49.6% 50.4%, #0000 50.4%) 50% 100% / 100% 40% no-repeat, linear-gradient(#0000 68%, #fff 68% 70%, #0000 70%), linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #3f8f4b 42% 48%, #3f78b5 48%); }
   .game-card.athletics .scene { background: linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #4e9e52 42% 52%, #0000 52%), repeating-linear-gradient(#c8603f 0 13%, #fff 13% 14%); }
+  .game-card.boxing .scene { background: radial-gradient(circle at 38% 58%, #d64545 0 9%, #0000 9.5%), radial-gradient(circle at 62% 58%, #2f6fd0 0 9%, #0000 9.5%), repeating-linear-gradient(#0000 0 8%, #fff 8% 9.5%, #0000 9.5% 14%) 50% 70% / 100% 40% no-repeat, linear-gradient(#26313b 0 52%, #d9c9a3 52%); }
   .games-goal-panel { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 24px; padding: 24px; }
   .games-goal-panel h2 { margin: 0; color: #fff; font-size: clamp(24px, 4vw, 38px); text-align: center; text-shadow: 0 2px 8px #0b4a6e99; }
   .games-goals { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; }
@@ -73,6 +74,7 @@
   .game-card { animation: game-drop 1.15s both; }
   .game-card:nth-of-type(1) { animation-delay: .12s; }
   .game-card:nth-of-type(2) { animation-delay: .26s; }
+  .game-card:nth-of-type(3) { animation-delay: .4s; }
   .games-footer, .games-ring .ring-arrow { animation: games-fade .5s ease-out 1s both; }
   .games-footer { width: 100%; display: grid; grid-template-columns: 1fr 3fr 1fr; align-items: center; gap: 12px; padding: 0 4vw 24px; }
   .games-hint { grid-column: 2; margin: 0; text-align: center; color: #fff; font-size: 18px; font-weight: 700; text-shadow: 0 1px 3px #0b4a6e99; }
@@ -94,11 +96,25 @@
   .game-speed strong { color: var(--blue-deep); font-size: 22px; }
   .game-ready, .game-controls { position: absolute; z-index: 3; border-radius: 999px; background: #ffffffe0; box-shadow: var(--shadow); font-size: 12px; font-weight: 700; }
   .game-ready { top: 50%; left: 50%; transform: translate(-50%, -50%); padding: 10px 18px; white-space: nowrap; }
+  /* In boxing the middle of the screen is the opponent. */
+  .boxing-hud ~ .game-ready { top: auto; bottom: 56px; transform: translateX(-50%); }
   .game-ready i { width: 9px; height: 9px; background: var(--orange); border-radius: 50%; margin-right: 8px; display: inline-block; }
   .game-ready i.ready { background: var(--green); }
   .game-controls { left: 15px; bottom: 12px; max-width: calc(100vw - 260px); padding: 6px 14px; }
 
   /* corrida: combo, contagem/pausa e feedback */
+  .boxing-hud { position: absolute; left: 18px; right: 18px; top: 15px; display: flex; align-items: flex-start; gap: 12px; pointer-events: none; z-index: 3; }
+  .boxing-card { padding: 6px 14px; border: 3px solid var(--blue); border-radius: 18px; background: var(--gloss); box-shadow: var(--shadow); }
+  .boxing-fighter { flex: 1; min-width: 0; }
+  .boxing-name { display: flex; justify-content: space-between; align-items: baseline; margin: 0 0 4px; }
+  .boxing-label { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: 1px; }
+  .boxing-value { font-size: 22px; }
+  .boxing-bar { display: flex; height: 12px; overflow: hidden; border-radius: 999px; background: #0b4a6e33; }
+  .boxing-fill { background: #d64545; transition: width .2s; }
+  .boxing-clock { display: flex; flex-direction: column; align-items: center; white-space: nowrap; }
+  .opponent .boxing-name { flex-direction: row-reverse; }
+  .opponent .boxing-bar { justify-content: flex-end; }
+  .opponent .boxing-fill { background: #2f6fd0; }
   .game-hud em { color: #23823f; font-style: normal; font-weight: 800; font-size: 14px; }
   .game-banner { position: absolute; left: 0; right: 0; top: 22%; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 16px; color: #fff; text-align: center; text-shadow: 0 3px 10px #000c; pointer-events: none; z-index: 4; }
   .game-banner strong { font-size: 68px; font-weight: 800; }
@@ -154,6 +170,10 @@
   .game-over.finish h2 { color: var(--blue); }
   .game-goals { position: absolute; top: 60px; left: 50%; transform: translateX(-50%); display: flex; gap: 6px; margin: 0; padding: 0; border: 0; z-index: 9; }
   .game-goals button[aria-pressed='true'] { background: var(--blue); color: #fff; }
+  .boxing-setup { flex-direction: column; align-items: center; gap: 8px; }
+  .boxing-select-row { display: flex; align-items: center; justify-content: center; gap: 6px; }
+  .boxing-select-row > span { padding: 0 4px; color: #fff; font-size: 11px; font-weight: 800; letter-spacing: 1px; text-shadow: 0 2px 8px #000c; }
+  .boxing-training-card { flex: 1; display: flex; flex-direction: column; align-items: center; white-space: nowrap; }
   .game-over h3 { margin: 14px 0 6px; font-size: 13px; color: var(--muted); }
   .game-over p { margin: 0; }
   .game-over ol { margin: 0 0 14px; padding: 0; list-style: none; }

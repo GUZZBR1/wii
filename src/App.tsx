@@ -25,6 +25,7 @@ import { PerfMeter } from './ui/PerfMeter';
 import { HAND_IDLE, type HandCursorInput } from './ui/handCursorTypes';
 import type { CarouselStepResult } from './ui/carouselController';
 import { drawHand, drawPose } from './ui/PoseOverlay';
+import { EXIT_DODGE_SW } from './kinematics/postureSignals';
 import { GamesMenu, HomeMenu } from './ui/WiiMenu';
 import { WiiSplash } from './ui/WiiSplash';
 import './arena.css';
@@ -132,7 +133,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const onEngine = useCallback((engine: GameEngineHandle | null) => { engineRef.current = engine; }, []);
   const dispatchEvent = useCallback((event: SportActionEvent) => {
     engineRef.current?.onAction(event);
-    if (sportRef.current !== 'tennis') {
+    if (sportRef.current === 'track' || sportRef.current === 'athletics') {
       // Only the track has jumps; athletics still hears its steps.
       if (event.type === 'jump' && sportRef.current === 'track') audioRef.current.jump();
       if (event.type === 'step') audioRef.current.step(event.side);
@@ -166,6 +167,10 @@ export default function App({ exit }: { exit?: ReactNode }) {
     handDetectorRef.current.reset();
     for (const event of pipelineRef.current.reset()) dispatchEvent(event);
     engineRef.current?.resetLaneZone?.();
+    engineRef.current?.setGuard?.(undefined);
+    engineRef.current?.setDepthMove?.(undefined);
+    engineRef.current?.setDepthSpeed?.(undefined);
+    engineRef.current?.setLateralDash?.(undefined);
     contextRef.current.reset();
     resetCalibration();
     drawPose(overlayRef.current, videoRef.current);
@@ -236,7 +241,10 @@ export default function App({ exit }: { exit?: ReactNode }) {
       setHeadCut(headWarningRef.current.update(raw));
       // Implicit calibration: every observed frame is evidence. The current profile is a
       // continuously improving estimate, never a mode the player has to enter or watch.
-      profileRef.current = calibratorRef.current.update(raw, pipelineRef.current.laneZone) ?? profileRef.current;
+      const calibrated = sportRef.current === 'boxing'
+        ? calibratorRef.current.update(raw, pipelineRef.current.dodgeZone, EXIT_DODGE_SW)
+        : calibratorRef.current.update(raw, pipelineRef.current.laneZone);
+      profileRef.current = calibrated ?? profileRef.current;
       const result = pipelineRef.current.update(raw, profileRef.current);
       const current = result.snapshot;
       const decision = contextRef.current.update(current, profileRef.current);
@@ -255,6 +263,11 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setTossHand?.(raisedTossHand(current), raw.timestampMs);
       engineRef.current?.setArmMotions?.(result.armMotions);
       engineRef.current?.setSwingTracking?.(result.swingTracking);
+      engineRef.current?.setDodgeZone?.(result.controls.dodgeZone);
+      engineRef.current?.setGuard?.(result.controls.guard);
+      engineRef.current?.setDepthMove?.(result.controls.ringDepthMove);
+      engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01);
+      engineRef.current?.setLateralDash?.(result.controls.lateralDash);
       for (const event of result.events) dispatchEvent(event);
     },
   };
