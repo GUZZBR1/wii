@@ -65,7 +65,7 @@ A base da palma preserva a rotação global da mão no espaço da câmera. Isso 
 | `maxAngularSpeedDegPerSec` | 360°/s | teto de uma volta visual por segundo |
 | `brakeOpenMs` | 70 ms | palma aberta precisa persistir brevemente antes do snap |
 | `snapSignalMs` | 300 ms | dá tempo de o carrossel completar o snap de 180–250 ms |
-| `cuppedCurvatureMin` / `openCurvatureMax` | 0.055 / 0.042 | curvatura por cossenos articulares; separa concha de palma aberta com histerese |
+| `cuppedMinCurvature` / `openPalmMaxCurvature` | 0.15 / 0.08 | curvatura por cossenos articulares; separa concha de palma aberta com histerese |
 | `snapDurationMs` do carrossel | 220 ms | clamped em 180–250 ms |
 | `driveResponseMs` / `brakeResponseMs` | 90 / 42 ms | resposta suave ao impulso e frenagem quase imediata |
 
@@ -81,7 +81,7 @@ O controlador integra com `deltaTime` real do `requestAnimationFrame`:
 - `SNAP_TO_CARD` ou momentum baixo: snap ease-in-out para o canal inteiro mais próximo;
 - `prefers-reduced-motion`: o snap é imediato e a animação orbital do cursor é desligada.
 
-O componente React continua sendo a interface para mouse/teclado: setas e clique em canais chamam `syncTurn` no controlador e preservam a transição CSS existente. Durante controle por gesto, o controlador escreve `left/top/transform/opacity/zIndex` diretamente nos canais e a classe `is-gesture-controlled` remove as transições que disputariam o mesmo atributo. React é sincronizado somente quando o canal frontal muda ou quando o movimento assenta.
+Quando não há mão sincronizada — inclusive após desligar a câmera — o loop de `requestAnimationFrame` é estacionado; mouse e transições CSS não dependem dele. O componente React continua sendo a interface para mouse/teclado: setas e clique em canais chamam `syncTurn` no controlador e preservam a transição CSS existente. Durante controle por gesto, o controlador escreve `left/top/transform/opacity/zIndex` diretamente nos canais e a classe `is-gesture-controlled` remove as transições que disputariam o mesmo atributo. React é sincronizado somente quando o canal frontal muda ou quando o movimento assenta.
 
 ## Diagnóstico opcional
 
