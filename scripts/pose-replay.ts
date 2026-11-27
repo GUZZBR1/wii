@@ -2,7 +2,7 @@ import { createPoseRecording, parsePoseRecording } from '@wii/spatial-core';
 import type { Point3, PoseRecording, PoseSnapshot, WorkerReply } from '@wii/spatial-core';
 import { MEDIAPIPE_WASM_VERSION } from '../src/cv/mediapipeAssets';
 import { type PoseReplayModelChoice, poseReplayModelFiles } from './poseReplayAssets';
-import { incompatibleReasons } from './poseReplayCompare';
+import { delegateContext, incompatibleReasons } from './poseReplayCompare';
 import { PoseWorkerSession } from './poseReplaySession';
 import { seekVideoTo, waitForVideoFrame } from './poseReplayVideo';
 
@@ -226,6 +226,7 @@ async function run(): Promise<void> {
   const result = {
     status: reasons.length > 0 ? 'incomparable' : !hasValues ? 'inconclusive' : passed ? 'pass' : 'fail',
     comparison: reasons,
+    delegates: delegateContext(requestedDelegate, currentRecording, reference),
     sampling: { stepMs: SAMPLE_STEP_MS, frameCount, videoDurationMs: video.duration * 1000 },
     tolerance: {
       imageCoordinateMaxAbs: imageTolerance,

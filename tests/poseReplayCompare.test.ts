@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createPoseRecording } from '@wii/spatial-core';
 import type { Delegate, PoseRecording, PoseSnapshot } from '@wii/spatial-core';
-import { incompatibleReasons } from '../scripts/poseReplayCompare';
+import { delegateContext, incompatibleReasons } from '../scripts/poseReplayCompare';
 
 const MODEL_SHA = 'a'.repeat(64);
 const OTHER_MODEL_SHA = 'b'.repeat(64);
@@ -39,5 +39,11 @@ describe('pose replay compatibility', () => {
 
   it('accepts identical configurations', () => {
     expect(incompatibleReasons(recording('CPU'), recording('CPU'))).toEqual([]);
+  });
+});
+
+describe('pose replay report', () => {
+  it('names the requested, sampled and reference delegates after a GPU run fell back to CPU', () => {
+    expect(delegateContext('GPU', recording('CPU'), recording('GPU'))).toEqual({ requested: 'GPU', sampled: 'CPU', reference: 'GPU' });
   });
 });

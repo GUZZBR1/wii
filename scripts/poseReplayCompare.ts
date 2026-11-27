@@ -1,4 +1,4 @@
-import type { PoseRecording } from '@wii/spatial-core';
+import type { Delegate, PoseRecording } from '@wii/spatial-core';
 
 /**
  * Configuration guards that make a regression comparison meaningless. The delegate is
@@ -25,4 +25,9 @@ export function incompatibleReasons(reference: PoseRecording, actual: PoseRecord
     reasons.push('sampled frame timestamps differ');
   }
   return reasons;
+}
+
+/** What a reader needs to judge a verdict across delegates, including a GPU run that fell back to CPU. */
+export function delegateContext(requested: Delegate, actual: PoseRecording, reference: PoseRecording) {
+  return { requested, sampled: actual.source.delegate, reference: reference.source.delegate };
 }
