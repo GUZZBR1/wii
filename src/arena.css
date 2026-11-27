@@ -53,8 +53,8 @@
   .logo-btn:hover { transform: scale(1.06); }
   .menu-body { flex: 1; display: flex; flex-wrap: wrap; gap: 4vw; justify-content: center; align-items: center; align-content: center; padding: 24px 4vw; background: radial-gradient(circle at 70% 40%, #0000 28%, #ffffff30 28.5% 36%, #0000 36.5%), linear-gradient(135deg, #1c8fd1, #8fd6f3 55%, #2a9bd8); }
   /* jogos: roda de cartões, o mesmo vocabulário do carrossel do menu inicial */
-  .games-body { position: relative; flex-direction: column; flex-wrap: nowrap; gap: 0; padding: 0; overflow: hidden; }
-  .games-ring { position: relative; flex: 1; width: 100%; min-height: 300px; }
+  .games-body { position: relative; flex: 1 0 auto; flex-direction: column; flex-wrap: nowrap; gap: 0; padding: 0; }
+  .games-ring { position: relative; display: grid; flex: 1 0 auto; width: 100%; min-height: 300px; overflow: hidden; }
   .game-card { position: absolute; width: clamp(190px, 38vw, 400px); display: flex; flex-direction: column; overflow: hidden; padding: 0; border: 6px solid #fff; border-radius: 24px; background: #fff; color: var(--ink); box-shadow: 0 8px 24px #0b4a6e66; transition: left .7s cubic-bezier(.3, .8, .2, 1), top .7s cubic-bezier(.3, .8, .2, 1), transform .7s cubic-bezier(.3, .8, .2, 1), opacity .7s, box-shadow .25s; }
   .game-card .scene { display: block; width: 100%; aspect-ratio: 16/9; }
   .game-card .game-name { display: block; padding: 12px; text-align: center; font-size: clamp(18px, 2.2vw, 28px); font-weight: 800; background: var(--gloss); }
@@ -62,7 +62,7 @@
   .game-card.is-front:hover, .game-card.is-front:focus-visible { box-shadow: 0 14px 34px #0b4a6e99, 0 0 0 8px #ffffffcc; }
   .game-card.tennis .scene { background: linear-gradient(90deg, #0000 49.6%, #fff 49.6% 50.4%, #0000 50.4%) 50% 100% / 100% 40% no-repeat, linear-gradient(#0000 68%, #fff 68% 70%, #0000 70%), linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #3f8f4b 42% 48%, #3f78b5 48%); }
   .game-card.athletics .scene { background: linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #4e9e52 42% 52%, #0000 52%), repeating-linear-gradient(#c8603f 0 13%, #fff 13% 14%); }
-  .games-goal-panel { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 24px; padding: 24px; }
+  .games-goal-panel { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 24px; padding: 24px; }
   .games-goal-panel h2 { margin: 0; color: #fff; font-size: clamp(24px, 4vw, 38px); text-align: center; text-shadow: 0 2px 8px #0b4a6e99; }
   .games-goals { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; }
   .games-goal { min-width: min(190px, 38vw); padding: 16px 24px; border-radius: 18px; font-size: clamp(20px, 2.6vw, 28px); }
@@ -221,6 +221,18 @@
   }
 
   .pip-toggle { position: absolute; z-index: 6; top: 6px; right: 6px; min-width: 28px; height: 24px; padding: 0 8px; }
+  /* Telas pequenas: a seleção de jogos reserva a faixa do preview, para nenhum botão ficar embaixo dele. */
+  @media (orientation: landscape) and (max-height: 700px), (orientation: landscape) and (max-width: 1100px) {
+    .stage:has(.sports-menu) .cam-pip:not(.expanded):not(.is-hidden) { width: 140px; }
+    .games-body { padding-right: 160px; }
+  }
+  @media (orientation: portrait) and (max-height: 700px) {
+    .stage:has(.sports-menu) .cam-pip:not(.expanded):not(.is-hidden) { width: 140px; }
+    .games-body { padding-bottom: 190px; }
+    .games-goal-panel { justify-content: flex-start; gap: 12px; padding: 10px; }
+    .games-goals { gap: 10px; }
+    .games-goals .games-goal { padding-block: 8px; }
+  }
   .cam-pip.minimized { width: auto; overflow: visible; border: 0; background: none; box-shadow: none; }
   .minimized .pip-toggle { position: static; height: 38px; padding: 0 18px; border-width: 3px; font-size: 11px; }
   /* o vídeo segue renderizado (1px, invisível) para a captura de pose não parar */
