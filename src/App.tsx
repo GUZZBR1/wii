@@ -166,7 +166,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   // G starts/stops a recording during a camera run. Detectors and calibration restart with it,
   // so replaying the file from a cold start reproduces what happened live.
   useEffect(() => {
-    if (screen !== 'play' || sport !== 'track' || !cameraOn) return;
+    if (screen !== 'play' || sport === 'tennis' || !cameraOn) return;
     const toggle = (event: KeyboardEvent) => {
       const delegate = poseClientRef.current?.delegate;
       if (event.key.toLowerCase() === 'e' && !event.repeat && delegate && recentFramesRef.current.length) {
@@ -218,6 +218,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       setTracking(current.trackingState === 'tracked' ? `TRACKING${activity}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
       drawPose(overlayRef.current, videoRef.current, current);
       engineRef.current?.setLaneZone?.(result.controls.laneZone);
+      engineRef.current?.setEffort?.(result.effort01);
       for (const event of result.events) dispatchEvent(event);
     },
   };

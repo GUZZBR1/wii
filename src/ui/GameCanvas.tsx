@@ -4,11 +4,17 @@ import type { ProceduralAudio } from '../games/audio';
 import type { GameHudState as CoreHudState } from '../games/core/hud';
 import type { GameHudState as TrackHudState } from '../games/track/TrackGame';
 
-type GameHudState = Omit<TrackHudState, 'feedback'> & { feedback?: TrackHudState['feedback'] | CoreHudState['feedback'] };
+type GameHudState = Omit<TrackHudState, 'feedback'> & { feedback?: TrackHudState['feedback'] | CoreHudState['feedback']; finished?: { title: string; detail: string } };
+
+const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }> = {
+  sprint: { score: 'DISTÂNCIA', speed: 'INTENSIDADE', controls: 'espaço várias vezes para correr' },
+  track: { score: 'SCORE', speed: 'RITMO', controls: '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' },
+  tennis: { score: 'PONTOS', speed: 'MIRA', controls: 'espaço bater  ·  timing define a direção' },
+};
 import { forwardKeyDown } from './keys';
 
-export type Sport = 'track' | 'tennis';
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; resetLaneZone?(): void; dispose(): void }
+export type Sport = 'sprint' | 'track' | 'tennis';
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort01: number): void; resetLaneZone?(): void; dispose(): void }
 
 interface Props {
   sport: Sport;
@@ -50,7 +56,9 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
         const canvas = canvasRef.current;
         if (disposed || !canvas) return;
         const updateHud = (state: GameHudState) => hudRef.current(state);
-        const engine: GameEngineHandle = sport === 'track'
+        const engine: GameEngineHandle = sport === 'sprint'
+          ? new (await import('../games/sprint/SprintGame')).SprintGame(canvas, updateHud)
+          : sport === 'track'
           ? new (await import('../games/track/TrackGame')).TrackGame(canvas, updateHud)
           : new (await import('../games/tennis/TennisGame')).TennisGame(canvas, updateHud, audio);
         if (disposed) { engine.dispose(); return; }
@@ -74,11 +82,16 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
 
   return <div className="game-viewport">
     <canvas ref={canvasRef} />
-    <div className="game-hud"><div><span>{sport === 'track' ? 'SCORE' : 'PONTOS'}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{sport === 'track' ? 'RITMO' : 'MIRA'}</span><strong>{sport === 'track' ? `${Math.round(hud.speed01 * 100)}%` : hud.status.split(' · ').at(-1)}</strong></div></div>
+    <div className="game-hud"><div><span>{HUD_TEXT[sport].score}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{HUD_TEXT[sport].speed}</span><strong>{sport === 'tennis' ? hud.status.split(' · ').at(-1) : `${Math.round(hud.speed01 * 100)}%`}</strong></div></div>
     {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${('kind' in hud.feedback ? hud.feedback.kind : hud.feedback.tone)}`}>
       <span>{hud.feedback.text}</span>
     </div>}
     {hud.banner && <div className="game-banner" role="status"><strong>{hud.banner.title}</strong>{hud.banner.detail && <span>{hud.banner.detail}</span>}</div>}
+    {hud.finished && <div className="game-over" role="dialog" aria-label="Fim da prova">
+      <h2>{hud.finished.title}</h2>
+      <p><strong>{hud.finished.detail}</strong></p>
+      <button type="button" ref={(button) => button?.focus()} onClick={onRestart}>Correr de novo</button>
+    </div>}
     {hud.result && <div className="game-over" role="dialog" aria-label="Fim de corrida">
       <h2>Você perdeu!</h2>
       <p>Sua melhor marca nesta corrida: <strong>{hud.result.points}</strong> pontos</p>
@@ -90,6 +103,6 @@ function GameRun({ sport, onEngine, tracking, audio, onRestart }: Props & { onRe
       <button type="button" ref={(button) => button?.focus()} onClick={onRestart}>Jogar de novo</button>
     </div>}
     <div className="game-ready"><i className={tracking.startsWith('TRACKING') ? 'ready' : ''} />{hud.status}</div>
-    <div className="game-controls">{sport === 'track' ? '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' : 'espaço bater  ·  timing define a direção'}</div>
+    <div className="game-controls">{HUD_TEXT[sport].controls}</div>
   </div>;
 }
