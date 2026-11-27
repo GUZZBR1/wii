@@ -32,8 +32,10 @@ describe('CameraPip', () => {
       root.render(<CameraPip {...props} cameraOn hidden />);
     });
     const pip = container.querySelector('aside')!;
-    expect(pip.hidden).toBe(true);
+    expect(pip.hidden).toBe(false);
+    expect(pip.className).toContain('is-hidden');
     expect(pip.getAttribute('aria-hidden')).toBe('true');
+    expect(pip.hasAttribute('inert')).toBe(true);
     expect(videoRef.current).toBe(video);
     expect(video!.isConnected).toBe(true);
 
@@ -41,6 +43,7 @@ describe('CameraPip', () => {
       root.render(<CameraPip {...props} cameraOn />);
     });
     expect(container.querySelector('aside')!.hidden).toBe(false);
+    expect(container.querySelector('aside')!.className).not.toContain('is-hidden');
     expect(videoRef.current).toBe(video);
 
     await act(async () => {

@@ -3,6 +3,7 @@ import { type RefObject, useEffect, useRef } from 'react';
 interface Props {
   /** Vídeo que já recebe o stream da câmera: a prévia reaproveita, sem outro getUserMedia. */
   sourceRef: RefObject<HTMLVideoElement | null>;
+  canvasRef: RefObject<HTMLCanvasElement | null>;
   cameraOn: boolean;
   status: string;
   synced: boolean;
@@ -10,15 +11,19 @@ interface Props {
   onClose: () => void;
 }
 
-export function HandPanel({ sourceRef, cameraOn, status, synced, onStart, onClose }: Props) {
+export function HandPanel({ sourceRef, canvasRef, cameraOn, status, synced, onStart, onClose }: Props) {
   const previewRef = useRef<HTMLVideoElement>(null);
   useEffect(() => {
-    if (previewRef.current) previewRef.current.srcObject = cameraOn ? (sourceRef.current?.srcObject ?? null) : null;
+    const preview = previewRef.current;
+    if (!preview) return;
+    preview.srcObject = cameraOn ? (sourceRef.current?.srcObject ?? null) : null;
+    if (cameraOn) preview.play().catch(() => undefined);
   }, [cameraOn, sourceRef]);
 
   return <aside className="hand-panel" aria-label="Controle por mão">
     <div className="hand-preview">
       <video ref={previewRef} autoPlay muted playsInline />
+      <canvas ref={canvasRef} />
       {!cameraOn && <strong>SEM SINAL</strong>}
     </div>
     <output className="hand-status" data-state={!cameraOn ? 'off' : synced ? 'synced' : 'searching'}>

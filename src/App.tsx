@@ -18,7 +18,7 @@ import { HandCursor } from './ui/HandCursor';
 import { HandPanel } from './ui/HandPanel';
 import { PerfMeter } from './ui/PerfMeter';
 import { HAND_IDLE } from './ui/handCursorTypes';
-import { drawPose } from './ui/PoseOverlay';
+import { drawHand, drawPose } from './ui/PoseOverlay';
 import { GamesMenu, HomeMenu, TitleMenu } from './ui/WiiMenu';
 import { WiiSplash } from './ui/WiiSplash';
 import './arena.css';
@@ -65,6 +65,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const [handInput, setHandInput] = useState(HAND_IDLE);
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
+  const handOverlayRef = useRef<HTMLCanvasElement>(null);
   const poseClientRef = useRef<PoseClient | undefined>(undefined);
   const handClientRef = useRef<HandClient | undefined>(undefined);
   const streamRef = useRef<MediaStream | undefined>(undefined);
@@ -162,6 +163,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     contextRef.current.reset();
     resetCalibration();
     drawPose(overlayRef.current, videoRef.current);
+    drawHand(handOverlayRef.current, videoRef.current);
   }, [dispatchEvent, resetCalibration]);
 
   const finishRecording = useCallback(() => {
@@ -269,10 +271,11 @@ export default function App({ exit }: { exit?: ReactNode }) {
         }
       },
     });
-    if (stale() || !handClient.isReady || !streamRef.current) return;
+    if (stale() || !handClient.isReady || !streamRef.current || visionModeRef.current !== 'hand') return;
     handClient.beginCapture(video, (snapshot, aspectY) => {
       if (stale()) return;
       const primary = snapshot.hands[0];
+      drawHand(handOverlayRef.current, video, primary?.landmarks);
       const state = handDetectorRef.current.update({
         timestampMs: snapshot.timestampMs,
         landmarks: primary?.landmarks ?? [],
@@ -290,6 +293,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
         pinchRelease: state.pinchRelease,
         backProgress: state.backProgress,
       });
+    }, (error) => {
+      if (!stale()) setCameraStatus(error.message);
     });
   }, [stopCamera]);
 
@@ -307,7 +312,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
         poseCallbacksRef.current?.onPose(raw);
       },
     });
-    if (stale() || !poseClient.isReady || !streamRef.current) return;
+    if (stale() || !poseClient.isReady || !streamRef.current || visionModeRef.current !== 'pose') return;
     poseClient.beginCapture(video, {
       onStatus: (status, detail) => {
         if (stale()) return;
@@ -333,6 +338,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     const attempt = cameraAttemptRef.current;
     if (next === 'hand') {
       poseClientRef.current?.pauseCapture();
+      drawPose(overlayRef.current, videoRef.current);
       void startHandCapture(video, attempt).catch((error: unknown) => {
         if (cameraAttemptRef.current === attempt) {
           setCameraStatus(error instanceof Error ? error.message : 'Não foi possível iniciar o modo de mão.');
@@ -485,7 +491,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       <button type="button" className="dock-btn" onClick={openHandPanel}>MÃO</button>
     </div>}
     {menu && handPanelOpen && <HandPanel
-      sourceRef={videoRef} cameraOn={cameraOn} status={cameraStatus} synced={handInput.synced}
+      sourceRef={videoRef} canvasRef={handOverlayRef} cameraOn={cameraOn} status={cameraStatus} synced={handInput.synced}
       onStart={() => void startCamera()} onClose={closeHandPanel}
     />}
     <HandCursor input={handInput} active={menu && cameraOn} onBack={handBack} />

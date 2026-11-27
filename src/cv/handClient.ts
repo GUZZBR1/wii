@@ -15,9 +15,11 @@ function defaultHandAssets(): HandClientAssets {
 
 export class HandClient extends CoreHandClient {
   private captureSession = 0;
-  private rafId = 0;
-  private captureInFlight = false;
+  private rafId?: number;
+  private callbackId?: number;
+  private captureInFlight?: object;
   private lastVideoTime = -1;
+  private video?: HTMLVideoElement;
 
   constructor(assets: HandClientAssets = defaultHandAssets()) {
     super(assets);
@@ -48,51 +50,69 @@ export class HandClient extends CoreHandClient {
   ): void {
     this.pauseCapture();
     const session = this.captureSession;
+    this.video = video;
     this.lastVideoTime = -1;
 
-    const tick = () => {
+    const capture = async (now: number): Promise<void> => {
       if (this.captureSession !== session) return;
-      this.rafId = window.requestAnimationFrame(tick);
-
       if (this.captureInFlight || !this.isReady) return;
-      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0) return;
-      if (video.currentTime === this.lastVideoTime) return;
-      this.lastVideoTime = video.currentTime;
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || video.videoWidth <= 0 || video.videoHeight <= 0)
+        return;
 
       const aspectY = video.videoHeight / video.videoWidth;
-      const timestampMs = performance.now();
-      this.captureInFlight = true;
-      void createImageBitmap(video)
-        .then((bitmap) => {
-          if (this.captureSession !== session) {
-            bitmap.close();
-            return undefined;
-          }
-          return this.processFrame(bitmap, timestampMs);
-        })
-        .then((snapshot) => {
-          if (this.captureSession === session && snapshot) onHand(snapshot, aspectY);
-        })
-        .catch((error: unknown) => {
-          if (this.captureSession === session) {
-            onError?.(error instanceof Error ? error : new Error(String(error)));
-          }
-        })
-        .finally(() => {
-          if (this.captureSession === session) this.captureInFlight = false;
-        });
+      const flight = {};
+      this.captureInFlight = flight;
+      let bitmap: ImageBitmap | undefined;
+      try {
+        bitmap = await createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'low' });
+        if (this.captureSession !== session) {
+          bitmap.close();
+          return;
+        }
+        const frame = bitmap;
+        bitmap = undefined;
+        const snapshot = await this.processFrame(frame, now);
+        if (this.captureSession === session && snapshot) onHand(snapshot, aspectY);
+      } catch (error) {
+        bitmap?.close();
+        if (this.captureSession === session) {
+          onError?.(error instanceof Error ? error : new Error(String(error)));
+        }
+      } finally {
+        if (this.captureInFlight === flight) this.captureInFlight = undefined;
+      }
     };
 
-    this.rafId = window.requestAnimationFrame(tick);
+    const schedule = () => {
+      if (this.captureSession !== session) return;
+      const supportsVideoFrameCallback =
+        typeof (video as HTMLVideoElement & { requestVideoFrameCallback?: unknown }).requestVideoFrameCallback ===
+        'function';
+      if (supportsVideoFrameCallback) {
+        this.callbackId = video.requestVideoFrameCallback((now) => {
+          schedule();
+          void capture(now);
+        });
+      } else {
+        this.rafId = window.requestAnimationFrame(() => {
+          schedule();
+          if (video.currentTime !== this.lastVideoTime) {
+            this.lastVideoTime = video.currentTime;
+            void capture(performance.now());
+          }
+        });
+      }
+    };
+    schedule();
   }
 
   pauseCapture(): void {
     this.captureSession += 1;
-    if (this.rafId) {
-      window.cancelAnimationFrame(this.rafId);
-      this.rafId = 0;
-    }
-    this.captureInFlight = false;
+    if (this.callbackId !== undefined) this.video?.cancelVideoFrameCallback?.(this.callbackId);
+    this.callbackId = undefined;
+    if (this.rafId !== undefined) window.cancelAnimationFrame(this.rafId);
+    this.rafId = undefined;
+    this.video = undefined;
   }
 
   override dispose(): void {

@@ -1,16 +1,24 @@
-import type { PoseSnapshot } from '../cv/protocol';
+import type { Point3, PoseSnapshot } from '../cv/protocol';
 
 const BONES: readonly [number, number][] = [[11, 12], [11, 13], [13, 15], [12, 14], [14, 16], [11, 23], [12, 24], [23, 24], [23, 25], [25, 27], [27, 31], [24, 26], [26, 28], [28, 32]];
+const HAND_BONES: readonly [number, number][] = [[0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8], [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15], [15, 16], [13, 17], [17, 18], [18, 19], [19, 20], [0, 17]];
 const previousWrists = new Map<number, { x: number; y: number; timestampMs: number }>();
 
-export function drawPose(canvas: HTMLCanvasElement | null, video: HTMLVideoElement | null, snapshot?: PoseSnapshot): void {
-  if (!canvas || !video) return;
+function prepCanvas(canvas: HTMLCanvasElement | null, video: HTMLVideoElement | null): { ctx: CanvasRenderingContext2D; width: number; height: number } | null {
+  if (!canvas || !video) return null;
   const width = video.videoWidth || 640;
   const height = video.videoHeight || 480;
   if (canvas.width !== width || canvas.height !== height) { canvas.width = width; canvas.height = height; }
   const ctx = canvas.getContext('2d');
-  if (!ctx) return;
+  if (!ctx) return null;
   ctx.clearRect(0, 0, width, height);
+  return { ctx, width, height };
+}
+
+export function drawPose(canvas: HTMLCanvasElement | null, video: HTMLVideoElement | null, snapshot?: PoseSnapshot): void {
+  const prep = prepCanvas(canvas, video);
+  if (!prep) return;
+  const { ctx, width, height } = prep;
   if (!snapshot) { previousWrists.clear(); return; }
   ctx.lineWidth = Math.max(2, width / 320);
   ctx.strokeStyle = snapshot.trackingState === 'tracked' ? '#f5ad42' : '#fa6262';
@@ -50,5 +58,24 @@ export function drawPose(canvas: HTMLCanvasElement | null, video: HTMLVideoEleme
       }
     }
     if (wrist) previousWrists.set(index, { x: wrist.x, y: wrist.y, timestampMs: snapshot.timestampMs });
+  }
+}
+
+export function drawHand(canvas: HTMLCanvasElement | null, video: HTMLVideoElement | null, landmarks?: readonly Point3[]): void {
+  const prep = prepCanvas(canvas, video);
+  if (!prep) return;
+  const { ctx, width, height } = prep;
+  if (!landmarks) return;
+  ctx.lineWidth = Math.max(2, width / 320);
+  ctx.strokeStyle = '#f5ad42';
+  ctx.fillStyle = '#fff2cf';
+  for (const [a, b] of HAND_BONES) {
+    const p = landmarks[a]; const q = landmarks[b];
+    if (!p || !q) continue;
+    ctx.beginPath(); ctx.moveTo(p.x * width, p.y * height); ctx.lineTo(q.x * width, q.y * height); ctx.stroke();
+  }
+  for (const p of landmarks) {
+    if (!p) continue;
+    ctx.beginPath(); ctx.arc(p.x * width, p.y * height, Math.max(3, width / 120), 0, Math.PI * 2); ctx.fill();
   }
 }
