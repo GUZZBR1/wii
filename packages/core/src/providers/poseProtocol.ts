@@ -16,6 +16,11 @@ export interface CalibrationProfile {
      * the player's own right is toward image left, so displacement rightward is centerX0 − x.
      */
     shoulderCenterX0: number;
+    /**
+     * Neutral shoulder width as a share of frame width, anchored at the first publication so a
+     * step toward or away from the camera stays visible instead of being absorbed.
+     */
+    shoulderWidth0?: number;
   };
   quality: { validFrameRatio: number; medianConfidence: number };
   /**
@@ -121,6 +126,11 @@ export interface ContinuousControls {
    * zone; undefined while the camera has no opinion, which consumers must read as not guarding.
    */
   guard?: boolean;
+  /**
+   * Step in depth relative to the calibrated distance: 1 toward the camera, -1 away, 0 neutral.
+   * Restated every frame; undefined while the camera has no opinion.
+   */
+  ringDepthMove?: -1 | 0 | 1;
 }
 
 interface ActionBase {

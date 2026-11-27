@@ -260,3 +260,93 @@ describe('BoxingGame guard', () => {
     expect(read().boxing).toEqual({ playerHp: 90, opponentHp: 100, maxHp: 100, round: 1, rounds: 3, secondsLeft: 59 });
   });
 });
+
+describe('BoxingGame footwork', () => {
+  type Spot = { x: number; z: number };
+  const spots = (game: object) => game as unknown as { playerPos: Spot; opponentPos: Spot };
+  const gap = (game: object) => {
+    const { playerPos, opponentPos } = spots(game);
+    return Math.hypot(playerPos.x - opponentPos.x, playerPos.z - opponentPos.z);
+  };
+  const hold = (fight: ReturnType<typeof start>, key: string, seconds: number) => {
+    fight.game.onKey(key);
+    fight.run(seconds);
+    fight.game.onKeyUp(key);
+  };
+
+  it('walks in with W and back with X while the key is held', () => {
+    const fight = start();
+    hold(fight, 'w', 0.5);
+    expect(gap(fight.game)).toBeLessThan(2.1);
+    const close = gap(fight.game);
+    hold(fight, 'X', 0.3);
+    expect(gap(fight.game)).toBeGreaterThan(close + 0.3);
+  });
+
+  it.each([['q', -1], ['e', 1]])('circles with %s', (key, side) => {
+    const fight = start();
+    hold(fight, key, 0.5);
+    expect(Math.sign(spots(fight.game).playerPos.x)).toBe(side);
+  });
+
+  it('stays inside the ropes and off the opponent', () => {
+    const fight = start();
+    for (const key of ['x', 'q', 'e', 'w']) {
+      hold(fight, key, 4);
+      const { playerPos, opponentPos } = spots(fight.game);
+      for (const value of [playerPos.x, playerPos.z, opponentPos.x, opponentPos.z]) {
+        expect(Math.abs(value)).toBeLessThanOrEqual(2.55);
+      }
+      expect(gap(fight.game)).toBeGreaterThanOrEqual(1.45 - 1e-6);
+    }
+  });
+
+  it('misses from out of range, until the opponent walks in', () => {
+    const fight = start();
+    fight.game.onKey('x');
+    fight.run(1); // 200 ms into the windup, backing away the whole time
+    expect(gap(fight.game)).toBeGreaterThan(2.95);
+    fight.game.onKey('d');
+    expect(fight.read()).toMatchObject({ label: '100 × 100', feedback: { text: 'LONGE DEMAIS' } });
+    fight.game.onKeyUp('x');
+    fight.run(2);
+    expect(gap(fight.game)).toBeLessThanOrEqual(2.95);
+  });
+
+  it('lets the player step out of an opponent punch', () => {
+    const fight = start();
+    hold(fight, 'x', 0.8);
+    fight.game.onKey('x');
+    fight.run(1);
+    expect(fight.read()).toMatchObject({ label: '100 × 100', feedback: { text: 'LONGE DEMAIS' } });
+  });
+
+  it('circles only on a lean that is held, and stops when the camera loses its opinion', () => {
+    const fight = start();
+    fight.game.setLaneZone(1);
+    fight.run(0.3);
+    expect(spots(fight.game).playerPos.x).toBe(0);
+    fight.run(0.5);
+    const { x } = spots(fight.game).playerPos;
+    expect(x).toBeGreaterThan(0.1);
+    fight.game.setLaneZone(undefined);
+    fight.run(0.5);
+    expect(spots(fight.game).playerPos.x).toBe(x);
+  });
+
+  it('follows the camera depth step', () => {
+    const fight = start();
+    fight.game.setDepthMove(1);
+    fight.run(0.5);
+    expect(gap(fight.game)).toBeLessThan(2.5);
+  });
+
+  it('recenters both fighters for the next round', () => {
+    const fight = start();
+    hold(fight, 'e', 0.5);
+    fight.setMatch({ roundMsLeft: 100 });
+    fight.run(3.2); // bell and break
+    expect(spots(fight.game)).toMatchObject({ playerPos: { x: 0, z: 1.85 } });
+    expect(gap(fight.game)).toBeCloseTo(2.7);
+  });
+});

@@ -342,7 +342,7 @@ export class AdaptiveCalibrator {
         shoulderWidth,
         readyWristLocal: Object.keys(readyWristLocal).length ? readyWristLocal : undefined,
       },
-      image: { shoulderCenterX0 },
+      image: { shoulderCenterX0, shoulderWidth0: median(this.coreObservations.map((sample) => sample.imageShoulderWidth)) },
       quality: {
         validFrameRatio: clamp(coverage.ratio),
         medianConfidence: median(this.coreObservations.map((sample) => sample.confidence)),
@@ -417,7 +417,8 @@ export class AdaptiveCalibrator {
         shoulderWidth,
         readyWristLocal: Object.keys(readyWristLocal).length ? readyWristLocal : undefined,
       },
-      image: { shoulderCenterX0 },
+      // The depth reference does not follow the player: see CalibrationProfile.
+      image: { shoulderCenterX0, shoulderWidth0: current.image.shoulderWidth0 ?? target.image.shoulderWidth0 },
       quality: target.quality,
       readiness: target.readiness,
     };

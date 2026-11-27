@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { AdaptiveCalibrator } from '../src/cv/adaptiveCalibrator';
 import type { CalibrationProfile } from '../src/cv/protocol';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
-import { LanePositionTracker } from '../src/kinematics/postureSignals';
+import { LanePositionTracker, RingDepthTracker } from '../src/kinematics/postureSignals';
 import { calibration, pose } from './fixtures/syntheticPose';
 
 /** Smoothly ramps toward each keyframed displacement — bodies accelerate, they don't teleport. */
@@ -278,5 +278,46 @@ describe('lane position control through the real pipeline and calibrator', () =>
     expect(Math.max(...lanes(zoneTrace))).toBe(1);
     expect(zoneTrace.at(-1)!.zone).toBe(0);
     expect(Math.abs(profile!.image.shoulderCenterX0 - 0.5)).toBeLessThan(0.005);
+  });
+});
+
+describe('RingDepthTracker', () => {
+  const profile = (): CalibrationProfile => {
+    const base = calibration();
+    const first = pose(0);
+    const width = Math.abs(first.landmarks[11]!.x - first.landmarks[12]!.x);
+    return { ...base, image: { ...base.image, shoulderWidth0: width } };
+  };
+  /** The same pose with the shoulders `ratio` times as wide as the calibrated ones. */
+  const scaled = (timeMs: number, ratio: number) => {
+    const snapshot = pose(timeMs);
+    const center = (snapshot.landmarks[11]!.x + snapshot.landmarks[12]!.x) / 2;
+    const landmarks = snapshot.landmarks.map((point, index) => (
+      index === 11 || index === 12 ? { ...point, x: center + (point.x - center) * ratio } : point
+    ));
+    return { ...snapshot, landmarks };
+  };
+  const drive = (ratioAt: (timeMs: number) => number, totalMs: number) => {
+    const tracker = new RingDepthTracker();
+    const trace: number[] = [];
+    for (let time = 0; time <= totalMs; time += 33) trace.push(tracker.update(scaled(time, ratioAt(time)), profile())!);
+    return trace;
+  };
+
+  it('reads a held step in either direction and releases it on return', () => {
+    for (const [ratio, move] of [[1.3, 1], [0.75, -1]] as const) {
+      const trace = drive((t) => (t > 500 && t < 2000 ? ratio : 1), 3000);
+      expect(new Set(trace)).toEqual(new Set([0, move]));
+      expect(trace.at(-1)).toBe(0);
+    }
+  });
+
+  it('ignores a standing player and the brief foreshortening of a punch', () => {
+    expect(new Set(drive((t) => (t % 66 === 0 ? 1.05 : 0.95), 2000))).toEqual(new Set([0]));
+    expect(new Set(drive((t) => (t > 500 && t < 700 ? 0.7 : 1), 2000))).toEqual(new Set([0]));
+  });
+
+  it('has no opinion without a reference width', () => {
+    expect(new RingDepthTracker().update(pose(0), calibration())).toBeUndefined();
   });
 });

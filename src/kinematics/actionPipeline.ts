@@ -1,7 +1,7 @@
 import type { CalibrationProfile, ContinuousControls, Hand, PoseSnapshot, SportActionEvent, TrackingState } from '../cv/protocol';
 import { CadenceTracker } from './cadenceTracker';
 import { JumpDetector } from './jumpDetector';
-import { LanePositionTracker } from './postureSignals';
+import { LanePositionTracker, RingDepthTracker } from './postureSignals';
 import { isGuardingPose, PunchDetector } from './punchDetector';
 import { SWING_MAX_DURATION_MS, SwingDetector, type SwingSignal } from './swingDetector';
 import { TorsoVerticalChannel } from './torsoVertical';
@@ -29,6 +29,7 @@ export class ActionPipeline {
   private readonly cadence = new CadenceTracker();
   private readonly jump = new JumpDetector();
   private readonly lanePosition = new LanePositionTracker();
+  private readonly ringDepth = new RingDepthTracker();
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
     { hand, wrist, gate: new TrackingGate([], 'world'), detector: new SwingDetector(hand) }
@@ -93,6 +94,8 @@ export class ActionPipeline {
     if (laneReady && torsoTracking.state === 'tracked') {
       const zone = this.lanePosition.update(current, calibration);
       if (zone !== undefined) controls = { ...controls, laneZone: zone };
+      const depth = this.ringDepth.update(current, calibration);
+      if (depth !== undefined) controls = { ...controls, ringDepthMove: depth };
     }
 
     const swingScaleReady = calibration !== undefined && (calibration.readiness?.scale01 ?? 1) >= 0.5;
@@ -209,5 +212,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.punches.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.cadence.reset(); this.jump.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.ringDepth.reset(); this.swings.forEach(({ detector }) => { detector.reset(); }); this.punches.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }

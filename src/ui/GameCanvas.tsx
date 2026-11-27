@@ -19,9 +19,9 @@ const HUD_TEXT: Record<Sport, { score: string; controls: string }> = {
   track: { score: 'SCORE', controls: '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' },
   athletics: { score: 'TEMPO', controls: '↑ / espaço acelerar  ·  ↓ desacelerar' },
   tennis: { score: 'PONTOS', controls: 'espaço bater  ·  timing define a direção' },
-  boxing: { score: 'HP', controls: '← → esquivar  ·  A / D socar  ·  segure ↓ ou S para defender' },
+  boxing: { score: 'HP', controls: '← → esquivar  ·  W / X avançar e recuar  ·  Q / E circular  ·  A / D socar  ·  segure ↓ ou S para defender' },
 };
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; resetLaneZone?(): void; setGuard?(guard: boolean | undefined): void; onKeyUp?(key: string): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; resetLaneZone?(): void; setGuard?(guard: boolean | undefined): void; setDepthMove?(move: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
 
 interface Props {
   sport: Sport;
@@ -70,7 +70,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal, onGoal, onRestart }: 
     };
     const keyup = (event: KeyboardEvent) => game?.onKeyUp?.(event.key);
     // A key released while the window is unfocused never reports it.
-    const blur = () => { for (const key of ['ArrowDown', 's']) game?.onKeyUp?.(key); };
+    const blur = () => { for (const key of ['ArrowDown', 's', 'w', 'x', 'q', 'e']) game?.onKeyUp?.(key); };
     window.addEventListener('keydown', keydown);
     window.addEventListener('keyup', keyup);
     window.addEventListener('blur', blur);

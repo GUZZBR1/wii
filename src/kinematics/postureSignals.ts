@@ -59,3 +59,46 @@ export class LanePositionTracker {
 
   reset(): void { this.filter.reset(); this.zone = 0; this.reference = undefined; }
 }
+
+/** Step in past these width ratios to the calibrated one; return to neutral inside the inner pair. */
+const ENTER_NEAR_RATIO = 1.15;
+const EXIT_NEAR_RATIO = 1.07;
+const ENTER_FAR_RATIO = 0.85;
+const EXIT_FAR_RATIO = 0.93;
+/** A punch turns the torso and narrows the shoulders for a moment: a step has to outlast that. */
+const DEPTH_HOLD_MS = 300;
+
+/**
+ * Depth control by apparent size: shoulders wider than the calibrated neutral mean the player
+ * stepped toward the camera (1), narrower mean they stepped back (-1).
+ */
+export class RingDepthTracker {
+  private readonly filter = new OneEuroFilter({ minCutoff: 1.2, beta: 0.4, derivativeCutoff: 1 });
+  private move: -1 | 0 | 1 = 0;
+  private pending?: { move: -1 | 1; sinceMs: number };
+
+  /** The current step, or undefined without a reference width or readable shoulders. */
+  update(snapshot: PoseSnapshot, calibration: CalibrationProfile): -1 | 0 | 1 | undefined {
+    const reference = calibration.image.shoulderWidth0;
+    const leftShoulder = snapshot.landmarks[11];
+    const rightShoulder = snapshot.landmarks[12];
+    if (!reference || !leftShoulder || !rightShoulder) return undefined;
+    const aspect = snapshot.frameHeight / snapshot.frameWidth;
+    const width = Math.hypot(leftShoulder.x - rightShoulder.x, (leftShoulder.y - rightShoulder.y) * aspect);
+    if (!Number.isFinite(width) || width < MIN_SHOULDER_WIDTH) return undefined;
+    const ratio = this.filter.filter(width / reference, snapshot.timestampMs);
+    if ((this.move === 1 && ratio <= EXIT_NEAR_RATIO) || (this.move === -1 && ratio >= EXIT_FAR_RATIO)) this.move = 0;
+    const wanted = ratio >= ENTER_NEAR_RATIO ? 1 : ratio <= ENTER_FAR_RATIO ? -1 : undefined;
+    if (wanted === undefined || wanted === this.move) this.pending = undefined;
+    else {
+      if (this.pending?.move !== wanted) this.pending = { move: wanted, sinceMs: snapshot.timestampMs };
+      if (snapshot.timestampMs - this.pending.sinceMs >= DEPTH_HOLD_MS) {
+        this.move = wanted;
+        this.pending = undefined;
+      }
+    }
+    return this.move;
+  }
+
+  reset(): void { this.filter.reset(); this.move = 0; this.pending = undefined; }
+}
