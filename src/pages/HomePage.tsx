@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { historicDrawings } from '../data/historic-drawings';
-import SketchPad from '../components/SketchPad';
+import GamesShowcase from '../components/GamesShowcase';
+import MiiCreator from '../components/MiiCreator';
 import { useLang } from '../i18n';
 
 // Tempo que cada cartao fica em destaque (igual ao hover) antes de passar ao proximo.
@@ -76,7 +77,8 @@ export default function HomePage() {
           </a>
         ))}
       </section>
-      <SketchPad />
+      <GamesShowcase />
+      <MiiCreator />
     </main>
   );
 }

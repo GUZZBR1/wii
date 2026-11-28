@@ -12,6 +12,8 @@ import ArenaShell from '../components/ArenaShell';
 import VisionPage from '../pages/VisionPage';
 import { useLang } from '../i18n';
 
+const SiteMiiPlaza = lazy(() => import('../components/SiteMiiPlaza'));
+
 export default function App() {
   const location = useLocation();
   const [productRefresh, setProductRefresh] = useState(0);
@@ -64,6 +66,11 @@ export default function App() {
         </Routes>
       </motion.div>
       {!inArena && <ScrollbarControl />}
+      {!inArena && !introOpen && (
+        <Suspense fallback={null}>
+          <SiteMiiPlaza />
+        </Suspense>
+      )}
     </>
   );
 }

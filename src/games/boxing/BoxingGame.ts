@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import type { Hand, SportActionEvent } from '../../cv/protocol';
+import { FaceCache } from '../../mii/faceCache';
+import { FaceVisibilityController } from '../../mii/faceVisibility';
+import { generateMiiFromSeed } from '../../mii/miiSpec';
 import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
 import type { GameHudState, HudFeedback } from '../core/hud';
@@ -175,6 +178,8 @@ interface PendingImpact {
 export class BoxingGame {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(55, 1, 0.1, 80);
+  private readonly faceCache = new FaceCache();
+  private readonly faceVisibility: FaceVisibilityController;
   private readonly opponentBoxer: MiiBoxer | undefined;
   private readonly gloves: FirstPersonGloves;
   private readonly bag: PunchingBag | undefined;
@@ -292,6 +297,7 @@ export class BoxingGame {
         trimColor: this.profile.trimColor,
         shortsColor: this.profile.shortsColor,
         gloveColor: this.profile.gloveColor,
+        face: generateMiiFromSeed(this.profile.miiSeed),
       });
       this.scene.add(this.opponentBoxer.root);
     }
@@ -314,6 +320,10 @@ export class BoxingGame {
     this.scene.add(this.camera);
     this.scene.add(this.sparks.root);
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt));
+    this.faceVisibility = new FaceVisibilityController({ cache: this.faceCache, renderer: this.loop.renderer });
+    if (this.opponentBoxer) this.faceVisibility.register(this.opponentBoxer.facePatch);
+    // Once per rendered frame, after the fixed steps have posed the fighters and the camera.
+    this.loop.onBeforeRender = (wallTimeMs) => this.faceVisibility.update(this.camera, wallTimeMs);
     if (this.loop.renderer) {
       this.ring = buildBoxingRing(this.scene, this.loop.renderer);
     } else {
@@ -1255,6 +1265,8 @@ export class BoxingGame {
 
   dispose(): void {
     window.clearInterval(this.hudTimer);
+    this.faceVisibility.dispose();
+    this.faceCache.disposeAll();
     this.ring?.dispose();
     this.loop.dispose();
   }
