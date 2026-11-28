@@ -237,7 +237,7 @@ describe('BoxingGame counter window', () => {
     game.onAction(punch(wallMs));
     expect(read()).toMatchObject({ label: '100 × 82', feedback: { text: 'CONTRA-ATAQUE!' } });
     game.onAction(punch(wallMs));
-    expect(read()).toMatchObject({ label: '100 × 70', feedback: { text: 'ACERTOU!' } });
+    expect(read()).toMatchObject({ label: '100 × 70', feedback: { text: 'EM CHEIO!' } });
   });
 
   it('goes through the guard while the window lasts, and not after it', () => {
@@ -521,7 +521,7 @@ describe('BoxingGame body controls and animation', () => {
     game.onKey('e'); // lands during the windup
     run(0.2);
     expect(state.fightMs - fightMs).toBeCloseTo(200, 5);
-    expect(state.animTimeS - animTimeS).toBeCloseTo(0.2 - 0.045, 5);
+    expect(state.animTimeS - animTimeS).toBeCloseTo(0.2 - 0.06, 5);
   });
 });
 

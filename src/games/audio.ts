@@ -160,6 +160,11 @@ export class ProceduralAudio {
     });
   }
 
+  /** The low weight under a heavy punch. */
+  thud(): void {
+    this.tone(52, 0.24, 0.32, 'sine');
+  }
+
   bell(kind: 'round' | 'ko'): void {
     if (kind === 'round') {
       // round bell: three quick dings

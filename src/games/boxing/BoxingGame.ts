@@ -12,7 +12,8 @@ import { applyLatePunch, applyOpponentPunch, applyPlayerPunch, createBoxing, MAX
 import type { BoxingMode } from './boxingModes';
 import { LEARNING_PUNCH_TRAVEL, BoxingTutorial } from './boxingTutorial';
 import { RestartGesture } from '../core/restartGesture';
-import { createImpactSparkPool, type ImpactEffectKind, type ImpactSparkPool } from './impactEffects';
+import { HIT_FEEL, HitImpulse, type HitKind, playerHitKind } from './hitFeel';
+import { createImpactRing, createImpactSparkPool, type ImpactEffectKind, type ImpactSparkPool } from './impactEffects';
 import { createMiiBoxer, type MiiBoxer, type MiiBoxerFootwork, type MiiBoxerState } from './miiBoxer';
 import {
   createOpponentAi,
@@ -73,8 +74,7 @@ const PUNCH_KEY = 'e';
 const PUNCH_OUT_S = 0.08;
 const PUNCH_RETURN_S = 0.18;
 const PUNCH_ANIM_S = PUNCH_OUT_S + PUNCH_RETURN_S;
-/** Animation freeze on a clean hit; the fight clock and the rules keep running. */
-const HITSTOP_S = 0.045;
+const FOV_DEG = 55;
 /** Camera roll in radians while dodging aside and, on top of that, while dashing. */
 const DODGE_ROLL = 0.035;
 const DASH_ROLL = 0.045;
@@ -194,7 +194,7 @@ interface PendingImpact {
 
 export class BoxingGame {
   private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.PerspectiveCamera(55, 1, 0.1, 80);
+  private readonly camera = new THREE.PerspectiveCamera(FOV_DEG, 1, 0.1, 80);
   private readonly faceCache = new FaceCache();
   private readonly faceVisibility: FaceVisibilityController;
   private readonly opponentBoxer: MiiBoxer | undefined;
@@ -289,6 +289,8 @@ export class BoxingGame {
   private punchAnimS: Record<Hand, number> = { left: PUNCH_ANIM_S, right: PUNCH_ANIM_S };
   private opponentHitS = 0;
   private hitShakeS = 0;
+  private readonly impulse = new HitImpulse(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
+  private readonly impactRing = createImpactRing();
   private keyPunchAtMs: Record<Hand, number> = { left: Number.NEGATIVE_INFINITY, right: Number.NEGATIVE_INFINITY };
   private status = 'Soque quando a guarda abrir';
   private feedback: HudFeedback | undefined;
@@ -340,6 +342,7 @@ export class BoxingGame {
     this.placeFighters(0, true);
     this.scene.add(this.camera);
     this.scene.add(this.sparks.root);
+    this.scene.add(this.impactRing.root);
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt));
     this.faceVisibility = new FaceVisibilityController({ cache: this.faceCache, renderer: this.loop.renderer });
     if (this.opponentBoxer) this.faceVisibility.register(this.opponentBoxer.facePatch);
@@ -593,15 +596,18 @@ export class BoxingGame {
     const result = apply(this.match, power01, openingAt(this.ai, atMs), counter, kind, target);
     this.match = result.state;
     const blocked = result.damage === 0;
+    const contact = playerHitKind(result.damage, power01, counter, result.ko);
     this.spawnOpponentImpact(power01, blocked ? 'block' : 'hit');
     if (result.damage > 0) {
       if (counter) this.counter = undefined; // one counter per dodge
       this.opponentHitS = OPPONENT_HIT_S;
-      this.freezeOnImpact(hand);
-      this.setFeedback(result.ko ? 'NOCAUTE!' : counter ? 'CONTRA-ATAQUE!' : 'ACERTOU!', 'good');
+      this.feelImpact(contact, 'opponent', hand);
+      this.setFeedback(result.ko ? 'NOCAUTE!' : counter ? 'CONTRA-ATAQUE!' : contact === 'heavy' ? 'EM CHEIO!' : 'ACERTOU!', 'good');
       this.audio?.punchImpact(0.4 + 0.6 * power01, false);
+      if (contact === 'heavy') this.audio?.thud();
       if (counter || result.ko) this.audio?.crowdReact(result.ko ? 1 : 0.7);
     } else {
+      this.feelImpact(contact, 'opponent', hand);
       this.setFeedback('BLOQUEADO', 'neutral');
       this.audio?.punchImpact(0.3 + 0.4 * power01, true);
     }
@@ -617,7 +623,7 @@ export class BoxingGame {
     this.bag?.hit(hand, power01);
     this.spawnBagImpact(power01);
     const events = this.bagTrainer.punch({ timeSeconds: this.fightMs / 1000, strength01: power01 });
-    if (events.some(({ kind }) => kind === 'hit')) this.freezeOnImpact(hand);
+    if (events.some(({ kind }) => kind === 'hit')) this.feelImpact(power01 >= 0.7 ? 'heavy' : 'hit', 'opponent', hand);
     this.applyBagEvents(events);
   }
 
@@ -628,17 +634,23 @@ export class BoxingGame {
   }
 
   /** The player's punches freeze when the glove arrives; a punch taken freezes at once. */
-  private freezeOnImpact(hand?: Hand): void {
-    this.hitstop = { delayS: hand ? Math.max(0, PUNCH_OUT_S - this.punchAnimS[hand]) : 0, leftS: HITSTOP_S };
+  private feelImpact(kind: HitKind, struck: 'opponent' | 'player', hand?: Hand): void {
+    this.hitstop = { delayS: hand ? Math.max(0, PUNCH_OUT_S - this.punchAnimS[hand]) : 0, leftS: HIT_FEEL[kind].stopS };
+    this.impulse.trigger(kind, struck);
   }
 
-  /** The part of `dt` that animations advance by, once any hitstop has taken its share. */
+  /** The part of `dt` that animations advance by: nothing during a hitstop, less in slow motion. */
   private animationStep(dt: number): number {
     const before = Math.min(this.hitstop.delayS, dt);
     const frozen = Math.min(this.hitstop.leftS, dt - before);
     this.hitstop.delayS -= before;
     this.hitstop.leftS -= frozen;
-    return dt - frozen;
+    const moving = dt - frozen;
+    // The aftermath starts at contact, after the glove has travelled and the freeze has passed.
+    if (this.hitstop.delayS > 0) return moving;
+    const rate = this.impulse.animationRate;
+    this.impulse.step(moving);
+    return moving * rate;
   }
 
   // ---------------------------------------------------------------- update
@@ -670,6 +682,7 @@ export class BoxingGame {
       this.hitShakeS = Math.max(0, this.hitShakeS - animDt);
       this.bag?.update(animDt);
       this.sparks.update(animDt);
+      this.impactRing.update(animDt, this.camera);
     }
     this.poseScene(dt, animDt);
   }
@@ -969,12 +982,13 @@ export class BoxingGame {
       this.audio?.success(1);
     } else if (guarded && !result.ko) {
       this.spawnPlayerImpact(0.45, 'block');
+      this.feelImpact('blocked', 'player');
       this.setFeedback('DEFENDEU', 'neutral');
       this.audio?.punchImpact(0.65, true);
     } else {
       this.spawnPlayerImpact(0.85, 'hit');
       this.hitShakeS = 0.3;
-      this.freezeOnImpact();
+      this.feelImpact(result.ko ? 'ko' : 'taken', 'player');
       this.setFeedback(result.ko ? 'NOCAUTE…' : 'LEVOU UM SOCO', 'bad');
       this.audio?.punchImpact(0.85, false);
     }
@@ -1012,7 +1026,7 @@ export class BoxingGame {
         } else {
           this.spawnPlayerImpact(0.8, 'hit');
           this.hitShakeS = 0.3;
-          this.freezeOnImpact();
+          this.feelImpact('taken', 'player');
           this.setFeedback(event.outcome === 'late' ? 'TARDE DEMAIS' : 'LEVOU UM SOCO', 'bad');
           this.audio?.punchImpact(0.85, false);
         }
@@ -1127,18 +1141,26 @@ export class BoxingGame {
     const dz = opponentPos.z - this.eye.z;
     const distance = Math.hypot(dx, dz) || 1;
     const body = this.playerBoxer.root;
+    const recoil = this.impulse.recoilM;
+    const playerRecoil = this.impulse.struck === 'player' ? recoil : 0;
     body.position.set(
-      this.eye.x + right.x * this.dodgeOffset,
+      this.eye.x + right.x * this.dodgeOffset - (dx / distance) * playerRecoil,
       RING_CANVAS_Y - this.duck01 * DUCK_DROP_M,
-      this.eye.z + right.z * this.dodgeOffset,
+      this.eye.z + right.z * this.dodgeOffset - (dz / distance) * playerRecoil,
     );
     body.rotation.set(-this.duck01 * DUCK_BOW_RAD, Math.atan2(dx, dz) + Math.PI, -(this.dodgeOffset / ZONE_WIDTH) * LEAN_ROLL_RAD);
     const follow = this.dodgeOffset * CAMERA_DODGE_FOLLOW;
+    const shake = this.impulse.shake;
     this.camera.position.set(
-      this.eye.x - (dx / distance) * CAMERA_BACK_M + right.x * follow,
-      CAMERA_Y + Math.sin(this.hitShakeS * 70) * this.hitShakeS * 0.12,
-      this.eye.z - (dz / distance) * CAMERA_BACK_M + right.z * follow,
+      this.eye.x - (dx / distance) * CAMERA_BACK_M + right.x * (follow + shake.x),
+      CAMERA_Y + shake.y,
+      this.eye.z - (dz / distance) * CAMERA_BACK_M + right.z * (follow + shake.x),
     );
+    const fov = FOV_DEG - this.impulse.zoomDeg;
+    if (this.camera.fov !== fov) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
     this.camera.lookAt(this.lookTarget.x, RING_CANVAS_Y + 0.95, this.lookTarget.z);
     this.camera.rotateZ(this.cameraRoll);
     this.bag?.root.position.set(opponentPos.x, RING_CANVAS_Y, opponentPos.z);
@@ -1150,10 +1172,11 @@ export class BoxingGame {
       }
       // On the opponent's clock, so a pause or hitstop freezes the lean with the attack.
       this.telegraphOffset += (telegraphTarget - this.telegraphOffset) * blend(TELEGRAPH_RATE, opponentDtS);
+      const opponentRecoil = this.impulse.struck === 'opponent' ? recoil : 0;
       this.opponentBoxer.root.position.set(
-        opponentPos.x + right.x * this.telegraphOffset,
+        opponentPos.x + right.x * this.telegraphOffset + (dx / distance) * opponentRecoil,
         RING_CANVAS_Y,
-        opponentPos.z + right.z * this.telegraphOffset,
+        opponentPos.z + right.z * this.telegraphOffset + (dz / distance) * opponentRecoil,
       );
       this.opponentBoxer.root.rotation.y = Math.atan2(playerPos.x - opponentPos.x, playerPos.z - opponentPos.z) + Math.PI;
     }
@@ -1214,11 +1237,13 @@ export class BoxingGame {
   private spawnOpponentImpact(power01: number, kind: ImpactEffectKind): void {
     const point = this.impactSurface(1.35, 0.32);
     this.sparks.spawn(point.x, point.y, point.z, power01, kind);
+    this.impactRing.burst(point, power01, kind);
   }
 
   private spawnBagImpact(power01: number): void {
     const point = this.impactSurface(1.25, 0.36);
     this.sparks.spawn(point.x, point.y, point.z, power01, 'hit');
+    this.impactRing.burst(point, power01, 'hit');
   }
 
   /** On the face of the player's boxer, on the side the opponent stands. */
@@ -1227,7 +1252,10 @@ export class BoxingGame {
     const dx = this.opponentPos.x - head.x;
     const dz = this.opponentPos.z - head.z;
     const distance = Math.hypot(dx, dz) || 1;
-    this.sparks.spawn(head.x + (dx / distance) * 0.3, head.y + 1.55, head.z + (dz / distance) * 0.3, power01, kind);
+    const point = { x: head.x + (dx / distance) * 0.3, y: head.y + 1.55, z: head.z + (dz / distance) * 0.3 };
+    this.sparks.spawn(point.x, point.y, point.z, power01, kind);
+    // Much nearer to the camera than the opponent: the same ring would fill the screen.
+    this.impactRing.burst(point, power01, kind, 0.4);
   }
 
   // ---------------------------------------------------------------- hud & lifecycle
