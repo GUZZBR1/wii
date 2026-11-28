@@ -1,4 +1,4 @@
-import { type RefObject, useCallback, useEffect, useRef, useState } from 'react';
+import { type CSSProperties, type RefObject, useCallback, useEffect, useRef, useState } from 'react';
 import type { Hand, SportActionEvent } from '../cv/protocol';
 import type { AthleticsHudState } from '../games/athletics/AthleticsGame';
 import type { Goal } from '../games/athletics/race';
@@ -21,6 +21,7 @@ type GameHudState = Omit<TrackHudState, 'feedback'> & {
   energy?: AthleticsHudState['energy'];
   runners?: AthleticsHudState['runners'];
   boxing?: BoxingScoreboard;
+  impact?: { id: number; tone: 'hit' | 'heavy' | 'block' | 'taken'; strength01: number };
   learn?: { progress01: number; step: number; steps: number };
 };
 import { BOXING_TRAINING_CONTROLS, HUD_TEXT } from './hudText';
@@ -258,8 +259,10 @@ function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crosse
 
   const boxingControls = hud.boxing?.training ? BOXING_TRAINING_CONTROLS[hud.boxing.training.kind][lang] : HUD_TEXT.boxing.controls[lang];
 
-  return <div className={`game-viewport ${sport}${hud.framing ? ' is-framing' : ''}`}>
+  return <div className={`game-viewport ${sport}${hud.framing ? ' is-framing' : ''}${sport === 'boxing' && hud.boxing?.counterActive ? ' is-counter' : ''}`}>
     <canvas ref={canvasRef} />
+    {sport === 'boxing' && hud.impact && <div key={hud.impact.id} className={`boxing-impact-vignette ${hud.impact.tone}`} aria-hidden="true" style={{ '--impact-strength': hud.impact.strength01 } as CSSProperties} />}
+    {sport === 'boxing' && hud.boxing && hud.boxing.playerHp > 0 && hud.boxing.playerHp <= hud.boxing.maxHp * 0.25 && <div className="boxing-low-hp" aria-hidden="true" />}
     {hud.tennis ? <table className="tennis-score" aria-label={tr('Placar do tênis', 'Tennis score')}>
       <thead><tr><th scope="col">{tr('Tênis', 'Tennis')}</th><th scope="col">Games</th><th scope="col">{tr('Pontos', 'Points')}</th></tr></thead>
       <tbody>{(['player', 'opponent'] as const).map((side) => (

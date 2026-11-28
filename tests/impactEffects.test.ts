@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
-import { createImpactSparkPool } from '../src/games/boxing/impactEffects';
+import { createImpactRing, createImpactSparkPool, createPunchTrail } from '../src/games/boxing/impactEffects';
 import { disposeObjectTree } from '../src/games/core/GameLoop';
 
 describe('createImpactSparkPool', () => {
@@ -60,5 +60,44 @@ describe('createImpactSparkPool', () => {
     disposeObjectTree(pool.root);
 
     expect(disposals).toBe(2);
+  });
+});
+
+describe('createImpactRing', () => {
+  it('pools multiple concurrent rings for rapid combos and fades them out', () => {
+    const ring = createImpactRing();
+    const camera = new THREE.PerspectiveCamera();
+
+    ring.burst({ x: 0, y: 1, z: 0 }, 0.8, 'hit');
+    ring.burst({ x: 0.2, y: 1.1, z: 0 }, 0.9, 'block');
+    ring.update(0.05, camera);
+
+    const visibleRings = ring.root.children.filter((child) => child.visible && child.name.startsWith('impact-ring-'));
+    expect(visibleRings.length).toBe(2);
+
+    ring.update(0.3, camera);
+    expect(ring.root.children.some((child) => child.visible)).toBe(false);
+    disposeObjectTree(ring.root);
+  });
+});
+
+describe('createPunchTrail', () => {
+  it('lays shrinking dots from the glove toward the shoulder and hides them on clear', () => {
+    const trail = createPunchTrail();
+    const dots = trail.root.children as THREE.Mesh[];
+    expect(dots).toHaveLength(5);
+    expect(new Set(dots.map((dot) => dot.geometry)).size).toBe(1);
+    expect(dots.some((dot) => dot.visible)).toBe(false);
+
+    trail.show(new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1), 'counter');
+    expect(dots.every((dot) => dot.visible)).toBe(true);
+    expect(dots[0]!.position.z).toBeCloseTo(-1, 5);
+    expect(dots[4]!.position.z).toBeGreaterThan(dots[0]!.position.z);
+    expect(dots[4]!.scale.x).toBeLessThan(dots[0]!.scale.x);
+    expect((dots[0]!.material as THREE.MeshBasicMaterial).color.getHex()).toBe(0x66f2ff);
+
+    trail.clear();
+    expect(dots.some((dot) => dot.visible)).toBe(false);
+    disposeObjectTree(trail.root);
   });
 });

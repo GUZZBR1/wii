@@ -51,6 +51,8 @@ export interface MiiBoxerOptions {
   face?: MiiFaceSpec;
   /** How much faster than the default this boxer throws a punch; the crest comes that much sooner. */
   punchSpeed?: number;
+  /** Drops squash/stretch and softens the hit flash for `prefers-reduced-motion: reduce`. */
+  reducedMotion?: boolean;
 }
 
 export interface MiiBoxerFootwork {
@@ -87,6 +89,12 @@ export interface MiiBoxer {
    * @throws TypeError when `timeSeconds` is not finite.
    */
   animate(timeSeconds: number, footwork?: MiiBoxerFootwork): void;
+  /**
+   * Marks a blow landing at the boxer's current internal clock: the body flashes white-hot for
+   * `FLASH_S` and squashes for `SQUASH_S`, both scaled by `strength01` (0..1). Call it at contact,
+   * not when the punch is thrown, so the flash lands on the same frame as the sparks.
+   */
+  flashHit(strength01?: number, color?: number): void;
 }
 
 const IDLE_POSE: BoxerPose = {
@@ -320,6 +328,17 @@ const STATE_OMEGA: Record<MiiBoxerState, number> = {
   getup: 22,
 };
 
+/** Rest scale of the body group; squash and stretch are offsets from it and return to it exactly. */
+const BODY_SCALE = 0.78;
+/** Emissive white pulse on a clean blow: short, so it reads as contact rather than a glow. */
+const FLASH_S = 0.09;
+const FLASH_MIN_INTENSITY = 0.45;
+const FLASH_RANGE_INTENSITY = 0.4;
+/** Squash on impact: compress the height and widen the stance, a little more on a harder blow. */
+const SQUASH_S = 0.11;
+const SQUASH_MIN = 0.06;
+const SQUASH_RANGE = 0.04;
+
 function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
@@ -497,7 +516,8 @@ function poseForState(
     const recovery = smooth01(stateTime / 0.5);
     const pose = mixPose(HIT_IMPACT_POSE, HIT_RECOVERED_POSE, recovery);
     pose.bodyRotZ += Math.sin(stateTime * 22) * 0.04 * (1 - recovery);
-    return pose;
+    // A left hook throws the head and trunk to the right; the stance stays put.
+    return hand === 'left' ? mirrorUpperBody(pose) : pose;
   }
   if (state === 'dizzy') {
     const sway = Math.sin(stateTime * 3.2);
@@ -574,6 +594,7 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
     shoeColor = 0xffffff,
     face = DEFAULT_MII_FACE_SPEC,
     punchSpeed = 1,
+    reducedMotion = globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false,
   } = options;
   const skinColor = skinColorOption ?? SKIN_PALETTE[face.skin];
   const root = new THREE.Group();
@@ -582,10 +603,16 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
   const body = new THREE.Group();
   body.name = 'mii-boxer-body';
   body.rotation.order = 'YXZ';
-  body.scale.setScalar(0.78);
+  body.scale.setScalar(BODY_SCALE);
   root.add(body);
 
-  const material = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.68, metalness: 0 });
+  const material = new THREE.MeshStandardMaterial({
+    vertexColors: true,
+    roughness: 0.68,
+    metalness: 0,
+    emissive: 0xffffff,
+    emissiveIntensity: 0,
+  });
   const pending = new Map<THREE.Object3D, THREE.BufferGeometry[]>();
   const part = (
     geometry: THREE.BufferGeometry,
@@ -677,6 +704,19 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
   const currentPose = copyPose(initialPose);
   const poseVelocity = zeroPose();
 
+  let impact: { atS: number; strength01: number } | undefined;
+
+  /** Flash and squash are pure functions of the clock since the last `flashHit`, so they stay deterministic. */
+  const applyImpactFx = (timeSeconds: number): void => {
+    const ageS = impact ? Math.max(0, timeSeconds - impact.atS) : Infinity;
+    const strength01 = impact?.strength01 ?? 0;
+    const flashLeft = ageS < FLASH_S ? 1 - ageS / FLASH_S : 0;
+    const flashPeak = FLASH_MIN_INTENSITY + FLASH_RANGE_INTENSITY * strength01;
+    material.emissiveIntensity = (reducedMotion ? Math.min(0.35, flashPeak * 0.45) : flashPeak) * flashLeft * flashLeft;
+    const squash = !reducedMotion && ageS < SQUASH_S ? (SQUASH_MIN + SQUASH_RANGE * strength01) * (1 - ageS / SQUASH_S) ** 2 : 0;
+    body.scale.set(BODY_SCALE * (1 + squash), BODY_SCALE * (1 - squash), BODY_SCALE * (1 + squash));
+  };
+
   const applyPose = (pose: BoxerPose): void => {
     body.position.y = pose.bodyY;
     body.rotation.set(pose.bodyRotX, pose.bodyRotY, pose.bodyRotZ);
@@ -711,6 +751,11 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
       stepPoseSpring(currentPose, poseVelocity, target, dtS * rate, STATE_OMEGA[state]);
       stride = stepStride(stride, dtS, footwork);
       applyPose(withFootwork(currentPose, stride));
+      applyImpactFx(timeSeconds);
+    },
+    flashHit(strength01 = 0.5, color = 0xffffff) {
+      material.emissive.setHex(color);
+      impact = { atS: currentTime, strength01: clamp01(strength01) };
     },
   };
 }

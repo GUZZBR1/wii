@@ -356,3 +356,37 @@ describe('ProceduralAudio boxing cues', () => {
     audio.dispose();
   });
 });
+
+describe('ProceduralAudio impact bus', () => {
+  it('sends impacts through one saturation and compressor chain, panned to the side of the blow', async () => {
+    const node = () => ({ connect: vi.fn((target: unknown) => target) });
+    const param = () => ({ value: 0 });
+    const shapers: ReturnType<typeof node>[] = [];
+    const panners: (ReturnType<typeof node> & { pan: { value: number } })[] = [];
+    class BusContext extends FakeAudioContext {
+      createWaveShaper() {
+        const shaper = { ...node(), curve: null };
+        shapers.push(shaper);
+        return shaper;
+      }
+      createDynamicsCompressor() {
+        return { ...node(), threshold: param(), ratio: param(), attack: param(), release: param() };
+      }
+      createStereoPanner() {
+        const panner = { ...node(), pan: param() };
+        panners.push(panner);
+        return panner;
+      }
+    }
+    vi.stubGlobal('AudioContext', BusContext);
+    const audio = new ProceduralAudio();
+    await audio.unlock();
+    audio.punchImpact(1, false, -0.5);
+    audio.thud(0.5);
+
+    expect(shapers).toHaveLength(1);
+    expect(panners.map((panner) => panner.pan.value)).toEqual([-0.5, 0.5]);
+    for (const panner of panners) expect(panner.connect).toHaveBeenCalledWith(shapers[0]);
+    audio.dispose();
+  });
+});

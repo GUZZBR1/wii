@@ -7,8 +7,8 @@ export interface ImpactSparkPool {
   readonly root: THREE.Points;
   /** Number of sparks currently alive. Intended for tests and diagnostics, not per-frame UI work. */
   readonly activeCount: number;
-  /** Reuses pool slots for a small burst. No geometry, material or particle object is allocated here. */
-  spawn(x: number, y: number, z: number, power01: number, kind?: ImpactEffectKind): void;
+  /** Reuses pool slots for a burst. Optional `(dirX, dirZ)` biases particles along the blow. */
+  spawn(x: number, y: number, z: number, power01: number, kind?: ImpactEffectKind, dirX?: number, dirZ?: number): void;
   /** Integrates the live sparks with the caller-owned fixed-step delta. */
   update(dtSeconds: number): void;
 }
@@ -130,35 +130,131 @@ export function createImpactSparkPool(capacity = 96): ImpactSparkPool {
   };
 }
 
-const RING_S = 0.22;
+const TRAIL_DOTS = 5;
+/** How far apart the dots sit, as a share of the shoulder-to-glove line. */
+const TRAIL_SPACING = 0.18;
 
-/** The expanding flash of a contact, as in tennis: warm for a clean hit, blue for a block. */
+export type PunchTrailTone = 'heavy' | 'counter';
+
+/** A chain of shrinking spheres behind a travelling glove: white gold for power, cyan for a counter. */
+export function createPunchTrail() {
+  const root = new THREE.Group();
+  root.name = 'punch-trail';
+  const geometry = new THREE.SphereGeometry(0.11, 8, 6);
+  const dots = Array.from({ length: TRAIL_DOTS }, (_, index) => {
+    const material = new THREE.MeshBasicMaterial({
+      transparent: true,
+      opacity: 0.7 * (1 - index / TRAIL_DOTS),
+      depthWrite: false,
+      blending: THREE.AdditiveBlending,
+    });
+    const mesh = new THREE.Mesh(geometry, material);
+    mesh.name = `punch-trail-${index}`;
+    mesh.scale.setScalar(1 - index / (TRAIL_DOTS + 2));
+    mesh.visible = false;
+    root.add(mesh);
+    return { mesh, material };
+  });
+
+  return {
+    root,
+    /** Lays the dots from the glove back toward the shoulder. */
+    show(shoulder: THREE.Vector3, glove: THREE.Vector3, tone: PunchTrailTone): void {
+      dots.forEach(({ mesh, material }, index) => {
+        mesh.position.lerpVectors(glove, shoulder, index * TRAIL_SPACING);
+        material.color.setHex(tone === 'counter' ? 0x66f2ff : 0xffe6a0);
+        mesh.visible = true;
+      });
+    },
+    clear(): void {
+      for (const { mesh } of dots) mesh.visible = false;
+    },
+  };
+}
+
+const RING_S = 0.22;
+const FLASH_S = 0.075;
+const RING_POOL_SIZE = 3;
+
+/** Expanding shockwave rings + brief core contact flash; pooled so combos never clip earlier rings. */
 export function createImpactRing() {
-  const material = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
-  const root = new THREE.Mesh(new THREE.RingGeometry(0.09, 0.2, 14), material);
-  root.name = 'impact-ring';
-  root.visible = false;
-  root.renderOrder = 4;
-  let ageS = RING_S;
-  let size = 1;
+  const root = new THREE.Group();
+  root.name = 'impact-ring-pool';
+  const ringGeometry = new THREE.RingGeometry(0.08, 0.2, 18);
+  const flashGeometry = new THREE.CircleGeometry(0.14, 16);
+
+  const rings = Array.from({ length: RING_POOL_SIZE }, (_, index) => {
+    const material = new THREE.MeshBasicMaterial({
+      transparent: true,
+      depthWrite: false,
+      depthTest: false,
+      side: THREE.DoubleSide,
+      blending: THREE.AdditiveBlending,
+    });
+    const mesh = new THREE.Mesh(ringGeometry, material);
+    mesh.name = `impact-ring-${index}`;
+    mesh.visible = false;
+    mesh.renderOrder = 4;
+    root.add(mesh);
+    return { mesh, material, ageS: RING_S, size: 1 };
+  });
+
+  const flashMaterial = new THREE.MeshBasicMaterial({
+    transparent: true,
+    depthWrite: false,
+    depthTest: false,
+    side: THREE.DoubleSide,
+    blending: THREE.AdditiveBlending,
+  });
+  const flashMesh = new THREE.Mesh(flashGeometry, flashMaterial);
+  flashMesh.name = 'impact-flash';
+  flashMesh.visible = false;
+  flashMesh.renderOrder = 5;
+  root.add(flashMesh);
+  let flashAgeS = FLASH_S;
+  let flashSize = 1;
+  let nextRing = 0;
+
   return {
     root,
     burst(point: { x: number; y: number; z: number }, power01: number, kind: ImpactEffectKind, scale = 1): void {
-      root.position.set(point.x, point.y, point.z);
-      material.color.setHex(kind === 'block' ? 0x7ec8ff : 0xfff6b0);
-      size = (0.6 + clamp01(power01)) * scale;
-      ageS = 0;
-      root.scale.setScalar(size);
-      material.opacity = 1;
-      root.visible = true;
+      const power = clamp01(power01);
+      const ring = rings[nextRing]!;
+      nextRing = (nextRing + 1) % RING_POOL_SIZE;
+      ring.mesh.position.set(point.x, point.y, point.z);
+      ring.material.color.setHex(kind === 'block' ? 0x7ec8ff : 0xfff3a8);
+      ring.size = (0.65 + power * 1.1) * scale;
+      ring.ageS = 0;
+      ring.mesh.scale.setScalar(ring.size);
+      ring.material.opacity = 1;
+      ring.mesh.visible = true;
+
+      flashMesh.position.set(point.x, point.y, point.z);
+      flashMaterial.color.setHex(kind === 'block' ? 0x9ed8ff : 0xffffff);
+      flashSize = (0.7 + power * 0.9) * scale;
+      flashAgeS = 0;
+      flashMesh.scale.setScalar(flashSize);
+      flashMaterial.opacity = kind === 'block' ? 0.6 : 0.92;
+      flashMesh.visible = true;
     },
     update(dtSeconds: number, camera: THREE.Camera): void {
-      if (!root.visible) return;
-      ageS += dtSeconds;
-      root.visible = ageS < RING_S;
-      root.scale.setScalar(size * (1 + ageS * 9));
-      material.opacity = Math.max(0, 1 - ageS / RING_S);
-      root.quaternion.copy(camera.quaternion);
+      if (flashMesh.visible) {
+        flashAgeS += dtSeconds;
+        flashMesh.visible = flashAgeS < FLASH_S;
+        const t = Math.min(1, flashAgeS / FLASH_S);
+        flashMesh.scale.setScalar(flashSize * (1 + t * 1.4));
+        flashMaterial.opacity = Math.max(0, 1 - t) * 0.9;
+        flashMesh.quaternion.copy(camera.quaternion);
+      }
+      for (const ring of rings) {
+        if (!ring.mesh.visible) continue;
+        ring.ageS += dtSeconds;
+        ring.mesh.visible = ring.ageS < RING_S;
+        const t = Math.min(1, ring.ageS / RING_S);
+        ring.mesh.scale.setScalar(ring.size * (1 + t * 2.1));
+        ring.material.opacity = Math.max(0, (1 - t) ** 1.4);
+        ring.mesh.quaternion.copy(camera.quaternion);
+      }
     },
   };
 }

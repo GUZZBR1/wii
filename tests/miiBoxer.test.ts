@@ -508,3 +508,68 @@ describe('createMiiBoxer', () => {
     },
   );
 });
+
+describe('mii boxer impact reaction', () => {
+  const bodyOf = (boxer: MiiBoxer) => named(boxer.root, 'mii-boxer-body');
+  const partsMaterial = (boxer: MiiBoxer) =>
+    (named(boxer.root, 'mii-boxer-body-parts') as THREE.Mesh).material as THREE.MeshStandardMaterial;
+
+  it('throws the struck boxer the other way when the blow came from the left', () => {
+    const settled = (hand: 'left' | 'right') => {
+      const boxer = createMiiBoxer();
+      boxer.animate(0);
+      boxer.setState('hit', hand);
+      boxer.animate(3);
+      return bodyOf(boxer).rotation;
+    };
+    const left = settled('left');
+    const right = settled('right');
+    expect(Math.abs(right.y)).toBeGreaterThan(0.05);
+    expect(left.y).toBeCloseTo(-right.y, 4);
+    expect(left.z).toBeCloseTo(-right.z, 4);
+    expect(left.x).toBeCloseTo(right.x, 4);
+  });
+
+  it('flashes the body on a blow and lets the flash fade out within 0.09 s', () => {
+    const boxer = createMiiBoxer();
+    boxer.animate(1);
+    boxer.flashHit(1);
+    boxer.animate(1);
+    expect(partsMaterial(boxer).emissiveIntensity).toBeCloseTo(0.85, 5);
+    boxer.animate(1.045);
+    const midway = partsMaterial(boxer).emissiveIntensity;
+    expect(midway).toBeGreaterThan(0);
+    expect(midway).toBeLessThan(0.85);
+    boxer.animate(1.2);
+    expect(partsMaterial(boxer).emissiveIntensity).toBe(0);
+  });
+
+  it('compresses the height and widens the body on impact, then returns to rest exactly', () => {
+    const boxer = createMiiBoxer();
+    const body = bodyOf(boxer);
+    boxer.animate(1);
+    boxer.flashHit(1);
+    boxer.animate(1);
+    expect(body.scale.y).toBeLessThan(0.78);
+    expect(body.scale.x).toBeGreaterThan(0.78);
+    boxer.animate(1.2);
+    expect(body.scale.x).toBe(0.78);
+    expect(body.scale.y).toBe(0.78);
+    expect(body.scale.z).toBe(0.78);
+  });
+});
+
+describe('mii boxer guard flash', () => {
+  it('flashes blue for an absorbed blow and white again for a clean one', () => {
+    const boxer = createMiiBoxer();
+    const material = (named(boxer.root, 'mii-boxer-body-parts') as THREE.Mesh).material as THREE.MeshStandardMaterial;
+    boxer.animate(1);
+    boxer.flashHit(0.35, 0x7ec8ff);
+    boxer.animate(1);
+    expect(material.emissive.getHex()).toBe(0x7ec8ff);
+    expect(material.emissiveIntensity).toBeGreaterThan(0);
+
+    boxer.flashHit(1);
+    expect(material.emissive.getHex()).toBe(0xffffff);
+  });
+});

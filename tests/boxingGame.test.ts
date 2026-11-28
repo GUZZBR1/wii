@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as THREE from 'three';
 import type { SportActionEvent } from '../src/cv/protocol';
+import { ProceduralAudio } from '../src/games/audio';
 import type { BoxingGameOptions, BoxingHudState } from '../src/games/boxing/BoxingGame';
 import type { BoxingState } from '../src/games/boxing/boxingRules';
 
@@ -523,6 +525,42 @@ describe('BoxingGame body controls and animation', () => {
     expect(state.fightMs - fightMs).toBeCloseTo(200, 5);
     expect(state.animTimeS - animTimeS).toBeCloseTo(0.2 - 0.06, 5);
   });
+
+  it('sparks and flashes the struck boxer on the frame the glove arrives, not when it is thrown', () => {
+    const { game, run } = start();
+    run(1);
+    const internals = game as unknown as {
+      opponentBoxer: { flashHit(strength01?: number): void };
+      sparks: { spawn(...args: unknown[]): void };
+    };
+    const flash = vi.spyOn(internals.opponentBoxer, 'flashHit');
+    const spark = vi.spyOn(internals.sparks, 'spawn');
+    const audio = new ProceduralAudio(); // never unlocked, so silent
+    Object.assign(game, { audio });
+    const sound = vi.spyOn(audio, 'punchImpact');
+    game.onKey('e'); // the glove needs PUNCH_OUT_S to reach the face
+    run(0.02);
+    expect(spark).not.toHaveBeenCalled();
+    expect(flash).not.toHaveBeenCalled();
+    expect(sound).not.toHaveBeenCalled();
+    run(0.1);
+    expect(spark).toHaveBeenCalledTimes(1);
+    expect(flash).toHaveBeenCalledTimes(1);
+    expect(sound).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not lose a travelling blow when another impact replaces it', () => {
+    const { game, run } = start();
+    run(1);
+    const internals = game as unknown as {
+      sparks: { spawn(...args: unknown[]): void };
+      feelImpact(kind: string, struck: string): void;
+    };
+    const spark = vi.spyOn(internals.sparks, 'spawn');
+    game.onKey('e');
+    internals.feelImpact('taken', 'player'); // a punch taken while the glove is still on its way
+    expect(spark).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('BoxingGame opponent profiles', () => {
@@ -803,4 +841,97 @@ it('asks the player to step back when the hips stay out of view, and stops once 
   expect(read().banner?.title).toBe('Afaste-se um pouco');
   game.setHipsHidden(false, 3100);
   expect(read().banner?.title).not.toBe('Afaste-se um pouco');
+});
+
+describe('BoxingGame counter signal and trail', () => {
+  const trailShown = (game: object) =>
+    (game as unknown as { punchTrail: { root: { children: { visible: boolean }[] } } }).punchTrail.root.children.some((dot) => dot.visible);
+
+  it('flags the counter window until the counter lands', () => {
+    const { game, read } = dodgeFirst();
+    expect(read().boxing.counterActive).toBe(true);
+    game.onAction(punch(wallMs));
+    expect(read().boxing.counterActive).toBeUndefined();
+  });
+
+  it('drops the flag when the window runs out', () => {
+    const { run, read } = dodgeFirst();
+    run(1.2);
+    expect(read().boxing.counterActive).toBeUndefined();
+  });
+
+  it('trails the glove of a counter only while it travels', () => {
+    const { game, run } = dodgeFirst();
+    game.onKey('e');
+    run(0.02);
+    expect(trailShown(game)).toBe(true);
+    run(0.3);
+    expect(trailShown(game)).toBe(false);
+  });
+
+  it('leaves no trail behind an ordinary punch', () => {
+    const { game, run } = start();
+    run(1);
+    game.onKey('e'); // below the heavy power, no counter window
+    run(0.02);
+    expect(trailShown(game)).toBe(false);
+  });
+
+  it('gives a tutorial punch the same impact as a fight', () => {
+    const { game } = start({ mode: 'tutorial' });
+    const internals = game as unknown as { tutorial: { punch(): boolean }; feelImpact(...args: unknown[]): void };
+    vi.spyOn(internals.tutorial, 'punch').mockReturnValue(true);
+    const impact = vi.spyOn(internals, 'feelImpact');
+    game.onAction(punch(wallMs));
+    expect(impact).toHaveBeenCalledWith('hit', 'opponent', 'right', undefined, expect.any(Function));
+  });
+});
+
+describe('BoxingGame final polish', () => {
+  type Internals = {
+    audio: ProceduralAudio;
+    playerPos: { x: number; z: number };
+    opponentMotion: { position: { x: number; z: number } };
+    punchTrail: { root: { children: { visible: boolean }[] } };
+    camera: { getWorldDirection(target: THREE.Vector3): THREE.Vector3 };
+    trail: { hand: 'left' | 'right'; tone: 'heavy' | 'counter' };
+  };
+  const internalsOf = (game: object) => game as unknown as Internals;
+
+  it('swishes the air when the punch is thrown from too far', () => {
+    const { game, run } = start();
+    const internals = internalsOf(game);
+    internals.playerPos = { x: 0, z: 2 };
+    internals.opponentMotion.position = { x: 0, z: -2 };
+    run(0.1);
+    const audio = new ProceduralAudio(); // never unlocked, so silent
+    Object.assign(game, { audio });
+    const whoosh = vi.spyOn(audio, 'whoosh');
+    game.onKey('e');
+    expect(whoosh).toHaveBeenCalledWith(0.45);
+  });
+
+  it.each([['heavy', true], ['counter', false]] as const)('keeps a %s trail after the glove arrives: %s', (tone, shown) => {
+    const { game, run } = start();
+    run(1);
+    game.onKey('e');
+    const internals = internalsOf(game);
+    internals.trail = { hand: 'right', tone };
+    run(0.2); // past PUNCH_OUT_S, hitstop included, but before the arm is back
+    expect(internals.punchTrail.root.children.some((dot) => dot.visible)).toBe(shown);
+    run(0.3);
+    expect(internals.punchTrail.root.children.some((dot) => dot.visible)).toBe(false);
+  });
+
+  it('tips the view down after a player knockout', () => {
+    const { game, run, setMatch } = start();
+    run(1);
+    const pitch = () => internalsOf(game).camera.getWorldDirection(new THREE.Vector3()).y;
+    const standing = pitch();
+    setMatch({ opponentHp: 1 });
+    game.onKey('e'); // knocks out during the windup
+    run(2);
+    expect((game as unknown as { match: BoxingState }).match.winner).toBe('player');
+    expect(pitch()).toBeLessThan(standing - 0.05);
+  });
 });

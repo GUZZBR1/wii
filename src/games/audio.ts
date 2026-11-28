@@ -5,7 +5,15 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
+/** Soft clipping curve of the arcade bus: `tanh` over the -1..1 input range. */
+function saturationCurve(): Float32Array<ArrayBuffer> {
+  const curve = new Float32Array(256);
+  for (let i = 0; i < curve.length; i += 1) curve[i] = Math.tanh(((2 * i) / (curve.length - 1) - 1) * 2.2);
+  return curve;
+}
+
 export class ProceduralAudio {
+  private sfxBuses = new WeakMap<AudioContext, AudioNode>();
   private context?: AudioContext;
   private muted = false;
   private language: Lang = 'pt';
@@ -139,8 +147,9 @@ export class ProceduralAudio {
     });
   }
 
-  punchImpact(power = 0.5, blocked = false): void {
+  punchImpact(power = 0.5, blocked = false, pan = 0): void {
     if (!this.context || this.muted) return;
+    const output = this.sfxOutput(this.context, pan);
     const amount = clamp01(power);
     const now = this.context.currentTime;
     const bodyDuration = blocked ? 0.09 : 0.18;
@@ -152,22 +161,97 @@ export class ProceduralAudio {
     gain.gain.setValueAtTime(0.0001, now);
     gain.gain.exponentialRampToValueAtTime((blocked ? 0.14 : 0.28) + amount * 0.15, now + 0.006);
     gain.gain.exponentialRampToValueAtTime(0.0001, now + bodyDuration);
-    osc.connect(gain).connect(this.context.destination);
+    osc.connect(gain).connect(output);
     osc.start(now);
     osc.stop(now + bodyDuration + 0.01);
     // transient: a bright snap when the punch lands, a muffled short slap when blocked
     this.noiseBurst({
       type: 'lowpass',
-      frequency: blocked ? 700 : 2600 + amount * 800,
-      peak: blocked ? 0.1 + amount * 0.08 : 0.16 + amount * 0.14,
+      frequency: blocked ? 700 : 2800 + amount * 900,
+      peak: blocked ? 0.1 + amount * 0.08 : 0.18 + amount * 0.16,
+      attack: 0.002,
+      duration: blocked ? 0.05 : 0.095 + amount * 0.04,
+      output,
+    });
+  }
+
+  /** Crisp mid-high leather/bone crack layered over clean boxing hits. */
+  punchCrack(power = 0.5, pan = 0): void {
+    if (!this.context || this.muted) return;
+    const amount = clamp01(power);
+    this.noiseBurst({
+      type: 'bandpass',
+      frequency: 1600 + amount * 900,
+      q: 1.8,
+      peak: 0.12 + amount * 0.16,
+      attack: 0.001,
+      duration: 0.032 + amount * 0.02,
+      output: this.sfxOutput(this.context, pan),
+    });
+  }
+
+  /** Heavy, chest-rattling thump + muffled crunch when the player takes a clean punch. */
+  takenImpact(power = 0.7, pan = 0): void {
+    if (!this.context || this.muted) return;
+    const output = this.sfxOutput(this.context, pan);
+    const amount = clamp01(power);
+    const now = this.context.currentTime;
+    const bodyDuration = 0.24;
+    const osc = this.context.createOscillator();
+    const gain = this.context.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(108 + amount * 30, now);
+    osc.frequency.exponentialRampToValueAtTime(34, now + bodyDuration);
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(0.32 + amount * 0.14, now + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, now + bodyDuration);
+    osc.connect(gain).connect(output);
+    osc.start(now);
+    osc.stop(now + bodyDuration + 0.01);
+    this.noiseBurst({
+      type: 'lowpass',
+      frequency: 1100 + amount * 500,
+      peak: 0.22 + amount * 0.14,
       attack: 0.003,
-      duration: blocked ? 0.05 : 0.09 + amount * 0.04,
+      duration: 0.12,
+      output,
     });
   }
 
   /** The low weight under a heavy punch. */
-  thud(): void {
-    this.tone(52, 0.24, 0.32, 'sine');
+  thud(pan = 0): void {
+    if (!this.context || this.muted) return;
+    this.tone(52, 0.24, 0.32, 'sine', 0, this.sfxOutput(this.context, pan));
+  }
+
+  /** Where an impact sound goes: the shared arcade bus, panned when the browser can. */
+  private sfxOutput(context: AudioContext, pan: number): AudioNode {
+    const bus = this.sfxDestination(context);
+    if (pan === 0 || typeof context.createStereoPanner !== 'function') return bus;
+    const panner = context.createStereoPanner();
+    panner.pan.value = pan;
+    panner.connect(bus);
+    return panner;
+  }
+
+  /** Saturation into a compressor, built once per context; plain output where either is missing. */
+  private sfxDestination(context: AudioContext): AudioNode {
+    const cached = this.sfxBuses.get(context);
+    if (cached) return cached;
+    if (typeof context.createWaveShaper !== 'function' || typeof context.createDynamicsCompressor !== 'function') {
+      return context.destination;
+    }
+    const shaper = context.createWaveShaper();
+    shaper.curve = saturationCurve();
+    const compressor = context.createDynamicsCompressor();
+    compressor.threshold.value = -18;
+    compressor.ratio.value = 12;
+    compressor.attack.value = 0.003;
+    compressor.release.value = 0.1;
+    shaper.connect(compressor);
+    compressor.connect(context.destination);
+    this.sfxBuses.set(context, shaper);
+    return shaper;
   }
 
   bell(kind: 'round' | 'ko'): void {
@@ -194,7 +278,7 @@ export class ProceduralAudio {
     });
   }
 
-  private tone(frequency: number, duration: number, volume: number, type: OscillatorType, delay = 0): void {
+  private tone(frequency: number, duration: number, volume: number, type: OscillatorType, delay = 0, output?: AudioNode): void {
     if (!this.context || this.muted) return;
     const startAt = this.context.currentTime + delay;
     const oscillator = this.context.createOscillator();
@@ -204,7 +288,7 @@ export class ProceduralAudio {
     gain.gain.setValueAtTime(0.0001, startAt);
     gain.gain.exponentialRampToValueAtTime(Math.max(0.0001, volume), startAt + 0.008);
     gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
-    oscillator.connect(gain).connect(this.context.destination);
+    oscillator.connect(gain).connect(output ?? this.context.destination);
     oscillator.start(startAt);
     oscillator.stop(startAt + duration + 0.01);
   }
@@ -242,9 +326,10 @@ export class ProceduralAudio {
     attack: number;
     duration: number;
     delay?: number;
+    output?: AudioNode;
   }): void {
     if (!this.context || this.muted) return;
-    const { frequency, endFrequency, type = 'bandpass', q = 1, peak, attack, duration, delay = 0 } = options;
+    const { frequency, endFrequency, type = 'bandpass', q = 1, peak, attack, duration, delay = 0, output } = options;
     const startAt = this.context.currentTime + delay;
     const source = this.context.createBufferSource();
     source.buffer = this.noiseBuffer(this.context);
@@ -260,7 +345,7 @@ export class ProceduralAudio {
     gain.gain.exponentialRampToValueAtTime(0.0001, startAt + duration);
     source.connect(filter);
     filter.connect(gain);
-    gain.connect(this.context.destination);
+    gain.connect(output ?? this.context.destination);
     source.start(startAt);
     source.stop(startAt + duration + 0.01);
   }

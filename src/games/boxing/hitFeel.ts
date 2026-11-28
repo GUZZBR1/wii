@@ -39,17 +39,37 @@ export function playerHitKind(damage: number, power01: number, counter: boolean,
   return power01 >= HEAVY_POWER01 ? 'heavy' : 'hit';
 }
 
+export type ImpactFlashTone = 'hit' | 'heavy' | 'block' | 'taken';
+
+const FLASH_S: Readonly<Record<ImpactFlashTone, number>> = {
+  block: 0.14,
+  hit: 0.14,
+  heavy: 0.22,
+  taken: SETTLE_S,
+};
+
+/** The path of the blow: a hook jolts the view sideways, an uppercut jolts it vertically. */
+export type PunchShape = 'straight' | 'hook' | 'uppercut';
+const HOOK_LATERAL = 1.35;
+const UPPERCUT_VERTICAL = 1.4;
+
 /** The decaying aftermath of the latest contact. Advance it with unfrozen wall time. */
 export class HitImpulse {
   private feel: HitFeel = HIT_FEEL.blocked;
+  private kind: HitKind = 'blocked';
   private ageS = SETTLE_S;
   private slowLeftS = 0;
+  private direction: -1 | 0 | 1 = 0;
+  private shape: PunchShape = 'straight';
   struck: 'opponent' | 'player' = 'opponent';
 
   /** `reducedMotion` drops what moves the whole view and keeps what happens inside it. */
   constructor(private readonly reducedMotion = false) {}
 
-  trigger(kind: HitKind, struck: 'opponent' | 'player'): void {
+  trigger(kind: HitKind, struck: 'opponent' | 'player', direction: -1 | 0 | 1 = 0, shape: PunchShape = 'straight'): void {
+    this.shape = shape;
+    this.kind = kind;
+    this.direction = direction;
     this.feel = HIT_FEEL[kind];
     this.struck = struck;
     this.ageS = 0;
@@ -65,12 +85,52 @@ export class HitImpulse {
     return (1 - this.ageS / SETTLE_S) ** 2;
   }
 
+  private get lateral(): number { return this.shape === 'hook' ? HOOK_LATERAL : 1; }
+  private get vertical(): number { return this.shape === 'uppercut' ? UPPERCUT_VERTICAL : 1; }
   get animationRate(): number { return this.slowLeftS > 0 ? SLOW_MOTION_RATE : 1; }
   get recoilM(): number { return this.feel.recoilM * this.fade; }
   get zoomDeg(): number { return this.reducedMotion ? 0 : this.feel.zoomDeg * this.fade; }
 
   get shake(): { x: number; y: number } {
     const amount = this.reducedMotion ? 0 : this.feel.shakeM * this.fade;
-    return { x: Math.sin(this.ageS * 190) * amount, y: Math.sin(this.ageS * 150) * amount * 0.7 };
+    if (amount === 0) return { x: 0, y: 0 };
+    // Cosine starts at peak displacement during hitstop instead of 0, plus a directional shove.
+    const kickX = this.direction * amount * 0.55;
+    const kickY = (this.struck === 'player' ? 0.35 : -0.25) * amount;
+    return {
+      x: (Math.cos(this.ageS * 210) * amount * 0.8 + kickX) * this.lateral,
+      y: (Math.sin(this.ageS * 165 + 0.9) * amount * 0.65 + kickY) * this.vertical,
+    };
+  }
+
+  /** Camera roll impulse in radians: snaps the view in the direction of the blow. */
+  get rollRad(): number {
+    if (this.reducedMotion || this.fade === 0) return 0;
+    const base = this.struck === 'player' ? this.feel.shakeM * 0.52 : this.feel.shakeM * 0.24;
+    const dir = this.direction !== 0 ? this.direction : this.struck === 'player' ? 1 : 0;
+    return dir * base * this.fade * this.lateral;
+  }
+
+  /** Camera pitch impulse in radians: snaps the head up/back when taking a clean shot. */
+  get pitchRad(): number {
+    if (this.reducedMotion || this.fade === 0) return 0;
+    const perMetre = this.struck === 'player' ? 0.42 : -0.14;
+    return this.feel.shakeM * perMetre * this.fade * this.vertical;
+  }
+
+  get flashTone(): ImpactFlashTone {
+    if (this.kind === 'blocked') return 'block';
+    if (this.struck === 'player') return 'taken';
+    if (this.kind === 'heavy' || this.kind === 'counter' || this.kind === 'ko') return 'heavy';
+    return 'hit';
+  }
+
+  /** Screen-space edge flash / vignette strength, 0..1. */
+  get flash01(): number {
+    const duration = FLASH_S[this.flashTone];
+    if (this.ageS >= duration) return 0;
+    const progress = 1 - this.ageS / duration;
+    const peak = this.kind === 'blocked' ? 0.45 : this.kind === 'hit' ? 0.4 : 0.85;
+    return (this.reducedMotion ? peak * 0.45 : peak) * progress * progress;
   }
 }
