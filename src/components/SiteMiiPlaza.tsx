@@ -4,6 +4,7 @@ import * as THREE from 'three';
 import { disposeObjectTree } from '../games/core/GameLoop';
 import { CPU_MIIS } from '../miis/miiCatalog';
 import { createMiiLights, createMiiModel, type MiiModel } from '../miis/miiMesh';
+import { registerMiiPicker } from '../miis/miiPick';
 import { createWalkers, stepWalker, type Walker } from '../miis/miiSimulation';
 import { getPlayerMii, setPlayerMii, usePlayerMii } from '../miis/miiStore';
 import { type SiteMii, siteMiiFromProfile } from '../miis/siteMii';
@@ -131,24 +132,27 @@ export default function SiteMiiPlaza() {
     };
     frame = requestAnimationFrame(tick);
 
-    const pick = (event: MouseEvent) => {
-      const target = event.target as Element | null;
+    // Mesmo pick para mouse e para a pinça da mão: as exclusões (controles, canvas, cartão)
+    // valem pelas coordenadas e pelo elemento do topo, seja ele o target do clique ou o hit-test.
+    const pickAt = (clientX: number, clientY: number, target: Element | null | undefined) => {
       if (target?.closest('[data-mii-inspector]')) return;
       let hit: Actor | null = null;
       if (!target?.closest(CLICK_IGNORE)) {
-        const pageY = event.clientY + window.scrollY;
+        const pageY = clientY + window.scrollY;
         for (const actor of actors) {
           const { x, y } = actor.walker;
-          if (Math.abs(event.clientX - x) > 18 || pageY > y + 6 || pageY < y - 70) continue;
+          if (Math.abs(clientX - x) > 18 || pageY > y + 6 || pageY < y - 70) continue;
           if (!hit || y > hit.walker.y) hit = actor;
         }
       }
-      setSelected(hit ? { mii: hit.mii, x: event.clientX, y: event.clientY } : null);
+      setSelected(hit ? { mii: hit.mii, x: clientX, y: clientY } : null);
     };
+    const pick = (event: MouseEvent) => pickAt(event.clientX, event.clientY, event.target as Element | null);
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setSelected(null);
     };
     const close = () => setSelected(null);
+    const unregisterMiiPicker = registerMiiPicker(pickAt);
     window.addEventListener('click', pick);
     window.addEventListener('keydown', onKey);
     window.addEventListener('scroll', close, { passive: true });
@@ -156,6 +160,7 @@ export default function SiteMiiPlaza() {
     return () => {
       cancelAnimationFrame(frame);
       observer.disconnect();
+      unregisterMiiPicker();
       window.removeEventListener('resize', resize);
       window.removeEventListener('click', pick);
       window.removeEventListener('keydown', onKey);

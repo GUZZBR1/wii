@@ -7,8 +7,16 @@ import { useHandHitTest } from '../src/ui/useHandHitTest';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-function Probe({ input, onBack }: { input: HandCursorInput; onBack: () => void }) {
-  useHandHitTest(input, true, onBack);
+function Probe({
+  input,
+  onBack,
+  onEmptyClick,
+}: {
+  input: HandCursorInput;
+  onBack: () => void;
+  onEmptyClick?: (x: number, y: number, hit: Element | undefined) => void;
+}) {
+  useHandHitTest(input, true, onBack, onEmptyClick);
   return null;
 }
 
@@ -177,6 +185,52 @@ describe('useHandHitTest', () => {
     });
     expect(link.hasAttribute('data-hand-hover')).toBe(false);
     expect(explainer.hasAttribute('data-hand-within')).toBe(false);
+    act(() => {
+      root.unmount();
+    });
+  });
+
+  it('forwards pinches without a clickable target to the empty-click handler', () => {
+    const plain = document.createElement('div');
+    const button = document.createElement('button');
+    document.body.append(plain, button);
+    const click = vi.spyOn(button, 'click');
+    let hit: Element = plain;
+    document.elementsFromPoint = vi.fn(() => [hit] as unknown as Element[]);
+    const onEmptyClick = vi.fn();
+    const input: HandCursorInput = { ...HAND_IDLE, visible: true, synced: true, x: 20, y: 30, pinchRelease: true };
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const probe = (next: HandCursorInput) => createElement(Probe, { input: next, onBack: vi.fn(), onEmptyClick });
+    act(() => {
+      root.render(probe(input));
+    });
+
+    expect(onEmptyClick).toHaveBeenCalledTimes(1);
+    expect(onEmptyClick).toHaveBeenCalledWith(20, 30, plain);
+    expect(click).not.toHaveBeenCalled();
+
+    // Um controle DOM no topo continua à frente: a pinça vira clique e não é repassada.
+    hit = button;
+    act(() => {
+      root.render(probe({ ...input, pinchRelease: false }));
+    });
+    act(() => {
+      root.render(probe(input));
+    });
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(onEmptyClick).toHaveBeenCalledTimes(1);
+
+    // Com o gesto desativado (mão invisível), nada é repassado.
+    hit = plain;
+    act(() => {
+      root.render(probe({ ...input, pinchRelease: false }));
+    });
+    act(() => {
+      root.render(probe({ ...input, visible: false }));
+    });
+    expect(onEmptyClick).toHaveBeenCalledTimes(1);
     act(() => {
       root.unmount();
     });

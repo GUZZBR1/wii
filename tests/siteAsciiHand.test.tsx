@@ -3,6 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SiteAsciiHand from '../src/components/SiteAsciiHand';
+import { registerMiiPicker } from '../src/miis/miiPick';
 import { HAND_IDLE, type HandCursorInput } from '../src/ui/handCursorTypes';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -149,5 +150,18 @@ describe('SiteAsciiHand', () => {
     await render(false, { ...tracked, pinchRelease: true }, () => undefined);
     expect(click).toHaveBeenCalledTimes(1);
     expect(harness.smoothers).toBe(1);
+  });
+
+  it('passes pinches over non-clickable content to the plaza picker', async () => {
+    const picker = vi.fn();
+    const unregister = registerMiiPicker(picker);
+    const plain = document.createElement('div');
+    document.body.appendChild(plain);
+    document.elementsFromPoint = vi.fn(() => [plain] as unknown as Element[]);
+
+    await render(false, tracked, () => undefined);
+    await render(false, { ...tracked, pinchRelease: true }, () => undefined);
+    expect(picker).toHaveBeenCalledWith(40, 50, plain);
+    unregister();
   });
 });
