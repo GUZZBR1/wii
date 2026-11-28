@@ -63,7 +63,7 @@ describe('boxing opponent AI', () => {
     const at = guardEnd(guard);
     const { state, attack } = stepOpponent(guard, at, -1, sequenceRng([0.2, 0.5, 0.6, 0.9]));
     expect(attack).toBeUndefined();
-    expect(state.phase).toEqual({ kind: 'windup', hand: 'left', targetZone: -1, impactAtMs: at + 850, attackKind: 'hook', target: 'body' });
+    expect(state.phase).toEqual({ kind: 'windup', hand: 'left', targetZone: -1, impactAtMs: at + 1000, attackKind: 'hook', target: 'body' });
     expect(state.previous).toBe(guard.phase);
     expect(state.phaseStartedMs).toBe(at);
     expect(guard.phase.kind).toBe('guard');
@@ -156,35 +156,11 @@ describe('boxing opponent AI', () => {
   });
 });
 
-describe('isDodgedTyped defense matrix', () => {
-  const attack = (attackKind: 'straight' | 'hook' | 'uppercut', target: 'head' | 'body') => ({ attackKind, target, targetZone: 0 as const });
-  const slipped = [1, 1] as const;
-  const held = [0, 0] as const;
-
-  it('straight to the head is slipped or ducked', () => {
-    expect(isDodgedTyped(attack('straight', 'head'), [...slipped], [false])).toBe(true);
-    expect(isDodgedTyped(attack('straight', 'head'), [...held], [true])).toBe(true);
-    expect(isDodgedTyped(attack('straight', 'head'), [...held], [false])).toBe(false);
-  });
-
-  it('straight to the body is neither slipped nor ducked — only range or guard', () => {
-    expect(isDodgedTyped(attack('straight', 'body'), [...slipped], [false])).toBe(false);
-    expect(isDodgedTyped(attack('straight', 'body'), [...held], [true])).toBe(false);
-  });
-
-  it('hook is ducked but never slipped', () => {
-    expect(isDodgedTyped(attack('hook', 'head'), [...held], [true])).toBe(true);
-    expect(isDodgedTyped(attack('hook', 'head'), [...slipped], [false])).toBe(false);
-  });
-
-  it('uppercut is slipped but ducking into it never helps', () => {
-    expect(isDodgedTyped(attack('uppercut', 'head'), [...slipped], [false])).toBe(true);
-    expect(isDodgedTyped(attack('uppercut', 'head'), [...held], [true])).toBe(false);
-    expect(isDodgedTyped(attack('uppercut', 'body'), [...slipped], [true])).toBe(true);
-  });
-
-  it('a duck anywhere inside the impact window counts', () => {
-    expect(isDodgedTyped(attack('hook', 'head'), [...held], [false, true, false])).toBe(true);
+describe('isDodgedTyped', () => {
+  it('lets a slip or a duck beat any punch, and nothing else', () => {
+    expect(isDodgedTyped({ targetZone: 0 }, [0, 1], [false])).toBe(true);
+    expect(isDodgedTyped({ targetZone: 0 }, [0], [false, true])).toBe(true);
+    expect(isDodgedTyped({ targetZone: 0 }, [0, 0], [false, false])).toBe(false);
   });
 });
 

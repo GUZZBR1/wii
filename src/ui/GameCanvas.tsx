@@ -302,7 +302,7 @@ function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crosse
   </div>;
 }
 
-function BoxingHud({ playerHp, opponentHp, maxHp, round, rounds, secondsLeft, training }: BoxingScoreboard) {
+function BoxingHud({ playerHp, opponentHp, maxHp, round, rounds, secondsLeft, training, streak = 0 }: BoxingScoreboard) {
   if (training) {
     const card = (label: string, value: string | number) => <div className="boxing-card boxing-training-card">
       <span className="boxing-label">{label}</span>
@@ -333,5 +333,6 @@ function BoxingHud({ playerHp, opponentHp, maxHp, round, rounds, secondsLeft, tr
       <strong className="boxing-value">{Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}</strong>
     </div>
     {fighter('CPU', opponentHp, 'opponent')}
+    {streak > 1 && <strong className="boxing-streak" role="status">COMBO {streak}</strong>}
   </div>;
 }
