@@ -119,4 +119,25 @@ describe('boxing tutorial', () => {
     tutorial.punch({ hand: 'left', ...straight, travelSw: Number.NaN });
     expect(tutorial.profile.reachByKind.straight).toBeUndefined();
   });
+
+  it('adapts the punch travel floor to three quarters of the compact median reach', () => {
+    const tutorial = new BoxingTutorial();
+    run(tutorial, 1.1, { guard: true });
+    tutorial.punch({ hand: 'left', ...straight, travelSw: 0.28 });
+    tutorial.punch({ hand: 'left', ...straight, travelSw: 0.32 });
+    tutorial.punch({ hand: 'left', ...straight, travelSw: 0.3 });
+    expect(tutorial.punchTravel).toBeCloseTo(0.3 * 0.75);
+  });
+
+  it('never adapts beyond the untuned default or below the noise floor', () => {
+    const strong = new BoxingTutorial();
+    run(strong, 1.1, { guard: true });
+    strong.punch({ hand: 'left', ...straight, travelSw: 0.9 });
+    expect(strong.punchTravel).toBe(0.25);
+    const weak = new BoxingTutorial();
+    run(weak, 1.1, { guard: true });
+    weak.punch({ hand: 'left', ...straight, travelSw: 0.1 });
+    expect(weak.punchTravel).toBe(0.15);
+    expect(new BoxingTutorial().punchTravel).toBeUndefined();
+  });
 });

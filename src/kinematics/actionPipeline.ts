@@ -72,6 +72,11 @@ export class ActionPipeline {
     for (const { detector } of this.swings) detector.minTravel = travel;
   }
 
+  /** How far a wrist must travel forward to confirm a punch; the boxing tutorial tunes it to the player. */
+  setPunchTravel(travel: number): void {
+    for (const { detector } of this.punches) detector.minTravel = travel;
+  }
+
   resetSwings(): void {
     for (const { gate, detector } of this.swings) {
       gate.reset();

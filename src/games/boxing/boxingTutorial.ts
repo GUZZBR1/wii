@@ -5,6 +5,13 @@ export const HINT_AFTER_S = 10;
 export const GIVE_UP_AFTER_S = 22;
 /** A duck must be held this long to count, so a small bob does not pass as defense. */
 export const DUCK_HOLD_S = 0.35;
+/** While teaching, even a compact punch should confirm — the floor is generous on purpose. */
+export const LEARNING_PUNCH_TRAVEL = 0.15;
+/** Adapted travel never goes below noise or above the untuned default. */
+const MIN_ADAPTED_TRAVEL = 0.15;
+const MAX_ADAPTED_TRAVEL = 0.25;
+/** Players punch a bit shorter in a fight than when demonstrating, like the tennis warm-up. */
+const TRAVEL_FACTOR = 0.75;
 
 export type BoxingStepKind = 'guard' | 'jab' | 'cross' | 'hook' | 'uppercut' | 'body' | 'slip' | 'duck';
 
@@ -67,6 +74,18 @@ export class BoxingTutorial {
 
   get done(): boolean { return this.index >= STEPS.length; }
   get step(): BoxingStepKind | undefined { return STEPS[this.index]?.kind; }
+
+  /**
+   * Forward travel the detector should require for this player: three quarters of the median
+   * demonstrated reach, clamped so it never gets stricter than the untuned default. Undefined
+   * when nothing was measured — the default applies.
+   */
+  get punchTravel(): number | undefined {
+    const all = [...this.reaches.straight, ...this.reaches.hook, ...this.reaches.uppercut];
+    const center = median(all);
+    if (center === undefined) return undefined;
+    return Math.min(MAX_ADAPTED_TRAVEL, Math.max(MIN_ADAPTED_TRAVEL, center * TRAVEL_FACTOR));
+  }
 
   get profile(): BoxerProfile {
     return {

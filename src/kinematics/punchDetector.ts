@@ -160,6 +160,8 @@ export function isGuardingPose(snapshot: PoseSnapshot, calibration: CalibrationP
 }
 
 export class PunchDetector {
+  /** How far the wrist must travel forward to confirm; override after measuring the player. */
+  minTravel: number = PUNCH_THRESHOLDS.confirmForwardTravel;
   constructor(private readonly hand: Hand) {}
 
   private readonly forwardFilter = new OneEuroFilter(FILTER_OPTIONS);
@@ -251,7 +253,7 @@ export class PunchDetector {
         peak: { speed, confidence, timestampMs: time, sample },
         reached: false,
         sawExtension: current.cosine >= PUNCH_THRESHOLDS.confirmElbowCosine,
-        sawTravel: current.forward - originForward >= PUNCH_THRESHOLDS.confirmForwardTravel,
+        sawTravel: current.forward - originForward >= this.minTravel,
         samples: originSamples,
       };
       this.mode = 'punch';
@@ -265,7 +267,7 @@ export class PunchDetector {
       const ageMs = time - pending.startedAt;
       if (speed > pending.peak.speed) pending.peak = { speed, confidence, timestampMs: time, sample };
       const extended = current.cosine >= PUNCH_THRESHOLDS.confirmElbowCosine;
-      const travelled = current.forward - pending.originForward >= PUNCH_THRESHOLDS.confirmForwardTravel;
+      const travelled = current.forward - pending.originForward >= this.minTravel;
       pending.sawExtension ||= extended;
       pending.sawTravel ||= travelled;
       if (ageMs <= PUNCH_THRESHOLDS.maxDurationMs && extended && travelled) pending.reached = true;
@@ -283,7 +285,7 @@ export class PunchDetector {
         // maxima over the window measure the same instant without fragile same-sample timing.
         const peakCosine = Math.max(...pending.samples.map((pendingSample) => Math.max(pendingSample.elbowCosine, pendingSample.rawElbowCosine ?? 0)));
         const peakTravel = Math.max(...pending.samples.map((pendingSample) => pendingSample.forward)) - pending.originForward;
-        if (peakCosine >= PUNCH_THRESHOLDS.confirmElbowCosine && peakTravel >= PUNCH_THRESHOLDS.confirmForwardTravel) {
+        if (peakCosine >= PUNCH_THRESHOLDS.confirmElbowCosine && peakTravel >= this.minTravel) {
           pending.reached = true;
           pending.sawExtension = true;
           pending.sawTravel = true;

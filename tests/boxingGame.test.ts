@@ -629,6 +629,26 @@ describe('BoxingGame tutorial mode', () => {
     expect(read().status).toContain('ganchos');
   });
 
+  it('reports the learning floor on entry and the adapted travel once done', () => {
+    const travels: number[] = [];
+    const { game, run } = start({ mode: 'tutorial', onPunchTravel: (travel) => travels.push(travel) });
+    expect(travels).toEqual([0.15]);
+    game.setGuard(true);
+    run(1.2);
+    game.setGuard(false);
+    const at = () => performance.now();
+    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'left')); run(0.2); }
+    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'right')); run(0.2); }
+    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'hook', 'head')); run(0.2); }
+    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'uppercut', 'head')); run(0.2); }
+    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'body')); run(0.2); }
+    game.setDodgeZone(-1); run(0.3); game.setDodgeZone(0); run(0.3);
+    game.setDodgeZone(1); run(0.3); game.setDodgeZone(0); run(0.3);
+    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
+    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
+    expect(travels.at(-1)).toBeCloseTo(0.25);
+  });
+
   it('unknown-type punches do not advance the tutorial', () => {
     const { game, run, read } = start({ mode: 'tutorial' });
     game.setGuard(true);

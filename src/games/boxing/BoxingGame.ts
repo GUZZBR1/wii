@@ -6,7 +6,7 @@ import type { GameHudState, HudFeedback } from '../core/hud';
 import { RunGate, type RunPhase } from '../track/runGate';
 import { applyLatePunch, applyOpponentPunch, applyPlayerPunch, createBoxing, MAX_HP, ROUND_COUNT, tickRound, type BoxingState } from './boxingRules';
 import type { BoxingMode } from './boxingModes';
-import { BoxingTutorial } from './boxingTutorial';
+import { LEARNING_PUNCH_TRAVEL, BoxingTutorial } from './boxingTutorial';
 import { RestartGesture } from '../core/restartGesture';
 import { createImpactSparkPool, type ImpactEffectKind, type ImpactSparkPool } from './impactEffects';
 import { createFirstPersonGloves, createMiiBoxer, type FirstPersonGloves, type MiiBoxer, type MiiBoxerFootwork, type MiiBoxerState } from './miiBoxer';
@@ -57,6 +57,8 @@ import {
 
 const ROUND_BREAK_MS = 3000;
 const MATCH_PAUSE_MS = 5000;
+/** The untuned confirmation floor the pipeline starts with; kept in sync with punchDetector. */
+const PUNCH_TRAVEL_DEFAULT = 0.25;
 const KEY_PUNCH_POWER01 = 0.65;
 /** Matches the camera detector's per-hand refractory; key auto-repeat must not outpunch an arm. */
 const KEY_PUNCH_COOLDOWN_MS = 250;
@@ -124,6 +126,11 @@ export interface BoxingGameOptions {
    * shift the attack sequence. Defaults to no random footwork (the opponent never dashes).
    */
   motionRng?: () => number;
+  /**
+   * Reports how much forward travel a punch needs to confirm — generous while teaching,
+   * adapted to the measured player once the warm-up ends, exactly like the tennis one.
+   */
+  onPunchTravel?: (travel: number) => void;
 }
 
 export interface BoxingScoreboard {
@@ -172,6 +179,8 @@ export class BoxingGame {
   private bagTrainer: PunchingBagTrainer | undefined;
   private dodgeChallenge: DodgeChallenge | undefined;
   private tutorial: BoxingTutorial | undefined;
+  /** Guards against re-applying the same tutorial's adapted travel every tick. */
+  private travelAdapted = false;
   private readonly skipGesture = new RestartGesture();
   private fightMs = 0;
   private animTimeS = 0;
@@ -222,7 +231,7 @@ export class BoxingGame {
     private readonly onHud: (state: BoxingHudState) => void,
     private readonly audio?: ProceduralAudio,
     private readonly rng: () => number = Math.random,
-    options: BoxingGameOptions = {},
+    private readonly options: BoxingGameOptions = {},
   ) {
     this.mode = options.mode ?? 'fight';
     this.motionRng = options.motionRng ?? (() => 0);
@@ -252,7 +261,10 @@ export class BoxingGame {
       this.bag = undefined;
     }
     if (this.mode === 'dodge') this.dodgeChallenge = new DodgeChallenge();
-    if (this.mode === 'tutorial') this.tutorial = new BoxingTutorial();
+    if (this.mode === 'tutorial') {
+      this.tutorial = new BoxingTutorial();
+      this.options.onPunchTravel?.(LEARNING_PUNCH_TRAVEL);
+    }
 
     this.placeFighters(1);
     this.gloves = createFirstPersonGloves();
@@ -588,6 +600,10 @@ export class BoxingGame {
       this.status = 'Tutorial completo!';
     }
     if (tutorial.done) {
+      if (!this.travelAdapted) {
+        this.travelAdapted = true;
+        this.options.onPunchTravel?.(tutorial.punchTravel ?? PUNCH_TRAVEL_DEFAULT);
+      }
       this.restartMsLeft = MATCH_PAUSE_MS;
       this.audio?.bell('ko');
     }
@@ -818,7 +834,12 @@ export class BoxingGame {
       this.bag?.reset();
     }
     if (this.mode === 'dodge') this.dodgeChallenge = new DodgeChallenge();
-    if (this.mode === 'tutorial') this.tutorial = new BoxingTutorial();
+    if (this.mode === 'tutorial') {
+      this.tutorial = new BoxingTutorial();
+      this.travelAdapted = false;
+      // The travel floor is not lowered again: the next completion re-adapts it, and in the
+      // meantime the player keeps whatever the last warm-up measured instead of the floor.
+    }
     this.runningSinceWallMs = performance.now();
     this.status = this.initialStatus();
   }

@@ -497,12 +497,14 @@ export default function App({ exit }: { exit?: ReactNode }) {
   }, [startCamera]);
 
   const onStrokeTravel = useCallback((travel: number) => { pipelineRef.current.setStrokeTravel(travel); }, []);
+  const onPunchTravel = useCallback((travel: number) => { pipelineRef.current.setPunchTravel(travel); }, []);
 
   const play = (next: Sport, distance: Goal = 100) => {
     setGoal(distance);
     void audioRef.current.unlock();
-    // The tennis warm-up sets its own stroke length; every game starts from the default.
+    // The warm-up tutorials set their own stroke length; every game starts from the default.
     pipelineRef.current.setStrokeTravel(1.9);
+    pipelineRef.current.setPunchTravel(0.25);
     pipelineRef.current.resetSwings();
     setSport(next);
     sportRef.current = next;
@@ -516,7 +518,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} crossedPose={crossedPoseRef} onExit={() => setScreen('games')} onStrokeTravel={onStrokeTravel} />}
+    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} crossedPose={crossedPoseRef} onExit={() => setScreen('games')} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} />}
     {screen === 'home' && (
       <HomeMenu
         exit={exit}

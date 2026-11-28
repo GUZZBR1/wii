@@ -116,6 +116,15 @@ describe('PunchDetector', () => {
     expect(power(120)).toBeGreaterThan(power(300));
   });
 
+  it('confirms a compact punch once the travel floor adapts to the player', () => {
+    const compact: Arm = { elbow: { x: 0, y: 0.02, z: -0.12 }, wrist: { x: 0, y: 0.02, z: -0.26 } };
+    const keys: [number, Arm][] = [[0, GUARD], [300, GUARD], [400, compact], [900, compact]];
+    expect(kinds(run(new PunchDetector('right'), keys))).toEqual(['onset']);
+    const adapted = new PunchDetector('right');
+    adapted.minTravel = 0.15;
+    expect(kinds(run(adapted, keys))).toEqual(['onset', 'confirmed']);
+  });
+
   it('does not confirm depth-only motion with the elbow staying bent', () => {
     const forward = (point: Point3) => ({ ...point, z: point.z - 0.4 });
     // A large depth swing of elbow and wrist: plenty of forward travel, never a straight arm.
