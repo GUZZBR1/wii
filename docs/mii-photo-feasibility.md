@@ -1,10 +1,10 @@
-# Viabilidade Técnica e Benchmark — Geração de Mii por Foto/Webcam vs. Criação Manual (R2)
+# Viabilidade Técnica e Benchmark — Geração de Mii por Foto/Webcam vs. Criação Manual
 
-Data: 28 de novembro de 2026 · Branch/worktree: `wii-miis` · Pacote CV analisado: `@mediapipe/tasks-vision@1.2.3`
+Data: 28 de novembro de 2026 · Pacote CV analisado: `@mediapipe/tasks-vision@1.2.3`
 
-## 1. Contexto e Pergunta Técnica (R2)
+## 1. Contexto e Pergunta Técnica
 
-O requisito R2 exige substituir o antigo protótipo de canvas de desenho da página inicial por um criador completo no estilo **Mii Channel** (rosto, cabelo, sobrancelhas, olhos, nariz, boca, barba/bigode, óculos, altura, porte, cores e nome) com pré-visualização 3D em tempo real, precedido de análise objetiva sobre incluir ou descartar geração inicial de Mii por foto/webcam.
+O pedido era substituir o antigo protótipo de canvas de desenho da página inicial por um criador completo no estilo **Mii Channel** (rosto, cabelo, sobrancelhas, olhos, nariz, boca, barba/bigode, óculos, altura, porte, cores e nome) com pré-visualização 3D em tempo real, precedido de análise objetiva sobre incluir ou descartar geração inicial de Mii por foto/webcam.
 
 Critérios de produção avaliados:
 1. **Peso do bundle inicial (`dist/assets/index-*.js`)**: a página inicial do site é estática com Three.js; não pode carregar runtimes de ML nem modelos na carga inicial.
@@ -53,7 +53,7 @@ Latência e memória abaixo são **estimativas**, não medições do `FaceLandma
 
 Adotamos a arquitetura **Híbrida Manual-First + `FaceLandmarker` Single-Shot sob demanda**:
 
-1. **O criador manual completo é o fluxo primário**: zero dependência de câmera, modelo ou WebGL para criar, personalizar, randomizar e salvar o Mii do jogador (`wii-player-mii-v1`).
+1. **O criador manual completo é o fluxo primário**: zero dependência de câmera, modelo ou WebGL para criar, personalizar, randomizar e salvar o Mii do jogador (`wii-mii-face-v1` para o rosto, `wii-player-mii-v1` para nome, roupa e porte).
 2. **A sugestão por foto/webcam é 100% lazy e efêmera (`src/miis/faceSuggestClient.ts` + `src/miis/face.worker.ts`)**:
    - **0 KB no bundle inicial**: `@mediapipe/tasks-vision` é importado dinamicamente (`await import('@mediapipe/tasks-vision')`) apenas dentro de `face.worker.ts` (ou no fallback dinâmico em main thread), jamais no `index-*.js`.
    - **0 FPS de impacto contínuo**: usa `runningMode: 'IMAGE'` e `numFaces: 1`. Após uma única chamada `detect(bitmap)`, executa imediatamente `landmarker.close()`, `bitmap.close()`, `worker.terminate()` e (no fluxo de webcam) `track.stop()`.
@@ -90,7 +90,7 @@ Para garantir testabilidade determinística em Vitest (`environment: 'node'`) e 
 
 ## 5. Conclusão e Critérios de Reavaliação
 
-A abordagem **Híbrida Manual-First + Lazy Single-Shot `FaceLandmarker`** atende integralmente a R2:
+A abordagem **Híbrida Manual-First + Lazy Single-Shot `FaceLandmarker`** atende ao pedido:
 - **Custo zero** no carregamento inicial da Home (`0 kB` de `@mediapipe/tasks-vision` em `index-*.js`) e **custo zero** de FPS durante a circulação dos Miis 3D.
 - **Sugestão real por foto/webcam** com rascunho editável no criador Mii Channel quando o usuário opta pelo recurso, e **criador manual completo** sempre disponível quando WebGL estiver ausente, o modelo falhar ou nenhum rosto for detectado.
 - Se no futuro o site adotar CSP restritiva, `connect-src` precisará contemplar o endpoint de telemetria ODML embutido no MediaPipe (`odml.pa.googleapis.com/v1/log`, já documentado em `THIRD_PARTY_NOTICES.md`).
