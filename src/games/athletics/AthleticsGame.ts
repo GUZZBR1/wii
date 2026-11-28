@@ -14,7 +14,7 @@ export interface AthleticsHudState {
   status: string;
   banner?: { title: string; detail?: string };
   feedback?: Feedback;
-  finished?: { title: string; detail: string; standings: { name: string; time: string; you: boolean }[]; restart01: number };
+  finished?: { title: string; detail: string; standings: { name: string; time: string; you: boolean; status: 'confirmed' | 'estimated'; place: number }[]; standingsFinal: boolean; restart01: number };
   energy?: { value01: number; label: string; coaching?: string };
   /** Where everyone is in the race, 0–1. */
   runners?: { name: string; progress01: number; you: boolean }[];
@@ -70,7 +70,7 @@ export class AthleticsGame {
     private readonly audio?: ProceduralAudio,
     goal: Goal = 100,
   ) {
-    this.race = new Race(goal);
+    this.race = new Race(goal, Math.random);
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) => this.update(dt, wallTimeMs));
     this.stadium = buildStadium(this.scene, this.loop.renderer);
     this.loop.onQualityChange = (tier) => this.stadium.setShadows(tier === 0);
@@ -212,9 +212,10 @@ export class AthleticsGame {
     const record = this.record?.isNew ? 'Novo recorde pessoal!' : this.record ? `Recorde pessoal: ${formatTime(this.record.best)}` : '';
     const finished = race.finishS !== undefined
       ? {
-        title: race.place === 1 ? 'VOCÊ VENCEU!' : `${race.place}º lugar`,
+        title: !race.standingsFinal ? 'PROVA EM ANDAMENTO' : race.place === 1 ? 'VOCÊ VENCEU!' : `${race.place}º lugar`,
         detail: [`${formatTime(race.finishS)} nos ${race.goal} m`, record].filter(Boolean).join(' · '),
-        standings: race.standings.map((runner) => ({ name: runner.name, time: formatTime(runner.timeS), you: runner.you })),
+        standings: race.standings.map((runner) => ({ name: runner.name, time: formatTime(runner.timeS), you: runner.you, status: runner.status, place: runner.place })),
+        standingsFinal: race.standingsFinal,
         restart01: Math.floor(race.restart01 * 20) / 20,
       }
       : undefined;

@@ -187,3 +187,20 @@ describe('isDodgedTyped defense matrix', () => {
     expect(isDodgedTyped(attack('hook', 'head'), [...held], [false, true, false])).toBe(true);
   });
 });
+
+describe('contextual boxing decisions', () => {
+  it('waits until the observed opponent is in range', () => {
+    const state = createOpponentAi(0, () => 0);
+    expect(stepOpponent(state, guardEnd(state), 0, noRng, { inRange: false, playerGuarding: false, style: 'technical' }).state).toBe(state);
+  });
+
+  it('uses repeated reliable defense patterns while retaining variety', () => {
+    const state = createOpponentAi(0, () => 0);
+    const decide = (habits: { samples: number; slips: number; ducks: number }) =>
+      stepOpponent(state, guardEnd(state), 0, sequenceRng([0, 0, 0.73, 0.5]), {
+        inRange: true, playerGuarding: true, style: 'aggressive', habits,
+      }).state.phase;
+    expect(decide({ samples: 1, slips: 1, ducks: 0 })).toMatchObject({ attackKind: 'uppercut' });
+    expect(decide({ samples: 4, slips: 4, ducks: 0 })).toMatchObject({ attackKind: 'hook' });
+  });
+});
