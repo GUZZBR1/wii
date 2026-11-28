@@ -4,7 +4,7 @@ Este é o registro vivo das rodadas de melhoria arquitetural solicitadas para o 
 
 ## Estado da iniciativa
 
-- **Base atual da branch:** `origin/main` em `faa86aa` (PR #110 integrado), com as rodadas 1–8 na branch `arena/8a5db8a6-wii`. A rodada 8 é a primeira que continua a partir do trabalho de redução do PR #112.
+- **Base atual da branch:** `origin/main` em `241a8c3`, com PR42 (#42), boxe (#44), rotação do menu (#46) e polimento do menu (#47) já integrados; trabalho na worktree isolada `refactor/canonical-frame-capture`.
 - **Levantamento do estado ativo:** PR42 e worktrees/orquestrações locais foram comparados; mudanças locais não revisadas foram preservadas e não copiadas.
 - **Estado do checkout compartilhado:** alterações locais fora desta worktree são preservadas e não fazem parte desta rodada.
 - **Skills aplicadas:** `codebase-design` e `domain-modeling`.
@@ -209,21 +209,6 @@ flowchart LR
 - O teste de scheduler foi vermelho antes da correção e verde depois. `npm test` passou com 97 arquivos Vitest, 928 testes e cinco testes Node, usando somente as gravações locais existentes por symlink temporário removido ao final.
 - `npm run build`, `npm run lint`, `npm run check:articles`, lint focado e `git diff --check` passaram. O lint global mantém 35 avisos CSS em arquivos não alterados; o build mantém avisos de chunks acima de 500 kB.
 - A checagem manual real da webcam exigida no `AGENTS.md` ainda não foi feita: este ambiente não tem browser instalado nem `/dev/video*`. O PR declara essa pendência; precisa ser verificada numa máquina com webcam.
-
-## Rodada 8 — um só dono do ciclo GPU→CPU nos workers
-
-### Mudanças
-
-- `packages/core/src/providers/mediaPipeTask.ts` passa a ser o dono do ciclo do delegate que `pose.worker.ts` e `hand.worker.ts` repetiam: criação da tarefa com renovação do loader WASM, `READY` com o delegate que realmente subiu, uma única troca GPU→CPU por sessão, warm-up opcional e o veredicto de latência sobre `delegateProbe`.
-- Os workers ficam com o que lhes é próprio: o protocolo, a forma do resultado (`POSE` com época de captura, `HAND` sem ela) e o laço de quadro com um único `bitmap.close()`.
-- `tests/mediaPipeTask.test.ts` fixa o contrato compartilhado: o modelo CPU do pose continua sendo usado no fallback, um fallback CPU falho reporta a razão do CPU, e a troca de delegate acontece uma vez por sessão mantendo as respostas aos quadros seguintes.
-- Docs: `AGENTS.md` e `docs/architecture-backlog.md` registram o novo dono; `delegateProbe` continua sendo a regra de latência pura e testada.
-
-### Verificação
-
-- `npm test`: 130 arquivos (127 passaram, 3 pulados) e 1186 testes (8 pulados); `npx tsc -b`, `npm run build`, `npm run check:articles`, `git diff --check` passaram. `npm run lint` mantém 52 avisos, todos em CSS não alterado.
-- Duplicação em `packages/core/src/providers` pelo `jscpd` (≥8 linhas, ≥60 tokens) caiu de 3,15% (4 clones) para 0. O total do repositório permanece em 0,49%, com os clones conhecidos fora dos workers.
-- Comportamento preservado: cada worker continua fechando o próprio bitmap exatamente uma vez, e um fallback fatal ainda chega como a única resposta terminal daquele quadro — a regressão de `poseWorkerLatencyVerdict` passou sem alteração.
 
 ## Ciclo de melhoria
 
