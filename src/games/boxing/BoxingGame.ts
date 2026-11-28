@@ -6,6 +6,8 @@ import type { GameHudState, HudFeedback } from '../core/hud';
 import { RunGate, type RunPhase } from '../track/runGate';
 import { applyLatePunch, applyOpponentPunch, applyPlayerPunch, createBoxing, MAX_HP, ROUND_COUNT, tickRound, type BoxingState } from './boxingRules';
 import type { BoxingMode } from './boxingModes';
+import { BoxingTutorial } from './boxingTutorial';
+import { RestartGesture } from '../core/restartGesture';
 import { createImpactSparkPool, type ImpactEffectKind, type ImpactSparkPool } from './impactEffects';
 import { createFirstPersonGloves, createMiiBoxer, type FirstPersonGloves, type MiiBoxer, type MiiBoxerFootwork, type MiiBoxerState } from './miiBoxer';
 import {
@@ -169,6 +171,8 @@ export class BoxingGame {
   private ai: OpponentAiState;
   private bagTrainer: PunchingBagTrainer | undefined;
   private dodgeChallenge: DodgeChallenge | undefined;
+  private tutorial: BoxingTutorial | undefined;
+  private readonly skipGesture = new RestartGesture();
   private fightMs = 0;
   private animTimeS = 0;
   /** Wall time the fight last (re)started; punches peaking before it belong to a frozen fight. */
@@ -248,6 +252,7 @@ export class BoxingGame {
       this.bag = undefined;
     }
     if (this.mode === 'dodge') this.dodgeChallenge = new DodgeChallenge();
+    if (this.mode === 'tutorial') this.tutorial = new BoxingTutorial();
 
     this.placeFighters(1);
     this.gloves = createFirstPersonGloves();
@@ -295,6 +300,11 @@ export class BoxingGame {
     this.cameraDuck = ducked === true;
   }
 
+  /** Feeds the tutorial skip gesture; outside the tutorial the boxing game has no use for it. */
+  setHandsRaised(raised: boolean, atMs: number | null): void {
+    this.skipGesture.setHandsRaised(raised, atMs);
+  }
+
   /** Like the guard, footwork never latches: no opinion means standing still. */
   setDepthMove(move: -1 | 0 | 1 | undefined): void {
     this.cameraDepth = move ?? 0;
@@ -327,7 +337,7 @@ export class BoxingGame {
   onAction(event: SportActionEvent): void {
     if (event.type !== 'punch-start' && event.type !== 'punch') return;
     if (event.type === 'punch-start') {
-      if (this.punchingActive() || (this.mode === 'dodge' && this.trainingActive())) {
+      if (this.punchingActive() || (this.mode === 'dodge' && this.trainingActive()) || (this.mode === 'tutorial' && this.gate.phase === 'running')) {
         this.punchAnimS[event.hand] = 0;
         this.audio?.whoosh(0.55);
       }
@@ -340,6 +350,21 @@ export class BoxingGame {
       return;
     }
     if (this.mode === 'dodge') return;
+    if (this.mode === 'tutorial') {
+      const tutorial = this.tutorial;
+      if (!tutorial || tutorial.done || this.gate.phase !== 'running' || this.restartMsLeft > 0) return;
+      if (event.type === 'punch' && event.punchKind && event.punchKind !== 'unknown') {
+        const advanced = tutorial.punch({
+          hand: event.hand,
+          kind: event.punchKind,
+          target: event.punchTargetZone ?? 'unknown',
+          travelSw: event.measurement?.forwardTravel,
+        });
+        this.setFeedback(advanced ? 'ISSO!' : 'TENTE DE NOVO', advanced ? 'good' : 'neutral');
+        if (advanced) this.audio?.punchImpact(0.3 + 0.4 * event.power01, false);
+      }
+      return;
+    }
 
     if (event.peakTimestampMs < this.runningSinceWallMs) return;
     if (this.fighting()) {
@@ -501,6 +526,10 @@ export class BoxingGame {
       this.stepDodge(dtMs);
       return;
     }
+    if (this.mode === 'tutorial') {
+      this.stepTutorial(dtMs);
+      return;
+    }
     this.stepFight(dtMs);
   }
 
@@ -530,6 +559,38 @@ export class BoxingGame {
     this.fightMs += dtMs;
     this.movePlayer(dtMs);
     this.applyDodgeEvents(challenge.advance(dtMs / 1000, this.trainingLaneZone()));
+  }
+
+  /** The opponent holds its guard and never attacks: the tutorial is a warm-up, not a fight. */
+  private stepTutorial(dtMs: number): void {
+    const tutorial = this.tutorial;
+    if (!tutorial) return;
+    if (tutorial.done) {
+      this.restartMsLeft -= dtMs;
+      if (this.restartMsLeft <= 0) this.resetTraining();
+      return;
+    }
+    this.fightMs += dtMs;
+    this.movePlayer(dtMs);
+    tutorial.tick({
+      dtS: dtMs / 1000,
+      seen: true,
+      guard: this.guarding(),
+      zone: this.zone,
+      ducked: this.cameraDuck,
+    });
+    const { title, detail } = tutorial.text;
+    this.status = tutorial.done ? 'Tutorial completo!' : `${title} — ${detail}`;
+    // Holding both hands up skips the rest of the warm-up, same gesture as the tennis one.
+    this.skipGesture.step(dtMs / 1000, performance.now());
+    if (this.skipGesture.progress01 >= 1) {
+      tutorial.skip();
+      this.status = 'Tutorial completo!';
+    }
+    if (tutorial.done) {
+      this.restartMsLeft = MATCH_PAUSE_MS;
+      this.audio?.bell('ko');
+    }
   }
 
   private stepFight(dtMs: number): void {
@@ -757,6 +818,7 @@ export class BoxingGame {
       this.bag?.reset();
     }
     if (this.mode === 'dodge') this.dodgeChallenge = new DodgeChallenge();
+    if (this.mode === 'tutorial') this.tutorial = new BoxingTutorial();
     this.runningSinceWallMs = performance.now();
     this.status = this.initialStatus();
   }
@@ -772,12 +834,14 @@ export class BoxingGame {
   private initialStatus(): string {
     if (this.mode === 'bag') return 'Siga o ritmo do saco';
     if (this.mode === 'dodge') return 'Leia o golpe e ocupe a zona segura';
+    if (this.mode === 'tutorial') return 'Aprenda os golpes no seu ritmo';
     return 'Soque quando a guarda abrir';
   }
 
   private trainingFinished(): boolean {
     if (this.mode === 'bag') return this.bagTrainer?.snapshot.status === 'won';
     if (this.mode === 'dodge') return this.dodgeChallenge !== undefined && this.dodgeChallenge.snapshot.status !== 'active';
+    if (this.mode === 'tutorial') return this.tutorial?.done === true;
     return false;
   }
 
@@ -931,7 +995,7 @@ export class BoxingGame {
   private publishHud(): void {
     const training = this.trainingScoreboard();
     const finished = this.mode === 'fight' ? this.match.winner !== undefined : this.trainingFinished();
-    const countdownDetail = this.mode === 'bag' ? 'Prepare o ritmo' : this.mode === 'dodge' ? 'Leia o golpe' : 'Guarda alta';
+    const countdownDetail = this.mode === 'bag' ? 'Prepare o ritmo' : this.mode === 'dodge' ? 'Leia o golpe' : this.mode === 'tutorial' ? 'Aprenda os golpes' : 'Guarda alta';
     const banner = this.gate.phase === 'countdown' ? { title: String(this.gate.count), detail: countdownDetail }
       : this.gate.phase === 'paused' ? { title: 'PAUSA', detail: 'Volte para a câmera ou aperte W A S D' }
       : finished ? { title: this.status }
