@@ -70,10 +70,21 @@ export default function PapersPage() {
     const place = () => {
       cards.forEach((el, i) => {
         if (compact.matches) {
-          // Keep the title clear: two cards above, two below, and one at the bottom.
-          const x = i === 4 ? 0 : (i % 2 === 0 ? -1 : 1) * rx;
-          const y = i < 2 ? -ry : i < 4 ? ry * 0.35 : ry;
-          el.style.transform = `translate3d(calc(-50% + ${x.toFixed(2)}px), calc(-50% + ${y.toFixed(2)}px), 0)`;
+          // Keep the title clear: two cards above, remaining rows below.
+          if (i < 2) {
+            const x = (i % 2 === 0 ? -1 : 1) * rx;
+            const y = -ry;
+            el.style.transform = `translate3d(calc(-50% + ${x.toFixed(2)}px), calc(-50% + ${y.toFixed(2)}px), 0)`;
+          } else {
+            const lowerCount = cards.length - 2;
+            const row = Math.floor((i - 2) / 2);
+            const totalLowerRows = Math.ceil(lowerCount / 2);
+            const isLastOdd = lowerCount % 2 === 1 && i === cards.length - 1;
+            const x = isLastOdd ? 0 : ((i - 2) % 2 === 0 ? -1 : 1) * rx;
+            const t = totalLowerRows > 1 ? row / (totalLowerRows - 1) : 1;
+            const y = ry * (0.28 + 0.72 * t);
+            el.style.transform = `translate3d(calc(-50% + ${x.toFixed(2)}px), calc(-50% + ${y.toFixed(2)}px), 0)`;
+          }
           el.style.opacity = '1';
           el.style.zIndex = '5';
           front[i] = false;
@@ -196,11 +207,19 @@ export default function PapersPage() {
           <div className="papers-swap-inner">
             {shown && (
               <article className="papers-detail" aria-live="polite" aria-hidden={!open}>
-                <p className="papers-detail-kicker">{tr(`proposta ${shown.n} de ${papers.length} · ainda sem resultados`, `proposal ${shown.n} of ${papers.length} · no results yet`)}</p>
+                <p className="papers-detail-kicker">
+                  {shown.externalUrl
+                    ? tr(`referência ${shown.n} de ${papers.length} · artigo externo`, `reference ${shown.n} of ${papers.length} · external paper`)
+                    : tr(`proposta ${shown.n} de ${papers.length} · ainda sem resultados`, `proposal ${shown.n} of ${papers.length} · no results yet`)}
+                </p>
                 <h2 className="papers-detail-title">{copyOf(shown).title}</h2>
                 <p className="papers-detail-blurb">{copyOf(shown).blurb}</p>
                 <div className="papers-detail-actions">
-                  <Link className="papers-open" to={`/papers/${shown.n}`}>{tr('abrir artigo', 'open article')}</Link>
+                  {shown.externalUrl ? (
+                    <a className="papers-open" href={shown.externalUrl} target="_blank" rel="noopener noreferrer">{tr('abrir artigo', 'open article')}</a>
+                  ) : (
+                    <Link className="papers-open" to={`/papers/${shown.n}`}>{tr('abrir artigo', 'open article')}</Link>
+                  )}
                   <button type="button" className="papers-close" onClick={() => setOpen(null)}>{tr('fechar', 'close')}</button>
                 </div>
               </article>

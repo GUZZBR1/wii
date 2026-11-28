@@ -1,8 +1,7 @@
 import type { Bilingual } from '../i18n';
 
 /**
- * Propostas de artigo da coleção em docs/research (rascunhos conceituais: nenhuma delas é resultado validado).
- * Os textos aqui são resumos curtos dos "Resumo" de cada proposta.
+ * Artigos científicos de referência para o pipeline de visão computacional e os jogos pelo corpo.
  * short/title/blurb são o texto em português; en traz a tradução para inglês (mesma estrutura).
  */
 export interface Paper {
@@ -10,22 +9,89 @@ export interface Paper {
   short: string;
   title: string;
   blurb: string;
+  externalUrl?: string;
   en: { short: string; title: string; blurb: string };
 }
 
 export const papers: Paper[] = [
-  { n: '01', short: 'dados sintéticos', title: 'Simulação e dados sintéticos para avaliar sistemas de desenho por câmera', blurb: 'Cenários simulados como complemento às gravações reais, e até onde eles servem.', en: { short: 'synthetic data', title: 'Simulation and synthetic data for evaluating camera drawing systems', blurb: 'Simulated scenarios as a complement to real recordings, and how far they are useful.' } },
-  { n: '02', short: 'tempo de resposta', title: 'Desempenho temporal em sistemas de desenho assistidos por visão computacional', blurb: 'A rapidez da resposta e a continuidade que a pessoa percebe enquanto desenha.', en: { short: 'response time', title: 'Temporal performance in computer-vision-assisted drawing systems', blurb: 'The speed of the response and the continuity the person perceives while drawing.' } },
-  { n: '03', short: 'reprodutibilidade', title: 'Reprodutibilidade experimental em sistemas de visão computacional com modelos externos', blurb: 'Rastrear modelos, dados e configurações para que um resultado possa ser repetido.', en: { short: 'reproducibility', title: 'Experimental reproducibility in computer vision systems with external models', blurb: 'Tracking models, data and configurations so that a result can be repeated.' } },
-  { n: '04', short: 'acessibilidade', title: 'Acessibilidade e diversidade de uso em sistemas de desenho assistidos por câmera', blurb: 'Quem consegue usar, em que contextos, e onde estão as barreiras.', en: { short: 'accessibility', title: 'Accessibility and diversity of use in camera-assisted drawing systems', blurb: 'Who can use them, in which contexts, and where the barriers are.' } },
-  { n: '05', short: 'experiência', title: 'Qualidade e continuidade da experiência em sistemas de desenho assistidos por câmera', blurb: 'Ligar as medidas técnicas ao que as pessoas realmente percebem ao desenhar.', en: { short: 'experience', title: 'Quality and continuity of the experience in camera-assisted drawing systems', blurb: 'Connecting technical measures to what people actually perceive when drawing.' } },
+  {
+    n: '01',
+    short: 'golpes no tênis',
+    title: 'Multi-Task Tennis Stroke Biomechanics Analysis Using MediaPipe Pose',
+    blurb: 'Hazarika et al. (2026) · Detector cinético de golpes por velocidade ponderada de punho, cotovelo e ombro e generalização entre jogadores.',
+    externalUrl: 'https://arxiv.org/abs/2606.15992',
+    en: {
+      short: 'tennis strokes',
+      title: 'Multi-Task Tennis Stroke Biomechanics Analysis Using MediaPipe Pose',
+      blurb: 'Hazarika et al. (2026) · Kinetic stroke event detector from weighted wrist, elbow, and shoulder velocities with cross-player generalization.',
+    },
+  },
+  {
+    n: '02',
+    short: 'precisão 3D',
+    title: 'Accuracy Evaluation of 3D Pose Estimation with MediaPipe Pose for Physical Exercises',
+    blurb: 'Dill et al. (BMT 2023) · Avaliação do MediaPipe Pose contra MoCap óptico sob múltiplos ângulos, mostrando queda com oclusão e ângulos desfavoráveis.',
+    externalUrl: 'https://www.degruyter.com/document/doi/10.1515/cdbme-2023-1141/html',
+    en: {
+      short: '3D accuracy',
+      title: 'Accuracy Evaluation of 3D Pose Estimation with MediaPipe Pose for Physical Exercises',
+      blurb: 'Dill et al. (BMT 2023) · Evaluation of MediaPipe Pose against optical MoCap across viewing angles, showing accuracy drops with occlusion.',
+    },
+  },
+  {
+    n: '03',
+    short: 'exergames por câmera',
+    title: 'Smartphone Exergames with Real-Time Markerless Motion Capture: Challenges and Trade-offs',
+    blurb: 'Phosanarack et al. (CHI Workshop / arXiv 2025) · Trade-offs de latência, precisão, enquadramento e robustez em exergames sem marcadores em hardware comum.',
+    externalUrl: 'https://arxiv.org/abs/2507.06669',
+    en: {
+      short: 'camera exergames',
+      title: 'Smartphone Exergames with Real-Time Markerless Motion Capture: Challenges and Trade-offs',
+      blurb: 'Phosanarack et al. (CHI Workshop / arXiv 2025) · Latency, accuracy, framing, and robustness trade-offs in markerless exergames on commodity cameras.',
+    },
+  },
+  {
+    n: '04',
+    short: 'avaliação por DTW',
+    title: 'Webcam-Based Exergame for Motor Recovery with Physical Assessment via DTW',
+    blurb: 'Labchurat et al. (Sensors 2026) · Uso de webcam comum + MediaPipe para ombro e cotovelo com Dynamic Time Warping e Z-score entre usuários.',
+    externalUrl: 'https://doi.org/10.3390/s26041219',
+    en: {
+      short: 'DTW assessment',
+      title: 'Webcam-Based Exergame for Motor Recovery with Physical Assessment via DTW',
+      blurb: 'Labchurat et al. (Sensors 2026) · Commodity webcam + MediaPipe for shoulder and elbow tracking with DTW and Z-score normalization across users.',
+    },
+  },
+  {
+    n: '05',
+    short: 'pose no dispositivo',
+    title: 'BlazePose: On-device Real-time Body Pose tracking',
+    blurb: 'Bazarevsky et al. (Google Research, 2020) · Arquitetura leve de 33 pontos corporais que roda em tempo real na CPU do navegador via MediaPipe.',
+    externalUrl: 'https://arxiv.org/abs/2006.10204',
+    en: {
+      short: 'on-device pose',
+      title: 'BlazePose: On-device Real-time Body Pose tracking',
+      blurb: 'Bazarevsky et al. (Google Research, 2020) · Lightweight 33-keypoint body pose architecture running in real time on browser CPU via MediaPipe.',
+    },
+  },
+  {
+    n: '06',
+    short: 'filtro 1€',
+    title: '1€ Filter: A Simple Speed-based Low-pass Filter for Noisy Input in Interactive Systems',
+    blurb: 'Casiez, Roussel & Vogel (ACM CHI 2012) · Filtro passa-baixa adaptativo pela velocidade que reduz tremulação parado sem atrasar movimentos rápidos.',
+    externalUrl: 'https://doi.org/10.1145/2207676.2208639',
+    en: {
+      short: '1€ filter',
+      title: '1€ Filter: A Simple Speed-based Low-pass Filter for Noisy Input in Interactive Systems',
+      blurb: 'Casiez, Roussel & Vogel (ACM CHI 2012) · Speed-adaptive low-pass filter that suppresses stationary jitter without lagging behind fast motion.',
+    },
+  },
 ];
 
-/** Frases do palco: curtas e honestas, a coleção é de propostas, não de resultados. */
+/** Frases do palco sobre as referências científicas que sustentam o projeto. */
 export const paperLines: Bilingual[] = [
-  { pt: 'Cinco perguntas sobre como medir um sistema que joga com o corpo.', en: 'Five questions about how to measure a system played with the body.' },
-  { pt: 'Propostas de pesquisa: perguntas antes de promessas.', en: 'Research proposals: questions before promises.' },
-  { pt: 'Dos dados sintéticos à experiência de quem joga.', en: 'From synthetic data to the experience of the person playing.' },
-  { pt: 'O que a gente construiu, escrito para ser questionado.', en: 'What we built, written to be questioned.' },
-  { pt: 'Cada traço merece ser medido com cuidado.', en: 'Every stroke deserves to be measured with care.' },
+  { pt: 'Seis artigos que sustentam a visão computacional e os jogos pelo corpo.', en: 'Six papers behind our computer vision pipeline and body-controlled games.' },
+  { pt: 'Do BlazePose e Filtro 1€ à detecção de golpes e precisão 3D.', en: 'From BlazePose and the 1€ Filter to stroke detection and 3D accuracy.' },
+  { pt: 'Literatura revisada para webcam comum, sem sensores externos.', en: 'Peer-reviewed and preprint literature for ordinary webcams, with no external sensors.' },
+  { pt: 'Clique em qualquer cartão para abrir o resumo e ir direto ao artigo.', en: 'Click any card to open its summary and jump straight to the paper.' },
 ];
