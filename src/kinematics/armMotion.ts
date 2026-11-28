@@ -1,4 +1,4 @@
-import type { Hand, PoseSnapshot } from '@wii/spatial-core';
+import type { Hand, PoseSnapshot } from '@nevergear/spatial-core';
 
 export interface ArmMotion {
   hand: Hand;

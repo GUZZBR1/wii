@@ -1,4 +1,4 @@
-# @wii/spatial-core
+# @nevergear/spatial-core
 
 A headless browser package for MediaPipe Pose and Hand perception, pose replay, hand geometry, input
 intents, and typed spatial events. It has no React or Three.js dependency.

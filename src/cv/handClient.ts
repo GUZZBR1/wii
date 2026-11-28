@@ -1,8 +1,8 @@
-import { type Delegate, HandClient as CoreHandClient, type HandClientAssets, type HandClientCallbacks } from '@wii/spatial-core';
+import { type Delegate, HandClient as CoreHandClient, type HandClientAssets, type HandClientCallbacks } from '@nevergear/spatial-core';
 import { preferredDelegate } from './delegate';
 import { HAND_MODEL_SHA8, MEDIAPIPE_WASM_VERSION } from './mediapipeAssets';
 
-export type { HandClientCallbacks } from '@wii/spatial-core';
+export type { HandClientCallbacks } from '@nevergear/spatial-core';
 
 function defaultHandAssets(): HandClientAssets {
   const base = `${import.meta.env.BASE_URL}mediapipe`;

@@ -1,5 +1,5 @@
-import type { CalibrationProfile, Hand, Point3, PoseSnapshot, PunchMeasurement, PunchTrajectorySample } from '@wii/spatial-core';
-import { OneEuroFilter } from '@wii/spatial-core';
+import type { CalibrationProfile, Hand, Point3, PoseSnapshot, PunchMeasurement, PunchTrajectorySample } from '@nevergear/spatial-core';
+import { OneEuroFilter } from '@nevergear/spatial-core';
 import { BODY_JOINTS } from './bodyFeatures';
 import { bodyLocalPoint, bodyBasis, type BodyBasis } from './bodyFrame';
 import { clamp, isFinitePoint, landmarkConfidence } from './math';

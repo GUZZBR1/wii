@@ -5,7 +5,7 @@
  * references follow the player while nothing is happening and re-anchor on a pose held longer
  * than any dodge, so a new spot, distance or player needs no calibration. Pure.
  */
-import type { PoseSnapshot } from '@wii/spatial-core';
+import type { PoseSnapshot } from '@nevergear/spatial-core';
 
 export const BODY_DODGE = {
   /** Shoulder offset over the hips, in shoulder widths, that starts and ends a lean. */

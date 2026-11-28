@@ -1,4 +1,4 @@
-import type { Delegate } from '@wii/spatial-core';
+import type { Delegate } from '@nevergear/spatial-core';
 import { POSE_FULL_MODEL_SHA8, POSE_MODEL_SHA8 } from '../src/cv/mediapipeAssets';
 
 export type PoseReplayModelChoice = 'live' | 'lite' | 'full';

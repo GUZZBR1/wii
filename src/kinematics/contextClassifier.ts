@@ -1,4 +1,4 @@
-import type { CalibrationProfile, PoseSnapshot } from '@wii/spatial-core';
+import type { CalibrationProfile, PoseSnapshot } from '@nevergear/spatial-core';
 import { BodyFeatureExtractor, type CanonicalBodyFeatures } from './bodyFeatures';
 import { clamp } from './math';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HandFeatureExtractor, PosePrototypeClassifier } from '@wii/spatial-core';
+import { HandFeatureExtractor, PosePrototypeClassifier } from '@nevergear/spatial-core';
 import { handSnapshot } from './fixtures/syntheticHand';
 
 function features(timestampMs: number, options: Parameters<typeof handSnapshot>[1] = {}) {

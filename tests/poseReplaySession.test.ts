@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { PoseWorkerSession } from '../scripts/poseReplaySession';
-import type { WorkerReply, WorkerRequest } from '@wii/spatial-core';
+import type { WorkerReply, WorkerRequest } from '@nevergear/spatial-core';
 
 class FakeWorker {
   onmessage: ((event: MessageEvent<WorkerReply>) => void) | null = null;

@@ -58,7 +58,7 @@ describe('rewind reconstruction', () => {
   it('fast-forward after a re-hit matches integrating the new flight from scratch', () => {
     const tape = tapeOf(incoming, 5_000, 90);
     const peakMs = 5_000 + 617.3;
-    const nowMs = peakMs + 180; // 180 ms of detection+pipeline latency — the Wii-scale case
+    const nowMs = peakMs + 180; // 180 ms of detection+pipeline latency — the Nevergear-scale case
     const ballAtPeak = rewind(tape, peakMs);
 
     // Contact: outgoing solved at the peak instant, then fast-forwarded — TennisGame's exact algebra.

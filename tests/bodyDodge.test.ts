@@ -1,4 +1,4 @@
-import type { PoseSnapshot } from '@wii/spatial-core';
+import type { PoseSnapshot } from '@nevergear/spatial-core';
 import { describe, expect, it } from 'vitest';
 import { BODY_DODGE, BodyDodgeDetector } from '../src/kinematics/bodyDodge';
 

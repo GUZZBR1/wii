@@ -1,4 +1,4 @@
-import type { Point3, RotationalFlickSample } from '@wii/spatial-core';
+import type { Point3, RotationalFlickSample } from '@nevergear/spatial-core';
 import { syntheticHand } from './syntheticHand';
 
 const lerp = (from: number, to: number, progress: number) => from + (to - from) * progress;

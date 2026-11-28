@@ -1,8 +1,8 @@
-# Gesto rotacional da mão no Wii Menu
+# Gesto rotacional da mão no Nevergear Menu
 
 ## Resumo
 
-O Wii Menu agora aceita um gesto de rotação da palma para girar a roda de canais. O gesto fica restrito à tela `home` e só é alimentado quando a roda está ativa (`ring === true` e nenhum zoom de abertura em andamento). Telas de título, escolha de jogos, gameplay e pose tracking não consomem o detector.
+O Nevergear Menu agora aceita um gesto de rotação da palma para girar a roda de canais. O gesto fica restrito à tela `home` e só é alimentado quando a roda está ativa (`ring === true` e nenhum zoom de abertura em andamento). Telas de título, escolha de jogos, gameplay e pose tracking não consomem o detector.
 
 A implementação tem três fronteiras pequenas:
 
@@ -114,7 +114,7 @@ Cobertura adicionada/estendida:
 
 ## Validação manual com webcam
 
-1. Rode `npm run dev` e abra o Wii Menu com `?handDebug=1`.
+1. Rode `npm run dev` e abra o Nevergear Menu com `?handDebug=1`.
 2. Ative a câmera e aguarde o estado `synced`.
 3. Na roda, curve levemente a palma e gire como se desenrolasse um volante pequeno.
 4. Confira no overlay: forma `cupped`, fase `ROTATING`, direção coerente e velocidade de controle abaixo de 360°/s.

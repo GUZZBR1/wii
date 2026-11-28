@@ -12,7 +12,7 @@ import {
   NOSE_STYLES,
 } from './miiTypes';
 
-export const STORAGE_KEY = 'wii-player-mii-v1';
+export const STORAGE_KEY = 'nevergear-player-mii-v1';
 
 export const DEFAULT_PLAYER_MII: MiiProfile = {
   id: 'player-mii',

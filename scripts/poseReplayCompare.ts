@@ -1,4 +1,4 @@
-import type { Delegate, PoseRecording } from '@wii/spatial-core';
+import type { Delegate, PoseRecording } from '@nevergear/spatial-core';
 
 /**
  * Configuration guards that make a regression comparison meaningless. The delegate is
