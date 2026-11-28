@@ -15,6 +15,7 @@ vi.mock('@mediapipe/tasks-vision', () => ({
 describe('pose worker frame ownership', () => {
   let scope: { onmessage: ((event: MessageEvent<WorkerRequest>) => Promise<void>) | null; postMessage: ReturnType<typeof vi.fn> };
   const dispatch = (data: WorkerRequest) => scope.onmessage!({ data } as MessageEvent<WorkerRequest>);
+  const replies = () => scope.postMessage.mock.calls.map(([reply]) => reply as WorkerReply);
   const frame = () => ({ width: 640, height: 480, close: vi.fn() }) as unknown as ImageBitmap;
 
   beforeEach(async () => {
