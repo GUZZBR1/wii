@@ -12,9 +12,6 @@ export interface PoseClientAssets {
   cpuModelUrl?: string;
 }
 
-/** Widest video sent as a raw VideoFrame; wider video is downscaled on the bitmap path. */
-const MAX_FRAME_WIDTH = 640;
-
 export class PoseClient {
   private worker?: Worker;
   private ready = false;
@@ -191,14 +188,11 @@ export class PoseClient {
       resolveFrame = resolve;
     });
     this.inFlight = { ...frameRequest, resolve: resolveFrame };
-    // Owned by this thread until postMessage transfers it; cleared at that commit point.
-    let bitmap: ImageBitmap | VideoFrame | undefined;
+    let bitmap: ImageBitmap | undefined;
     try {
-      // Synchronous when possible: no await means no session change can slip in before the post.
-      bitmap = this.directFrame(video, timestampMs)
-        ?? (video.videoWidth > MAX_FRAME_WIDTH
-          ? await createImageBitmap(video, { resizeWidth: MAX_FRAME_WIDTH, resizeQuality: 'medium' })
-          : await createImageBitmap(video));
+      bitmap = video.videoWidth > 640
+        ? await createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'medium' })
+        : await createImageBitmap(video);
       if (!this.capturing || captureEpoch !== this.captureEpoch || !this.worker) {
         bitmap.close();
         this.releaseFrame(requestId, captureEpoch);
@@ -211,17 +205,6 @@ export class PoseClient {
       bitmap?.close();
       this.releaseFrame(requestId, captureEpoch);
       throw error;
-    }
-  }
-
-  /** Undefined when the video needs downscaling or VideoFrame cannot be built from it. */
-  private directFrame(video: HTMLVideoElement, timestampMs: number): VideoFrame | undefined {
-    if (typeof VideoFrame === 'undefined' || !(video.videoWidth <= MAX_FRAME_WIDTH)) return undefined;
-    try {
-      // VideoFrame timestamps are integer microseconds.
-      return new VideoFrame(video, { timestamp: Math.round(timestampMs * 1000) });
-    } catch {
-      return undefined;
     }
   }
 

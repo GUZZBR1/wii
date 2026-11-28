@@ -88,14 +88,13 @@ vi.mock('../src/games/audio', () => ({
   },
 }));
 
-vi.mock('../src/ui/PoseOverlay', () => ({ drawHand: vi.fn(), drawPose: vi.fn() }));
+vi.mock('../src/ui/PoseOverlay', () => ({ drawPose: vi.fn() }));
 vi.mock('../src/ui/HandCursor', () => ({
   HandCursor: ({ input }: { input: unknown }) => {
     harness.handInput = input;
     return null;
   },
 }));
-vi.mock('../src/ui/HandPanel', () => ({ HandPanel: () => null }));
 vi.mock('../src/ui/GameCanvas', () => ({ GameCanvas: () => null }));
 
 vi.mock('../src/ui/WiiMenu', async () => {
