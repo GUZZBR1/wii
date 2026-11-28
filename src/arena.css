@@ -13,12 +13,13 @@
   /* telas de menu */
   .menu { position: absolute; inset: 0; display: flex; flex-direction: column; overflow: auto; background: repeating-linear-gradient(#0000 0 3px, #ffffff80 3px 4px), #d5dbe0; animation: menu-in .35s ease both; }
   .logo { font-weight: 800; letter-spacing: -.02em; white-space: nowrap; }
-  .logo b { color: #8d949a; }
   .logo i { color: var(--blue); }
-  /* The name is too long for one line inside the channel tile. */
-  .channel.sports .logo { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
+  .logo .brand-logo { display: inline-block; width: 5.4em; vertical-align: middle; }
+  .channel .logo .brand-logo { display: block; width: 88%; margin: 0 auto; }
+  .channel.sports .logo { width: 100%; }
+  .nevergear-half .brand-logo { width: min(80vw, 760px); }
+  .channel .logo { display: grid; line-height: 1.05; text-align: center; }
 
-  .channel.empty { background: repeating-linear-gradient(#0000 0 3px, #ffffff66 3px 4px), #bcc3ca; border-color: #8f9aa4; color: #737e88; font-size: clamp(14px, 2.6vw, 30px); font-weight: 800; }
 
   .channel-ring { position: relative; flex: 1; min-height: 260px; margin-top: 24px; overflow: hidden; }
   .channel { position: absolute; width: min(250px, 21vw); aspect-ratio: 16/10; display: grid; place-items: center; border: 3px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); transition: left .9s cubic-bezier(.3, .8, .2, 1), top .9s cubic-bezier(.3, .8, .2, 1), transform .9s cubic-bezier(.3, .8, .2, 1), opacity .9s, box-shadow .2s; }
@@ -26,8 +27,6 @@
   .channel::after { content: ''; position: absolute; inset: 3px 3px 52%; border-radius: 13px 13px 50% 50% / 13px 13px 18% 18%; background: linear-gradient(#ffffffd9, #ffffff33); pointer-events: none; }
   .channel.sports { padding: 0; border-color: var(--blue); background: linear-gradient(#ffffff, #e9f7fe 55%, #bfe9fb); font-size: clamp(16px, 2.4vw, 34px); box-shadow: 0 10px 26px rgba(26, 110, 168, .4), 0 0 0 4px #34beed44, inset 0 -10px 18px #34beed44; }
   .channel.sports:hover { box-shadow: 0 12px 30px rgba(26, 110, 168, .5), 0 0 0 7px #34beed66, inset 0 -10px 18px #34beed55; }
-  .channel.empty { padding: 0; cursor: pointer; }
-  .channel.empty:hover, .channel.empty:focus-visible { box-shadow: 0 0 0 5px #34beed66, var(--shadow); }
   .channel.sport-channel { overflow: hidden; padding: 0; display: flex; flex-direction: column; background: #fff; border-color: #fff; color: var(--ink); }
   .sport-channel:hover, .sport-channel:focus-visible { box-shadow: 0 0 0 5px #34beed88, var(--shadow); }
   .channel-scene { flex: 1; width: 100%; min-height: 0; background: center / cover no-repeat; }
@@ -228,7 +227,8 @@
   .hand-debug dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
 
   /* pip da câmera */
-  .cam-pip { position: absolute; right: 14px; bottom: 14px; width: 230px; z-index: 10; overflow: hidden; border: 3px solid var(--blue); border-radius: 18px; background: var(--gloss); box-shadow: 0 10px 28px #2a4a5c66; }
+  & { --pip-w: clamp(260px, min(26vw, 44vh), 400px); }
+  .cam-pip { position: absolute; right: 14px; bottom: 14px; width: var(--pip-w); z-index: 10; overflow: hidden; border: 3px solid var(--blue); border-radius: 18px; background: var(--gloss); box-shadow: 0 10px 28px #2a4a5c66; }
   .cam-feed { position: relative; aspect-ratio: 4/3; background: #cfd8de; }
   .cam-feed video, .cam-feed canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
   .cam-feed canvas { z-index: 2; }
@@ -244,7 +244,7 @@
   .cam-status { padding: 0 10px 8px; color: #6d777f; font-size: 9px; line-height: 1.4; min-height: 16px; text-align: center; }
 
   @media (max-width: 640px) {
-    .cam-pip:not(.expanded) { width: 160px; }
+    .cam-pip:not(.expanded) { width: 190px; }
     .game-hud div { min-width: 0; padding: 4px 10px; }
     .game-hud strong { font-size: 20px; }
     .game-controls { display: none; }
@@ -281,8 +281,8 @@
 
 
   /* editor de Mii */
-  /* fora do PiP da câmera (230px de largura + 14px de margem + 14px de respiro), sem precisar subir o z-index */
-  .nevergear-mii-button { position: absolute; right: calc(230px + 28px); bottom: 18%; z-index: 2; padding: 7px 18px; font-size: 13px; }
+  /* fora do PiP da câmera (--pip-w de largura + 14px de margem + 14px de respiro), sem precisar subir o z-index */
+  .nevergear-mii-button { position: absolute; right: calc(var(--pip-w) + 28px); bottom: 18%; z-index: 2; padding: 7px 18px; font-size: 13px; }
   /* no mobile o botão sobe para cima do "sair", na lateral oposta ao PiP — depois da regra base para vencer a cascata */
   @media (max-width: 640px) {
     .nevergear-mii-button { left: 4%; right: auto; bottom: calc(18% + 46px); }
@@ -294,7 +294,7 @@
   .logo-btn:hover, .logo-btn:focus-visible { border-color: var(--blue); transform: scale(1.04); box-shadow: 0 0 0 4px #34beed55, var(--shadow); }
   .mii-workbench { flex: 1; display: grid; grid-template-columns: minmax(280px, 42%) 1fr; gap: 22px; min-height: 0; padding: 22px 4vw 28px; }
   @media (min-width: 980px) {
-    .mii-workbench { padding-right: calc(230px + 42px); }
+    .mii-workbench { padding-right: calc(var(--pip-w) + 42px); }
   }
   .mii-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 360px; border: 3px solid var(--blue); border-radius: 24px; background: radial-gradient(circle at 50% 34%, #fff 0 20%, #d9f2fd 58%, #8fd6f3); box-shadow: var(--shadow); }
   .mii-stage p { margin: 4px 0 12px; color: var(--muted); font-size: 12px; font-weight: 700; }
@@ -330,7 +330,6 @@
   .nevergear-half { position: absolute; inset: 0; display: grid; place-items: center; background: #fff; animation: nevergear-open .6s cubic-bezier(.7, 0, .3, 1) 1.8s forwards; }
   .nevergear-half.left { clip-path: inset(0 50% 0 0); --open: -50%; }
   .nevergear-half.right { clip-path: inset(0 0 0 50%); --open: 50%; }
-  .nevergear-half span { color: transparent; background: linear-gradient(#34beed 25%, #1a8fc4 75%); -webkit-background-clip: text; background-clip: text; font: 700 clamp(90px, 22vw, 260px)/1 Arial, sans-serif; letter-spacing: -.04em; animation: nevergear-come .6s cubic-bezier(.2, .9, .3, 1.15) .5s backwards, nevergear-near .6s ease-in 1.5s forwards; }
   @media (prefers-reduced-motion: reduce) { .menu { animation: none; } .nevergear-btn, .channel { transition: none; } .hand-body { transition: none; } .hand-cursor.searching .track, .hand-cursor.syncing .track, .hand-pulse, .hand-cursor.rotating .hand-ring .fill, .hand-cursor.braking .hand-ring .fill { animation: none; } .hand-flash { animation-name: hand-flash-still; } }
 }
 @keyframes menu-in { from { opacity: 0; transform: scale(.97); } }
@@ -378,3 +377,5 @@
 @keyframes screen-in { to { opacity: 0; } }
 @keyframes lobby-settle { from { transform: scale(1.08); } }
 @keyframes lobby-rise { from { opacity: 0; transform: translateY(18px); } }
+
+@media (max-width: 640px) { .arena .channel.sports { font-size: 3.4vw; } }

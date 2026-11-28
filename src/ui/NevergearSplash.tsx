@@ -11,7 +11,7 @@ export function NevergearSplash({ onDone }: { onDone: () => void }) {
   }, [onDone]);
 
   return <div className="nevergear-splash" aria-hidden="true">
-    <div className="nevergear-half left"><span>Nevergear</span></div>
-    <div className="nevergear-half right"><span>Nevergear</span></div>
+    <div className="nevergear-half left"><img className="brand-logo" src="/images/nevergear-logo.png" alt="" width={1200} height={234} /></div>
+    <div className="nevergear-half right"><img className="brand-logo" src="/images/nevergear-logo.png" alt="" width={1200} height={234} /></div>
   </div>;
 }

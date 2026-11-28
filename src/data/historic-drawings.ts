@@ -87,7 +87,7 @@ export const historicDrawings: HistoricDrawing[] = [
   {
     artist: { pt: 'Nintendo', en: 'Nintendo' },
     year: '2006',
-    title: { pt: 'Nevergear Remote', en: 'Nevergear Remote' },
+    title: { pt: 'Wii Remote', en: 'Wii Remote' },
     image: '/images/archive/nevergear-remote.jpg',
     alt: {
       pt: 'Controle Nevergear Remote branco com o Nunchuk ligado por cabo.',

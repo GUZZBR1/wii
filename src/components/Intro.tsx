@@ -109,7 +109,7 @@ export default function Intro({ onDone }: { onDone: () => void }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const scene = createIntroScene(canvas, historicDrawings.map((item) => item.image), 'Nevergear');
+    const scene = createIntroScene(canvas, historicDrawings.map((item) => item.image), '/images/nevergear-logo.png');
     if (!scene) setFlat(true);
     const lost = () => setFlat(true);
     canvas.addEventListener('webglcontextlost', lost);
@@ -259,7 +259,7 @@ export default function Intro({ onDone }: { onDone: () => void }) {
       style={{ '--shot': `${SHOT}s`, '--lead': `${LEAD}s` } as CSSProperties}
     >
       <canvas className="intro-canvas" ref={canvasRef} aria-hidden="true" tabIndex={-1} />
-      {flat && (step === -1 || step === total) && <div className="intro-flat-mark" aria-hidden="true">Nevergear</div>}
+      {flat && (step === -1 || step === total) && <div className="intro-flat-mark" aria-hidden="true"><img className="brand-logo" src="/images/nevergear-logo.png" alt="" width={1200} height={234} /></div>}
 
       {step === -1 && OPENING.map((line, index) => (
         <p className="intro-line" key={line.pt} style={{ '--n': index } as CSSProperties}>{tr(line.pt, line.en)}</p>

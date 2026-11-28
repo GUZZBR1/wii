@@ -4,7 +4,9 @@ This file is the visual source of truth for the Nevergear website. Keep new page
 
 ## Brand
 
-Nevergear is a browser arcade arena where the body is the controller: running and tennis played by pose through the webcam. The site should feel thoughtful, precise, calm, and ambitious: editorial typography over a light interface that borrows the Nevergear’s white and blue (Frutiger Aero, used with restraint on the site and fully in the arena).
+Nevergear (formerly shown as “Wii”) is a browser arcade arena where the body is the controller: running and tennis played by pose through the webcam. The site should feel thoughtful, precise, calm, and ambitious: editorial typography over a light interface that borrows the Nevergear’s white and blue (Frutiger Aero, Nevergear Sports: clean, light and tactile, on the site and in the arena alike).
+
+The wordmark is the Nevergear sticker logo (`public/images/nevergear-logo.png`): rounded grey “Never”, italic blue “Gear”, white outline. Use the image; do not retype the name in a font as a mark.
 
 ## Color and surfaces
 
@@ -28,10 +30,10 @@ New work uses these colors; do not introduce others without adding them here.
 
 ### Surfaces
 
-- Light theme: faint TV scanlines and a soft light-blue fade at the bottom of the canvas; header, product pill and Mii controls are glass with a light-blue edge. Dark mode keeps its own look.
-- Light-theme shadows are blue-tinted (`rgba(26, 110, 168, …)`), never neutral grey or olive-black.
+- The site is light only (Frutiger Aero, Nevergear Sports): there is no dark mode. Faint TV scanlines and a soft light-blue fade at the bottom of the canvas; header, product pill and Mii controls are glass with a light-blue edge.
+- Every button is a glossy pill with a deep-blue edge (solid blue for the primary action); every panel is light glass with a light-blue edge. The shared tokens are `--aero-*` in `src/site.css`; reuse them.
+- Shadows are blue-tinted (`rgba(26, 110, 168, …)`), never neutral grey or olive-black.
 - Text selection is a translucent blue, so it never hides tightly spaced headline lines.
-- Dark mode uses the existing CSS variables; components must inherit them instead of hard-coding light colors.
 - Glass surfaces use a translucent paper tint, a fine border, restrained shadow, and backdrop blur. Keep enough tint for text behind a card to become unreadable.
 - Prefer rounded pills for compact controls and softly rounded cards for content. Avoid boxed rules and decorative borders that interrupt the editorial page flow.
 
@@ -70,7 +72,7 @@ Use whitespace for hierarchy. Keep the pages minimal and avoid adding sections o
 
 - Home places a still archive of milestones of body and motion as input (from the Vitruvian Man to Kinect) around the centered Nevergear wordmark. Keep the artifacts static, make each one link to its primary or archival source, and preserve room around the wordmark. Add a small webcam SVG in place of the dot of the final “i” (rendered as a dotless “ı”); fade it as the wordmark settles into the compact header. Hovering or focusing the webcam opens a matching glass card that explains its role in live capture. Place that card to the wordmark’s right on desktop and below it on narrow screens, clear of the page scrubber. Keep the webcam card separate from the Nevergear definition card. On narrow screens, move the archive below the first-screen mark. On load, trace each archive frame as a stroke in staggered order, then let the frame's paper, artwork, and caption fade in from a blur. Let the Nevergear wordmark emerge from depth on first load: it starts small, blurred, and pushed back, then settles forward to full size and sharpness over about 1.3 s. On hover or focus, an archive frame grows about 4.5% and gains a soft shadow beneath it (no growth under reduced motion). Reduced-motion users see everything at once.
 - Below the home archive, a games showcase (one screenshot and short text per game, revealed on scroll, ending in “Jogar agora”), then the Mii creator: a draggable 3D preview beside the form (stacked on narrow screens), with photo/webcam suggestion as an option. The face is the same `MiiFaceSpec` the arena games and editor use. Its controls are Frutiger Aero glass: pill buttons with a top highlight, deep-blue edge and blue-tinted shadow; the single primary action (“Salvar”) is solid blue with white text; fields are glass pills and color swatches glass beads with a clear selected ring. Hover lifts and sweeps one highlight across (never looping), press sinks; reduced motion removes both.
-- Computer and player Miis wander every site page (not `/app`) on a layer that never takes the pointer. Clicking one opens a small card with name and skill.
+- Computer and player Miis wander every site page (not `/app`) behind the content, on a layer that never takes the pointer. They walk in one at a time from the sides, corners and bottom. Clicking one only makes it grumble (no name card); holding and dragging carries it elsewhere.
 
 ### Vision
 
@@ -89,7 +91,7 @@ Use whitespace for hierarchy. Keep the pages minimal and avoid adding sections o
 
 - Opened by the Product “em construção” pill; source in `src/arena/`. Running and tennis played with body pose through the webcam, full screen, with no site header, scrubber or Nevergear speech bubble, under its own tab title.
 - Skin: light Nevergear-style Frutiger Aero using the palette above (white and light blue, glossy pill buttons with a blue edge, soft gradients and shadows). Arena styles stay nested under `.arena` so they never reach the site.
-- Order: white screen, a vivid blue “Nevergear” (Nevergear blue to deep blue) rushes forward and the screen splits open; body calibration (camera starts by itself, “Pular” skips it); channel screen: on the first visit the 4×3 grid shows for about 1 s, then “Nevergear Sports” comes forward and the empty channels fall back into an elliptical ring around it (like Papers, but it only turns on a click: the arrow buttons, or any channel, which then comes to the front); glass highlights on every channel; clicking the front “Nevergear Sports” grows it in three steps: the ring and footer fade (0.3 s), an empty glass pane grows from the tile to fill the screen (0.65 s), then the title screen content appears; title screen (“Nevergear Menu” / “Start”); “Menu Principal” (Corrida, Tênis, with a preview); game (“‹ Jogos” returns).
+- Order: white screen, a vivid blue “Nevergear” (Nevergear blue to deep blue) rushes forward and the screen splits open; body calibration (camera starts by itself, “Pular” skips it); channel screen: four channels only, with no empty placeholders (Nevergear Sports, Atletismo, Boxe, Tênis); on the first visit they show in a row for about 1 s, then fall into an elliptical ring with Nevergear Sports in front (like Papers, but it only turns on a click: the arrow buttons, or any channel, which then comes to the front); glass highlights on every channel; clicking the front “Nevergear Sports” grows it in three steps: the ring and footer fade (0.3 s), an empty glass pane grows from the tile to fill the screen (0.65 s), then the title screen content appears; title screen (“Menu” / “Start”); “Menu Principal” (Corrida, Tênis, with a preview); game (“‹ Jogos” returns).
 - On “Menu Principal”, the Nevergear Sports wordmark returns to the channel grid.
 - The only site control is “sair”, shown just on the channel grid, in its footer at bottom left, below the blue curve.
 - “sair” uses the camera button’s font (the arena’s rounded sans, bold, uppercase); the minimized “Câmera” pill and “sair” share a Frutiger Aero glass finish (top highlight, light-blue body, blue edge and glow).
@@ -105,12 +107,10 @@ Use whitespace for hierarchy. Keep the pages minimal and avoid adding sections o
 ## Interaction and responsive behavior
 
 - Navigation links and controls need visible hover and keyboard-focus states.
-- The language choices opened from the theme control stay inside the viewport on narrow screens.
+- The PT/EN language choices stay inside the viewport on narrow screens.
 - The location label is not a link. On hover or keyboard focus, “São Paulo, Brazil” lifts slightly and a hairline divider with “São José dos Campos” fades in beneath it.
-- Keep the location label's response restrained on desktop. On narrow layouts, prioritize the centered wordmark and prevent overlap with the theme control.
-- Theme changes must work on every route and preserve contrast.
+- Keep the location label's response restrained on desktop. On narrow layouts, prioritize the centered wordmark and prevent overlap with the language choices.
 - Test critical header/card layouts at desktop width, 640 px, and 320 px, including while the home wordmark is transitioning on scroll.
-- Switching theme cuts the page diagonally: a thin hand-drawn line is written from the top-left corner to the bottom-right corner in the new theme, then opens out on both sides to reveal the whole new theme (about 1.1 s, View Transitions API). Reduced-motion and unsupported browsers switch instantly.
 
 ## Opening sequence
 

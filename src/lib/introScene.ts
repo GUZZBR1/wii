@@ -69,8 +69,8 @@ void main() {
   float mask = mix(1., (1. - smoothstep(.55, 1.08, edge)) * inside, feather);
   vec3 bloom = halo / float(TAPS) * .7 * mask;
   float a = sum.a * mask * alpha;
-  // obras em tom azulado; a marca (sem bordas dissolvidas) no cinza do Nevergear
-  vec3 color = mix(vec3(.5, .55, .6), mix(vec3(.04, .15, .25), vec3(.98, .995, 1.), clamp(lum, 0., 1.)), step(.5, feather));
+  // obras em tom azulado; a marca (sem bordas dissolvidas) nas cores do próprio logo
+  vec3 color = mix(sum.rgb, mix(vec3(.04, .15, .25), vec3(.98, .995, 1.), clamp(lum, 0., 1.)), step(.5, feather));
   gl_FragColor = vec4(color * a + bloom * alpha, a); // alfa pré-multiplicado
 }`;
 
@@ -217,18 +217,16 @@ export function createIntroScene(canvas: HTMLCanvasElement, sources: string[], m
     image.src = src;
   });
 
-  const word = document.createElement('canvas');
-  word.width = 1200;
-  word.height = 600;
-  const pen = word.getContext('2d');
-  if (pen) {
-    pen.font = '600 380px Manrope, Arial, sans-serif';
-    pen.textAlign = 'center';
-    pen.textBaseline = 'middle';
-    pen.fillStyle = '#fff';
-    pen.fillText(mark, 600, 310);
-  }
-  upload(sources.length, word, 2);
+  const logo = new Image();
+  logo.onload = () => {
+    if (disposed) return;
+    const word = document.createElement('canvas');
+    word.width = 1200;
+    word.height = 600;
+    word.getContext('2d')?.drawImage(logo, 20, 300 - (1160 * logo.naturalHeight) / logo.naturalWidth / 2, 1160, (1160 * logo.naturalHeight) / logo.naturalWidth);
+    upload(sources.length, word, 2);
+  };
+  logo.src = mark;
 
   return {
     renderer,

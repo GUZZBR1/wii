@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SiteMiiPlaza from '../src/components/SiteMiiPlaza';
 import { LangProvider } from '../src/i18n';
 import { pickMiiAt } from '../src/miis/miiPick';
+import { BOTTOM_MARGIN, SIDE_MARGIN, TOP_MARGIN } from '../src/miis/miiSimulation';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -45,21 +46,37 @@ const renderPlaza = async () => {
   });
 };
 
-// O Mii do jogador sempre começa no centro da largura, a 75% da janela: posição determinística.
-// Os CPUs ficam empilhados longe daí pelo Math.random fixo, então só o jogador cobre o ponto.
-const playerSpot = () => ({
-  x: document.documentElement.clientWidth * 0.5,
-  y: window.scrollY + window.innerHeight * 0.75,
-});
+// Com o Math.random fixo e sem movimento, todos começam no mesmo ponto, já na página.
+const spot = () => {
+  const height = Math.max(document.body.scrollHeight, window.innerHeight);
+  return {
+    x: SIDE_MARGIN + 0.05 * (1000 - SIDE_MARGIN * 2),
+    y: TOP_MARGIN + 0.05 * (height - TOP_MARGIN - BOTTOM_MARGIN),
+  };
+};
+const bubbleHidden = () => document.querySelector<HTMLElement>('.mii-grump')!.hidden;
+let frames: FrameRequestCallback[] = [];
+const paint = () =>
+  act(() => {
+    for (const frame of frames.splice(0)) frame(performance.now());
+  });
 
 beforeEach(() => {
-  vi.stubGlobal('ResizeObserver', class {
-    observe() {}
-    unobserve() {}
-    disconnect() {}
-  });
-  // Sem o loop de render, os walkers não saem do lugar e o pick fica determinístico.
-  vi.stubGlobal('requestAnimationFrame', () => 1);
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  // Os quadros só rodam quando o teste pede; sem movimento, os walkers não saem do lugar.
+  frames = [];
+  vi.stubGlobal('requestAnimationFrame', (frame: FrameRequestCallback) => frames.push(frame));
+  const matchMedia = window.matchMedia.bind(window);
+  vi.spyOn(window, 'matchMedia').mockImplementation((query) =>
+    query.includes('prefers-reduced-motion') ? ({ matches: true } as MediaQueryList) : matchMedia(query),
+  );
   vi.stubGlobal('cancelAnimationFrame', () => {});
   vi.spyOn(Math, 'random').mockReturnValue(0.05);
   Object.defineProperty(document.documentElement, 'clientWidth', { configurable: true, value: 1000 });
@@ -76,48 +93,39 @@ afterEach(async () => {
 });
 
 describe('SiteMiiPlaza pick pela mão', () => {
-  it('abre o cartão do Mii quando a pinça cai sobre ele fora de controles', async () => {
+  it('incomoda o Mii quando a pinça cai sobre ele, sem abrir cartão', async () => {
     await renderPlaza();
-    const { x, y } = playerSpot();
+    const { x, y } = spot();
     act(() => pickMiiAt(x, y, document.body));
-    const card = document.querySelector('.mii-card');
-    expect(card).not.toBeNull();
-    expect(card?.textContent).toContain('Your Mii');
+    paint();
+    expect(bubbleHidden()).toBe(false);
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('não abre cartão quando a pinça cai longe de qualquer Mii', async () => {
+  it('não reage quando a pinça cai longe de qualquer Mii', async () => {
     await renderPlaza();
     act(() => pickMiiAt(-100, -100, document.body));
-    expect(document.querySelector('.mii-card')).toBeNull();
+    paint();
+    expect(bubbleHidden()).toBe(true);
   });
 
-  it('mantém as exclusões da praça à frente do pick: canvas no topo fecha o cartão', async () => {
+  it('não reage quando há conteúdo da página na frente', async () => {
     await renderPlaza();
-    const { x, y } = playerSpot();
-    act(() => pickMiiAt(x, y, document.body));
-    expect(document.querySelector('.mii-card')).not.toBeNull();
-    const canvas = document.createElement('canvas');
-    document.body.appendChild(canvas);
-    act(() => pickMiiAt(x, y, canvas));
-    expect(document.querySelector('.mii-card')).toBeNull();
+    const { x, y } = spot();
+    const button = document.createElement('button');
+    document.body.appendChild(button);
+    act(() => pickMiiAt(x, y, button));
+    paint();
+    expect(bubbleHidden()).toBe(true);
   });
 
-  it('pinça dentro do cartão aberto não o fecha', async () => {
+  it('o clique do mouse incomoda pelas mesmas coordenadas', async () => {
     await renderPlaza();
-    const { x, y } = playerSpot();
-    act(() => pickMiiAt(x, y, document.body));
-    const card = document.querySelector('.mii-card');
-    expect(card).not.toBeNull();
-    act(() => pickMiiAt(x, y, card as Element));
-    expect(document.querySelector('.mii-card')).not.toBeNull();
-  });
-
-  it('clique de mouse continua abrindo o cartão pelas mesmas coordenadas', async () => {
-    await renderPlaza();
-    const { x, y } = playerSpot();
+    const { x, y } = spot();
     act(() => {
       document.body.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: x, clientY: y }));
     });
-    expect(document.querySelector('.mii-card')).not.toBeNull();
+    paint();
+    expect(bubbleHidden()).toBe(false);
   });
 });
