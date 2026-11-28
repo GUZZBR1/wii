@@ -4,6 +4,8 @@
 
 `@mediapipe/tasks-vision` is distributed by Google under the Apache License 2.0. The app uses `@mediapipe/tasks-vision@1.2.3`, the Pose Landmarker Lite and Full model bundles at the versioned upstream paths `pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task` and `pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task`, and the Hand Landmarker model bundle at `hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`.
 
+The optional Mii photo suggestion uses the Face Landmarker model bundle at `face_landmarker/face_landmarker/float16/1/face_landmarker.task`, fetched from this site only when a visitor uploads a photo or uses the webcam. The image is processed on the device and is not uploaded.
+
 The model files are distributed under Apache 2.0 as confirmed by the MediaPipe maintainers in [google-ai-edge/mediapipe issue #6306](https://github.com/google-ai-edge/mediapipe/issues/6306). Their SHA-256 digests are recorded in `public/mediapipe/models/SHA256SUMS`.
 
 License text: <https://www.apache.org/licenses/LICENSE-2.0>

@@ -5,6 +5,7 @@ import {
   createMiiHeadGeometry,
   createMiiNoseGeometry,
   miiHairColor,
+  miiHeadScale,
   type MiiFaceMount,
 } from '../../mii/miiHead';
 import { DEFAULT_MII_FACE_SPEC, SKIN_PALETTE, type MiiFaceSpec } from '../../mii/miiSpec';
@@ -59,7 +60,10 @@ export function createMiiRunner(shirtColor = 0xffffff, face: MiiFaceSpec = DEFAU
   const hair = createMiiHairGeometry(face);
   if (hair) part(hair, miiHairColor(face), 2.04, body);
   part(createMiiNoseGeometry(face), skin, 2.04, body);
-  part(new THREE.CylinderGeometry(0.41, 0.41, 0.11, 24, 1, true), accent, 2.2, body);
+  // A faixa acompanha os formatos mais largos, senão a cabeça atravessa o boné.
+  const [headX, , headZ] = miiHeadScale(face);
+  const band = new THREE.CylinderGeometry(0.41, 0.41, 0.11, 24, 1, true).scale(Math.max(1, headX), 1, Math.max(1, headZ));
+  part(band, accent, 2.2, body);
   // Curved brim: a flat sector of a disc centred on the head, pointing forwards (-Z).
   part(new THREE.CylinderGeometry(0.62, 0.62, 0.035, 24, 1, false, Math.PI * 0.74, Math.PI * 0.52), accent, 2.16, body);
   const shoe = (width: number, height: number, length: number) =>
