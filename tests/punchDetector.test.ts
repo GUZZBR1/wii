@@ -276,6 +276,37 @@ describe('PunchDetector', () => {
     expect(attempt(false)).toEqual(['onset', 'confirmed']);
     expect(attempt(true)).toEqual([]);
   });
+  it('measures travel from where the motion started, not from the late onset', () => {
+    // A slow wind-up accelerates into the punch: the onset fires mid-course, but the travel
+    // must reach back to the guard position, or compact punches never satisfy confirmation.
+    const keys: [number, Arm][] = [
+      [0, GUARD], [300, GUARD],
+      [600, mix(GUARD, STRAIGHT, 0.35)], // gradual start: below onset speed
+      [750, STRAIGHT], [950, STRAIGHT], [1200, GUARD], [1600, GUARD],
+    ];
+    const detector = new PunchDetector('right');
+    const outputs = run(detector, keys, { fps: 30, to: 1600 });
+    const confirmed = outputs.find((output) => output.kind === 'confirmed');
+    expect(confirmed).toBeDefined();
+    if (confirmed?.kind !== 'confirmed') return;
+    // The full GUARD -> STRAIGHT course is ~0.4 shoulder widths at the fixture scale; measuring
+    // from the onset instead of the motion start would report only a fraction of it.
+    expect(confirmed.measurement.forwardTravel).toBeGreaterThan(0.5);
+    expect(confirmed.measurement.origin.forward).toBeLessThan(confirmed.measurement.contact.forward - 0.5);
+  });
+
+  it('confirms a compact punch whose extension peak coincides with the retraction', () => {
+    // Shadow-boxing punches retract as soon as they extend: at 15 fps the filtered extension
+    // peak only appears in the first retracting frames, and the window must not close before it.
+    const partial = mix(GUARD, STRAIGHT, 0.8);
+    const keys: [number, Arm][] = [
+      [0, GUARD], [300, GUARD], [450, partial], [520, partial], [700, GUARD], [1400, GUARD],
+    ];
+    const detector = new PunchDetector('right');
+    const outputs = run(detector, keys, { fps: 15, to: 1400 });
+    expect(kinds(outputs)).toContain('confirmed');
+  });
+
 });
 
 describe('isGuardingPose', () => {
@@ -300,4 +331,5 @@ describe('isGuardingPose', () => {
     const worldLandmarks = snapshot.worldLandmarks.map((point, index) => (index === 15 ? { ...point, visibility: 0 } : point));
     expect(isGuardingPose({ ...snapshot, worldLandmarks }, calibration())).toBe(false);
   });
+
 });

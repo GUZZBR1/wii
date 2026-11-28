@@ -45,6 +45,8 @@ export interface PunchTrajectorySample {
   forward: number;
   /** Elbow articulation cosine; +1 is straight. */
   elbowCosine: number;
+  /** Unfiltered articulation cosine: the filtered one lags brief extensions below their peak. */
+  rawElbowCosine?: number;
   confidence: number;
 }
 

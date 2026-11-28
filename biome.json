@@ -13,7 +13,7 @@
       "!!.omx",
       "!!.omc",
       "!!src/.omc",
-      "!!draw-site"
+      "!!draw-site", "!tests/recordings"
     ]
   },
   "formatter": {
