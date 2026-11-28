@@ -25,6 +25,8 @@ Pendente, nesta ordem: validação de tipo no BoxingVI e de alvo no Zenodo, e va
 
 Resultado no floor offline permanente (`tests/utdMhadBoxing.test.ts`, gravações gitignored): **23/32 clipes, 6/8 sujeitos em ≥3/4 — critério pré-registrado de sucesso atingido** (era 13/32 e 3/8). Sujeito 5 tem reconstrução geometricamente impossível (o punho ganha meio metro de profundidade num quadro) e o sujeito 2 é marginal (1/4). Controle negativo (`tests/utdMhadNegatives.test.ts`, 56 clipes de 7 ações não-boxe dos mesmos sujeitos): **zero socos falsos em 6 ações**; só jumping jacks (a27) produziu 2 leituras em 1 clipe — precisão limpa. Observação residual: `missingTravel` continua relevante porque a reconstrução de profundidade do MediaPipe é mais ruidosa exatamente quando o braço aponta para a câmera — o canal z é o elo fraco da medição de socos frontais.
 
+**Inspeção visual dos clipes (frames extraídos):** os sujeitos estão longe da câmera (corpo inteiro no frame, figura pequena) e socam de braços pendurados, sem guarda. Os sujeitos marginais 2 e 5 fazem socos genuinamente compactos, com o braço pouco estendido — o residual de detecção neles é dado ruim + movimento fraco, não lógica do detector. Advertência importante para o classificador de tipo: como o soco parte de braço pendurado, a subida da guarda contamina o `verticalRise` medido do início do movimento, e 15/29 confirmados classificam como `uppercut` em ação de golpes frontais — viés de medição nesse dev set, não necessariamente no jogo, onde o tutorial ensina guarda alta antes de socar. **A validação de tipo exige o BoxingVI, como previsto; UTD não responde essa pergunta.**
+
 
 ---
 
