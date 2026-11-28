@@ -1,143 +1,74 @@
 import { describe, expect, it } from 'vitest';
-import { BoxingTutorial, DUCK_HOLD_S, GIVE_UP_AFTER_S, HINT_AFTER_S } from '../src/games/boxing/boxingTutorial';
+import {
+  BoxingTutorial, DODGE_HOLD_S, GIVE_UP_AFTER_S, NEUTRAL_S, PROOF_WARN_S, PUNCHES_NEEDED, SETTLE_S, type TutorialFrame,
+} from '../src/games/boxing/boxingTutorial';
 
-const idle: { seen: boolean; guard: boolean; zone: -1 | 0 | 1; ducked: boolean } = { seen: true, guard: false, zone: 0, ducked: false };
-const frame = (dtS: number, over: Partial<typeof idle> = {}) => ({ dtS, ...idle, ...over });
-const straight = { kind: 'straight' as const, target: 'head' as const };
+const STILL: TutorialFrame = { dtS: 0.05, seen: true, guard: false, zone: 0, ducked: false, reach: 0 };
 
-const run = (tutorial: BoxingTutorial, seconds: number, over: Partial<typeof idle> = {}) => {
-  for (let t = 0; t < seconds; t += 0.1) tutorial.tick(frame(0.1, over));
-};
+function run(tutorial: BoxingTutorial, seconds: number, frame: Partial<TutorialFrame> = {}) {
+  for (let i = 0; i < Math.round(seconds / 0.05); i += 1) tutorial.tick({ ...STILL, ...frame });
+}
 
-describe('boxing tutorial', () => {
-  it('starts on the guard step with a skip hint and finishes with a farewell', () => {
+/** Does every step up to, and not including, the test. */
+function reachProof(tutorial: BoxingTutorial) {
+  run(tutorial, SETTLE_S + NEUTRAL_S + 0.1);
+  run(tutorial, SETTLE_S + 1, { guard: true });
+  for (let i = 0; i < PUNCHES_NEEDED; i += 1) tutorial.punch(0.9);
+  for (let i = 0; i < 3; i += 1) run(tutorial, SETTLE_S + DODGE_HOLD_S + 0.1, { reach: 1 });
+}
+
+describe('BoxingTutorial', () => {
+  it('takes nothing while the instruction is being read, nor off camera', () => {
     const tutorial = new BoxingTutorial();
-    expect(tutorial.step).toBe('guard');
-    expect(tutorial.text.title).toBe('Segure a guarda alta');
-    expect(tutorial.text.detail).toContain('pular');
-    tutorial.skip();
+    run(tutorial, SETTLE_S - 0.1);
+    expect(tutorial.teaching).toBeUndefined();
+    run(tutorial, 10, { seen: false });
+    expect(tutorial.step).toBe('neutral');
+    run(tutorial, 0.2);
+    expect(tutorial.teaching).toBe('neutral');
+  });
+
+  it('fills a dodge only while the movement is big enough, and says how close it is', () => {
+    const tutorial = new BoxingTutorial();
+    run(tutorial, SETTLE_S + NEUTRAL_S + 0.1);
+    run(tutorial, SETTLE_S + 1, { guard: true });
+    for (let i = 0; i < PUNCHES_NEEDED; i += 1) tutorial.punch();
+    expect(tutorial.step).toBe('left');
+    run(tutorial, SETTLE_S + 1, { reach: 0.6 });
+    expect(tutorial.step).toBe('left');
+    expect(tutorial.progress01).toBeCloseTo(0.09);
+    expect(tutorial.text.detail).toBe('Quase! Um pouco mais');
+    run(tutorial, DODGE_HOLD_S + 0.1, { reach: 1 });
+    expect(tutorial.step).toBe('right');
+  });
+
+  it('passes the test with two dodged attacks and adapts the punch travel', () => {
+    const tutorial = new BoxingTutorial();
+    reachProof(tutorial);
+    expect(tutorial.step).toBe('proof');
+    run(tutorial, SETTLE_S + 0.1);
+    expect(tutorial.attackInS).toBeGreaterThan(0);
+    expect(tutorial.attackInS).toBeLessThan(PROOF_WARN_S);
+    for (let i = 0; i < 200 && !tutorial.done; i += 1) run(tutorial, 0.1, { ducked: true });
     expect(tutorial.done).toBe(true);
-    expect(tutorial.text.title).toBe('Pronto!');
+    expect(tutorial.punchTravel).toBeCloseTo(0.25);
+    expect(tutorial.learned).toBe(7);
   });
 
-  it('guard step needs one second of guard and time off-camera does not count', () => {
+  it('teaches the dodges again once when the test fails, then moves on', () => {
     const tutorial = new BoxingTutorial();
-    run(tutorial, 0.9, { guard: true });
-    expect(tutorial.step).toBe('guard');
-    run(tutorial, 5, { seen: false, guard: true });
-    expect(tutorial.step).toBe('guard');
-    run(tutorial, 0.2, { guard: true });
-    expect(tutorial.step).toBe('jab');
-  });
-
-  it('the first straight hand becomes the lead and only it completes the jabs', () => {
-    const tutorial = new BoxingTutorial();
-    run(tutorial, 1.1, { guard: true });
-    expect(tutorial.punch({ hand: 'left', ...straight })).toBe(true);
-    expect(tutorial.profile.leadHand).toBe('left');
-    expect(tutorial.punch({ hand: 'right', ...straight })).toBe(false);
-    expect(tutorial.punch({ hand: 'left', ...straight })).toBe(true);
-    expect(tutorial.punch({ hand: 'left', ...straight })).toBe(true);
-    expect(tutorial.step).toBe('cross');
-  });
-
-  it('the cross step wants the rear hand, not the lead again', () => {
-    const tutorial = new BoxingTutorial();
-    run(tutorial, 1.1, { guard: true });
-    for (let i = 0; i < 3; i += 1) tutorial.punch({ hand: 'left', ...straight });
-    expect(tutorial.punch({ hand: 'left', ...straight })).toBe(false);
-    for (let i = 0; i < 3; i += 1) expect(tutorial.punch({ hand: 'right', ...straight })).toBe(true);
-    expect(tutorial.step).toBe('hook');
-  });
-
-  it('a body straight does not count as a jab, and hooks/uppercuts/body each need their kind', () => {
-    const tutorial = new BoxingTutorial();
-    run(tutorial, 1.1, { guard: true });
-    expect(tutorial.punch({ hand: 'left', kind: 'straight', target: 'body' })).toBe(false);
-    for (let i = 0; i < 3; i += 1) tutorial.punch({ hand: 'left', ...straight });
-    for (let i = 0; i < 3; i += 1) tutorial.punch({ hand: 'right', ...straight });
-    expect(tutorial.punch({ hand: 'left', ...straight })).toBe(false);
-    expect(tutorial.punch({ hand: 'left', kind: 'hook', target: 'head' })).toBe(true);
-    expect(tutorial.punch({ hand: 'right', kind: 'hook', target: 'head' })).toBe(true);
-    expect(tutorial.step).toBe('uppercut');
-    expect(tutorial.punch({ hand: 'left', kind: 'uppercut', target: 'head' })).toBe(true);
-    expect(tutorial.punch({ hand: 'left', kind: 'uppercut', target: 'head' })).toBe(true);
-    expect(tutorial.step).toBe('body');
-    expect(tutorial.punch({ hand: 'left', ...straight })).toBe(false);
-    expect(tutorial.punch({ hand: 'left', kind: 'straight', target: 'body' })).toBe(true);
-    expect(tutorial.punch({ hand: 'right', kind: 'hook', target: 'body' })).toBe(true);
-    expect(tutorial.step).toBe('slip');
-  });
-
-  it('slips count once per center return and ducks need a held crouch', () => {
-    const tutorial = new BoxingTutorial();
-    tutorial.skip();
-    const fresh = new BoxingTutorial();
-    // Walk every step quickly by hand up to the slip step.
-    run(fresh, 1.1, { guard: true });
-    for (let i = 0; i < 3; i += 1) fresh.punch({ hand: 'left', ...straight });
-    for (let i = 0; i < 3; i += 1) fresh.punch({ hand: 'right', ...straight });
-    for (let i = 0; i < 2; i += 1) fresh.punch({ hand: 'left', kind: 'hook', target: 'head' });
-    for (let i = 0; i < 2; i += 1) fresh.punch({ hand: 'left', kind: 'uppercut', target: 'head' });
-    for (let i = 0; i < 2; i += 1) fresh.punch({ hand: 'left', kind: 'straight', target: 'body' });
-    expect(fresh.step).toBe('slip');
-    run(fresh, 0.3, { zone: -1 });
-    run(fresh, 0.3, { zone: -1 });
-    run(fresh, 0.3);
-    run(fresh, 0.3, { zone: 1 });
-    expect(fresh.step).toBe('duck');
-    run(fresh, DUCK_HOLD_S - 0.05, { ducked: true });
-    expect(fresh.step).toBe('duck');
-    run(fresh, 0.1, { ducked: true });
-    run(fresh, 0.1);
-    run(fresh, DUCK_HOLD_S + 0.1, { ducked: true });
-    expect(fresh.done).toBe(true);
+    reachProof(tutorial);
+    for (let i = 0; i < 400 && tutorial.step === 'proof'; i += 1) run(tutorial, 0.1);
+    expect(tutorial.step).toBe('left');
+    for (let i = 0; i < 3; i += 1) run(tutorial, SETTLE_S + DODGE_HOLD_S + 0.1, { reach: 1 });
+    for (let i = 0; i < 400 && !tutorial.done; i += 1) run(tutorial, 0.1);
     expect(tutorial.done).toBe(true);
   });
 
-  it('shows the hint after ten idle seconds and gives up the step after twenty-two', () => {
+  it('never traps a player the camera cannot satisfy', () => {
     const tutorial = new BoxingTutorial();
-    run(tutorial, HINT_AFTER_S + 0.5);
-    expect(tutorial.text.detail).toContain('Punhos fechados');
-    run(tutorial, GIVE_UP_AFTER_S - HINT_AFTER_S);
-    expect(tutorial.step).toBe('jab');
-  });
-
-  it('learns the median reach per punch kind in the profile', () => {
-    const tutorial = new BoxingTutorial();
-    run(tutorial, 1.1, { guard: true });
-    tutorial.punch({ hand: 'left', ...straight, travelSw: 0.8 });
-    tutorial.punch({ hand: 'left', ...straight, travelSw: 1.0 });
-    tutorial.punch({ hand: 'left', ...straight, travelSw: 0.9 });
-    expect(tutorial.profile.reachByKind.straight).toBeCloseTo(0.9);
-    expect(tutorial.profile.reachByKind.hook).toBeUndefined();
-  });
-
-  it('ignores non-finite reach measurements', () => {
-    const tutorial = new BoxingTutorial();
-    run(tutorial, 1.1, { guard: true });
-    tutorial.punch({ hand: 'left', ...straight, travelSw: Number.NaN });
-    expect(tutorial.profile.reachByKind.straight).toBeUndefined();
-  });
-
-  it('adapts the punch travel floor to three quarters of the compact median reach', () => {
-    const tutorial = new BoxingTutorial();
-    run(tutorial, 1.1, { guard: true });
-    tutorial.punch({ hand: 'left', ...straight, travelSw: 0.28 });
-    tutorial.punch({ hand: 'left', ...straight, travelSw: 0.32 });
-    tutorial.punch({ hand: 'left', ...straight, travelSw: 0.3 });
-    expect(tutorial.punchTravel).toBeCloseTo(0.3 * 0.75);
-  });
-
-  it('never adapts beyond the untuned default or below the noise floor', () => {
-    const strong = new BoxingTutorial();
-    run(strong, 1.1, { guard: true });
-    strong.punch({ hand: 'left', ...straight, travelSw: 0.9 });
-    expect(strong.punchTravel).toBe(0.25);
-    const weak = new BoxingTutorial();
-    run(weak, 1.1, { guard: true });
-    weak.punch({ hand: 'left', ...straight, travelSw: 0.1 });
-    expect(weak.punchTravel).toBe(0.15);
-    expect(new BoxingTutorial().punchTravel).toBeUndefined();
+    run(tutorial, GIVE_UP_AFTER_S * 12);
+    expect(tutorial.done).toBe(true);
+    expect(tutorial.punchTravel).toBeUndefined();
   });
 });

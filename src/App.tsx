@@ -17,7 +17,7 @@ import type { GestureSample } from './games/core/restartGesture';
 import { ProceduralAudio } from './games/audio';
 import { CameraPip } from './ui/CameraPip';
 import { GameCanvas, type GameEngineHandle, type IronManResult, type Sport } from './ui/GameCanvas';
-import { DEFAULT_BOXING_SETUP } from './games/boxing/boxingSetup';
+import { type BoxingSetup, DEFAULT_BOXING_SETUP } from './games/boxing/boxingSetup';
 import { GameLobby, IronManLobby } from './ui/GameLobby';
 import { useScreenFade } from './ui/useScreenFade';
 import type { Goal } from './games/athletics/race';
@@ -31,6 +31,7 @@ import { EXIT_DODGE_SW } from './kinematics/postureSignals';
 import { HomeMenu } from './ui/WiiMenu';
 import { MiiCreator } from './ui/MiiCreator';
 import { WiiSplash } from './ui/WiiSplash';
+import type { DodgeLabel } from './kinematics/personal/dodgeModel';
 import './arena.css';
 
 type Screen = 'home' | 'lobby' | 'ironman' | 'play' | 'summary' | 'mii';
@@ -66,7 +67,7 @@ function writeMutedPreference(muted: boolean): void {
 export default function App({ exit }: { exit?: ReactNode }) {
   const [splash, setSplash] = useState(true);
   const [screen, setScreen] = useState<Screen>('home');
-  const [boxingSetup, setBoxingSetup] = useState(DEFAULT_BOXING_SETUP);
+  const [boxingSetup, setBoxingSetup] = useState<BoxingSetup>({ ...DEFAULT_BOXING_SETUP, mode: 'tutorial' });
   const [sport, setSport] = useState<Sport>('athletics');
   const [ironResults, setIronResults] = useState<IronManResult[] | null>(null);
   const [goal, setGoal] = useState<Goal>(100);
@@ -304,6 +305,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setDodgeZone?.(result.controls.dodgeZone, raw.timestampMs);
       engineRef.current?.setGuard?.(result.controls.guard, raw.timestampMs);
       engineRef.current?.setDuck?.(result.controls.duck, raw.timestampMs);
+      engineRef.current?.setTeachReach?.(result.teachReach);
       engineRef.current?.setDepthMove?.(result.controls.ringDepthMove, raw.timestampMs);
       engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01, raw.timestampMs);
       engineRef.current?.setLateralDash?.(result.controls.lateralDash);
@@ -508,6 +510,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
   const onStrokeTravel = useCallback((travel: number) => { pipelineRef.current.setStrokeTravel(travel); }, []);
   const onPunchTravel = useCallback((travel: number) => { pipelineRef.current.setPunchTravel(travel); }, []);
+  const onTeach = useCallback((command: DodgeLabel | 'start' | undefined) => { pipelineRef.current.teachDodge(command); }, []);
 
   const play = (next: Sport, distance: Goal = 100, show = true) => {
     setGoal(distance);
@@ -557,7 +560,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} boxingSetup={boxingSetup} onBoxingSetup={setBoxingSetup} crossedPose={crossedPoseRef} onExit={exitGame} ironMan={ironResults ? { onComplete: finishIronStage } : undefined} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} />}
+    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} boxingSetup={boxingSetup} onBoxingSetup={setBoxingSetup} crossedPose={crossedPoseRef} onExit={exitGame} ironMan={ironResults ? { onComplete: finishIronStage } : undefined} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} onTeach={onTeach} />}
     {screen === 'home' && (
       <HomeMenu
         exit={exit}

@@ -10,7 +10,8 @@ import { RunGate, type RunPhase } from '../track/runGate';
 import { PUNCH_THRESHOLDS } from '../../kinematics/punchDetector';
 import { applyLatePunch, applyOpponentPunch, applyPlayerPunch, createBoxing, MAX_HP, ROUND_COUNT, tickRound, type BoxingState } from './boxingRules';
 import type { BoxingMode } from './boxingModes';
-import { LEARNING_PUNCH_TRAVEL, BoxingTutorial } from './boxingTutorial';
+import { type BoxingStepKind, BoxingTutorial, LEARNING_PUNCH_TRAVEL } from './boxingTutorial';
+import type { DodgeLabel } from '../../kinematics/personal/dodgeModel';
 import { RestartGesture } from '../core/restartGesture';
 import { HIT_FEEL, HitImpulse, type HitKind, playerHitKind } from './hitFeel';
 import { createImpactRing, createImpactSparkPool, type ImpactEffectKind, type ImpactSparkPool } from './impactEffects';
@@ -100,6 +101,7 @@ const DODGE_RATE = 13;
 const ROLL_RATE = 12;
 const LOOK_RATE = 7.5;
 const TELEGRAPH_RATE = 12;
+const DEMO_RATE = 7;
 const DUCK_DROP_M = 0.42;
 const DUCK_BOW_RAD = 0.35;
 const LEAN_ROLL_RAD = 0.22;
@@ -166,6 +168,10 @@ export interface BoxingGameOptions {
    * adapted to the measured player once the warm-up ends, exactly like the tennis one.
    */
   onPunchTravel?: (travel: number) => void;
+  /** Tells the pipeline what the camera frames are examples of. */
+  onTeach?: (command: DodgeLabel | 'start' | undefined) => void;
+  /** The warm-up is over and the player has seen its closing message. */
+  onTutorialDone?: () => void;
 }
 
 export interface BoxingScoreboard {
@@ -195,7 +201,7 @@ export interface BoxingTrainingScoreboard {
   hitsRemaining?: number;
 }
 
-export type BoxingHudState = GameHudState & { banner?: { title: string; detail?: string }; boxing: BoxingScoreboard };
+export type BoxingHudState = GameHudState & { banner?: { title: string; detail?: string }; learn?: { progress01: number; step: number; steps: number }; boxing: BoxingScoreboard };
 
 interface QueuedPunch {
   hand: Hand; power01: number; atMs: number; onsetMs: number;
@@ -217,6 +223,8 @@ export class BoxingGame {
   private readonly playerBoxer: MiiBoxer;
   /** How far the player's boxer has dropped into a duck, 0..1. */
   private duck01 = 0;
+  private demoSide = 0;
+  private demoDrop = 0;
   private readonly bag: PunchingBag | undefined;
   private readonly sparks: ImpactSparkPool = createImpactSparkPool();
   private readonly ring: BoxingRing | undefined;
@@ -235,6 +243,9 @@ export class BoxingGame {
   private tutorial: BoxingTutorial | undefined;
   /** Guards against re-applying the same tutorial's adapted travel every tick. */
   private travelAdapted = false;
+  private taught: DodgeLabel | undefined;
+  private teachReach = 0;
+  private shownStep: BoxingStepKind | undefined;
   private readonly skipGesture = new RestartGesture();
   private fightMs = 0;
   private animTimeS = 0;
@@ -354,7 +365,9 @@ export class BoxingGame {
     if (this.mode === 'dodge') this.dodgeChallenge = new DodgeChallenge();
     if (this.mode === 'tutorial') {
       this.tutorial = new BoxingTutorial();
+      this.shownStep = this.tutorial.step;
       this.options.onPunchTravel?.(LEARNING_PUNCH_TRAVEL);
+      this.options.onTeach?.('start');
     }
 
     this.playerBoxer = createPlayerBoxer();
@@ -446,6 +459,10 @@ export class BoxingGame {
     this.cameraDuck = ducked === true;
   }
 
+  setTeachReach(reach: number): void {
+    this.teachReach = reach;
+  }
+
   /** Feeds the tutorial skip gesture; outside the tutorial the boxing game has no use for it. */
   setHandsRaised(raised: boolean, atMs: number | null): void {
     this.skipGesture.setHandsRaised(raised, atMs);
@@ -506,15 +523,11 @@ export class BoxingGame {
     if (this.mode === 'tutorial') {
       const tutorial = this.tutorial;
       if (!tutorial || tutorial.done || this.gate.phase !== 'running' || this.restartMsLeft > 0) return;
-      if (event.type === 'punch' && event.punchKind && event.punchKind !== 'unknown') {
-        const advanced = tutorial.punch({
-          hand: event.hand,
-          kind: event.punchKind,
-          target: event.punchTargetZone ?? 'unknown',
-          travelSw: event.measurement?.forwardTravel,
-        });
-        this.setFeedback(advanced ? 'ISSO!' : 'TENTE DE NOVO', advanced ? 'good' : 'neutral');
-        if (advanced) this.audio?.punchImpact(0.3 + 0.4 * event.power01, false);
+      if (event.type === 'punch' && tutorial.punch(event.measurement?.forwardTravel)) {
+        this.setFeedback('ISSO!', 'good');
+        this.audio?.punchImpact(0.3 + 0.4 * event.power01, false);
+        this.opponentHitS = OPPONENT_HIT_S;
+        this.spawnOpponentImpact(event.power01, 'hit');
       }
       return;
     }
@@ -759,7 +772,9 @@ export class BoxingGame {
     if (!tutorial) return;
     if (tutorial.done) {
       this.restartMsLeft -= dtMs;
-      if (this.restartMsLeft <= 0) this.resetTraining();
+      if (this.restartMsLeft > 0) return;
+      if (this.options.onTutorialDone) this.options.onTutorialDone();
+      else this.resetTraining();
       return;
     }
     this.fightMs += dtMs;
@@ -770,15 +785,14 @@ export class BoxingGame {
       guard: this.guarding(),
       zone: this.zone,
       ducked: this.cameraDuck,
+      reach: this.teachReach,
     });
-    const { title, detail } = tutorial.text;
-    this.status = tutorial.done ? 'Tutorial completo!' : `${title} — ${detail}`;
     // Holding both hands up skips the rest of the warm-up, same gesture as the tennis one.
     this.skipGesture.step(dtMs / 1000, performance.now());
-    if (this.skipGesture.progress01 >= 1) {
-      tutorial.skip();
-      this.status = 'Tutorial completo!';
-    }
+    if (this.skipGesture.progress01 >= 1) tutorial.skip();
+    this.followTutorial(tutorial);
+    const { title, detail } = tutorial.text;
+    this.status = tutorial.done ? 'Tutorial completo!' : `${title} — ${detail}`;
     if (tutorial.done) {
       if (!this.travelAdapted) {
         this.travelAdapted = true;
@@ -787,6 +801,22 @@ export class BoxingGame {
       this.restartMsLeft = MATCH_PAUSE_MS;
       this.audio?.bell('ko');
     }
+  }
+
+  /** Relays what is being taught and celebrates each step the player completed. */
+  private followTutorial(tutorial: BoxingTutorial): void {
+    if (tutorial.teaching !== this.taught) {
+      this.taught = tutorial.teaching;
+      this.teachReach = 0;
+      this.options.onTeach?.(this.taught);
+    }
+    if (tutorial.step === this.shownStep) return;
+    // Going back to repeat the dodges is not a success.
+    if (tutorial.done || tutorial.stepIndex > 0 && this.shownStep !== 'proof') {
+      this.setFeedback('APRENDI!', 'good');
+      this.audio?.milestone();
+    }
+    this.shownStep = tutorial.step;
   }
 
   private stepFight(dtMs: number): void {
@@ -1105,6 +1135,8 @@ export class BoxingGame {
     if (this.mode === 'dodge') this.dodgeChallenge = new DodgeChallenge();
     if (this.mode === 'tutorial') {
       this.tutorial = new BoxingTutorial();
+      this.shownStep = this.tutorial.step;
+      this.options.onTeach?.('start');
       this.travelAdapted = false;
       // The travel floor is not lowered again: the next completion re-adapts it, and in the
       // meantime the player keeps whatever the last warm-up measured instead of the floor.
@@ -1124,7 +1156,7 @@ export class BoxingGame {
   private initialStatus(): string {
     if (this.mode === 'bag') return 'Siga o ritmo do saco';
     if (this.mode === 'dodge') return 'Leia o golpe e ocupe a zona segura';
-    if (this.mode === 'tutorial') return 'Aprenda os golpes no seu ritmo';
+    if (this.mode === 'tutorial') return 'Defesa, soco e esquiva';
     return 'Soque quando a guarda abrir';
   }
 
@@ -1197,16 +1229,38 @@ export class BoxingGame {
       // On the opponent's clock, so a pause or hitstop freezes the lean with the attack.
       this.telegraphOffset += (telegraphTarget - this.telegraphOffset) * blend(TELEGRAPH_RATE, opponentDtS);
       const opponentRecoil = this.impulse.struck === 'opponent' ? recoil : 0;
+      // The instructor leans toward the side of the screen the player is asked to lean to.
+      const demo = this.tutorial && !this.tutorial.done ? this.demonstration() : undefined;
+      this.demoSide += ((demo?.side ?? 0) - this.demoSide) * blend(DEMO_RATE, opponentDtS);
+      this.demoDrop += ((demo?.drop ?? 0) - this.demoDrop) * blend(DEMO_RATE, opponentDtS);
+      const sideways = this.telegraphOffset + this.demoSide * 0.55;
       this.opponentBoxer.root.position.set(
-        opponentPos.x + right.x * this.telegraphOffset + (dx / distance) * opponentRecoil,
-        RING_CANVAS_Y,
-        opponentPos.z + right.z * this.telegraphOffset + (dz / distance) * opponentRecoil,
+        opponentPos.x + right.x * sideways + (dx / distance) * opponentRecoil,
+        RING_CANVAS_Y - this.demoDrop * DUCK_DROP_M,
+        opponentPos.z + right.z * sideways + (dz / distance) * opponentRecoil,
       );
       this.opponentBoxer.root.rotation.y = Math.atan2(playerPos.x - opponentPos.x, playerPos.z - opponentPos.z) + Math.PI;
+      this.opponentBoxer.root.rotation.z = this.demoSide * LEAN_ROLL_RAD;
     }
   }
 
+  /** In the warm-up the opponent is the instructor, showing the movement that is asked for. */
+  private demonstration(): { state: MiiBoxerState; side: number; drop: number; warning: boolean } {
+    const step = this.tutorial?.step;
+    // Show, return to rest, show again.
+    const showing = this.animTimeS % 2 < 1.3;
+    const attackIn = this.tutorial?.attackInS;
+    if (attackIn !== undefined) return { state: attackIn <= 0.22 ? 'punch' : 'windup', side: 0, drop: 0, warning: true };
+    return {
+      state: step === 'neutral' ? 'idle' : step === 'punch' && this.animTimeS % 0.8 < 0.34 ? 'punch' : 'guard',
+      side: showing && step === 'left' ? -1 : showing && step === 'right' ? 1 : 0,
+      drop: showing && step === 'duck' ? 1 : 0,
+      warning: false,
+    };
+  }
+
   private opponentAnimationState(): MiiBoxerState {
+    if (this.tutorial && !this.tutorial.done) return this.opponentHitS > 0 ? 'hit' : this.demonstration().state;
     if (this.mode === 'dodge') {
       const snapshot = this.dodgeChallenge?.snapshot;
       if (!snapshot) return 'guard';
@@ -1246,7 +1300,9 @@ export class BoxingGame {
       for (const hand of HANDS) {
         const glow = this.gloveGlows[hand];
         if (!glow) continue;
-        glow.visible = attacking && phase.hand === hand;
+        glow.visible = this.tutorial && !this.tutorial.done
+          ? this.demonstration().warning && hand === 'right'
+          : attacking && phase.hand === hand;
         glow.scale.setScalar(1 + 0.18 * Math.sin(this.animTimeS * 18));
       }
       this.opponentBoxer.animate(this.animTimeS, this.opponentFootwork());
@@ -1325,7 +1381,7 @@ export class BoxingGame {
   private publishHud(): void {
     const training = this.trainingScoreboard();
     const finished = this.mode === 'fight' ? this.match.winner !== undefined : this.trainingFinished();
-    const countdownDetail = this.mode === 'bag' ? 'Prepare o ritmo' : this.mode === 'dodge' ? 'Leia o golpe' : this.mode === 'tutorial' ? 'Aprenda os golpes' : 'Guarda alta';
+    const countdownDetail = this.mode === 'bag' ? 'Prepare o ritmo' : this.mode === 'dodge' ? 'Leia o golpe' : this.mode === 'tutorial' ? 'Defesa, soco e esquiva' : 'Guarda alta';
     const banner = this.gate.phase === 'countdown' ? { title: String(this.gate.count), detail: countdownDetail }
       : this.gate.phase === 'paused' ? { title: 'PAUSA', detail: 'Volte para a câmera ou aperte W A S D' }
       : finished ? { title: this.status }
@@ -1340,7 +1396,10 @@ export class BoxingGame {
       speed01: 0,
       status: this.status,
       feedback: this.feedback,
-      banner,
+      banner: this.tutorial && this.gate.phase === 'running' ? this.tutorial.text : banner,
+      learn: this.tutorial && !this.tutorial.done && this.gate.phase === 'running'
+        ? { progress01: Math.round(this.tutorial.progress01 * 50) / 50, step: this.tutorial.stepIndex + 1, steps: this.tutorial.stepCount }
+        : undefined,
       boxing: {
         streak: this.streak,
         playerHp: this.match.playerHp,

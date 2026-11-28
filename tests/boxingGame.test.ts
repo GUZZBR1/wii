@@ -633,102 +633,55 @@ describe('BoxingGame review fixes', () => {
 });
 
 describe('BoxingGame tutorial mode', () => {
-  const tutorialPunch = (peakTimestampMs: number, kind: 'straight' | 'hook' | 'uppercut' = 'straight', target: 'head' | 'body' = 'head', hand: 'left' | 'right' = 'left'): SportActionEvent => ({
-    ...(punch(peakTimestampMs) as Extract<SportActionEvent, { type: 'punch' }>),
-    hand,
-    punchKind: kind,
-    punchTargetZone: target,
-    measurement: {
-      samples: [],
-      origin: { timestampMs: 0, lateral: 0, vertical: 0, forward: 0, elbowCosine: 0, confidence: 1 },
-      speedPeak: { timestampMs: 0, lateral: 0, vertical: 0, forward: 0.5, elbowCosine: 0.5, confidence: 1 },
-      contact: { timestampMs: 0, lateral: 0, vertical: 0, forward: 0.9, elbowCosine: 0.9, confidence: 1 },
-      end: { timestampMs: 0, lateral: 0, vertical: 0, forward: 0.8, elbowCosine: 0.8, confidence: 1 },
-      durationMs: 200,
-      forwardTravel: 0.9,
-      lateralExcursion: 0.05,
-      verticalRise: 0.02,
-      pathLength: 1,
-      netDisplacement: 0.9,
-      maxElbowCosine: 0.95,
-    },
-  });
+  const warmup = () => {
+    const travels: number[] = [];
+    const taught: (string | undefined)[] = [];
+    let finished = 0;
+    const fight = start({
+      mode: 'tutorial',
+      onPunchTravel: (travel) => travels.push(travel),
+      onTeach: (command) => taught.push(command),
+      onTutorialDone: () => { finished += 1; },
+    });
+    return { ...fight, travels, taught, finished: () => finished };
+  };
 
-  it('never attacks the player and starts with the guard instruction', () => {
-    const { run, read } = start({ mode: 'tutorial' });
-    run(5);
+  it('never attacks the player and shows how far along each step is', () => {
+    const { run, read } = warmup();
+    run(2);
     const hud = read();
     expect(hud.label).toBe('100 × 100');
-    expect(hud.status).toContain('guarda');
+    expect(hud.banner?.title).toBe('Fique à vontade');
+    expect(hud.learn).toMatchObject({ step: 1, steps: 7 });
+    expect(hud.learn!.progress01).toBeGreaterThan(0);
   });
 
-  it('advances through the steps as the player performs them', () => {
-    const { game, run, read } = start({ mode: 'tutorial' });
+  it('asks for the examples in turn: the player is told apart from the previous one first', () => {
+    const { game, run, taught } = warmup();
+    run(4);
+    expect(taught).toEqual(['start', 'neutral', undefined]);
     game.setGuard(true);
-    run(1.2);
-    expect(read().status).toContain('jab');
-    game.setGuard(false);
-    const at = () => performance.now();
-    for (let i = 0; i < 3; i += 1) {
-      game.onAction(tutorialPunch(at(), 'straight', 'head', 'left'));
-      run(0.3);
-    }
-    expect(read().status).toContain('cruzado');
-    for (let i = 0; i < 3; i += 1) {
-      game.onAction(tutorialPunch(at(), 'straight', 'head', 'right'));
-      run(0.3);
-    }
-    expect(read().status).toContain('ganchos');
+    run(2.5);
+    for (let i = 0; i < 5; i += 1) game.onAction(punch(performance.now()));
+    game.setTeachReach(0);
+    run(1.5);
+    expect(taught.at(-1)).toBe('left');
   });
 
-  it('reports the learning floor on entry and the adapted travel once done', () => {
-    const travels: number[] = [];
-    const { game, run } = start({ mode: 'tutorial', onPunchTravel: (travel) => travels.push(travel) });
+  it('hands over to the fight once, after skipping', () => {
+    const { game, run, travels, finished } = warmup();
     expect(travels).toEqual([0.15]);
-    game.setGuard(true);
-    run(1.2);
-    game.setGuard(false);
-    const at = () => performance.now();
-    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'left')); run(0.2); }
-    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'right')); run(0.2); }
-    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'hook', 'head')); run(0.2); }
-    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'uppercut', 'head')); run(0.2); }
-    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'body')); run(0.2); }
-    game.setDodgeZone(-1); run(0.3); game.setDodgeZone(0); run(0.3);
-    game.setDodgeZone(1); run(0.3); game.setDodgeZone(0); run(0.3);
-    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
-    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
-    expect(travels.at(-1)).toBeCloseTo(0.25);
-  });
-
-  it('unknown-type punches do not advance the tutorial', () => {
-    const { game, run, read } = start({ mode: 'tutorial' });
-    game.setGuard(true);
-    run(1.2);
-    game.setGuard(false);
-    game.onAction(punch(performance.now()));
-    run(0.3);
-    expect(read().status).toContain('jab');
-  });
-
-  it('finishes with a completion banner once every step is done', () => {
-    const { game, run, read } = start({ mode: 'tutorial' });
-    game.setGuard(true);
-    run(1.2);
-    game.setGuard(false);
-    const at = () => performance.now();
-    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'left')); run(0.2); }
-    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'right')); run(0.2); }
-    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'hook', 'head')); run(0.2); }
-    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'uppercut', 'head')); run(0.2); }
-    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'body')); run(0.2); }
-    game.setDodgeZone(-1); run(0.3); game.setDodgeZone(0); run(0.3);
-    game.setDodgeZone(1); run(0.3); game.setDodgeZone(0); run(0.3);
-    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
-    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
-    const hud = read();
-    expect(hud.status).toBe('Tutorial completo!');
-    expect(hud.banner?.title).toBe('Tutorial completo!');
+    for (let i = 0; i < 25; i += 1) {
+      game.setHandsRaised(false, performance.now());
+      run(0.1);
+    }
+    for (let i = 0; i < 40; i += 1) {
+      game.setHandsRaised(true, performance.now());
+      run(0.1);
+    }
+    run(5);
+    expect(travels).toHaveLength(2);
+    expect(finished()).toBeGreaterThanOrEqual(1);
   });
 });
 

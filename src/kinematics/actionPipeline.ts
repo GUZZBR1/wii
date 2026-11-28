@@ -5,6 +5,7 @@ import { upsideDown } from './framing';
 import { IntensityMeter } from './intensity';
 import { JumpDetector } from './jumpDetector';
 import { DodgeZoneTracker, DuckTracker, LanePositionTracker, REFERENCE_VETO_SPEED_SW_PER_S, RingDepthTracker, ShoulderLineVerticalSpeed } from './postureSignals';
+import { type DodgeLabel, DodgeModel } from './personal/dodgeModel';
 import { isGuardingPose, PunchDetector, type PunchDiagnostics } from './punchDetector';
 import { classifyPunch } from './punchClassifier';
 import { type ArmMotion, ArmMotionDetector } from './armMotion';
@@ -48,6 +49,9 @@ export class ActionPipeline {
   private readonly ringDepth = new RingDepthTracker();
   private readonly lateralDash = new LateralDashTracker();
   private readonly duckTracker = new DuckTracker();
+  /** This player's own dodges, once the boxing tutorial has taught them; kept for the session. */
+  private readonly personal = new DodgeModel();
+  private teaching: DodgeLabel | undefined;
   private readonly shoulderSpeed = new ShoulderLineVerticalSpeed();
   /** Frames where the torso reference moved fast, trimmed to the longest punch window: confirmation
    * evidence measured while the reference itself moved is torso motion, not arm motion — so a punch
@@ -83,6 +87,13 @@ export class ActionPipeline {
     for (const { detector } of this.punches) detector.minTravel = travel;
   }
 
+  /** `start` forgets the previous player; a label makes the next frames examples of it. */
+  teachDodge(command: DodgeLabel | 'start' | undefined): void {
+    if (command === 'start') this.personal.reset();
+    else this.personal.clearState();
+    this.teaching = command === 'start' ? undefined : command;
+  }
+
   resetSwings(): void {
     for (const { gate, detector } of this.swings) {
       gate.reset();
@@ -92,7 +103,7 @@ export class ActionPipeline {
     this.heldSwing = undefined;
   }
 
-  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; rawEffort: number; effortSampleAtMs: number | null; armMotions: ArmMotion[]; swingTracking: SwingTracking } {
+  update(snapshot: PoseSnapshot, calibration?: CalibrationProfile): { snapshot: PoseSnapshot; events: SportActionEvent[]; controls: ContinuousControls; rawEffort: number; effortSampleAtMs: number | null; armMotions: ArmMotion[]; swingTracking: SwingTracking; teachReach: number } {
     // An impossible skeleton is a frame without a player, so every gate treats it as a blackout.
     if (upsideDown(snapshot)) snapshot = { ...snapshot, landmarks: [], worldLandmarks: [] };
     const body = this.bodyGate.evaluate(snapshot);
@@ -266,7 +277,15 @@ export class ActionPipeline {
       if (duck !== undefined) controls = { ...controls, duck };
     }
 
-    return { snapshot: current, events, controls, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked, pending }) => ({ hand, tracked, pending, arbitrating: this.heldSwing?.hand === hand })) } };
+    // The player's own examples overrule the generic trackers on the channels they were taught.
+    let teachReach = 0;
+    if (this.teaching) teachReach = this.personal.teach(this.teaching, current);
+    else {
+      const own = this.personal.update(current);
+      if (own.zone !== undefined) controls = { ...controls, dodgeZone: own.zone };
+      if (own.duck !== undefined) controls = { ...controls, duck: own.duck };
+    }
+    return { teachReach, snapshot: current, events, controls, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked, pending }) => ({ hand, tracked, pending, arbitrating: this.heldSwing?.hand === hand })) } };
   }
 
   /**
@@ -329,5 +348,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.dodge.reset(); this.footworkGate.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.duckTracker.reset(); this.punchInFlight.reset(); this.punches.forEach(({ detector }) => { detector.reset(); }); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.dodge.reset(); this.footworkGate.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.duckTracker.reset(); this.personal.clearState(); this.punchInFlight.reset(); this.punches.forEach(({ detector }) => { detector.reset(); }); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }
