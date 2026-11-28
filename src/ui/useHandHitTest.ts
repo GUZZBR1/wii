@@ -35,7 +35,13 @@ function activate(target: HTMLElement, x: number): void {
 }
 
 /** Traduz o cursor de mão em hover, clique e voltar no DOM. */
-export function useHandHitTest(input: HandCursorInput, active: boolean, onBack: () => void) {
+export function useHandHitTest(
+  input: HandCursorInput,
+  active: boolean,
+  onBack: () => void,
+  /** Pinça sem alvo clicável: coordenadas e o elemento do topo, para quem escolhe por posição (Miis). */
+  onEmptyClick?: (x: number, y: number, hit: Element | undefined) => void,
+) {
   const { visible, x, y, pinchRelease, backProgress, rotationPhase } = input;
   const enabled = active && visible && input.synced && !rotationBlocksHandInput(rotationPhase);
   const hovered = useRef<HTMLElement | null>(null);
@@ -65,8 +71,11 @@ export function useHandHitTest(input: HandCursorInput, active: boolean, onBack: 
       within.current = container;
       container?.setAttribute(WITHIN, 'true');
     }
-    if (click && target) activate(target, x);
-  }, [enabled, x, y, pinchRelease]);
+    if (click && enabled) {
+      if (target) activate(target, x);
+      else onEmptyClick?.(x, y, hit);
+    }
+  }, [enabled, x, y, pinchRelease, onEmptyClick]);
 
   useEffect(() => {
     const complete = backProgress >= 1;

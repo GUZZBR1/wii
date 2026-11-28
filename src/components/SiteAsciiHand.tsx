@@ -11,6 +11,7 @@ import { disposeObjectTree } from '../games/core/GameLoop';
 import { smoothstep } from '../lib/ascii';
 import { cameraDistance, HAND_FOV, screenToPlane, stageProjection } from '../lib/handPlacement';
 import { CREATOR_HAND_POSE, HandRigSmoother, mapObservationToRig, sampleIdleHand } from '../lib/handRig';
+import { pickMiiAt } from '../miis/miiPick';
 import { rotationBlocksHandInput } from '../ui/handCursorTypes';
 import { useHandHitTest } from '../ui/useHandHitTest';
 import { createAsciiPass } from './handAsciiPass';
@@ -34,7 +35,7 @@ export default function SiteAsciiHand({ onProduct, onBack }: Props) {
   const backProgress = onProduct ? 0 : input.backProgress;
   const [settled, setSettled] = useState(false);
   const [webglFailed, setWebglFailed] = useState(false);
-  useHandHitTest({ ...input, backProgress }, live && settled, onBack);
+  useHandHitTest({ ...input, backProgress }, live && settled, onBack, pickMiiAt);
 
   const hostRef = useRef<HTMLDivElement>(null);
   const smootherRef = useRef<HandRigSmoother | null>(null);
