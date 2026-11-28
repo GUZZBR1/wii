@@ -100,7 +100,8 @@ export const DEFAULT_MII_FACE_SPEC: MiiFaceSpec = Object.freeze({
   mouthCurve: 3,
 });
 
-const integerIn = (value: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(value)));
+const integerIn = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, Math.round(Number.isNaN(value) ? min : value)));
 const integerInLimits = (value: number, [min, max]: readonly [number, number]) => integerIn(value, min, max);
 
 /** Clamps and quantizes a face, then re-establishes the non-overlapping vertical bands bottom-up. */
@@ -237,7 +238,7 @@ let pendingSessionSave:
 function readEncodedPlayerMii(): string | null | undefined {
   try {
     const storage = globalThis.localStorage;
-    return storage ? storage.getItem(PLAYER_MII_STORAGE_KEY) : null;
+    return storage ? storage.getItem(PLAYER_MII_STORAGE_KEY) : undefined;
   } catch {
     return undefined;
   }
@@ -272,7 +273,7 @@ export function savePlayerMii(spec: MiiFaceSpec): boolean {
   try {
     const storage = globalThis.localStorage;
     if (!storage) {
-      pendingSessionSave = { spec: normalized, encodedBeforeSave: null };
+      pendingSessionSave = { spec: normalized, encodedBeforeSave: undefined };
       return false;
     }
     encodedBeforeSave = readEncodedPlayerMii();
