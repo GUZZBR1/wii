@@ -11,19 +11,23 @@ import {
   type RotationalFlickState,
   type RotationalHandShape,
 } from '@nevergear/spatial-core';
+import { HandSwipeDetector } from './handSwipe';
 import { clamp } from './math';
 
 export interface MenuHandSnapshot {
   timestampMs: number;
   landmarks: readonly Point3[];
   handedness?: Hand | 'Left' | 'Right';
-  handednessScore?: number;
   /** bitmap.height / bitmap.width; corrige distâncias normalizadas fora do quadrado. */
   aspectY?: number;
   /** Métricas 3D da mão no espaço da câmera, necessárias apenas para o flick rotacional. */
   worldLandmarks?: readonly Point3[];
   /** O gesto rotacional só é alimentado quando a HomeMenu expõe a roda interativa. */
   rotationEnabled?: boolean;
+  /** Diagnóstico de captura→entrega calculado por quem publica a amostra, em ms. */
+  handInferenceMs?: number;
+  /** Diagnóstico da taxa efetiva de entregas do worker, calculado por quem publica a amostra. */
+  workerFps?: number;
 }
 
 export interface HandCursorZone {
@@ -45,6 +49,10 @@ export interface HandCursorOptions {
   pinchCooldownMs?: number;
   /** Tempo mínimo com os dedos juntos antes de confirmar um clique. */
   pinchPressMs?: number;
+  /** Também clica ao flexionar só o indicador, como um gatilho. Desligado por padrão (arena). */
+  indexTapClick?: boolean;
+  /** Tempo mínimo com o indicador dobrado antes de confirmar o clique. */
+  tapPressMs?: number;
   backHoldMs?: number;
   fistEnterStraightness?: number;
   fistReleaseStraightness?: number;
@@ -60,9 +68,19 @@ export interface HandCursorState {
   syncProgress: number;
   synced: boolean;
   pinching: boolean;
+  /** Estado interno da pinça, para diagnosticar a espera de confirmação sem expor contadores. */
+  pinchState: 'idle' | 'candidate' | 'active';
+  /** Motivo do cursor estar congelado nesta amostra; ausente quando ele acompanha a mão. */
+  freezeReason?: 'pinch' | 'fist' | 'rotation';
   /** Pulso de clique confirmado na ativação da pinça; não indica a soltura física dos dedos. */
   pinchRelease: boolean;
   backProgress: number;
+  /** A mão está em deslocamento lateral rápido, antes ou durante um pulso de swipe. */
+  swipeMoving: boolean;
+  /** Diagnóstico de captura→entrega repassado da amostra de entrada. */
+  handInferenceMs?: number;
+  /** Diagnóstico da taxa efetiva de entregas repassado da amostra de entrada. */
+  workerFps?: number;
   activeZone: HandCursorZone;
   rotationPhase: RotationalFlickPhase;
   /** Velocidade sanitizada que o carrossel pode consumir, em deg/s. */
@@ -71,6 +89,8 @@ export interface HandCursorState {
   rotationFilteredAngularVelocity: number;
   rotationRawAngularVelocity: number;
   rotationDirection: -1 | 0 | 1;
+  /** Pulso de uma amostra: passo da roda pedido por um aceno lateral. */
+  swipeDirection: -1 | 0 | 1;
   rotationCurvature: number;
   rotationHandShape: RotationalHandShape;
   rotationRejectReason?: RotationalFlickRejection;
@@ -92,14 +112,45 @@ const FINGERS = [
   [17, 18, 19, 20],
 ] as const;
 const DEFAULT_ZONE: HandCursorZone = { minX: 0, maxX: 1, minY: 0, maxY: 1 };
-const DEFAULT_HAND_SMOOTHING: OneEuroOptions = { minCutoff: 1.0, beta: 5.0, derivativeCutoff: 1.0 };
+/** Light on purpose: MediaPipe's VIDEO mode already smooths the landmarks. */
+const DEFAULT_HAND_SMOOTHING: OneEuroOptions = { minCutoff: 2.2, beta: 2.0, derivativeCutoff: 1.0 };
 const SCALE_MIN = 0.1;
 const SCALE_MAX = 0.3;
-const MAX_MARGIN = 0.37;
-const SCALE_TAU_MS = 250;
+const MAX_MARGIN = 0.27;
+const SCALE_TAU_MS = 1200;
+/** Smaller scale changes leave the active zone alone, so tilting the palm does not move the cursor. */
+const SCALE_DEADBAND = 0.015;
+/** Shorter observation gaps keep the pointer filters and hand scale: late inference, not a new hand. */
+const FILTER_RESET_GAP_MS = 500;
 
-function rotationBlocksGestures(phase: RotationalFlickPhase): boolean {
-  return phase !== 'IDLE';
+/** A sync survives missing frames this short: they neither hide the cursor nor stop its count. */
+const PRESENCE_GAP_MS = 150;
+
+// Retidão do indicador no clique por flexão: arma esticado, dispara dobrado, rearma quase esticado.
+const TAP_ARM = 0.86;
+const TAP_REARM = 0.83;
+const TAP_FIRE = 0.78;
+/** Queda do cosseno com a palma que conta como toque pela base do dedo, e a folga para rearmar. */
+const TAP_DROP_FIRE = 0.25;
+const TAP_DROP_REARM = 0.1;
+/** Esticado por este tempo noutra direção depois de um toque, a referência passa a ser a nova. */
+const TAP_REBASE_MS = 600;
+/** Queda de médio/anelar durante a flexão que indica a mão toda fechando, não um toque. */
+const TAP_OTHERS_DROP = 0.14;
+/** Tempo na pose de apontar até a flexão do indicador deixar de contar como punho. */
+const TAP_POINTING_MS = 150;
+const TAP_COOLDOWN_MS = 300;
+/** Flexão parcial que não chega a disparar solta a mira depois disto. */
+const TAP_ABANDON_MS = 400;
+/** Velocidade do pulso, em palmas por segundo, acima da qual a flexão é tida como acidental. */
+const TAP_MAX_WRIST_SPEED = 2.8;
+
+/**
+ * True once a rotation is committed: the cursor freezes and hover, click, back and swipe are
+ * suspended. A mere candidate or a cancelled one takes nothing away from the hand.
+ */
+export function rotationBlocksHandInput(phase: RotationalFlickPhase): boolean {
+  return phase !== 'IDLE' && phase !== 'ROTATION_CANDIDATE' && phase !== 'CANCELLED';
 }
 
 function finite(point: Point3 | undefined): point is Point3 {
@@ -128,37 +179,82 @@ function pinchRatio(points: readonly Point3[], aspectY: number): number {
   return imageDistance(points[THUMB_TIP]!, points[INDEX_TIP]!, aspectY) / scale;
 }
 
+function worldDistance(a: Point3, b: Point3): number {
+  return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+}
+
 function fingerStraightness(
   points: readonly Point3[],
   chain: readonly [number, number, number, number],
   aspectY: number,
+  distance: (a: Point3, b: Point3, aspectY: number) => number = imageDistance,
 ): number | undefined {
   const [mcp, pip, dip, tip] = chain;
   const segments =
-    imageDistance(points[mcp]!, points[pip]!, aspectY) +
-    imageDistance(points[pip]!, points[dip]!, aspectY) +
-    imageDistance(points[dip]!, points[tip]!, aspectY);
+    distance(points[mcp]!, points[pip]!, aspectY) +
+    distance(points[pip]!, points[dip]!, aspectY) +
+    distance(points[dip]!, points[tip]!, aspectY);
   if (segments <= 1e-6) return undefined;
-  return imageDistance(points[mcp]!, points[tip]!, aspectY) / segments;
+  return distance(points[mcp]!, points[tip]!, aspectY) / segments;
 }
 
-function maxFingerStraightness(points: readonly Point3[], aspectY: number): number | undefined {
-  const values = FINGERS.map((chain) => fingerStraightness(points, chain, aspectY));
+/** Pontos e métrica para medir os dedos: 3D quando há worldLandmarks, pois a imagem encurta o dedo apontado. */
+interface FingerShape {
+  points: readonly Point3[];
+  aspectY: number;
+  distance: (a: Point3, b: Point3, aspectY: number) => number;
+}
+
+function imageShape(points: readonly Point3[], aspectY: number): FingerShape {
+  return { points, aspectY, distance: imageDistance };
+}
+
+function bestShape(snapshot: MenuHandSnapshot, aspectY: number): FingerShape {
+  const world = snapshot.worldLandmarks;
+  if (world?.length !== 21 || !world.every((point) => finite(point) && Number.isFinite(point.z)))
+    return imageShape(snapshot.landmarks, aspectY);
+  return { points: world, aspectY: 1, distance: worldDistance };
+}
+
+function maxFingerStraightness({ points, aspectY, distance }: FingerShape): number | undefined {
+  const values = FINGERS.map((chain) => fingerStraightness(points, chain, aspectY, distance));
   if (values.some((value) => value === undefined)) return undefined;
   return Math.max(...(values as number[]));
 }
 
 function closedFist(
-  points: readonly Point3[],
+  shape: FingerShape,
   active: boolean,
   enterStraightness: number,
   releaseStraightness: number,
-  aspectY: number,
 ): boolean {
-  const straightness = maxFingerStraightness(points, aspectY);
+  const straightness = maxFingerStraightness(shape);
   if (straightness === undefined) return false;
   if (active) return straightness < releaseStraightness;
   return straightness < enterStraightness;
+}
+
+/**
+ * Retidão de indicador, médio e anelar, e quanto o indicador acompanha o eixo da palma (cosseno entre
+ * MCP→ponta e pulso→MCP do médio): abaixar o dedo reto pela base muda só o segundo.
+ */
+function tapFingers({ points, aspectY, distance }: FingerShape) {
+  const [index, middle, ring] = FINGERS.slice(0, 3).map((chain) => fingerStraightness(points, chain, aspectY, distance));
+  // Só o mundo tem profundidade comparável; na imagem o z é ignorado.
+  const depth = distance === worldDistance ? 1 : 0;
+  const direction = (from: number, to: number) => {
+    const a = points[from]!;
+    const b = points[to]!;
+    const x = b.x - a.x;
+    const y = (b.y - a.y) * aspectY;
+    const z = (b.z - a.z) * depth;
+    const length = Math.hypot(x, y, z) || 1;
+    return { x: x / length, y: y / length, z: z / length };
+  };
+  const finger = direction(INDEX_MCP, INDEX_TIP);
+  const palm = direction(WRIST, MIDDLE_MCP);
+  const dot = finger.x * palm.x + finger.y * palm.y + finger.z * palm.z;
+  return { index, others: Math.max(middle ?? 0, ring ?? 0), dot };
 }
 
 function validZone(zone: HandCursorZone): boolean {
@@ -177,6 +273,7 @@ export class HandCursorDetector {
   private activeZone: HandCursorZone;
   private readonly fixedZone: boolean;
   private smoothedScale?: number;
+  private zoneScale?: number;
   private readonly syncDurationMs: number;
   private readonly maxFrameGapMs: number;
   private readonly lossGraceMs: number;
@@ -190,7 +287,21 @@ export class HandCursorDetector {
   private readonly pinchOffRatio: number;
   private readonly pinchCooldownMs: number;
   private readonly pinchPressMs: number;
+  private readonly indexTapClick: boolean;
+  private readonly tapPressMs: number;
+  private tapArmed = false;
+  private tapActive = false;
+  private tapNeedsRelease = false;
+  private tapFlexSinceMs?: number;
+  private tapDownSinceMs?: number;
+  /** Médio/anelar no último quadro com o indicador esticado. */
+  private tapArmOthers = 0;
+  private tapArmDot = 0;
+  private tapStraightSinceMs?: number;
+  private tapPointingSinceMs?: number;
+  private lastWrist?: { point: Point3; timestampMs: number };
   private readonly rotationDetector: RotationalFlickDetector;
+  private readonly swipeDetector = new HandSwipeDetector();
   private pinchActive = false;
   private pinchCandidateSinceMs?: number;
   private presenceMs = 0;
@@ -214,7 +325,7 @@ export class HandCursorDetector {
     this.fixedZone = options.activeZone !== undefined;
     this.syncDurationMs = options.syncDurationMs ?? 200;
     this.maxFrameGapMs = options.maxFrameGapMs ?? 250;
-    this.lossGraceMs = options.lossGraceMs ?? 300;
+    this.lossGraceMs = options.lossGraceMs ?? 650;
     this.pointerAnchor = options.pointerAnchor ?? 'middleMcp';
     this.backHoldMs = options.backHoldMs ?? 500;
     this.fistEnterStraightness = options.fistEnterStraightness ?? 0.65;
@@ -226,6 +337,8 @@ export class HandCursorDetector {
     if (this.pinchOnRatio >= this.pinchOffRatio) throw new Error('Pinch on-ratio must be below the off-ratio');
     this.pinchCooldownMs = options.pinchCooldownMs ?? 250;
     this.pinchPressMs = options.pinchPressMs ?? 90;
+    this.indexTapClick = options.indexTapClick ?? false;
+    this.tapPressMs = options.tapPressMs ?? 35;
     this.xFilter = new OneEuroFilter(options.smoothing ?? DEFAULT_HAND_SMOOTHING);
     this.yFilter = new OneEuroFilter(options.smoothing ?? DEFAULT_HAND_SMOOTHING);
     // A imagem inferida não é espelhada, mas a prévia e o cursor são. O sinal negativo faz
@@ -235,8 +348,9 @@ export class HandCursorDetector {
 
   update(snapshot: MenuHandSnapshot): HandCursorState {
     const aspectY = snapshot.aspectY ?? 1;
-    const lowConfidence = snapshot.handednessScore !== undefined && snapshot.handednessScore < 0.75;
-    if (lowConfidence || !usableHand(snapshot.landmarks, aspectY)) return this.missing(snapshot);
+    // The handedness score is not a landmark confidence (it drops as the hand turns or closes),
+    // so geometry alone decides whether the hand is usable.
+    if (!usableHand(snapshot.landmarks, aspectY)) return this.missing(snapshot);
 
     const points = snapshot.landmarks;
     const timestampMs = snapshot.timestampMs;
@@ -248,13 +362,17 @@ export class HandCursorDetector {
     const raw = this.pointer(points);
     const gap = this.lastTimestampMs === undefined ? 0 : timestampMs - this.lastTimestampMs;
     const absenceMs = this.missingSinceMs === undefined ? 0 : timestampMs - this.missingSinceMs;
-    const countedPresenceGap = absenceMs > 150 ? 0 : gap;
+    const countedPresenceGap = absenceMs > PRESENCE_GAP_MS ? 0 : gap;
     const brokenTimeline = this.lastTimestampMs !== undefined && (gap < 0 || gap > this.maxFrameGapMs);
-    if (brokenTimeline) {
+    if (gap < 0 || gap > Math.max(FILTER_RESET_GAP_MS, this.maxFrameGapMs)) {
       this.xFilter.reset();
       this.yFilter.reset();
-      if (gap < 0) this.presenceMs = 0;
       this.smoothedScale = undefined;
+    }
+    // Held gestures rearm much sooner than the filters reset: unobserved time must never
+    // complete a click or a back gesture.
+    if (brokenTimeline) {
+      if (gap < 0) this.presenceMs = 0;
       this.lastFreePosition = undefined;
       this.pinchActive = false;
       this.pinchCandidateSinceMs = undefined;
@@ -262,6 +380,7 @@ export class HandCursorDetector {
       this.fistActive = false;
       this.fistNeedsOpen = true;
       this.backSinceMs = undefined;
+      this.resetTap();
     }
     this.lastTimestampMs = timestampMs;
     this.lostSinceMs = undefined;
@@ -278,12 +397,16 @@ export class HandCursorDetector {
         imageDistance(points[WRIST]!, points[MIDDLE_MCP]!, aspectY),
         imageDistance(points[INDEX_MCP]!, points[PINKY_MCP]!, aspectY),
       );
-      if (this.smoothedScale === undefined) this.smoothedScale = rawScale;
-      else {
+      if (this.smoothedScale === undefined) {
+        this.smoothedScale = rawScale;
+        this.zoneScale = rawScale;
+      } else {
         const alpha = 1 - Math.exp(-Math.max(gap, 0) / SCALE_TAU_MS);
         this.smoothedScale += alpha * (rawScale - this.smoothedScale);
       }
-      const margin = clamp((this.smoothedScale - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * MAX_MARGIN;
+      if (this.zoneScale === undefined || Math.abs(this.smoothedScale - this.zoneScale) > SCALE_DEADBAND)
+        this.zoneScale = this.smoothedScale;
+      const margin = clamp((this.zoneScale - SCALE_MIN) / (SCALE_MAX - SCALE_MIN)) * MAX_MARGIN;
       this.activeZone = { minX: margin, maxX: 1 - margin, minY: margin, maxY: 1 - margin };
     }
 
@@ -291,10 +414,18 @@ export class HandCursorDetector {
     const smoothX = this.xFilter.filter(mapped.x, timestampMs);
     const smoothY = this.yFilter.filter(mapped.y, timestampMs);
 
-    const rotation = this.updateRotation(snapshot, true);
-    const rotationBlocking = rotationBlocksGestures(rotation.phase);
+    // Only a gesture that already owns the hand disables rotation. A pinch candidate is just
+    // finger proximity noise until the press timer confirms it.
+    const gestureEngaged = this.pinchActive || this.fistActive;
+    const rotation = this.updateRotation(
+      gestureEngaged ? { ...snapshot, rotationEnabled: false } : snapshot,
+      true,
+    );
+    const rotationBlocking = rotationBlocksHandInput(rotation.phase);
 
-    const straightness = maxFingerStraightness(points, aspectY);
+    // A arena segue na imagem; com o toque ligado, o punho é medido em 3D.
+    const shape = this.indexTapClick ? bestShape(snapshot, aspectY) : imageShape(points, aspectY);
+    const straightness = maxFingerStraightness(shape);
     if (straightness !== undefined && straightness >= this.fistReleaseStraightness) this.fistNeedsOpen = false;
 
     let pinching = false;
@@ -302,13 +433,33 @@ export class HandCursorDetector {
     let pinchRelease = false;
     let backProgress = 0;
     let fist = false;
+    // Apontando com os outros já recolhidos, dobrar o indicador fecharia um "punho": ali o gesto é o toque.
+    const pointing =
+      this.tapArmed &&
+      this.tapPointingSinceMs !== undefined &&
+      (this.tapFlexSinceMs ?? timestampMs) - this.tapPointingSinceMs >= TAP_POINTING_MS;
+    // Judged on the raw anchor in camera space, so neither smoothing nor the active zone delays it.
+    const swipe = this.swipeDetector.update({
+      timestampMs,
+      x: raw.x,
+      y: raw.y * aspectY,
+      blocked:
+        !this.synced ||
+        rotationBlocking ||
+        this.pinchActive ||
+        this.fistActive ||
+        closedFist(imageShape(points, aspectY), false, this.fistEnterStraightness, this.fistReleaseStraightness),
+    });
+    // Fingers touching mid-swipe, or right after it, must not click: they have to part again first.
+    if (swipe.moving) this.pinchNeedsRelease = true;
     if (this.synced) {
       const updatePinch = () => {
         const ratio = pinchRatio(points, aspectY);
         if (this.pinchNeedsRelease) {
           this.pinchActive = false;
           this.pinchCandidateSinceMs = undefined;
-          if (ratio >= this.pinchOffRatio) this.pinchNeedsRelease = false;
+          // Fingers seen apart mid-swipe do not count: the release has to happen once the hand slows.
+          if (ratio >= this.pinchOffRatio && !swipe.moving) this.pinchNeedsRelease = false;
           return;
         }
         if (this.pinchActive) {
@@ -341,7 +492,7 @@ export class HandCursorDetector {
         this.fistNeedsOpen = true;
         this.backSinceMs = undefined;
       } else if (this.fistActive) {
-        this.fistActive = closedFist(points, true, this.fistEnterStraightness, this.fistReleaseStraightness, aspectY);
+        this.fistActive = closedFist(shape, true, this.fistEnterStraightness, this.fistReleaseStraightness);
         fist = this.fistActive;
         if (fist) {
           this.pinchActive = false;
@@ -358,9 +509,10 @@ export class HandCursorDetector {
         updatePinch();
         this.backSinceMs = undefined;
         if (
+          !pointing &&
           pinching &&
           !pinchWasActive &&
-          closedFist(points, false, this.fistEnterStraightness, this.fistReleaseStraightness, aspectY)
+          closedFist(shape, false, this.fistEnterStraightness, this.fistReleaseStraightness)
         ) {
           pinching = false;
           pinchRelease = false;
@@ -371,14 +523,8 @@ export class HandCursorDetector {
           fist = true;
           this.backSinceMs = timestampMs;
         }
-        if (!pinching && !fist && !this.fistNeedsOpen) {
-          this.fistActive = closedFist(
-            points,
-            false,
-            this.fistEnterStraightness,
-            this.fistReleaseStraightness,
-            aspectY,
-          );
+        if (!pointing && !pinching && !fist && !this.fistNeedsOpen) {
+          this.fistActive = closedFist(shape, false, this.fistEnterStraightness, this.fistReleaseStraightness);
           fist = this.fistActive;
           if (fist) {
             this.pinchActive = false;
@@ -397,21 +543,51 @@ export class HandCursorDetector {
       this.fistActive = false;
     }
 
+    let tapping = false;
+    let tapCandidate = false;
+    if (this.indexTapClick) {
+      const speed = this.wristSpeed(points, timestampMs, aspectY);
+      const blocked =
+        !this.synced ||
+        rotationBlocking ||
+        fist ||
+        pinching ||
+        pinchCandidate ||
+        speed > TAP_MAX_WRIST_SPEED;
+      const tap = this.updateTap(snapshot.timestampMs, shape, blocked);
+      tapping = tap.active;
+      tapCandidate = tap.candidate;
+      if (tap.click) pinchRelease = true;
+      // O mesmo movimento não vira também gesto de voltar nem uma segunda pinça.
+      if (tap.active) {
+        this.fistNeedsOpen = true;
+        this.pinchNeedsRelease = true;
+      }
+    }
+
     const candidate = { x: clamp(smoothX), y: clamp(smoothY) };
-    if (pinching || pinchCandidate || fist || rotationBlocking) this.frozenPosition ??= this.lastFreePosition ?? candidate;
+    const frozen = pinching || tapping || tapCandidate || fist || rotationBlocking;
+    if (frozen) this.frozenPosition ??= this.lastFreePosition ?? candidate;
     else this.frozenPosition = undefined;
     const position = this.frozenPosition ?? candidate;
-    if (!pinching && !pinchCandidate && !fist && !rotationBlocking) this.lastFreePosition = candidate;
+    if (!frozen) this.lastFreePosition = candidate;
     this.lastPosition = position;
     return {
-      visible: this.synced,
+      // Visible while still syncing, so the progress ring can be seen.
+      visible: true,
       x: position.x,
       y: position.y,
       syncProgress: this.synced ? 1 : this.syncProgress(),
       synced: this.synced,
-      pinching,
+      pinching: pinching || tapping,
+      pinchState: pinching || tapping ? 'active' : pinchCandidate || tapCandidate ? 'candidate' : 'idle',
+      freezeReason: pinching || tapping || tapCandidate ? 'pinch' : fist ? 'fist' : rotationBlocking ? 'rotation' : undefined,
       pinchRelease,
       backProgress,
+      swipeDirection: swipe.direction,
+      swipeMoving: swipe.moving,
+      handInferenceMs: snapshot.handInferenceMs,
+      workerFps: snapshot.workerFps,
       activeZone: { ...this.activeZone },
       ...this.rotationOutput(rotation),
     };
@@ -437,7 +613,91 @@ export class HandCursorDetector {
     this.yFilter.reset();
     this.pinchActive = false;
     this.pinchCandidateSinceMs = undefined;
+    this.resetTap();
     this.rotationDetector.reset();
+    this.swipeDetector.reset();
+  }
+
+  private resetTap(): void {
+    this.tapArmed = false;
+    this.tapActive = false;
+    this.tapNeedsRelease = false;
+    this.tapFlexSinceMs = undefined;
+    this.tapDownSinceMs = undefined;
+    this.tapPointingSinceMs = undefined;
+    this.tapStraightSinceMs = undefined;
+    this.lastWrist = undefined;
+  }
+
+  private wristSpeed(points: readonly Point3[], timestampMs: number, aspectY: number): number {
+    const previous = this.lastWrist;
+    this.lastWrist = { point: points[WRIST]!, timestampMs };
+    const elapsed = previous ? timestampMs - previous.timestampMs : 0;
+    if (!previous || elapsed <= 0) return 0;
+    const palm = imageDistance(points[WRIST]!, points[MIDDLE_MCP]!, aspectY);
+    return imageDistance(previous.point, points[WRIST]!, aspectY) / palm / (elapsed / 1000);
+  }
+
+  /** Clique ao dobrar o indicador ou abaixá-lo reto pela base. `active` dura do disparo até o dedo voltar. */
+  private updateTap(timestampMs: number, shape: FingerShape, blocked: boolean) {
+    const { index, others, dot } = tapFingers(shape);
+    const idle = { active: false, candidate: false, click: false };
+    const drop = this.tapArmDot - dot;
+    const flexing = index !== undefined && (index < TAP_REARM || drop > TAP_DROP_REARM);
+    const closing = this.tapArmed && flexing && this.tapArmOthers - others > TAP_OTHERS_DROP;
+    if (blocked || index === undefined || closing) {
+      this.tapArmed = false;
+      this.tapActive = false;
+      this.tapFlexSinceMs = undefined;
+      this.tapDownSinceMs = undefined;
+      this.tapPointingSinceMs = undefined;
+      this.tapStraightSinceMs = undefined;
+      return idle;
+    }
+
+    if (!this.tapArmed) {
+      if (index < TAP_ARM) this.tapStraightSinceMs = undefined;
+      else this.tapStraightSinceMs ??= timestampMs;
+      const rebased = this.tapStraightSinceMs !== undefined && timestampMs - this.tapStraightSinceMs >= TAP_REBASE_MS;
+      const ready = this.tapNeedsRelease
+        ? (index >= TAP_REARM && drop <= TAP_DROP_REARM) || rebased
+        : index >= TAP_ARM;
+      if (!ready) return { ...idle, active: this.tapActive && flexing };
+      this.tapArmed = true;
+      this.tapNeedsRelease = false;
+      this.tapActive = false;
+      this.tapArmDot = dot;
+    }
+
+    if (index >= TAP_REARM && this.tapArmDot - dot <= TAP_DROP_REARM) {
+      // A referência só sobe: um abaixar gradual continua contando a partir de onde o dedo apontava.
+      this.tapArmDot = Math.max(this.tapArmDot, dot);
+      this.tapArmOthers = others;
+      if (others >= this.fistEnterStraightness) this.tapPointingSinceMs = undefined;
+      else this.tapPointingSinceMs ??= timestampMs;
+      this.tapFlexSinceMs = undefined;
+      this.tapDownSinceMs = undefined;
+      return idle;
+    }
+
+    this.tapFlexSinceMs ??= timestampMs;
+    if (index > TAP_FIRE && this.tapArmDot - dot < TAP_DROP_FIRE) {
+      this.tapDownSinceMs = undefined;
+      if (timestampMs - this.tapFlexSinceMs > TAP_ABANDON_MS) {
+        this.tapArmed = false;
+        return idle;
+      }
+      return { ...idle, candidate: true };
+    }
+    this.tapDownSinceMs ??= timestampMs;
+    if (timestampMs - this.tapDownSinceMs < this.tapPressMs) return { ...idle, candidate: true };
+    this.tapArmed = false;
+    this.tapNeedsRelease = true;
+    this.tapActive = true;
+    this.tapStraightSinceMs = undefined;
+    const click = timestampMs - this.lastPinchClickAt >= TAP_COOLDOWN_MS;
+    if (click) this.lastPinchClickAt = timestampMs;
+    return { active: true, candidate: false, click };
   }
 
   private missing(snapshot: MenuHandSnapshot): HandCursorState {
@@ -456,20 +716,29 @@ export class HandCursorDetector {
     this.pinchCandidateSinceMs = undefined;
     this.pinchNeedsRelease = true;
     this.fistNeedsOpen = true;
+    this.resetTap();
     this.frozenPosition = undefined;
     this.lastFreePosition = undefined;
     this.backSinceMs = undefined;
     this.fistActive = false;
+    this.swipeDetector.disarm();
     const position = this.lastPosition ?? { x: 0, y: 0 };
+    const stillSyncing =
+      !this.synced && this.lastPosition !== undefined && timestampMs - this.missingSinceMs <= PRESENCE_GAP_MS;
     return {
-      visible: this.synced,
+      visible: this.synced || stillSyncing,
       x: position.x,
       y: position.y,
-      syncProgress: this.synced ? 1 : 0,
+      syncProgress: this.synced ? 1 : stillSyncing ? this.syncProgress() : 0,
       synced: this.synced,
       pinching: false,
+      pinchState: 'idle',
       pinchRelease: false,
       backProgress: 0,
+      swipeDirection: 0,
+      swipeMoving: false,
+      handInferenceMs: snapshot.handInferenceMs,
+      workerFps: snapshot.workerFps,
       activeZone: { ...this.activeZone },
       ...this.rotationOutput(rotation),
     };

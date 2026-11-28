@@ -15,6 +15,8 @@
   .logo { font-weight: 800; letter-spacing: -.02em; white-space: nowrap; }
   .logo b { color: #8d949a; }
   .logo i { color: var(--blue); }
+  /* The name is too long for one line inside the channel tile. */
+  .channel.sports .logo { display: flex; flex-direction: column; align-items: center; line-height: 1.1; }
 
   .channel.empty { background: repeating-linear-gradient(#0000 0 3px, #ffffff66 3px 4px), #bcc3ca; border-color: #8f9aa4; color: #737e88; font-size: clamp(14px, 2.6vw, 30px); font-weight: 800; }
 
@@ -197,8 +199,8 @@
 
   /* controle por mão: cursor (a ponta do indicador é a origem) */
   .hand-layer { position: fixed; inset: 0; z-index: 120; overflow: hidden; pointer-events: none; }
-  .hand-cursor { position: absolute; top: 0; left: 0; width: 0; height: 0; }
-  .hand-body { position: absolute; transform-origin: 0 0; transition: opacity .35s ease, scale .35s ease, visibility .35s; }
+  .hand-cursor { position: absolute; top: 0; left: 0; width: 0; height: 0; will-change: transform; }
+  .hand-body { position: absolute; transform-origin: 0 0; transition: opacity .12s ease, scale .12s ease, visibility .12s; }
   .hand-cursor.pinching .hand-body { scale: .88; transition-duration: .12s; }
   .hand-cursor.off .hand-body { opacity: 0; scale: .97; visibility: hidden; transition-duration: .35s; }
   .hand-ring { position: absolute; left: -40px; top: -22px; width: 80px; height: 80px; rotate: -90deg; fill: none; stroke-width: 6; stroke-linecap: round; }

@@ -26,6 +26,12 @@ export const BODY_DODGE = {
 
 interface Reading { lean?: number; headY: number; width: number }
 
+/** The shoulders are in view but the hips are not, so a sideways lean cannot be read. */
+export function hipsHidden(snapshot: PoseSnapshot): boolean {
+  const seen = (index: number) => (snapshot.landmarks[index]?.visibility ?? 0) >= 0.5;
+  return seen(11) && seen(12) && !(seen(23) && seen(24));
+}
+
 function read(snapshot: PoseSnapshot): Reading | undefined {
   const [nose, left, right, leftHip, rightHip] = [0, 11, 12, 23, 24].map((index) => snapshot.landmarks[index]);
   if (!nose || !left || !right) return undefined;
@@ -34,7 +40,7 @@ function read(snapshot: PoseSnapshot): Reading | undefined {
   if (!(width > 0.03)) return undefined;
   const hips = leftHip && rightHip && Math.min(leftHip.visibility ?? 1, rightHip.visibility ?? 1) >= 0.5;
   return {
-    // Without hips the head over the shoulders still tilts, only less.
+    // Without hips there is no sideways lean to read: stand-ins fired on punches too often.
     lean: hips ? ((left.x + right.x) / 2 - (leftHip.x + rightHip.x) / 2) / width : undefined,
     headY: nose.y,
     width,

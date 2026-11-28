@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HandCursorDetector, type MenuHandSnapshot } from '../src/kinematics/handCursor';
+import { HandCursorDetector, type MenuHandSnapshot, rotationBlocksHandInput } from '../src/kinematics/handCursor';
 import { emptyHand, hand } from './fixtures/menuHand';
 import { rotationalWorldLandmarks } from './fixtures/rotationalHand';
 
@@ -38,8 +38,8 @@ describe('hand cursor synchronization and active zone', () => {
       detector.update(hand(100, { tipX: 0.5 })),
       detector.update(hand(200, { tipX: 0.7 })),
     ];
-    expect(states[0]).toMatchObject({ syncProgress: 0, synced: false, visible: false });
-    expect(states[1]).toMatchObject({ syncProgress: 0.5, synced: false, visible: false });
+    expect(states[0]).toMatchObject({ syncProgress: 0, synced: false, visible: true });
+    expect(states[1]).toMatchObject({ syncProgress: 0.5, synced: false, visible: true });
     expect(states[2]).toMatchObject({ syncProgress: 1, synced: true, visible: true });
   });
 
@@ -63,6 +63,14 @@ describe('hand cursor synchronization and active zone', () => {
     expect(detector.update(hand(200))).toMatchObject({ synced: true, visible: true });
   });
 
+  it('does not blink on a single dropped frame while still syncing', () => {
+    const detector = new HandCursorDetector();
+    detector.update(hand(0));
+    detector.update(hand(100));
+    expect(detector.update(emptyHand(133))).toMatchObject({ visible: true, synced: false, syncProgress: 0.5 });
+    expect(detector.update(emptyHand(300))).toMatchObject({ visible: false, synced: false, syncProgress: 0 });
+  });
+
   it('caps long observation gaps instead of counting time with no observed hand', () => {
     const detector = new HandCursorDetector();
     detector.update(hand(0));
@@ -75,10 +83,24 @@ describe('hand cursor synchronization and active zone', () => {
     const before = detector.update(hand(1100, { tipX: 0.4, tipY: 0.4 }));
     expect(before.synced).toBe(true);
     expect(detector.update(emptyHand(1200))).toMatchObject({ visible: true, synced: true, x: before.x, y: before.y });
-    const reacquired = detector.update(hand(1450, { tipX: 0.7, tipY: 0.7 }));
+    const reacquired = detector.update(hand(1700, { tipX: 0.7, tipY: 0.7 }));
     expect(reacquired).toMatchObject({ visible: true, synced: true });
     expect(reacquired.x).toBeCloseTo(0.3);
     expect(reacquired.y).toBeCloseTo(0.7);
+  });
+
+  it('keeps filtering across a late inference instead of snapping to the new sample', () => {
+    const detector = synched();
+    const before = detector.update(hand(1100, { tipX: 0.4 })).x;
+    const late = detector.update(hand(1500, { tipX: 0.7 })).x;
+    expect(late).toBeGreaterThan(0.3);
+    expect(late).toBeLessThan(before);
+  });
+
+  it('stays synchronized through a 500ms occlusion', () => {
+    const detector = synched();
+    detector.update(emptyHand(1100));
+    expect(detector.update(emptyHand(1600))).toMatchObject({ synced: true, visible: true });
   });
 
   it('requires synchronization again after a long loss', () => {
@@ -92,7 +114,7 @@ describe('hand cursor synchronization and active zone', () => {
     const detector = synched();
     expect(detector.update(emptyHand(1100))).toMatchObject({ visible: true, synced: true });
     const reacquired = detector.update(hand(2000));
-    expect(reacquired).toMatchObject({ visible: false, synced: false, syncProgress: 0 });
+    expect(reacquired).toMatchObject({ synced: false, syncProgress: 0 });
   });
 
   it('does not reuse a stale frozen position after a long tracking loss', () => {
@@ -122,22 +144,12 @@ describe('hand cursor synchronization and active zone', () => {
 });
 
 describe('hand cursor hand validation', () => {
-  it('never synchronizes while the handedness score stays below 0.75', () => {
+  it('synchronizes a geometrically valid hand however low the handedness score is', () => {
     const detector = new HandCursorDetector();
-    let state = detector.update({ ...hand(0), handednessScore: 0.5 });
-    for (let time = 100; time <= 1000; time += 100) state = detector.update({ ...hand(time), handednessScore: 0.5 });
-    expect(state).toMatchObject({ synced: false, syncProgress: 0, visible: false });
-  });
-
-  it('synchronizes with a handedness score of exactly 0.75 or with no score at all', () => {
-    for (const handednessScore of [0.75, undefined]) {
-      const detector = new HandCursorDetector();
-      let synced = false;
-      for (let time = 0; time <= 300; time += 100) {
-        synced = detector.update({ ...hand(time), handednessScore }).synced || synced;
-      }
-      expect(synced).toBe(true);
-    }
+    const turned = (time: number) => ({ ...hand(time), handednessScore: 0.5 });
+    let state = detector.update(turned(0));
+    for (let time = 100; time <= 300; time += 100) state = detector.update(turned(time));
+    expect(state).toMatchObject({ synced: true, visible: true });
   });
 
   it('rejects a degenerate palm scale while the same shape above 0.03 synchronizes', () => {
@@ -181,15 +193,15 @@ describe('hand cursor hand validation', () => {
 describe('hand cursor distance-sensitive active zone', () => {
   it('shrinks the zone for a close hand so the screen edge is reached before the camera edge', () => {
     const detector = new HandCursorDetector();
-    let state = detector.update(hand(0, { scale: 0.3, tipX: 0.37, tipY: 0.5 }));
+    let state = detector.update(hand(0, { scale: 0.3, tipX: 0.27, tipY: 0.5 }));
     for (let time = 100; time <= 1000; time += 100) {
-      state = detector.update(hand(time, { scale: 0.3, tipX: 0.37, tipY: 0.5 }));
+      state = detector.update(hand(time, { scale: 0.3, tipX: 0.27, tipY: 0.5 }));
     }
-    expect(state.activeZone.minX).toBeCloseTo(0.37);
-    expect(state.activeZone.maxX).toBeCloseTo(0.63);
-    expect(state.activeZone.minY).toBeCloseTo(0.37);
-    expect(state.activeZone.maxY).toBeCloseTo(0.63);
-    // camera x 0.37 mirrors to pointer x 0.63, the inner edge of the shrunk zone
+    expect(state.activeZone.minX).toBeCloseTo(0.27);
+    expect(state.activeZone.maxX).toBeCloseTo(0.73);
+    expect(state.activeZone.minY).toBeCloseTo(0.27);
+    expect(state.activeZone.maxY).toBeCloseTo(0.73);
+    // camera x 0.27 mirrors to pointer x 0.73, the inner edge of the shrunk zone
     expect(state.x).toBeCloseTo(1);
   });
 
@@ -201,6 +213,21 @@ describe('hand cursor distance-sensitive active zone', () => {
     }
     expect(state.activeZone).toMatchObject({ minX: 0, maxX: 1, minY: 0, maxY: 1 });
     expect(state.x).toBeCloseTo(0.75);
+  });
+
+  it('holds the zone still while the hand scale only wobbles, as a tilting palm does', () => {
+    const detector = new HandCursorDetector();
+    const settled = detector.update(hand(0, { scale: 0.2 })).activeZone;
+    for (let time = 33; time <= 2000; time += 33) {
+      const state = detector.update(hand(time, { scale: time % 66 === 0 ? 0.212 : 0.188 }));
+      expect(state.activeZone).toEqual(settled);
+    }
+  });
+
+  it('keeps the zone through a late inference instead of jumping to the new scale', () => {
+    const detector = synched();
+    const before = detector.update(hand(1100)).activeZone;
+    expect(detector.update(hand(1500, { scale: 0.3 })).activeZone.minX - before.minX).toBeLessThan(0.1);
   });
 
   it('never overrides an explicit active zone even for a close hand', () => {
@@ -293,17 +320,45 @@ describe('hand cursor pinch click', () => {
     expect(detector.update(hand(1500, { pinchRatio: 0.2 }))).toMatchObject({ pinching: true, pinchRelease: true });
   });
 
+  it('keeps following the hand during a pinch candidate and freezes only when the click confirms', () => {
+    const detector = syncedForGestureTiming();
+    const before = detector.update(hand(1100, { tipX: 0.4, tipY: 0.4, pinchRatio: 0.8 }));
+    const firstCandidate = detector.update(hand(1150, { tipX: 0.45, tipY: 0.42, pinchRatio: 0.2 }));
+    const lastCandidate = detector.update(hand(1200, { tipX: 0.5, tipY: 0.44, pinchRatio: 0.2 }));
+    const press = detector.update(hand(1250, { tipX: 0.55, tipY: 0.46, pinchRatio: 0.2 }));
+
+    expect(firstCandidate).toMatchObject({ pinchState: 'candidate', pinching: false, pinchRelease: false });
+    expect(lastCandidate).toMatchObject({ pinchState: 'candidate', pinching: false, pinchRelease: false });
+    expect(firstCandidate.freezeReason).toBeUndefined();
+    expect(lastCandidate.freezeReason).toBeUndefined();
+    expect(firstCandidate.x).toBeLessThan(before.x);
+    expect(lastCandidate.x).toBeLessThan(firstCandidate.x);
+    expect(press).toMatchObject({ pinchState: 'active', pinching: true, pinchRelease: true, freezeReason: 'pinch' });
+    expect(press.x).toBe(lastCandidate.x);
+    expect(press.y).toBe(lastCandidate.y);
+  });
+
+  it('passes hand worker telemetry through as diagnostics', () => {
+    const state = new HandCursorDetector().update({ ...hand(0), handInferenceMs: 42.5, workerFps: 17.5 });
+    expect(state).toMatchObject({
+      pinchState: 'idle',
+      swipeMoving: false,
+      handInferenceMs: 42.5,
+      workerFps: 17.5,
+    });
+  });
+
   it('fires once through the hysteresis cycle and freezes the cursor while pinching', () => {
     const detector = syncedForGestureTiming();
-    const target = detector.update(hand(1100, { tipX: 0.4, tipY: 0.4, pinchRatio: 0.8 }));
-    detector.update(hand(1150, { tipX: 0.4, tipY: 0.4, pinchRatio: 0.2 }));
+    detector.update(hand(1100, { tipX: 0.4, tipY: 0.4, pinchRatio: 0.8 }));
+    const candidate = detector.update(hand(1150, { tipX: 0.4, tipY: 0.4, pinchRatio: 0.2 }));
     const press = detector.update(hand(1250, { tipX: 0.4, tipY: 0.4, pinchRatio: 0.2 }));
-    expect(press).toMatchObject({ pinching: true, pinchRelease: true, x: target.x, y: target.y });
+    expect(press).toMatchObject({ pinching: true, pinchRelease: true, x: candidate.x, y: candidate.y });
     const held = detector.update(hand(1250, { tipX: 0.7, tipY: 0.7, pinchRatio: 0.35 }));
-    expect(held).toMatchObject({ pinching: true, pinchRelease: false, x: target.x, y: target.y });
+    expect(held).toMatchObject({ pinching: true, pinchRelease: false, x: candidate.x, y: candidate.y });
     const released = detector.update(hand(1300, { tipX: 0.7, tipY: 0.7, pinchRatio: 0.6 }));
     expect(released).toMatchObject({ pinching: false, pinchRelease: false });
-    expect(released.x).not.toBeCloseTo(target.x);
+    expect(released.x).not.toBeCloseTo(candidate.x);
   });
 
   it('keeps the click cooldown and re-arm requirement across a tracking-loss frame', () => {
@@ -371,16 +426,16 @@ describe('hand cursor pinch click', () => {
 describe('hand cursor integrated gesture session', () => {
   it('syncs, clicks once at the frozen target, then completes a back gesture', () => {
     const detector = syncedForGestureTiming();
-    const target = detector.update(hand(1100, { tipX: 0.4, tipY: 0.4, pinchRatio: 0.8 }));
-    detector.update(hand(1150, { tipX: 0.4, tipY: 0.4, pinchRatio: 0.2 }));
+    detector.update(hand(1100, { tipX: 0.4, tipY: 0.4, pinchRatio: 0.8 }));
+    const candidate = detector.update(hand(1150, { tipX: 0.4, tipY: 0.4, pinchRatio: 0.2 }));
     const clickStates = [
       detector.update(hand(1250, { tipX: 0.4, tipY: 0.4, pinchRatio: 0.2 })),
       detector.update(hand(1300, { tipX: 0.65, tipY: 0.65, pinchRatio: 0.35 })),
       detector.update(hand(1350, { tipX: 0.65, tipY: 0.65, pinchRatio: 0.7 })),
     ];
     expect(clickStates.map((state) => state.pinchRelease)).toEqual([true, false, false]);
-    expect(clickStates[0]).toMatchObject({ x: target.x, y: target.y });
-    expect(clickStates[1]).toMatchObject({ x: target.x, y: target.y });
+    expect(clickStates[0]).toMatchObject({ x: candidate.x, y: candidate.y });
+    expect(clickStates[1]).toMatchObject({ x: candidate.x, y: candidate.y });
 
     detector.update(hand(1400, { curl: 1 }));
     expect(detector.update(hand(1900, { curl: 1 }))).toMatchObject({
@@ -526,39 +581,79 @@ describe('hand cursor rotational flick arbitration', () => {
     expect(rotating!.rotationRawAngularVelocity).toBeGreaterThan(0);
   });
 
-  it('suppresses a held pinch during rotation and requires release before the next click', () => {
+  /** Rotates with an idle image hand until committed, then keeps turning with the given gesture. */
+  const commitThen = (gesture: Parameters<typeof rotationalMenuHand>[2]) => {
     const detector = syncRotational();
-    const rotating = rotate(detector, 216, 12, { pinchRatio: 0.2 });
-    expect(rotating.some((state) => state.rotationPhase === 'ROTATING')).toBe(true);
-    expect(rotating.every((state) => !state.pinchRelease && !state.pinching)).toBe(true);
+    const committing = rotate(detector, 216, 12);
+    expect(committing.at(-1)!.rotationPhase).toBe('ROTATING');
+    const during = Array.from({ length: 8 }, (_, index) =>
+      detector.update(rotationalMenuHand(408 + index * 16, 36 + index * 3, gesture)),
+    );
+    expect(during.every((state) => state.rotationPhase === 'ROTATING')).toBe(true);
+    return { detector, during };
+  };
 
-    const stillHeld = detector.update(rotationalMenuHand(500, 33, { pinchRatio: 0.2, rotationEnabled: false }));
+  it('suppresses a pinch begun during rotation and requires release before the next click', () => {
+    const { detector, during } = commitThen({ pinchRatio: 0.2 });
+    expect(during.every((state) => !state.pinchRelease && !state.pinching)).toBe(true);
+
+    const stillHeld = detector.update(rotationalMenuHand(540, 57, { pinchRatio: 0.2, rotationEnabled: false }));
     expect(stillHeld).toMatchObject({ pinchRelease: false, pinching: false });
-    detector.update(rotationalMenuHand(516, 33, { pinchRatio: 0.8, rotationEnabled: false }));
-    detector.update(rotationalMenuHand(532, 33, { pinchRatio: 0.2, rotationEnabled: false }));
-    const rearmed = detector.update(rotationalMenuHand(632, 33, { pinchRatio: 0.2, rotationEnabled: false }));
+    detector.update(rotationalMenuHand(556, 57, { pinchRatio: 0.8, rotationEnabled: false }));
+    detector.update(rotationalMenuHand(572, 57, { pinchRatio: 0.2, rotationEnabled: false }));
+    const rearmed = detector.update(rotationalMenuHand(672, 57, { pinchRatio: 0.2, rotationEnabled: false }));
     expect(rearmed.pinchRelease).toBe(true);
   });
 
   it('keeps back progress at zero during rotation and re-arms the fist afterwards', () => {
-    const detector = syncRotational();
-    const rotating = rotate(detector, 216, 12, { imageCurl: 1, pinchRatio: 0.2 });
-    expect(rotating.some((state) => state.rotationPhase === 'ROTATING')).toBe(true);
-    expect(rotating.every((state) => state.backProgress === 0)).toBe(true);
-    const after = detector.update(rotationalMenuHand(500, 33, { imageCurl: 1, pinchRatio: 0.2, rotationEnabled: false }));
+    const { detector, during } = commitThen({ imageCurl: 1 });
+    expect(during.every((state) => state.backProgress === 0)).toBe(true);
+    const after = detector.update(rotationalMenuHand(540, 57, { imageCurl: 1, rotationEnabled: false }));
     expect(after.backProgress).toBe(0);
   });
 
-  it('freezes the cursor position while rotation owns the hand', () => {
+  it('lets a pinch under way finish its click instead of turning it into a rotation', () => {
     const detector = syncRotational();
-    const before = detector.update(rotationalMenuHand(216, 0, { tipX: 0.5 }));
-    const moving = [];
+    const states = rotate(detector, 216, 14, { pinchRatio: 0.2 });
+    expect(states.some((state) => state.pinchRelease)).toBe(true);
+    expect(states.every((state) => !rotationBlocksHandInput(state.rotationPhase))).toBe(true);
+  });
+
+  it('does not reset a rotation candidate for a pinch candidate that is released before confirmation', () => {
+    const detector = syncRotational();
+    detector.update(rotationalMenuHand(216, 0, { pinchRatio: 0.8 }));
+    expect(detector.update(rotationalMenuHand(232, 3, { pinchRatio: 0.8 })).rotationPhase).toBe('ROTATION_CANDIDATE');
+    expect(detector.update(rotationalMenuHand(248, 6, { pinchRatio: 0.2 })).pinchState).toBe('candidate');
+    const released = detector.update(rotationalMenuHand(264, 9, { pinchRatio: 0.8 }));
+    expect(released).toMatchObject({ pinchState: 'idle', rotationPhase: 'ROTATION_CANDIDATE' });
+  });
+
+  it('keeps following a rotation candidate and freezes only once rotation is committed', () => {
+    const detector = syncRotational();
+    const states = [detector.update(rotationalMenuHand(216, 0, { tipX: 0.5 }))];
     for (let frame = 1; frame < 12; frame += 1) {
-      moving.push(detector.update(rotationalMenuHand(216 + frame * 16, frame * 3, { tipX: 0.5 + frame * 0.02 })));
+      states.push(detector.update(rotationalMenuHand(216 + frame * 16, frame * 3, { tipX: 0.5 + frame * 0.02 })));
     }
-    const active = moving.filter((state) => state.rotationPhase !== 'IDLE');
-    expect(active.length).toBeGreaterThan(0);
-    expect(active.every((state) => state.x === before.x && state.y === before.y)).toBe(true);
+    const firstRotating = states.findIndex((state) => state.rotationPhase === 'ROTATING');
+    const candidate = states.findIndex((state) => state.rotationPhase === 'ROTATION_CANDIDATE');
+    expect(candidate).toBeGreaterThan(0);
+    expect(firstRotating).toBeGreaterThan(candidate);
+    expect(states[candidate]!.x).not.toBe(states[candidate - 1]!.x);
+    const held = states[firstRotating - 1]!;
+    expect(states.slice(firstRotating).every((state) => state.x === held.x && state.y === held.y)).toBe(true);
+  });
+
+  it('lets a mere candidate or its cancellation click and go back', () => {
+    for (const [gesture, outcome] of [
+      [{ pinchRatio: 0.2 }, 'pinchRelease'],
+      [{ imageCurl: 1 }, 'back'],
+    ] as const) {
+      const detector = syncRotational();
+      detector.update(rotationalMenuHand(216, 0));
+      expect(detector.update(rotationalMenuHand(266, 5)).rotationPhase).toBe('ROTATION_CANDIDATE');
+      const states = [316, 366, 416, 466].map((time) => detector.update(rotationalMenuHand(time, 5, gesture)));
+      expect(states.some((state) => (outcome === 'back' ? state.backProgress > 0 : state.pinchRelease))).toBe(true);
+    }
   });
 
   it('cancels rotation on tracking loss instead of leaving velocity or gestures armed', () => {
@@ -569,5 +664,189 @@ describe('hand cursor rotational flick arbitration', () => {
     expect(lost.rotationPhase).toBe('CANCELLED');
     expect(lost.rotationRejectReason).toBe('missing-hand');
     expect(lost).toMatchObject({ pinchRelease: false, backProgress: 0, rotationAngularVelocity: 0 });
+  });
+});
+
+describe('index finger tap click', () => {
+  const tapper = () => synched(new HandCursorDetector({ indexTapClick: true }));
+  /** One frame every 40 ms from t = 1100, each with the given index bend. */
+  const frames = (detector: HandCursorDetector, bends: number[], extra: Parameters<typeof hand>[1] = {}, from = 1100) =>
+    bends.map((indexCurl, i) => detector.update(hand(from + i * 40, { ...extra, indexCurl })));
+  const clicks = (states: { pinchRelease: boolean }[]) => states.filter((state) => state.pinchRelease).length;
+
+  it('clicks once per flexion and needs the finger straight again', () => {
+    const detector = tapper();
+    const first = frames(detector, [0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+    expect(clicks(first)).toBe(1);
+    expect(first[4]).toMatchObject({ pinching: true });
+    const second = frames(detector, [0, 0, 1, 1, 1, 1], {}, 1700);
+    expect(second[0]).toMatchObject({ pinching: false });
+    expect(clicks(second)).toBe(1);
+  });
+
+  it('does not click when every finger closes into a fist', () => {
+    const detector = tapper();
+    detector.update(hand(1100));
+    const states = [1140, 1180, 1220, 1260, 1300].map((time) => detector.update(hand(time, { curl: 1 })));
+    expect(clicks(states)).toBe(0);
+  });
+
+  it('keeps the pointer still while the index bends', () => {
+    const detector = tapper();
+    const [aimed] = frames(detector, [0, 0, 0]).slice(-1);
+    const bent = [0.7, 1, 1, 1].map((indexCurl, i) =>
+      detector.update(hand(1220 + i * 40, { indexCurl, dx: 0.004 * (i + 1), dy: 0.004 * (i + 1) })),
+    );
+    expect(clicks(bent)).toBe(1);
+    for (const state of bent) expect(state).toMatchObject({ x: aimed!.x, y: aimed!.y });
+  });
+
+  it('ignores a flexion while the hand is sweeping across the screen', () => {
+    const detector = tapper();
+    detector.update(hand(1100));
+    const states = [0, 1, 1, 1, 1].map((indexCurl, i) =>
+      detector.update(hand(1140 + i * 40, { indexCurl, dx: 0.02 * (i + 1) })),
+    );
+    expect(clicks(states)).toBe(0);
+  });
+
+  it('lets go of the pointer when a half bend never becomes a click', () => {
+    const detector = tapper();
+    frames(detector, [0, 0]);
+    const half = Array.from({ length: 16 }, (_, i) =>
+      detector.update(hand(1180 + i * 40, { indexCurl: 0.5, dx: 0.001 * i })),
+    );
+    expect(clicks(half)).toBe(0);
+    expect(half.at(-1)!.x).not.toBeCloseTo(half[0]!.x, 3);
+  });
+
+  it('measures the bend in 3D when world landmarks are present', () => {
+    const detector = tapper();
+    // The image looks bent (a finger aimed at the camera) while the 3D finger is straight.
+    const states = [0, 1, 1, 1].map((indexCurl, i) => {
+      const time = 1100 + i * 40;
+      return detector.update({ ...hand(time, { indexCurl }), worldLandmarks: hand(time).landmarks });
+    });
+    expect(clicks(states)).toBe(0);
+  });
+
+  it('changes nothing for the arena, where the option is off', () => {
+    const arena = synched();
+    const explicit = synched(new HandCursorDetector({ indexTapClick: false }));
+    const bends = [0, 0.7, 1, 1, 1, 0, 1, 1];
+    const states = frames(arena, bends, { dx: 0.001 });
+    expect(states).toEqual(frames(explicit, bends, { dx: 0.001 }));
+    expect(states.some((state) => state.pinching || state.pinchRelease)).toBe(false);
+  });
+});
+
+describe('index tap from the pointing pose', () => {
+  const tapper = () => synched(new HandCursorDetector({ indexTapClick: true }));
+  /** One frame every 40 ms from t = 1100: [bend of middle/ring/pinky, bend of the index]. */
+  const play = (detector: HandCursorDetector, bends: [number, number][], from = 1100) =>
+    bends.map(([curl, indexCurl], i) => detector.update(hand(from + i * 40, { curl, indexCurl })));
+  const clicks = (states: { pinchRelease: boolean }[]) => states.filter((state) => state.pinchRelease).length;
+  const aim: [number, number][] = Array.from({ length: 8 }, () => [1, 0]);
+  const held = (indexCurl: number, count: number): [number, number][] => Array.from({ length: count }, () => [1, indexCurl]);
+
+  it.each([0.52, 0.7, 1])('clicks once with the index bent to %s, without going back', (depth) => {
+    const detector = tapper();
+    const aimed = play(detector, aim);
+    expect(clicks(aimed)).toBe(0);
+    const bent = play(detector, held(depth, 20), 1420);
+    expect(clicks(bent)).toBe(1);
+    expect(bent.every((state) => state.backProgress === 0)).toBe(true);
+    expect(bent[1]).toMatchObject({ x: aimed.at(-1)!.x, y: aimed.at(-1)!.y });
+    expect(clicks(play(detector, [...aim, ...held(depth, 4)], 2220))).toBe(1);
+  });
+
+  it('does not click when an open hand closes gradually, and still goes back', () => {
+    const detector = tapper();
+    const closing: [number, number][] = [0, 0, 0.25, 0.5, 0.75, ...Array.from({ length: 20 }, () => 1)].map((c) => [c, c]);
+    const states = play(detector, closing);
+    expect(clicks(states)).toBe(0);
+    expect(states.at(-1)!.backProgress).toBe(1);
+  });
+
+  it('still goes back when the other fingers close just before the index', () => {
+    const detector = tapper();
+    const states = play(detector, [[0, 0], [0, 0], [0, 0], [1, 0], [1, 0], ...Array.from({ length: 20 }, () => [1, 1] as [number, number])]);
+    expect(clicks(states)).toBe(0);
+    expect(states.at(-1)!.backProgress).toBe(1);
+  });
+});
+
+describe('index tap in 3D', () => {
+  const tapper = () => synched(new HandCursorDetector({ indexTapClick: true }));
+  const clicks = (states: { pinchRelease: boolean }[]) => states.filter((state) => state.pinchRelease).length;
+
+  /** A straight index lowered about its base toward the camera, by `degrees`, in image and world alike. */
+  function pitched(time: number, degrees: number, curl = 0): MenuHandSnapshot {
+    const snapshot = hand(time, { curl, indexCurl: 0 });
+    const base = snapshot.landmarks[5]!;
+    const angle = (degrees * Math.PI) / 180;
+    const landmarks = snapshot.landmarks.map((p, i) =>
+      i < 6 || i > 8
+        ? p
+        : { x: p.x, y: base.y + (p.y - base.y) * Math.cos(angle), z: (p.y - base.y) * Math.sin(angle) },
+    );
+    return { ...snapshot, landmarks, worldLandmarks: landmarks.map((p) => ({ ...p })) };
+  }
+
+  const play = (detector: HandCursorDetector, angles: number[], curl = 0, from = 1100) =>
+    angles.map((degrees, i) => detector.update(pitched(from + i * 40, degrees, curl)));
+
+  it.each([0, 1])('clicks when a straight index drops at its base (other fingers curl %s)', (curl) => {
+    const detector = tapper();
+    const aimed = play(detector, [0, 0, 0, 0, 0, 0, 0, 0], curl);
+    const down = play(detector, [25, 50, 50, 50, 50, 50], curl, 1420);
+    expect(clicks(down)).toBe(1);
+    expect(down[2]).toMatchObject({ pinching: true, x: aimed.at(-1)!.x, y: aimed.at(-1)!.y });
+    expect(down.every((state) => state.backProgress === 0)).toBe(true);
+    const again = play(detector, [0, 0, 0, 0, 0, 0, 0, 0, 50, 50, 50], curl, 1800);
+    expect(clicks(again)).toBe(1);
+  });
+
+  it('does not click twice while the finger stays down or only comes halfway back', () => {
+    const detector = tapper();
+    play(detector, [0, 0]);
+    expect(clicks(play(detector, [50, 50, 50, 35, 35, 50, 50, 50, 50, 50, 50, 50], 0, 1180))).toBe(1);
+  });
+
+  it('accepts a new resting direction after a tap instead of staying disarmed', () => {
+    const detector = tapper();
+    play(detector, [0, 0]);
+    play(detector, [50, 50, 50], 0, 1180);
+    // The finger comes back straight but 30 degrees lower than before, and stays there.
+    play(detector, Array.from({ length: 20 }, () => 30), 0, 1300);
+    expect(clicks(play(detector, [75, 75, 75], 0, 2100))).toBe(1);
+  });
+
+  it('does not read a finger aimed at the camera as a fist', () => {
+    // The image looks closed; in 3D the index is straight.
+    const foreshortened = (time: number): MenuHandSnapshot => ({
+      ...hand(time, { curl: 1 }),
+      worldLandmarks: hand(time, { curl: 1, indexCurl: 0 }).landmarks,
+    });
+    const run = (detector: HandCursorDetector) => {
+      detector.update(hand(1100));
+      return Array.from({ length: 20 }, (_, i) => detector.update(foreshortened(1140 + i * 40)));
+    };
+    expect(run(tapper()).every((state) => state.backProgress === 0)).toBe(true);
+    // The arena keeps measuring the fist on the image.
+    expect(run(synched()).at(-1)!.backProgress).toBe(1);
+  });
+
+  it('gives one click when a pinch follows from lowering the index', () => {
+    const detector = tapper();
+    play(detector, [0, 0]);
+    const states = Array.from({ length: 16 }, (_, i) => {
+      const snapshot = pitched(1180 + i * 40, 50);
+      // After the tap the thumb reaches the lowered fingertip and stays there.
+      const tip = snapshot.landmarks[8]!;
+      const landmarks = snapshot.landmarks.map((p, k) => (k === 4 && i >= 8 ? { ...tip, x: tip.x + 0.01 } : p));
+      return detector.update({ ...snapshot, landmarks });
+    });
+    expect(clicks(states)).toBe(1);
   });
 });
