@@ -3,11 +3,12 @@ import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { autoUpgradePlugin } from './scripts/auto-upgrade-plugin';
 
 const projectRoot = fileURLToPath(new URL('.', import.meta.url));
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), tailwindcss()],
+  plugins: [react(), tailwindcss(), autoUpgradePlugin(resolve(projectRoot, '.auto-upgrade/inbox'))],
   base: '/',
   resolve: {
     alias:

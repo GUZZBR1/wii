@@ -8,6 +8,7 @@
   ],
   "scripts": {
     "dev": "vite --host 0.0.0.0",
+    "auto-upgrade": "VITE_AUTO_UPGRADE=1 npm run dev -- --host localhost",
     "predev": "node scripts/copy-mediapipe-wasm.mjs && npm run build:core",
     "build": "npm run build:core && tsc -b && vite build",
     "prebuild": "node scripts/copy-mediapipe-wasm.mjs",

@@ -63,6 +63,8 @@ interface Props {
   /** The player is holding their arms crossed; on a result screen that leads back to the menu. */
   crossedPose?: RefObject<GestureSample | null>;
   onExit?: () => void;
+  /** Called after each tennis point, each boxing round, and at the end of a race or match. */
+  onCheckpoint?: () => void;
   /** Receives the stroke length the tennis warm-up settles on. */
   onStrokeTravel?: (travel: number) => void;
   onPunchTravel?: (travel: number) => void;
@@ -93,7 +95,7 @@ export function GameCanvas(props: Props) {
   />;
 }
 
-function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, onPunchTravel, initialRacketHand, onRacketHand, tutorial, onRestart, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent }: Props & {
+function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onCheckpoint, onStrokeTravel, onPunchTravel, initialRacketHand, onRacketHand, tutorial, onRestart, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent }: Props & {
   onRestart: () => void;
   tutorial: boolean;
   boxingMode: BoxingMode;
@@ -126,6 +128,18 @@ function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crosse
 
   // Same rules as playing again: only after the result has been seen, and from arms that were down.
   const over = Boolean(hud.finished || hud.tennis?.winner);
+  const checkpoint = hud.tennis ? JSON.stringify([hud.tennis.points, hud.tennis.games, hud.tennis.winner])
+    : hud.boxing ? `${hud.boxing.round} ${hud.boxing.winner ?? ''}`
+    : hud.finished ? 'finished' : '';
+  const lastCheckpointRef = useRef('');
+  const checkpointRef = useRef(onCheckpoint);
+  checkpointRef.current = onCheckpoint;
+  useEffect(() => {
+    const last = lastCheckpointRef.current;
+    lastCheckpointRef.current = checkpoint;
+    // The first scoreboard is not a result; a race has none until it finishes.
+    if (checkpoint !== last && (last || checkpoint === 'finished')) checkpointRef.current?.();
+  }, [checkpoint]);
   const travelRef = useRef(onStrokeTravel);
   travelRef.current = onStrokeTravel;
   const punchTravelRef = useRef(onPunchTravel);

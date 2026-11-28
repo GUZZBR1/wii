@@ -8,6 +8,9 @@ dist/
 public/mediapipe/wasm*/
 .vercel
 
+# Partidas à espera da IA (npm run auto-upgrade)
+.auto-upgrade/
+
 # Gravações locais de pontos do corpo (dados pessoais)
 tests/recordings/
 # Baixadas na raiz antes de serem movidas: o repositório é público.

@@ -5,7 +5,7 @@ import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { diagnosticsEnabled } from './cv/diagnostics/flags';
 import { PhotoTrail } from './cv/diagnostics/photoTrail';
 import { BOXING_RECORDING_SCRIPT, TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
-import { downloadRecording, noteArrival, PoseRecorder, rememberFrame } from './cv/diagnostics/poseRecorder';
+import { downloadRecording, noteArrival, PoseRecorder, rememberFrame, serializeRecording } from './cv/diagnostics/poseRecorder';
 import { PUNCH_THRESHOLDS } from './kinematics/punchDetector';
 import { HandCursorDetector } from './kinematics/handCursor';
 import type { GestureSample } from './games/core/restartGesture';
@@ -89,6 +89,13 @@ export default function App({ exit }: { exit?: ReactNode }) {
   /** Diagnostic recording: owned here, fed by onPose, ended by the script, G or the camera stopping. */
   const recorderRef = useRef<PoseRecorder | undefined>(undefined);
   const [recordingPrompt, setRecordingPrompt] = useState<string>();
+  // Only `npm run auto-upgrade` offers it, and the player still has to turn it on.
+  const autoUpgradeOffered = import.meta.env.DEV && import.meta.env.VITE_AUTO_UPGRADE === '1';
+  const [autoUpgrade, setAutoUpgrade] = useState(false);
+  const autoUpgradeRef = useRef(autoUpgrade);
+  autoUpgradeRef.current = autoUpgrade;
+  const segmentRef = useRef({ frames: [] as PoseSnapshot[], events: [] as SportActionEvent[] });
+  const takeSegment = useCallback(() => { const segment = segmentRef.current; segmentRef.current = { frames: [], events: [] }; return segment; }, []);
 
   useEffect(() => {
     audioRef.current.setMuted(muted);
@@ -181,6 +188,23 @@ export default function App({ exit }: { exit?: ReactNode }) {
     if (screen === 'play') perceptionRef.current.recenterLane();
   }, [screen]);
 
+  // A segment left unfinished, or recorded before the button was turned off, is never sent.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: these changes are what discard the segment.
+  useEffect(() => { takeSegment(); }, [screen, sport, autoUpgrade]);
+
+  const sendSegment = useCallback(() => {
+    const { frames, events } = takeSegment();
+    const delegate = poseClientRef.current?.delegate;
+    if (!frames.length || !delegate) return;
+    void serializeRecording(new PoseRecorder(frames), delegate)
+      .then(async (text) => {
+        const body = JSON.stringify({ ...JSON.parse(text), autoUpgrade: { sport: sportRef.current, events } });
+        const response = await fetch('/__auto-upgrade', { method: 'POST', headers: { 'content-type': 'application/json' }, body });
+        if (!response.ok) throw new Error(String(response.status));
+      })
+      .catch(() => setCameraStatus('Auto-upgrade: the segment could not be sent.'));
+  }, [takeSegment]);
+
   // G starts/stops a recording during a camera run. Detectors and calibration restart with it,
   // so replaying the file from a cold start reproduces what happened live.
   useEffect(() => {
@@ -260,6 +284,12 @@ export default function App({ exit }: { exit?: ReactNode }) {
       setTracking(frame.trackingLabel);
       crossedPoseRef.current = frame.crossedPose;
       for (const event of frame.events) dispatchEvent(event);
+      if (autoUpgradeRef.current && screenRef.current === 'play') {
+        const { frames, events } = segmentRef.current;
+        // Training modes never end: keep about ten minutes.
+        if (frames.push(raw) > 12_000) frames.shift();
+        events.push(...frame.events);
+      }
     },
   };
 
@@ -524,7 +554,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} boxingSetup={boxingSetup} onBoxingSetup={setBoxingSetup} crossedPose={crossedPoseRef} onExit={exitGame} ironMan={ironResults ? { onComplete: finishIronStage } : undefined} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} />}
+    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} boxingSetup={boxingSetup} onBoxingSetup={setBoxingSetup} crossedPose={crossedPoseRef} onExit={exitGame} ironMan={ironResults ? { onComplete: finishIronStage } : undefined} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} onCheckpoint={sendSegment} />}
     {screen === 'home' && (
       <HomeMenu
         exit={exit}
@@ -562,6 +592,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     {screen === 'play' && <div className="hud-dock">
       <button type="button" className="dock-btn" onClick={exitGame}>{ironResults ? tr('‹ Sair do Iron Man', '‹ Leave Iron Man') : tr('‹ Menu', '‹ Menu')}</button>
       <button type="button" className="dock-btn round" onClick={toggleMute} title={muted ? tr('Áudio desligado', 'Audio off') : tr('Áudio ligado', 'Audio on')}>{muted ? '×' : '♫'}</button>
+      {autoUpgradeOffered && <button type="button" className="dock-btn" aria-pressed={autoUpgrade} onClick={() => setAutoUpgrade((on) => !on)} title={tr('Envia os pontos do corpo de cada rodada ou ponto para a IA do terminal', "Sends each round's or point's body points to the terminal AI")}>{autoUpgrade ? tr('● Auto aprimoramento', '● Auto improve') : tr('○ Auto aprimoramento', '○ Auto improve')}</button>}
     </div>}
 
     <HandCursor store={handStore} active={menu && cameraOn} onBack={handBack} />

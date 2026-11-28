@@ -52,13 +52,18 @@ export class PoseRecorder {
 }
 
 /** GPU runs the full model and CPU the lite one; the recording must say which it measured. */
-export async function downloadRecording(recorder: PoseRecorder, delegate: Delegate, prefix = 'running', photos: readonly Photo[] = []): Promise<void> {
+export async function serializeRecording(recorder: PoseRecorder, delegate: Delegate, photos: readonly Photo[] = []): Promise<string> {
   const modelName = delegate === 'GPU' ? `pose_landmarker_full.${POSE_FULL_MODEL_SHA8}.task` : `pose_landmarker_lite.${POSE_MODEL_SHA8}.task`;
   const sums = await (await fetch(`${import.meta.env.BASE_URL}mediapipe/models/SHA256SUMS`)).text();
   const sha = sums.split(/\r?\n/).find((line) => line.trim().endsWith(modelName))?.trim().split(/\s+/)[0];
   if (!sha) throw new Error(`Model ${modelName} is missing from SHA256SUMS.`);
+  return recorder.serialize(delegate, sha, photos);
+}
+
+export async function downloadRecording(recorder: PoseRecorder, delegate: Delegate, prefix = 'running', photos: readonly Photo[] = []): Promise<void> {
+  const text = await serializeRecording(recorder, delegate, photos);
   const link = document.createElement('a');
-  link.href = URL.createObjectURL(new Blob([recorder.serialize(delegate, sha, photos)], { type: 'application/json' }));
+  link.href = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
   link.download = `${prefix}-${delegate}-${Date.now()}.json`;
   link.click();
   URL.revokeObjectURL(link.href);

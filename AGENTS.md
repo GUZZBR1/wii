@@ -85,5 +85,9 @@ Short imperative subjects (`Add initial project structure`), one logical change 
 
 ## Security & Configuration
 
-- Video is processed on-device; nothing is uploaded. The MediaPipe runtime may phone performance metrics to Google — disclosed in README/THIRD_PARTY_NOTICES.
+- Video is processed on-device; nothing is uploaded. The one exception to staying local is the opt-in `npm run auto-upgrade`, where the terminal AI reads body points (never video). The MediaPipe runtime may phone performance metrics to Google — disclosed in README/THIRD_PARTY_NOTICES.
 - No secrets in this repo. Machine-specific config belongs in `~/.config`, never in project files.
+
+## Auto-upgrade
+
+When the user says "ligar auto upgrader" (or "start auto upgrader"), follow `docs/auto-upgrade.md`.
