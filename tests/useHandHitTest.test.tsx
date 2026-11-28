@@ -87,14 +87,19 @@ describe('useHandHitTest rotational blocking', () => {
 function ControlledSliderProbe({ input }: { input: HandCursorInput }) {
   const [value, setValue] = useState(52);
   useHandHitTest(input, true, () => undefined);
-  return createElement('input', {
-    type: 'range',
-    min: 42,
-    max: 62,
-    step: 1,
-    value,
-    onChange: (event: ChangeEvent<HTMLInputElement>) => setValue(Number(event.target.value)),
-  });
+  return createElement(
+    'div',
+    null,
+    createElement('input', {
+      type: 'range',
+      min: 42,
+      max: 62,
+      step: 1,
+      value,
+      onChange: (event: ChangeEvent<HTMLInputElement>) => setValue(Number(event.target.value)),
+    }),
+    createElement('output', null, value),
+  );
 }
 
 describe('useHandHitTest range sliders', () => {
@@ -131,6 +136,7 @@ describe('useHandHitTest range sliders', () => {
     });
 
     expect(slider.value).toBe('47');
+    expect(container.querySelector('output')?.textContent).toBe('47');
     act(() => {
       root.unmount();
     });

@@ -326,7 +326,7 @@ function Slider({
         value={value}
         onChange={(event) => onChange(Number(event.target.value))}
       />
-      <b>{value}</b>
+      <b aria-hidden="true">{value}</b>
     </label>
   );
 }
