@@ -1,8 +1,8 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { disposeObjectTree } from '../core/GameLoop';
+import { merge, paint } from '../core/vertexPaint';
 
 /** 0 = full quality; higher tiers are cheaper to render. */
 export type QualityTier = 0 | 1 | 2;
@@ -52,25 +52,6 @@ const LIGHT_FIXTURES = [
   { name: 'boxing-fill-light-a', x: -3.45, z: -3.45, color: 0xd8edff, intensity: 20 },
   { name: 'boxing-fill-light-b', x: 3.45, z: 3.45, color: 0xd8edff, intensity: 20 },
 ] as const;
-
-/** Bakes a color into the vertices, so differently colored parts can share one draw call. Consumes `source`. */
-function paint(source: THREE.BufferGeometry, color: THREE.ColorRepresentation): THREE.BufferGeometry {
-  const geometry = source.index ? source.toNonIndexed() : source;
-  if (geometry !== source) source.dispose();
-  const { r, g, b } = new THREE.Color(color);
-  const colors = new Float32Array(geometry.attributes.position!.count * 3);
-  for (let i = 0; i < colors.length; i += 3) colors.set([r, g, b], i);
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return geometry;
-}
-
-/** Merges and frees the parts. They must agree on attributes and on being indexed or not. */
-function merge(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
-  const merged = mergeGeometries(parts);
-  for (const part of parts) part.dispose();
-  if (!merged) throw new Error('Geometrias incompatíveis no ringue de boxe');
-  return merged;
-}
 
 function roundedBox(
   width: number,

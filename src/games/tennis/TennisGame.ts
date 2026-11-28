@@ -4,7 +4,7 @@ import type { ArmMotion } from '../../kinematics/armMotion';
 import type { SwingTracking } from '../../kinematics/actionPipeline';
 import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
-import type { GameHudState } from '../core/hud';
+import type { GameHudState, HudFeedback } from '../core/hud';
 import {
   elapsedSimulationSeconds,
   isBeforeOrAtPauseBoundary,
@@ -189,7 +189,7 @@ export class TennisGame {
   private pauseBoundaryWallTimeMs = Number.NEGATIVE_INFINITY;
   private opponentAi: OpponentAiState = createOpponentAi();
   private status = 'Faça uma raquetada para sacar';
-  private feedback: { id: number; text: string; tone: 'good' | 'bad' | 'neutral' } | undefined;
+  private feedback: HudFeedback | undefined;
   private feedbackCounter = 0;
   private lastHud = '';
   private faults = 0;
@@ -1100,9 +1100,9 @@ export class TennisGame {
 
   // ---------------------------------------------------------------- hud & lifecycle
 
-  private setFeedback(text: string, tone: 'good' | 'bad' | 'neutral'): void {
+  private setFeedback(text: string, kind: HudFeedback['kind']): void {
     this.feedbackCounter += 1;
-    this.feedback = { id: this.feedbackCounter, text, tone };
+    this.feedback = { id: this.feedbackCounter, text, kind };
   }
 
   private publishHud(): void {

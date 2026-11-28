@@ -1,6 +1,6 @@
 import { createPoseRecording, serializePoseRecording } from '@nevergear/spatial-core';
 import type { Delegate, PoseSnapshot } from '../protocol';
-import { MEDIAPIPE_WASM_VERSION, POSE_FULL_MODEL_SHA8, POSE_MODEL_SHA8 } from '../mediapipeAssets';
+import { MEDIAPIPE_WASM_VERSION, POSE_FULL_MODEL_SHA8, POSE_MODEL_SHA8 } from '../../lib/mediapipe';
 import { segmentAt, TRACK_RECORDING_SCRIPT } from './recordingScript';
 import type { Photo } from './photoTrail';
 

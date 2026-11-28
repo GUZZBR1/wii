@@ -1,16 +1,6 @@
 import * as THREE from 'three';
 import type { Hand } from '../../cv/protocol';
-
-/** Bakes a color into the vertices, so every bag part can share one vertex-colored material. Consumes `source`. */
-function paint(source: THREE.BufferGeometry, color: THREE.ColorRepresentation): THREE.BufferGeometry {
-  const geometry = source.index ? source.toNonIndexed() : source;
-  if (geometry !== source) source.dispose();
-  const { r, g, b } = new THREE.Color(color);
-  const colors = new Float32Array(geometry.attributes.position!.count * 3);
-  for (let i = 0; i < colors.length; i += 3) colors.set([r, g, b], i);
-  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3));
-  return geometry;
-}
+import { paint } from '../core/vertexPaint';
 
 export interface PunchingBag {
   /**

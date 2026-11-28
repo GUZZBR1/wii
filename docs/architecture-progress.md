@@ -47,7 +47,7 @@ flowchart LR
 | Three.js renderer, fixed-step clock and shared scenery | `src/games/core/GameLoop.ts`, `src/games/core/scenery.ts` | Game instances own their scene objects; shared game primitives live under `games/core` rather than a single sport. |
 | Rules and match state | `src/games/track/*`, `src/games/athletics/*`, `src/games/tennis/*`, `src/games/boxing/*` | Pure rules have direct deterministic tests; rendering is owned by each game class. Cross-game imports remain in the backlog for a dedicated ownership pass. |
 | Website and menu state | React modules under `src/app`, `src/components`, `src/pages`, `src/ui` | Local UI state stays in React. The language provider owns selected language. |
-| Browser persistence | `src/lib/quality.ts`, `src/App.tsx`, `src/i18n.tsx`, `src/components/SiteHeader.tsx`, legacy `TrackGame.ts` | Local storage holds quality preference, mute, language, theme and obstacle-course records. There is no server-side user store. |
+| Browser persistence | `src/lib/quality.ts`, `src/App.tsx`, `src/i18n.tsx`, legacy `TrackGame.ts` | Local storage holds quality preference, mute, language and obstacle-course records. There is no server-side user store. |
 
 ### Contracts, infrastructure, and production constraints
 

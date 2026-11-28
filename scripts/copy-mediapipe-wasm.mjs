@@ -54,10 +54,10 @@ for (const { prefix, constant } of models) {
   verifiedModels.push([constant, sha8]);
 }
 
-const assetsSource = await readFile(resolve(root, 'src/cv/mediapipeAssets.ts'), 'utf8');
+const assetsSource = await readFile(resolve(root, 'src/lib/mediapipe.ts'), 'utf8');
 for (const [name, value] of [['MEDIAPIPE_WASM_VERSION', packageJson.version], ...verifiedModels]) {
   if (!assetsSource.includes(`${name} = '${value}'`))
-    throw new Error(`src/cv/mediapipeAssets.ts is out of sync: expected ${name} = '${value}'`);
+    throw new Error(`src/lib/mediapipe.ts is out of sync: expected ${name} = '${value}'`);
 }
 console.log(
   `MediaPipe ${packageJson.version}: module WASM copied to wasm-${packageJson.version}/; ${models.map(({ prefix }) => prefix).join(' and ')} models verified.`,

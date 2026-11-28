@@ -9,7 +9,7 @@ import {
   type MiiFaceMount,
 } from '../../mii/miiHead';
 import { DEFAULT_MII_FACE_SPEC, SKIN_PALETTE, type MiiFaceSpec } from '../../mii/miiSpec';
-import { merge, paint } from './geometry';
+import { merge, paint } from '../core/vertexPaint';
 
 export interface MiiRunner {
   /** Faces local -Z. The owner sets position and heading; the runner handles limbs, bob and lean. */

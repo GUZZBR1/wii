@@ -158,3 +158,34 @@ it('runs the three Iron Man stages in order, shows the summary, and discards a c
     container.remove();
   }
 });
+
+it('reads and updates the migrated mute preference under the Nevergear key', async () => {
+  const { migrateRenamedStorage } = await import('../src/lib/migrateStorage');
+  localStorage.clear();
+  localStorage.setItem('wii-web-sports.muted.v1', '1');
+  migrateRenamedStorage(localStorage);
+  window.matchMedia = (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList;
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  try {
+    await act(async () => { root.render(<App />); });
+    const click = async (text: string) => {
+      const button = [...container.querySelectorAll('button')].find((candidate) => candidate.textContent === text);
+      expect(button, text).toBeDefined();
+      await act(async () => { button!.click(); });
+    };
+    await click('Tênis');
+    await click('Tênis');
+    await click('Jogar');
+    const button = container.querySelector<HTMLButtonElement>('button[title="Áudio desligado"]');
+    expect(button).not.toBeNull();
+    await act(async () => { button!.click(); });
+    expect(localStorage.getItem('nevergear-web-sports.muted.v1')).toBe('0');
+    expect(localStorage.getItem('wii-web-sports.muted.v1')).toBeNull();
+  } finally {
+    await act(async () => { root.unmount(); });
+    container.remove();
+    localStorage.clear();
+  }
+});
