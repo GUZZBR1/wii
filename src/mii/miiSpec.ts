@@ -218,21 +218,31 @@ export function deserializeMiiFaceSpec(encoded: string): MiiFaceSpec | undefined
   }
 }
 
+/** In-memory copy kept even when persistent storage fails, so the face survives within the session. */
+let sessionPlayerMii: MiiFaceSpec | undefined;
+
 export function loadPlayerMii(): MiiFaceSpec {
   try {
     const encoded = globalThis.localStorage?.getItem(PLAYER_MII_STORAGE_KEY);
     const stored = encoded ? deserializeMiiFaceSpec(encoded) : undefined;
-    return { ...(stored ?? DEFAULT_MII_FACE_SPEC) };
+    if (stored) return { ...stored };
   } catch {
-    return { ...DEFAULT_MII_FACE_SPEC };
+    // Storage can be unavailable or throw; the session copy below still applies.
   }
+  return { ...(sessionPlayerMii ?? DEFAULT_MII_FACE_SPEC) };
 }
 
-export function savePlayerMii(spec: MiiFaceSpec): void {
+/** Returns true only when the face was actually persisted; it always lives on in session memory either way. */
+export function savePlayerMii(spec: MiiFaceSpec): boolean {
+  const normalized = normalizeMiiFaceSpec(spec);
+  sessionPlayerMii = normalized;
   try {
-    globalThis.localStorage?.setItem(PLAYER_MII_STORAGE_KEY, serializeMiiFaceSpec(spec));
+    const storage = globalThis.localStorage;
+    if (!storage) return false;
+    storage.setItem(PLAYER_MII_STORAGE_KEY, serializeMiiFaceSpec(normalized));
+    return true;
   } catch {
-    // Storage can be unavailable or full; the editor still works for the current session.
+    return false;
   }
 }
 

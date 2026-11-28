@@ -120,6 +120,7 @@ function disposePreviewModel(model: PreviewModel): void {
 
 function MiiPreview({ spec }: { spec: MiiFaceSpec }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [webglError, setWebglError] = useState(false);
   const rigRef = useRef<
     | {
         root: THREE.Group;
@@ -131,36 +132,17 @@ function MiiPreview({ spec }: { spec: MiiFaceSpec }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-    const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(34, 1, 0.05, 10);
-    camera.position.set(0, 0.03, -1.55);
-    camera.lookAt(0, 0, 0);
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x91a7bb, 2.3));
-    const key = new THREE.DirectionalLight(0xffffff, 1.5);
-    key.position.set(-1.5, 2, -2.5);
-    scene.add(key);
-    const root = new THREE.Group();
-    root.rotation.y = 0.08;
-    scene.add(root);
-    const rig = { root, model: undefined as PreviewModel | undefined };
-    rigRef.current = rig;
 
-    const resize = () => {
-      const width = Math.max(1, canvas.clientWidth);
-      const height = Math.max(1, canvas.clientHeight);
-      renderer.setSize(width, height, false);
-      camera.aspect = width / height;
-      camera.updateProjectionMatrix();
-    };
-    const observer = new ResizeObserver(resize);
-    observer.observe(canvas);
-    resize();
-
+    let renderer: THREE.WebGLRenderer | undefined;
+    let observer: ResizeObserver | undefined;
+    let frame = 0;
     let dragging = false;
     let lastX = 0;
     let lastY = 0;
+    const scene = new THREE.Scene();
+    const root = new THREE.Group();
+    const rig = { root, model: undefined as PreviewModel | undefined };
+
     const down = (event: PointerEvent) => {
       dragging = true;
       lastX = event.clientX;
@@ -177,29 +159,67 @@ function MiiPreview({ spec }: { spec: MiiFaceSpec }) {
     const up = () => {
       dragging = false;
     };
-    canvas.addEventListener('pointerdown', down);
-    canvas.addEventListener('pointermove', move);
-    canvas.addEventListener('pointerup', up);
-    canvas.addEventListener('pointercancel', up);
 
-    let frame = 0;
-    const render = () => {
-      renderer.render(scene, camera);
-      frame = window.requestAnimationFrame(render);
-    };
-    render();
-    return () => {
+    const cleanup = () => {
       window.cancelAnimationFrame(frame);
-      observer.disconnect();
+      observer?.disconnect();
       canvas.removeEventListener('pointerdown', down);
       canvas.removeEventListener('pointermove', move);
       canvas.removeEventListener('pointerup', up);
       canvas.removeEventListener('pointercancel', up);
-      if (rig.model) disposePreviewModel(rig.model);
+      if (rig.model) {
+        const model = rig.model;
+        root.remove(model.group);
+        rig.model = undefined;
+        disposePreviewModel(model);
+      }
       disposeObjectTree(scene);
-      renderer.dispose();
+      renderer?.dispose();
       rigRef.current = undefined;
     };
+
+    try {
+      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      const camera = new THREE.PerspectiveCamera(34, 1, 0.05, 10);
+      camera.position.set(0, 0.03, -1.55);
+      camera.lookAt(0, 0, 0);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x91a7bb, 2.3));
+      const key = new THREE.DirectionalLight(0xffffff, 1.5);
+      key.position.set(-1.5, 2, -2.5);
+      scene.add(key);
+      root.rotation.y = 0.08;
+      scene.add(root);
+      rigRef.current = rig;
+
+      const resize = () => {
+        const width = Math.max(1, canvas.clientWidth);
+        const height = Math.max(1, canvas.clientHeight);
+        renderer?.setSize(width, height, false);
+        camera.aspect = width / height;
+        camera.updateProjectionMatrix();
+      };
+      observer = new ResizeObserver(resize);
+      observer.observe(canvas);
+      resize();
+
+      canvas.addEventListener('pointerdown', down);
+      canvas.addEventListener('pointermove', move);
+      canvas.addEventListener('pointerup', up);
+      canvas.addEventListener('pointercancel', up);
+
+      const render = () => {
+        renderer?.render(scene, camera);
+        frame = window.requestAnimationFrame(render);
+      };
+      render();
+    } catch {
+      cleanup();
+      setWebglError(true);
+      return;
+    }
+
+    return cleanup;
   }, []);
 
   useEffect(() => {
@@ -214,7 +234,17 @@ function MiiPreview({ spec }: { spec: MiiFaceSpec }) {
     rig.model = model;
   }, [spec]);
 
-  return <canvas ref={canvasRef} className="mii-preview" aria-label="Prévia 3D do Mii" />;
+  return (
+    <>
+      <canvas ref={canvasRef} className="mii-preview" aria-label="Prévia 3D do Mii" hidden={webglError} />
+      {webglError && (
+        <p role="alert" style={{ maxWidth: 320, padding: '0 16px', textAlign: 'center' }}>
+          Prévia 3D indisponível: o navegador não conseguiu iniciar o WebGL. Você ainda pode editar e salvar o Mii
+          normalmente.
+        </p>
+      )}
+    </>
+  );
 }
 
 function Swatches({
@@ -304,9 +334,9 @@ function Slider({
 export function MiiCreator({ onClose }: { onClose: () => void }) {
   const [spec, setSpec] = useState(loadPlayerMii);
   const [tab, setTab] = useState<Tab>('face');
-  const [saved, setSaved] = useState(false);
+  const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'session'>('idle');
   const update = (patch: Partial<MiiFaceSpec>) => {
-    setSaved(false);
+    setSaveStatus('idle');
     setSpec((current) => normalizeMiiFaceSpec({ ...current, ...patch }));
   };
 
@@ -469,7 +499,7 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
               type="button"
               className="wii-btn"
               onClick={() => {
-                setSaved(false);
+                setSaveStatus('idle');
                 setSpec(generateMiiFromSeed(`${Date.now()}-${Math.random()}`));
               }}
             >
@@ -479,8 +509,7 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
               type="button"
               className="wii-btn mii-save"
               onClick={() => {
-                savePlayerMii(spec);
-                setSaved(true);
+                setSaveStatus(savePlayerMii(spec) ? 'saved' : 'session');
               }}
             >
               Salvar
@@ -488,7 +517,12 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
             <button type="button" className="wii-btn" onClick={onClose}>
               Voltar
             </button>
-            {saved && <strong role="status">Salvo!</strong>}
+            {saveStatus === 'saved' && <strong role="status">Salvo!</strong>}
+            {saveStatus === 'session' && (
+              <strong role="status" style={{ color: '#8a5a00' }}>
+                Salvo apenas nesta sessão: o armazenamento persistente não está disponível.
+              </strong>
+            )}
           </div>
         </div>
       </div>
