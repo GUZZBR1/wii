@@ -54,6 +54,21 @@ describe('running intensity', () => {
     expect(level({ hz: 1.4, bounceSw: 0.12, hands: false })).toBeGreaterThan(0.3);
   });
 
+  it('keeps a flat run meaningful when lateral weight transfer is the main signal', () => {
+    const meter = new IntensityMeter();
+    let effort = 0;
+    // A compact running sway: 0.075 shoulder widths of amplitude at 2 Hz. Vertical torso and
+    // wrist channels are intentionally flat, as in a tired but still rhythmic run in place.
+    for (let t = 0; t <= 5000; t += 75) {
+      effort = meter.update(t, {
+        head: 0.3, shoulders: 0.5, width: WIDTH,
+        x: 0.075 * WIDTH * Math.sin((2 * Math.PI * 2 * t) / 1000),
+        leftWrist: 0.8, rightWrist: 0.8,
+      }, true);
+    }
+    expect(effort).toBeGreaterThan(0.2);
+  });
+
   it('keeps detecting a compact run with or without quiet hands in view', () => {
     const options = { hz: 1.4, bounceSw: 0.12 };
     expect(level(options)).toBeCloseTo(level({ ...options, hands: false }));

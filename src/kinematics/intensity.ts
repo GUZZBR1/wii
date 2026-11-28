@@ -13,10 +13,12 @@ const REFERENCE_SPEED = 3.5;
 const BOUNCE_GAIN = 3;
 /**
  * Marching or running flat shifts the body's weight sideways even when nothing moves vertically:
- * the torso's lateral speed is real exertion the vertical channels miss. It only counts when the
- * gate is already open, so arm waving — where the weight stays centered — never reaches it.
+ * the torso's lateral speed is real exertion the vertical channels miss. It is amplified because
+ * weight transfer is much smaller than arm travel: a compact running sway peaks under one shoulder
+ * width per second, where an unweighted reading barely clears the rest floor. It only counts when
+ * the gate is already open, so arm waving — where the weight stays centered — never reaches it.
  */
-const LATERAL_GAIN = 1;
+const LATERAL_GAIN = 3;
 /** Landmark jitter is fast and tiny: smoothing the positions removes most of its apparent speed. */
 const POSITION_SMOOTHING_MS = 80;
 const AVERAGE_MS = 1000;

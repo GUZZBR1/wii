@@ -63,6 +63,37 @@ describe('punch wiring in ActionPipeline', () => {
     expect(jab(new ActionPipeline(), calibration(), [14])).toEqual([]);
   });
 
+  it('keeps punching when the hips are cropped out of the webcam frame', () => {
+    const cropHips = (snapshot: PoseSnapshot): PoseSnapshot => ({
+      ...snapshot,
+      landmarks: snapshot.landmarks.map((point, index) => index === 23 || index === 24 ? { ...point, visibility: 0.1, presence: 0.1 } : point),
+      worldLandmarks: snapshot.worldLandmarks.map((point, index) => index === 23 || index === 24 ? { ...point, visibility: 0.1, presence: 0.1 } : point),
+    });
+    const pipeline = new ActionPipeline();
+    const events: SportActionEvent[] = [];
+    for (let time = 0; time <= 900; time += 33) {
+      const extension = Math.min(1, Math.max(0, (time - 300) / 150));
+      events.push(...pipeline.update(cropHips(rightArm(time, extension)), calibration()).events);
+    }
+    expect(events.filter((event) => event.type === 'punch-start' || event.type === 'punch').map((event) => event.type)).toEqual(['punch-start', 'punch']);
+  });
+
+  it('discards a punch whose measurement overlaps a fast shoulder drop', () => {
+    const pipeline = new ActionPipeline();
+    const events: SportActionEvent[] = [];
+    for (let time = 0; time <= 900; time += 33) {
+      const extension = Math.min(1, Math.max(0, (time - 300) / 150));
+      const snapshot = rightArm(time, extension);
+      // Start the duck after the onset race: the onset is already legitimate, but the
+      // shoulder reference drops while the punch is being confirmed.
+      const drop = 0.06 * Math.min(1, Math.max(0, (time - 400) / 150));
+      const landmarks = snapshot.landmarks.map((point, index) => [0, 11, 12, 23, 24].includes(index) ? { ...point, y: point.y + drop } : point);
+      events.push(...pipeline.update({ ...snapshot, landmarks }, calibration()).events);
+    }
+    expect(events.some((event) => event.type === 'punch-start')).toBe(true);
+    expect(events.some((event) => event.type === 'punch')).toBe(false);
+  });
+
   it('forgets the previous session on reset', () => {
     const pipeline = new ActionPipeline();
     jab(pipeline);
