@@ -599,11 +599,28 @@ describe('BoxingGame camera rig', () => {
     // aligned geometry: the lean is exactly the offset along +x, the opponent itself never moves
     expect(state.opponentBoxer.root.position.x).toBeCloseTo(state.telegraphOffset, 8);
     expect(state.opponentBoxer.root.position.z).toBeCloseTo(-0.85, 5);
-    run(0.5); // the blow lands at 4.3 s, the challenge is lost and the lean relaxes
+    run(0.5); // the blow lands at 4.3 s and the resolved attack relaxes
     expect(state.telegraphOffset).toBeLessThan(-0.005);
     expect(state.telegraphOffset).toBeGreaterThan(-0.1);
     run(1);
     expect(state.telegraphOffset).toBeCloseTo(0, 3);
+  });
+
+  it('freezes the telegraph lean with the training clock while paused', () => {
+    const { game, run } = start({ mode: 'dodge' });
+    const state = rig(game);
+    run(2.7);
+    game.setTracking('SEM POSE');
+    run(1); // one second of lost tracking pauses inside the third attack's telegraph
+    const pausedOffset = state.telegraphOffset;
+    expect(pausedOffset).toBeLessThan(-0.01);
+
+    run(0.5);
+    expect(state.telegraphOffset).toBe(pausedOffset);
+
+    game.setTracking('TRACKING');
+    run(0.2);
+    expect(state.telegraphOffset).not.toBe(pausedOffset);
   });
 
   it('eases the punch reach in and out with a single smooth peak', () => {

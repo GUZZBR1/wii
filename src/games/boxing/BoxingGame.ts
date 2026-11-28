@@ -652,17 +652,18 @@ export class BoxingGame {
     this.gate.advance(dt);
     this.syncPhase();
     if (this.gate.phase === 'running') this.step(dt * 1000);
+    let animationDt = 0;
     if (this.gate.phase !== 'paused') {
-      const animDt = this.animationStep(dt);
-      this.animTimeS += animDt;
-      for (const hand of HANDS) this.punchAnimS[hand] = Math.min(PUNCH_ANIM_S, this.punchAnimS[hand] + animDt);
-      this.stepGloveGuard(animDt);
-      this.opponentHitS = Math.max(0, this.opponentHitS - animDt);
-      this.hitShakeS = Math.max(0, this.hitShakeS - animDt);
-      this.bag?.update(animDt);
-      this.sparks.update(animDt);
+      animationDt = this.animationStep(dt);
+      this.animTimeS += animationDt;
+      for (const hand of HANDS) this.punchAnimS[hand] = Math.min(PUNCH_ANIM_S, this.punchAnimS[hand] + animationDt);
+      this.stepGloveGuard(animationDt);
+      this.opponentHitS = Math.max(0, this.opponentHitS - animationDt);
+      this.hitShakeS = Math.max(0, this.hitShakeS - animationDt);
+      this.bag?.update(animationDt);
+      this.sparks.update(animationDt);
     }
-    this.poseScene(dt);
+    this.poseScene(dt, animationDt);
   }
 
   /** Exact critically damped spring step: no overshoot from rest, stable for any `dt`. */
@@ -1103,20 +1104,22 @@ export class BoxingGame {
 
   // ---------------------------------------------------------------- scene
 
-  private poseScene(dt: number): void {
-    this.placeFighters(dt);
+  private poseScene(dt: number, opponentDt: number): void {
+    this.placeFighters(dt, false, opponentDt);
     this.poseGloves();
   }
 
   /**
    * Poses the visual rig for one fixed step of `dtS` seconds. Every damped channel has its own
    * exponential rate, so the motion is independent of the frame rate; `snap` instead jumps every
-   * channel to its target, which only the constructor's initial placement may do. All of this is
-   * visual-only state: rules, AI and adjudication read `playerPos`/`opponentPos` and never these.
+   * channel to its target, which only the constructor's initial placement may do. The camera may
+   * keep settling while paused, but `opponentDtS` is zero then so attack presentation freezes with
+   * the training clock. All of this is visual-only state: rules, AI and adjudication read
+   * `playerPos`/`opponentPos` and never these.
    */
-  private placeFighters(dtS: number, snap = false): void {
+  private placeFighters(dtS: number, snap = false, opponentDtS = dtS): void {
     const { playerPos, opponentPos } = this;
-    const blend = (rate: number) => (snap ? 1 : 1 - Math.exp(-rate * dtS));
+    const blend = (rate: number, stepS = dtS) => (snap ? 1 : 1 - Math.exp(-rate * stepS));
     // The dodge is a sideways offset from the stance, with the eyes staying on the opponent.
     this.dodgeOffset += (this.zone * ZONE_WIDTH - this.dodgeOffset) * blend(DODGE_RATE);
     this.eye = {
@@ -1135,7 +1138,7 @@ export class BoxingGame {
     if (this.mode === 'dodge' && dodge?.currentAttack && (dodge.phase === 'telegraph' || dodge.phase === 'active')) {
       telegraphTarget = dodge.currentAttack.attackLane * 0.14;
     }
-    this.telegraphOffset += (telegraphTarget - this.telegraphOffset) * blend(TELEGRAPH_RATE);
+    this.telegraphOffset += (telegraphTarget - this.telegraphOffset) * blend(TELEGRAPH_RATE, opponentDtS);
 
     // The camera hangs back from the eye along the opponent-to-eye line, so the player's own
     // gloves and the opponent share the frame; the dodge offset stays perpendicular to that axis.
