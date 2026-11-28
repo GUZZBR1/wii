@@ -51,9 +51,12 @@ export const PUNCH_THRESHOLDS = {
    * (the arm foreshortens along the optical axis and depth noise collapses the angle), so real
    * full extensions peak at 0.2-0.4 in the raw signal of the 11 fps reference recording. The
    * threshold sweep against the floors — user recording, UTD positives, UTD negatives — showed
-   * identical false-positive counts at 0.65, 0.2 and none at all, with recall doubling at 0.2:
-   * the speed onset, the travel bar and the retraction close are what guard precision. */
-  confirmElbowCosine: 0.2,
+   * identical false-positive counts at 0.65, 0.2 and none at all, with recall doubling at 0.2;
+   * the 13 fps webcam recording then showed real jabs peaking below even that. 0.15 is around
+   * a right-angle arm: still some extension evidence, but no demand for a geometrically straight
+   * arm that frontal monocular depth cannot measure. The speed onset, the travel bar, the
+   * guard-distance veto and the retraction close are what guard precision. */
+  confirmElbowCosine: 0.15,
   confirmForwardTravel: 0.25,
   maxDurationMs: 350,
   /** The punch ends once speed falls to this share of its peak, or the wrist comes back this fast. */

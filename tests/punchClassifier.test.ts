@@ -53,6 +53,15 @@ describe('classifyPunch', () => {
     expect(result).toMatchObject({ punchKind: 'straight', targetZone: 'head' });
   });
 
+  it('classifies a forward course as straight even when monocular depth collapses the elbow angle', () => {
+    const result = classifyPunch(measurement([
+      [0, 0, 0.1, 0.2, 0.0],
+      [80, 0.01, 0.08, 0.45, 0.08],
+      [150, 0, 0.05, 0.7, 0.16],
+    ]));
+    expect(result).toMatchObject({ punchKind: 'straight', targetZone: 'head' });
+  });
+
   it('classifies a straight body punch', () => {
     const result = classifyPunch(measurement([
       [0, 0, -0.2, 0.15, 0.2],

@@ -129,6 +129,15 @@ describe('PunchDetector', () => {
     expect(kinds(run(adapted, keys))).toEqual(['onset', 'confirmed']);
   });
 
+  it('confirms a forward punch whose frontal monocular elbow measures only a right angle', () => {
+    // Punching straight into the camera is the worst case of monocular reconstruction: even a
+    // real extension can measure as a right-angle arm because the forearm collapses onto the
+    // optical axis. The onset opening rate, forward travel and guard-distance veto carry precision.
+    const measured: Arm = { elbow: { x: 0, y: 0.25, z: -0.05 }, wrist: { x: 0, y: 0.25, z: -0.55 } };
+    const outputs = run(new PunchDetector('right'), [[0, GUARD], [300, GUARD], [450, measured], [900, measured]]);
+    expect(kinds(outputs)).toEqual(['onset', 'confirmed']);
+  });
+
   it('does not confirm depth-only motion with the elbow staying bent', () => {
     const forward = (point: Point3) => ({ ...point, z: point.z - 0.4 });
     // A large depth swing of elbow and wrist: plenty of forward travel, never a straight arm.

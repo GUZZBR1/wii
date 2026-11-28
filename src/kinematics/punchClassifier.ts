@@ -85,7 +85,7 @@ export function classifyPunch(measurement: PunchMeasurement): PunchClassificatio
 
   const uppercutScore = Math.min(shape.verticalRise / 0.18, verticalShare / 0.28, shape.forwardTravel / 0.12);
   const hookScore = Math.min(shape.lateralExcursion / 0.18, lateralShare / 0.24, (1 - forwardShare) / 0.35);
-  const straightScore = Math.min(shape.forwardTravel / 0.22, forwardShare / 0.55, measurement.maxElbowCosine / 0.62);
+  const straightScore = Math.min(shape.forwardTravel / 0.22, forwardShare / 0.55);
 
   let punchKind: PunchKind = 'unknown';
   let score = 0;
