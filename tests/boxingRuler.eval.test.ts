@@ -73,6 +73,7 @@ const CASES = [
   // From a quarter of the way in, the player stands somewhere else.
   ['stepped aside', (s: PoseSnapshot, t: number, w: number) => (t > 20_000 ? shift(s, 0.6 * w) : s), 1],
   ['farther away', (s: PoseSnapshot, t: number) => (t > 20_000 ? { ...s, landmarks: s.landmarks.map((p) => ({ ...p, x: 0.5 + (p.x - 0.5) * 0.75, y: 0.5 + (p.y - 0.5) * 0.75 })) } : s), 1],
+  ['hips cropped', (s: PoseSnapshot) => ({ ...s, landmarks: s.landmarks.map((p, i) => (i === 23 || i === 24 ? { ...p, visibility: 0.1, presence: 0.1 } : p)), worldLandmarks: s.worldLandmarks.map((p, i) => (i === 23 || i === 24 ? { ...p, visibility: 0.1, presence: 0.1 } : p)) }), 1],
   ['half the frames', (s: PoseSnapshot) => s, 2],
 ] as const;
 
