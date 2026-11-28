@@ -17,6 +17,9 @@ import type { GestureSample } from './games/core/restartGesture';
 import { ProceduralAudio } from './games/audio';
 import { CameraPip } from './ui/CameraPip';
 import { GameCanvas, type GameEngineHandle, type IronManResult, type Sport } from './ui/GameCanvas';
+import { DEFAULT_BOXING_SETUP } from './games/boxing/boxingSetup';
+import { GameLobby, IronManLobby } from './ui/GameLobby';
+import { useScreenFade } from './ui/useScreenFade';
 import type { Goal } from './games/athletics/race';
 import { HandCursor } from './ui/HandCursor';
 import { HandDebugOverlay } from './ui/HandDebugOverlay';
@@ -30,7 +33,7 @@ import { MiiCreator } from './ui/MiiCreator';
 import { WiiSplash } from './ui/WiiSplash';
 import './arena.css';
 
-type Screen = 'home' | 'play' | 'summary' | 'mii';
+type Screen = 'home' | 'lobby' | 'ironman' | 'play' | 'summary' | 'mii';
 type VisionMode = 'hand' | 'pose';
 
 const ACTIVITY_LABEL: Record<ActivityKind, string> = {
@@ -63,6 +66,7 @@ function writeMutedPreference(muted: boolean): void {
 export default function App({ exit }: { exit?: ReactNode }) {
   const [splash, setSplash] = useState(true);
   const [screen, setScreen] = useState<Screen>('home');
+  const [boxingSetup, setBoxingSetup] = useState(DEFAULT_BOXING_SETUP);
   const [sport, setSport] = useState<Sport>('athletics');
   const [ironResults, setIronResults] = useState<IronManResult[] | null>(null);
   const [goal, setGoal] = useState<Goal>(100);
@@ -505,7 +509,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const onStrokeTravel = useCallback((travel: number) => { pipelineRef.current.setStrokeTravel(travel); }, []);
   const onPunchTravel = useCallback((travel: number) => { pipelineRef.current.setPunchTravel(travel); }, []);
 
-  const play = (next: Sport, distance: Goal = 100) => {
+  const play = (next: Sport, distance: Goal = 100, show = true) => {
     setGoal(distance);
     void audioRef.current.unlock();
     // The warm-up tutorials set their own stroke length; every game starts from the default.
@@ -514,16 +518,27 @@ export default function App({ exit }: { exit?: ReactNode }) {
     pipelineRef.current.resetSwings();
     setSport(next);
     sportRef.current = next;
-    setScreen('play');
+    if (show) setScreen('play');
   };
 
-  const exitGame = () => {
+  // The Iron Man run is only dropped once the menu is on screen, so the match behind the fade stays as it is.
+  const showScreen = useCallback((next: Screen) => {
+    if (next === 'home') setIronResults(null);
+    setScreen(next);
+  }, []);
+  const { go, veil } = useScreenFade(showScreen);
+  const exitGame = () => go('home');
+  const openGame = (next: Sport) => {
     setIronResults(null);
-    setScreen('home');
+    setSport(next);
+    sportRef.current = next;
+    void audioRef.current.unlock();
+    go('lobby');
   };
   const startIronMan = () => {
     setIronResults([]);
-    play('athletics', 100);
+    play('athletics', 100, false);
+    go('play');
   };
   const finishIronStage = (result: IronManResult) => {
     if (!ironResults) return;
@@ -534,22 +549,20 @@ export default function App({ exit }: { exit?: ReactNode }) {
     else setScreen('summary');
   };
 
-  const menuBackRef = useRef<(() => void) | undefined>(undefined);
   const handBack = useCallback(() => {
-    if (screenRef.current === 'home') menuBackRef.current?.();
+    if (screenRef.current === 'lobby' || screenRef.current === 'ironman') go('home');
     else if (screenRef.current === 'mii') setScreen('home');
-  }, []);
+  }, [go]);
 
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} crossedPose={crossedPoseRef} onExit={exitGame} ironMan={ironResults ? { onComplete: finishIronStage } : undefined} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} />}
+    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} boxingSetup={boxingSetup} onBoxingSetup={setBoxingSetup} crossedPose={crossedPoseRef} onExit={exitGame} ironMan={ironResults ? { onComplete: finishIronStage } : undefined} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} />}
     {screen === 'home' && (
       <HomeMenu
         exit={exit}
-        onPick={(next, distance) => { setIronResults(null); play(next, distance); }}
-        onIronMan={startIronMan}
-        backRef={menuBackRef}
+        onPick={openGame}
+        onIronMan={() => { void audioRef.current.unlock(); go('ironman'); }}
         handInputRef={handInputRef}
         rotationGateRef={homeRotationGateRef}
         carouselDebugRef={carouselDebugRef}
@@ -558,6 +571,10 @@ export default function App({ exit }: { exit?: ReactNode }) {
     )}
 
     {screen === 'mii' && <MiiCreator onClose={() => setScreen('home')} />}
+    {screen === 'lobby' && <GameLobby sport={sport} goal={goal} onGoal={setGoal} boxingSetup={boxingSetup} onBoxingSetup={setBoxingSetup} onPlay={() => { play(sport, goal, false); go('play'); }} onBack={() => go('home')} />}
+
+    {screen === 'ironman' && <IronManLobby onPlay={startIronMan} onBack={() => go('home')} />}
+
     {screen === 'summary' && ironResults && <section className="menu iron-summary" aria-label="Resumo do Iron Man">
       <div className="iron-summary-card">
         <span className="iron-eyebrow">Wii Sports</span>
@@ -588,6 +605,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       onStart={() => void startCamera()} onStop={stopCamera}
     />
     {showPerf && <PerfMeter videoRef={videoRef} poseFrames={poseFramesRef} poseDelay={poseDelayRef} />}
+    {veil}
     {splash && <WiiSplash onDone={endSplash} />}
   </div>;
 }

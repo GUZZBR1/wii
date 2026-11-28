@@ -194,6 +194,8 @@ describe('App vision mode lifecycle', () => {
   }
 
   async function mountApp(): Promise<void> {
+    // Reduced motion: screens swap without waiting for the fade's animationend.
+    window.matchMedia = (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList;
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
@@ -213,6 +215,10 @@ describe('App vision mode lifecycle', () => {
   async function enterPoseMode(): Promise<void> {
     await act(async () => {
       container!.querySelector<HTMLButtonElement>('[data-testid="start-athletics"]')!.click();
+      await flushMicrotasks();
+    });
+    await act(async () => {
+      container!.querySelector<HTMLButtonElement>('.lobby-play')!.click();
       await flushMicrotasks();
     });
   }

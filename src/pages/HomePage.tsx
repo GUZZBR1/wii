@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { historicDrawings } from '../data/historic-drawings';
+import GamesShowcase from '../components/GamesShowcase';
 import MiiCreator from '../components/MiiCreator';
 import { useLang } from '../i18n';
 
@@ -76,6 +77,7 @@ export default function HomePage() {
           </a>
         ))}
       </section>
+      <GamesShowcase />
       <MiiCreator />
     </main>
   );
