@@ -56,7 +56,7 @@ const POSE_KEYS = [
 type PoseKey = (typeof POSE_KEYS)[number];
 type BoxerPose = Record<PoseKey, number>;
 
-export type MiiBoxerState = 'idle' | 'guard' | 'windup' | 'punch' | 'recover' | 'hit' | 'dizzy' | 'knockdown' | 'getup';
+export type MiiBoxerState = 'idle' | 'ready' | 'guard' | 'windup' | 'punch' | 'recover' | 'hit' | 'dizzy' | 'knockdown' | 'getup';
 type MiiBoxerHand = 'left' | 'right';
 
 export interface MiiBoxerOptions {
@@ -67,6 +67,8 @@ export interface MiiBoxerOptions {
   gloveColor?: THREE.ColorRepresentation;
   shoeColor?: THREE.ColorRepresentation;
   face?: MiiFaceSpec;
+  /** How much faster than the default this boxer throws a punch; the crest comes that much sooner. */
+  punchSpeed?: number;
 }
 
 export interface MiiBoxerFootwork {
@@ -103,26 +105,6 @@ export interface MiiBoxer {
    * @throws TypeError when `timeSeconds` is not finite.
    */
   animate(timeSeconds: number, footwork?: MiiBoxerFootwork): void;
-}
-
-export interface FirstPersonGlovesInput {
-  /** Guard height, clamped to 0..1. Defaults to a light boxing guard. */
-  guard?: number;
-  /** Left punch extension, clamped to 0..1. Zero is cocked, one is fully extended. */
-  leftPunch?: number;
-  /** Right punch extension, clamped to 0..1. Zero is cocked, one is fully extended. */
-  rightPunch?: number;
-}
-
-export interface FirstPersonGloves {
-  /** Viewer-space gloves: x is right, y is up and punches travel toward -Z. Add `root` wherever useful. */
-  root: THREE.Group;
-  /**
-   * Applies deterministic idle motion plus the caller-supplied guard/punch amounts. The input is
-   * sampled as a pose, not accumulated, so the same time and input always produce the same result.
-   * @throws TypeError when `timeSeconds` is not finite.
-   */
-  animate(timeSeconds: number, input?: FirstPersonGlovesInput): void;
 }
 
 const IDLE_POSE: BoxerPose = {
@@ -345,6 +327,7 @@ const GETUP_LOW_POSE: BoxerPose = {
  */
 const STATE_OMEGA: Record<MiiBoxerState, number> = {
   idle: 16,
+  ready: 24,
   guard: 24,
   windup: 28,
   punch: 48,
@@ -490,6 +473,12 @@ function poseForState(
       rightElbowX: Math.sin(stateTime * 2.1 - 0.4) * 0.025,
     });
   }
+  // Between exchanges: fists up but below the chin, so raising the guard still reads.
+  if (state === 'ready') {
+    const pose = mixPose(IDLE_POSE, GUARD_POSE, 0.6);
+    pose.bodyY += Math.sin(stateTime * 4.2) * 0.012;
+    return pose;
+  }
   if (state === 'guard') {
     const bounce = Math.sin(stateTime * 4.2);
     return addPoseOffsets(copyPose(GUARD_POSE), {
@@ -602,6 +591,7 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
     gloveColor = 0xd73731,
     shoeColor = 0xffffff,
     face = DEFAULT_MII_FACE_SPEC,
+    punchSpeed = 1,
   } = options;
   const skinColor = skinColorOption ?? SKIN_PALETTE[face.skin];
   const root = new THREE.Group();
@@ -733,84 +723,12 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
       // The clock starts at zero for a new boxer, so the first step covers everything since then.
       const dtS = positiveFiniteDt(currentTime, timeSeconds);
       currentTime = timeSeconds;
-      const target = poseForState(state, Math.max(0, timeSeconds - stateStartedAt), stateHand, stateEntryPose);
-      stepPoseSpring(currentPose, poseVelocity, target, dtS, STATE_OMEGA[state]);
+      // A faster punch is the same curve and spring on a compressed clock.
+      const rate = state === 'punch' ? punchSpeed : 1;
+      const target = poseForState(state, Math.max(0, timeSeconds - stateStartedAt) * rate, stateHand, stateEntryPose);
+      stepPoseSpring(currentPose, poseVelocity, target, dtS * rate, STATE_OMEGA[state]);
       stride = stepStride(stride, dtS, footwork);
       applyPose(withFootwork(currentPose, stride));
-    },
-  };
-}
-
-/**
- * Creates translucent viewer-space boxing gloves. Each glove is one merged mesh, so the pair costs
- * two draw calls and can be disposed with `disposeObjectTree` like any other normal hierarchy.
- */
-export function createFirstPersonGloves(): FirstPersonGloves {
-  const root = new THREE.Group();
-  root.name = 'first-person-gloves';
-  const material = new THREE.MeshStandardMaterial({
-    vertexColors: true,
-    transparent: true,
-    opacity: 0.56,
-    roughness: 0.32,
-    metalness: 0,
-    depthWrite: false,
-  });
-
-  const makeGlove = (side: -1 | 1) => {
-    const group = new THREE.Group();
-    group.name = side < 0 ? 'first-person-left-glove' : 'first-person-right-glove';
-    const parts = [
-      paint(new THREE.SphereGeometry(0.18, 18, 14).scale(1.08, 0.96, 1.28), 0xd73731),
-      paint(
-        new THREE.SphereGeometry(0.095, 12, 9).scale(0.82, 0.78, 1.08).translate(-side * 0.115, -0.015, 0.015),
-        0xb92724,
-      ),
-      paint(
-        new THREE.CylinderGeometry(0.125, 0.145, 0.17, 16).rotateX(Math.PI / 2).translate(0, -0.01, 0.19),
-        0xf4f0df,
-      ),
-    ];
-    const mesh = new THREE.Mesh(merge(parts), material);
-    mesh.name = `${group.name}-parts`;
-    group.add(mesh);
-    // Small enough that both fists frame the opponent instead of hiding them.
-    group.scale.setScalar(0.6);
-    root.add(group);
-    return group;
-  };
-
-  const left = makeGlove(-1);
-  const right = makeGlove(1);
-  const input01 = (value: number | undefined, fallback: number) => {
-    if (value === undefined) return fallback;
-    return Number.isFinite(value) ? clamp01(value) : fallback;
-  };
-
-  return {
-    root,
-    animate(timeSeconds, input = {}) {
-      requireFiniteTime(timeSeconds);
-      const guard = input01(input.guard, 0.65);
-      const sway = Math.sin(timeSeconds * 1.35) * 0.012;
-      for (const [side, glove] of [
-        [-1, left],
-        [1, right],
-      ] as const) {
-        const punch = input01(side < 0 ? input.leftPunch : input.rightPunch, 0);
-        const phase = side < 0 ? 0 : 1.35;
-        const bob = Math.sin(timeSeconds * 2.2 + phase) * 0.014;
-        glove.position.set(
-          side * (0.5 - 0.1 * guard - 0.2 * punch) + sway,
-          -0.43 + 0.17 * guard + 0.17 * punch + bob,
-          -0.86 + 0.08 * guard - 0.43 * punch,
-        );
-        glove.rotation.set(
-          -0.1 - 0.16 * guard - 0.22 * punch + bob * 1.6,
-          side * (0.18 - 0.08 * guard - 0.08 * punch),
-          side * (0.08 + 0.1 * guard) + sway * 1.5,
-        );
-      }
     },
   };
 }
