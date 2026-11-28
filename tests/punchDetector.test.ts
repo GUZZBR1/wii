@@ -135,6 +135,17 @@ describe('PunchDetector', () => {
     });
   }
 
+  it('counts confirmation failure causes without clearing them on reset', () => {
+    const detector = new PunchDetector('right');
+    const half = mix(GUARD, STRAIGHT, 0.45);
+    run(detector, [[0, GUARD], [300, GUARD], [400, half], [500, GUARD], [900, GUARD]]);
+    expect(detector.diagnostics).toMatchObject({ onsets: 1, confirmed: 0, missingExtension: 1, missingTravel: 0 });
+    detector.reset();
+    expect(detector.diagnostics.onsets).toBe(1);
+    detector.resetDiagnostics();
+    expect(detector.diagnostics.onsets).toBe(0);
+  });
+
   it('does not confirm a feint that retracts before extending', () => {
     const half = mix(GUARD, STRAIGHT, 0.45);
     const outputs = run(new PunchDetector('right'), [[0, GUARD], [300, GUARD], [400, half], [500, GUARD], [900, GUARD]]);

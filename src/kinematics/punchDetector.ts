@@ -1,4 +1,4 @@
-import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from '@wii/spatial-core';
+import type { CalibrationProfile, Hand, Point3, PoseSnapshot, PunchMeasurement, PunchTrajectorySample } from '@wii/spatial-core';
 import { OneEuroFilter } from '@wii/spatial-core';
 import { BODY_JOINTS } from './bodyFeatures';
 import { bodyLocalPoint } from './bodyFrame';
@@ -10,6 +10,17 @@ export interface PunchSignal {
   peakTimestampMs: number;
   /** Frame where the onset conditions were met. */
   onsetTimestampMs: number;
+  measurement: PunchMeasurement;
+}
+
+export interface PunchDiagnostics {
+  readonly onsets: number;
+  readonly confirmed: number;
+  readonly timedOut: number;
+  readonly missingExtension: number;
+  readonly missingTravel: number;
+  readonly sampleGaps: number;
+  readonly invalidSamples: number;
 }
 
 /**
@@ -57,9 +68,39 @@ interface PendingPunch {
   startedAt: number;
   /** Forward position on the sample before onset: where the motion started. */
   originForward: number;
-  peak: { speed: number; confidence: number; timestampMs: number };
+  peak: { speed: number; confidence: number; timestampMs: number; sample: PunchTrajectorySample };
   /** Extension and travel were both met on one sample inside the window. */
   reached: boolean;
+  sawExtension: boolean;
+  sawTravel: boolean;
+  samples: PunchTrajectorySample[];
+}
+
+function distance(a: PunchTrajectorySample, b: PunchTrajectorySample): number {
+  return Math.hypot(b.lateral - a.lateral, b.vertical - a.vertical, b.forward - a.forward);
+}
+
+function measurePunch(pending: PendingPunch): PunchMeasurement {
+  const samples = [...pending.samples];
+  const origin = samples[0]!;
+  const end = samples.at(-1)!;
+  const contact = samples.reduce((best, sample) => (sample.forward > best.forward ? sample : best), origin);
+  let pathLength = 0;
+  for (let index = 1; index < samples.length; index += 1) pathLength += distance(samples[index - 1]!, samples[index]!);
+  return {
+    samples,
+    origin,
+    speedPeak: pending.peak.sample,
+    contact,
+    end,
+    durationMs: end.timestampMs - origin.timestampMs,
+    forwardTravel: contact.forward - origin.forward,
+    lateralExcursion: Math.max(...samples.map((sample) => sample.lateral)) - Math.min(...samples.map((sample) => sample.lateral)),
+    verticalRise: Math.max(...samples.map((sample) => sample.vertical)) - origin.vertical,
+    pathLength,
+    netDisplacement: distance(origin, contact),
+    maxElbowCosine: Math.max(...samples.map((sample) => sample.elbowCosine)),
+  };
 }
 
 function elbowCosine(shoulder: Point3, elbow: Point3, wrist: Point3): number | undefined {
@@ -110,10 +151,17 @@ export class PunchDetector {
 
   private readonly forwardFilter = new OneEuroFilter(FILTER_OPTIONS);
   private readonly elbowFilter = new OneEuroFilter(FILTER_OPTIONS);
-  private previous?: { forward: number; cosine: number; time: number };
+  private previous?: { forward: number; cosine: number; time: number; sample?: PunchTrajectorySample };
   private mode: 'ready' | 'punch' | 'return' = 'ready';
   private pending?: PendingPunch;
   private lastPunchAt = Number.NEGATIVE_INFINITY;
+  private onsets = 0;
+  private confirmed = 0;
+  private timedOut = 0;
+  private missingExtension = 0;
+  private missingTravel = 0;
+  private sampleGaps = 0;
+  private invalidSamples = 0;
   private retractedSince?: number;
   private restSince?: number;
 
@@ -128,36 +176,53 @@ export class PunchDetector {
     const leftHip = world[23];
     const rightHip = world[24];
     if (!isFinitePoint(shoulder) || !isFinitePoint(elbow) || !isFinitePoint(wrist) || !isFinitePoint(leftShoulder)
-      || !isFinitePoint(rightShoulder) || !isFinitePoint(leftHip) || !isFinitePoint(rightHip)) { this.reset(); return undefined; }
+      || !isFinitePoint(rightShoulder) || !isFinitePoint(leftHip) || !isFinitePoint(rightHip)) { this.invalidSamples += 1; this.reset(); return undefined; }
     const localWrist = bodyLocalPoint(wrist, shoulder, leftShoulder, rightShoulder, leftHip, rightHip, calibration.world.shoulderWidth);
     const rawCosine = elbowCosine(shoulder, elbow, wrist);
-    if (!localWrist || rawCosine === undefined) { this.reset(); return undefined; }
+    if (!localWrist || rawCosine === undefined) { this.invalidSamples += 1; this.reset(); return undefined; }
 
     const time = snapshot.timestampMs;
     // Velocity across a long gap is meaningless: restart the chain and demand a fresh re-arm.
-    if (this.previous && time - this.previous.time > PUNCH_THRESHOLDS.maxSampleGapMs) this.reset();
+    if (this.previous && time - this.previous.time > PUNCH_THRESHOLDS.maxSampleGapMs) {
+      this.sampleGaps += 1;
+      this.reset();
+    }
+    const confidence = landmarkConfidence(leftShoulder, rightShoulder, leftHip, rightHip, elbow, wrist);
     const current = {
       // Body depth points away from the camera when facing it, so forward is decreasing local z.
       forward: this.forwardFilter.filter(-localWrist.z, time),
       cosine: this.elbowFilter.filter(rawCosine, time),
       time,
+      sample: undefined as PunchTrajectorySample | undefined,
     };
+    current.sample = {
+      timestampMs: time,
+      lateral: localWrist.x,
+      vertical: localWrist.y,
+      forward: current.forward,
+      elbowCosine: current.cosine,
+      confidence,
+    };
+    const sample = current.sample;
     const previous = this.previous;
     this.previous = current;
-    if (!previous) return undefined;
+    if (!previous?.sample) return undefined;
 
     const dt = Math.max((time - previous.time) / 1000, 1 / 120);
     const speed = (current.forward - previous.forward) / dt;
-    const confidence = landmarkConfidence(leftShoulder, rightShoulder, leftHip, rightHip, elbow, wrist);
 
     if (this.mode === 'ready') {
       const extending = (current.cosine - previous.cosine) / dt >= PUNCH_THRESHOLDS.onsetElbowCosineRatePerSec;
       if (!extending || speed < PUNCH_THRESHOLDS.onsetForwardSpeed || time - this.lastPunchAt < PUNCH_THRESHOLDS.refractoryMs) return undefined;
+      this.onsets += 1;
       this.pending = {
         startedAt: time,
         originForward: previous.forward,
-        peak: { speed, confidence, timestampMs: time },
+        peak: { speed, confidence, timestampMs: time, sample },
         reached: false,
+        sawExtension: current.cosine >= PUNCH_THRESHOLDS.confirmElbowCosine,
+        sawTravel: current.forward - previous.forward >= PUNCH_THRESHOLDS.confirmForwardTravel,
+        samples: [previous.sample, sample],
       };
       this.mode = 'punch';
       this.lastPunchAt = time;
@@ -166,25 +231,35 @@ export class PunchDetector {
 
     if (this.mode === 'punch' && this.pending) {
       const pending = this.pending;
+      pending.samples.push(sample);
       const ageMs = time - pending.startedAt;
-      if (speed > pending.peak.speed) pending.peak = { speed, confidence, timestampMs: time };
-      if (ageMs <= PUNCH_THRESHOLDS.maxDurationMs && current.cosine >= PUNCH_THRESHOLDS.confirmElbowCosine
-        && current.forward - pending.originForward >= PUNCH_THRESHOLDS.confirmForwardTravel) pending.reached = true;
+      if (speed > pending.peak.speed) pending.peak = { speed, confidence, timestampMs: time, sample };
+      const extended = current.cosine >= PUNCH_THRESHOLDS.confirmElbowCosine;
+      const travelled = current.forward - pending.originForward >= PUNCH_THRESHOLDS.confirmForwardTravel;
+      pending.sawExtension ||= extended;
+      pending.sawTravel ||= travelled;
+      if (ageMs <= PUNCH_THRESHOLDS.maxDurationMs && extended && travelled) pending.reached = true;
       const retracting = speed <= PUNCH_THRESHOLDS.retractingForwardSpeed;
       const decelerated = pending.reached && speed <= pending.peak.speed * PUNCH_THRESHOLDS.deceleratedPeakRatio;
       if (!retracting && !decelerated && ageMs < PUNCH_THRESHOLDS.maxDurationMs) return undefined;
 
+      if (ageMs >= PUNCH_THRESHOLDS.maxDurationMs && !pending.reached) this.timedOut += 1;
+      if (!pending.sawExtension) this.missingExtension += 1;
+      if (!pending.sawTravel) this.missingTravel += 1;
+      const measurement = measurePunch(pending);
       this.pending = undefined;
       this.retractedSince = undefined;
       this.restSince = undefined;
       this.mode = 'return';
       if (!pending.reached) return undefined;
+      this.confirmed += 1;
       return {
         kind: 'confirmed',
         power01: clamp((pending.peak.speed - PUNCH_THRESHOLDS.onsetForwardSpeed) / (PUNCH_THRESHOLDS.fullPowerForwardSpeed - PUNCH_THRESHOLDS.onsetForwardSpeed)),
         confidence: pending.peak.confidence,
         peakTimestampMs: pending.peak.timestampMs,
         onsetTimestampMs: pending.startedAt,
+        measurement,
       };
     }
 
@@ -199,6 +274,22 @@ export class PunchDetector {
       this.interruptRearm();
     }
     return undefined;
+  }
+
+  get diagnostics(): PunchDiagnostics {
+    return {
+      onsets: this.onsets,
+      confirmed: this.confirmed,
+      timedOut: this.timedOut,
+      missingExtension: this.missingExtension,
+      missingTravel: this.missingTravel,
+      sampleGaps: this.sampleGaps,
+      invalidSamples: this.invalidSamples,
+    };
+  }
+
+  resetDiagnostics(): void {
+    this.onsets = 0; this.confirmed = 0; this.timedOut = 0; this.missingExtension = 0; this.missingTravel = 0; this.sampleGaps = 0; this.invalidSamples = 0;
   }
 
   /** Explicitly rejected/degraded samples break re-arm continuity even when no valid sample reaches this detector. */

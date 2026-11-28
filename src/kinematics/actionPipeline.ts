@@ -5,7 +5,8 @@ import { upsideDown } from './framing';
 import { IntensityMeter } from './intensity';
 import { JumpDetector } from './jumpDetector';
 import { DodgeZoneTracker, LanePositionTracker, RingDepthTracker } from './postureSignals';
-import { isGuardingPose, PunchDetector } from './punchDetector';
+import { isGuardingPose, PunchDetector, type PunchDiagnostics } from './punchDetector';
+import { classifyPunch } from './punchClassifier';
 import { type ArmMotion, ArmMotionDetector } from './armMotion';
 import { SWING_MAX_DURATION_MS, SwingDetector, type SwingSignal } from './swingDetector';
 import { TorsoVerticalChannel } from './torsoVertical';
@@ -205,15 +206,27 @@ export class ActionPipeline {
       const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, elbow, wrist], 'world');
       if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
       else if (tracking.state === 'degraded') detector.interruptRearm();
-      if (!calibration || !swingScaleReady || tracking.state !== 'tracked') continue;
+      if (!calibration || !swingScaleReady || tracking.state === 'lost') continue;
       const output = detector.update(current, calibration);
       if (output?.kind === 'onset') {
         this.punchInFlight.start(hand, snapshot.timestampMs);
         events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'punch-start', hand });
       } else if (output?.kind === 'confirmed') {
-        const { power01, confidence, peakTimestampMs, onsetTimestampMs } = output;
+        const { power01, confidence, peakTimestampMs, onsetTimestampMs, measurement } = output;
+        const classification = classifyPunch(measurement);
         this.punchInFlight.end(hand);
-        events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'punch', hand, power01, peakTimestampMs, onsetTimestampMs });
+        events.push({
+          ...this.eventBase(snapshot, confidence),
+          id: this.nextId++,
+          type: 'punch',
+          hand,
+          power01,
+          peakTimestampMs,
+          onsetTimestampMs,
+          punchKind: classification.punchKind,
+          punchTargetZone: classification.targetZone,
+          measurement,
+        });
       }
     }
 
@@ -238,6 +251,11 @@ export class ActionPipeline {
    * than control input. One frame stale by the time the next calibration update consumes it,
    * which is meaningless for a statistical admission decision.
    */
+  /** Aggregated punch confirmation diagnostics, keyed by hand, for evaluation harnesses. */
+  get punchDiagnostics(): Readonly<Record<Hand, PunchDiagnostics>> {
+    return Object.fromEntries(this.punches.map(({ hand, detector }) => [hand, detector.diagnostics])) as Record<Hand, PunchDiagnostics>;
+  }
+
   get laneZone(): -1 | 0 | 1 { return this.lanePosition.currentZone; }
 
   get dodgeZone(): -1 | 0 | 1 { return this.dodge.currentZone; }
