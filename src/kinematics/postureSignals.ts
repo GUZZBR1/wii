@@ -252,6 +252,44 @@ export class RingDepthTracker {
   reset(): void { this.filter.reset(); this.move = 0; this.speed = undefined; this.outsideSinceMs = undefined; this.outsideSign = 0; this.pending = undefined; this.torso = undefined; }
 }
 
+/** The shoulder line moving vertically faster than this, in image shoulder widths per second,
+ * means the torso reference frame itself is in fast motion — wrist measurements relative to it
+ * are dominated by the torso, not the arm, so punch onsets are vetoed while it lasts. A duck
+ * drop peaks around 1-2 sw/s; punching barely moves the shoulders vertically. */
+export const REFERENCE_VETO_SPEED_SW_PER_S = 0.7;
+
+/**
+ * Vertical speed of the shoulder-line midpoint in image space, normalized by shoulder width —
+ * the same space the duck is measured in, because world landmarks are hip-origin and a crouch
+ * moves the origin with the shoulders. Positive is descending. Light filtering only: a duck
+ * drop spans a handful of frames and heavy smoothing would both miss it and outlast it.
+ */
+export class ShoulderLineVerticalSpeed {
+  private readonly filter = new OneEuroFilter({ minCutoff: 2, beta: 0.5, derivativeCutoff: 1 });
+  private previous?: { y: number; t: number };
+  private readonly unit = new ShoulderUnit();
+
+  /** Speed in shoulder widths per second; undefined while the shoulders or scale are unreadable. */
+  update(snapshot: PoseSnapshot): number | undefined {
+    const leftShoulder = snapshot.landmarks[11];
+    const rightShoulder = snapshot.landmarks[12];
+    const width = this.unit.update(snapshot);
+    if (!leftShoulder || !rightShoulder || width === undefined) return undefined;
+    const aspect = snapshot.frameHeight / snapshot.frameWidth;
+    const raw = ((leftShoulder.y + rightShoulder.y) / 2) * aspect / width;
+    if (!Number.isFinite(raw)) return undefined;
+    const y = this.filter.filter(raw, snapshot.timestampMs);
+    const previous = this.previous;
+    this.previous = { y, t: snapshot.timestampMs };
+    if (!previous) return undefined;
+    const dt = (snapshot.timestampMs - previous.t) / 1000;
+    if (dt <= 0 || dt > 0.3) return undefined;
+    return (y - previous.y) / dt;
+  }
+
+  reset(): void { this.filter.reset(); this.previous = undefined; this.unit.reset(); }
+}
+
 /** Into a duck past this drop below the standing baseline, in shoulder widths. */
 export const ENTER_DUCK_SW = 0.18;
 /** Back up inside this drop — the hysteresis gap keeps a crouched bob from flapping. */

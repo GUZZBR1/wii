@@ -185,10 +185,12 @@ describe('boxing locomotion through ActionPipeline', () => {
   });
 
   it('keeps depth frozen from a punch onset that never confirms until the timeout', () => {
-    // The arm only half extends, and the body looks smaller from the first frame of the punch.
+    // The arm only half extends, and the body starts looking smaller one frame into the punch
+    // (an instant 30% shrink is outside the physical envelope — it reads as reference-frame
+    // motion to the shoulder-drop veto — so the resize no longer lands exactly on the onset).
     const { trace, events } = drive((t) => {
       const arm = rightArm(pose(t), 0.5 * Math.min(1, Math.max(0, (t - 300) / 150)));
-      return t >= 363 ? resized(arm, 0.7) : arm;
+      return t >= 396 ? resized(arm, 0.7) : arm;
     }, 1500);
     const onset = events.find((event) => event.type === 'punch-start')!;
     expect(onset.timestampMs).toBeLessThanOrEqual(363);

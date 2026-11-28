@@ -1,7 +1,7 @@
 import type { CalibrationProfile, Hand, Point3, PoseSnapshot, PunchMeasurement, PunchTrajectorySample } from '@wii/spatial-core';
 import { OneEuroFilter } from '@wii/spatial-core';
 import { BODY_JOINTS } from './bodyFeatures';
-import { bodyLocalPoint } from './bodyFrame';
+import { bodyLocalPoint, bodyBasis, type BodyBasis } from './bodyFrame';
 import { clamp, isFinitePoint, landmarkConfidence } from './math';
 
 export interface PunchSignal {
@@ -66,6 +66,8 @@ export const PUNCH_THRESHOLDS = {
   originWalkBackMs: 300,
   /** Noise tolerance while walking the monotonic filtered forward series backwards. */
   originWalkBackEpsilon: 0.02,
+  /** The walk-back never crosses a sample this extended: punches start chambered, elbow bent. */
+  walkBackMaxElbowCosine: 0.5,
   /** Maximal extension physically coincides with the start of the retraction, and the filtered
    * signals lag it by a frame or two: an unconfirmed punch is granted this long past the first
    * retracting sample before its window is evaluated. Confirmed punches still close at once. */
@@ -77,6 +79,10 @@ const FILTER_OPTIONS = { minCutoff: 4, beta: 1, derivativeCutoff: 1 };
 
 interface PendingPunch {
   startedAt: number;
+  /** Body basis frozen at onset: shape features are measured in it, immune to torso rotation. */
+  frozenBasis?: BodyBasis;
+  /** The onset sample's index inside `samples` — the walked-back origin samples come before it. */
+  onsetIndex: number;
   /** First sample retracting fast; set once, never cleared — a second extension is another punch. */
   retractingSinceMs?: number;
   /** Forward position on the sample before onset: where the motion started. */
@@ -93,6 +99,16 @@ function distance(a: PunchTrajectorySample, b: PunchTrajectorySample): number {
   return Math.hypot(b.lateral - a.lateral, b.vertical - a.vertical, b.forward - a.forward);
 }
 
+/** Wrist position projected onto the frozen onset basis, in shoulder widths; forward toward camera. */
+function projectFrozen(wrist: Point3, basis: BodyBasis, scale: number): { lateral: number; vertical: number; forward: number } {
+  const dot = (axis: Point3) => wrist.x * axis.x + wrist.y * axis.y + wrist.z * axis.z;
+  return {
+    lateral: dot(basis.side) / scale,
+    vertical: dot(basis.up) / scale,
+    forward: -dot(basis.depth) / scale,
+  };
+}
+
 function measurePunch(pending: PendingPunch): PunchMeasurement {
   const samples = [...pending.samples];
   const origin = samples[0]!;
@@ -102,6 +118,7 @@ function measurePunch(pending: PendingPunch): PunchMeasurement {
   for (let index = 1; index < samples.length; index += 1) pathLength += distance(samples[index - 1]!, samples[index]!);
   return {
     samples,
+    onsetIndex: pending.onsetIndex,
     origin,
     speedPeak: pending.peak.sample,
     contact,
@@ -169,7 +186,7 @@ export class PunchDetector {
   private readonly elbowFilter = new OneEuroFilter(FILTER_OPTIONS);
   private previous?: { forward: number; cosine: number; time: number; sample?: PunchTrajectorySample };
   /** Recent filtered samples, oldest first, for walking the punch's origin back before its onset. */
-  private recent: { forward: number; time: number; sample: PunchTrajectorySample }[] = [];
+  private recent: { forward: number; time: number; sample: PunchTrajectorySample; worldWrist: Point3 }[] = [];
   private mode: 'ready' | 'punch' | 'return' = 'ready';
   private pending?: PendingPunch;
   private lastPunchAt = Number.NEGATIVE_INFINITY;
@@ -183,7 +200,12 @@ export class PunchDetector {
   private retractedSince?: number;
   private restSince?: number;
 
-  update(snapshot: PoseSnapshot, calibration: CalibrationProfile): PunchOutput | undefined {
+  /**
+   * `suppressOnset` vetoes only the ready→punch transition: the torso reference frame is in
+   * fast motion (a duck, a fast rise), so wrist-relative measurements are torso-dominated.
+   * The series keeps flowing so in-flight windows still close on their own evidence.
+   */
+  update(snapshot: PoseSnapshot, calibration: CalibrationProfile, suppressOnset = false): PunchOutput | undefined {
     const world = snapshot.worldLandmarks;
     const [, shoulderIndex, elbowIndex, wristIndex] = BODY_JOINTS[this.hand === 'right' ? 1 : 0];
     const shoulder = world[shoulderIndex];
@@ -225,7 +247,7 @@ export class PunchDetector {
     const sample = current.sample;
     const previous = this.previous;
     this.previous = current;
-    this.recent.push({ forward: current.forward, time, sample });
+    this.recent.push({ forward: current.forward, time, sample, worldWrist: wrist });
     while (this.recent[0] && time - this.recent[0].time > PUNCH_THRESHOLDS.originWalkBackMs) this.recent.shift();
     if (!previous?.sample) return undefined;
 
@@ -234,7 +256,7 @@ export class PunchDetector {
 
     if (this.mode === 'ready') {
       const extending = (current.cosine - previous.cosine) / dt >= PUNCH_THRESHOLDS.onsetElbowCosineRatePerSec;
-      if (!extending || speed < PUNCH_THRESHOLDS.onsetForwardSpeed || time - this.lastPunchAt < PUNCH_THRESHOLDS.refractoryMs) return undefined;
+      if (suppressOnset || !extending || speed < PUNCH_THRESHOLDS.onsetForwardSpeed || time - this.lastPunchAt < PUNCH_THRESHOLDS.refractoryMs) return undefined;
       this.onsets += 1;
       // The wrist was already fast when the onset fired: walk the filtered series backwards while
       // it keeps decreasing and measure the course from where the forward motion really started.
@@ -248,8 +270,18 @@ export class PunchDetector {
           originSamples.unshift(earlier.sample);
         } else break;
       }
+      const scale = calibration.world.shoulderWidth;
+      const frozenBasis = bodyBasis(leftShoulder, rightShoulder, leftHip, rightHip);
+      if (frozenBasis) {
+        for (const entry of this.recent) {
+          if (originSamples.includes(entry.sample)) entry.sample.frozen = projectFrozen(entry.worldWrist, frozenBasis, scale);
+        }
+        sample.frozen = projectFrozen(wrist, frozenBasis, scale);
+      }
       this.pending = {
         startedAt: time,
+        frozenBasis,
+        onsetIndex: originSamples.length - 1,
         originForward,
         peak: { speed, confidence, timestampMs: time, sample },
         reached: false,
@@ -264,6 +296,7 @@ export class PunchDetector {
 
     if (this.mode === 'punch' && this.pending) {
       const pending = this.pending;
+      if (pending.frozenBasis) sample.frozen = projectFrozen(wrist, pending.frozenBasis, calibration.world.shoulderWidth);
       pending.samples.push(sample);
       const ageMs = time - pending.startedAt;
       if (speed > pending.peak.speed) pending.peak = { speed, confidence, timestampMs: time, sample };

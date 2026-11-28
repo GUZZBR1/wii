@@ -39,7 +39,10 @@ describe.skipIf(recordings.length === 0)('UTD-MHAD front boxing floor', () => {
       if (subject !== 5) expect(detected, `subject ${subject}`).toBeGreaterThanOrEqual(1);
     }
     expect(strong).toBeGreaterThanOrEqual(6);
-    expect(results.filter((result) => result.interiorConfirmed.length > 0).length).toBeGreaterThanOrEqual(23);
+    // 22 of 32 since the shoulder-drop veto: punching while the torso reference dives fast is
+    // genuinely ambiguous with the phantom the veto exists to kill (s1t4 drops at 2.1 sw/s
+    // mid-action), and the gameplay cost of phantom uppercuts on every duck outweighs the clip.
+    expect(results.filter((result) => result.interiorConfirmed.length > 0).length).toBeGreaterThanOrEqual(22);
   });
 
   it('reports the confirmation-chain evidence for inspection', () => {
