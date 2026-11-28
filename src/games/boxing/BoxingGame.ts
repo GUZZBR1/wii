@@ -92,7 +92,7 @@ const CAMERA_Y = RING_CANVAS_Y + 2.9;
 const CAMERA_BACK_M = 1.85;
 /** The view follows only part of a dodge, so the boxer visibly moves within the frame. */
 const CAMERA_DODGE_FOLLOW = 0.35;
-const PLAYER_OPACITY = 0.46;
+const PLAYER_OPACITY = 0.6;
 /** The player's punch must be extended when its impact shows, `PUNCH_OUT_S` in; the camera already lags. */
 export const PLAYER_PUNCH_SPEED = 2.2;
 /** Smoothing rates (1/s) of the visual-only rig, from GUZZBR1's camera work in #92. */
@@ -131,8 +131,8 @@ function createGloveGlow(boxer: MiiBoxer, hand: Hand): THREE.Mesh | undefined {
   const elbow = boxer.root.getObjectByName(`mii-boxer-${hand}-elbow`);
   if (!elbow) return undefined;
   const glow = new THREE.Mesh(
-    new THREE.SphereGeometry(0.27, 16, 12),
-    new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }),
+    new THREE.SphereGeometry(0.33, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.9, depthWrite: false, blending: THREE.AdditiveBlending }),
   );
   glow.name = `glove-glow-${hand}`;
   glow.position.set(0, -0.34, -0.02);
@@ -143,13 +143,15 @@ function createGloveGlow(boxer: MiiBoxer, hand: Hand): THREE.Mesh | undefined {
 
 /** The player's own Mii, see-through so it never hides the opponent's punches. */
 function createPlayerBoxer(): MiiBoxer {
-  const boxer = createMiiBoxer({ face: loadPlayerMii(), shirtColor: 0x2477d2, trimColor: 0xffffff, shortsColor: 0x17345c, gloveColor: 0x2f9be8, punchSpeed: PLAYER_PUNCH_SPEED });
+  const boxer = createMiiBoxer({ face: loadPlayerMii(), shirtColor: 0x0f4c9e, trimColor: 0xffffff, shortsColor: 0x0b1f3d, gloveColor: 0x1565c0, punchSpeed: PLAYER_PUNCH_SPEED });
   boxer.root.name = 'player-boxer';
   boxer.root.traverse((object) => {
     const material = (object as THREE.Mesh).material as THREE.Material | undefined;
     if (!material) return;
     material.transparent = true;
     material.opacity = PLAYER_OPACITY;
+    // The ring spotlight falls straight on the player's back and would bleach the colours.
+    (material as THREE.MeshStandardMaterial).color?.setScalar(0.72);
   });
   return boxer;
 }
