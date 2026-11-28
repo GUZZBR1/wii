@@ -27,7 +27,7 @@ export default function MiiCreator() {
   const player = usePlayerMii();
   const [draft, setDraft] = useState<SiteMii>(player);
   const [status, setStatus] = useState('');
-  // Trocar de visual pela praça também atualiza o rascunho.
+  // Choosing a look from the plaza also updates the draft.
   useEffect(() => setDraft(player), [player]);
   const change = (patch: Partial<SiteMii>) => {
     setDraft((current) => ({ ...current, ...patch }));
@@ -38,7 +38,7 @@ export default function MiiCreator() {
     setStatus('');
   };
 
-  // A prévia só carrega Three.js quando o criador chega perto da tela.
+  // Load Three.js for the preview only when the creator approaches the viewport.
   const sectionRef = useRef<HTMLElement>(null);
   const [near, setNear] = useState(false);
   useEffect(() => {
@@ -55,7 +55,7 @@ export default function MiiCreator() {
     return () => observer.disconnect();
   }, []);
 
-  // Foto/webcam. `attempt` invalida respostas que chegam depois de cancelar ou sair.
+  // Photo/webcam suggestion. `attempt` invalidates responses that arrive after cancellation or exit.
   const attempt = useRef(0);
   const videoRef = useRef<HTMLVideoElement>(null);
   const [stream, setStream] = useState<MediaStream | null>(null);

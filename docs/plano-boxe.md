@@ -1,169 +1,168 @@
-# Plano do boxe: tracking, validação externa, jogo e tutorial
+# Boxing Plan: Tracking, External Validation, Game, and Tutorial
 
-Data: 27 de novembro de 2026 · Base estudada: `origin/main` `94ffaaa`. Documento de planejamento, não implementação. Separa o que já existe no código, evidência medida, pesquisa externa e decisão proposta.
-
----
-
-## 0. Status de implementação (27/11/2026, branch `research/boxing-tracking-plan`)
-
-Implementado e com testes verdes (`npm test && npm run lint && npm run build`):
-
-- **Replay parametrizável por fps** (`f4bef05`): `pose-replay.html?fps=15` amostra no ritmo do clipe — pré-requisito da avaliação UTD.
-- **Medição e classificação de trajetória** (`e39196d`): `PunchMeasurement` (amostras corpo-locais em larguras de ombro, contato, pico de velocidade, deslocamentos) sai no evento `punch` confirmado; `punchClassifier.ts` puro classifica `straight/hook/uppercut/unknown` e alvo `head/body/unknown`; `PunchDetector.diagnostics` conta motivos de falha (onsets, confirmações, extensão/travel perdidos) e `ActionPipeline.punchDiagnostics` agrega por mão.
-- **Socos tipados, defesa de duck e ataques tipados do oponente** (`37f7055`): `DuckTracker` em espaço de imagem (world landmarks são centrados no quadril e não servem); matriz de defesa `isDodgedTyped` — direto na cabeça: slip/duck; direto no corpo: só recuo/guarda; gancho: duck; uppercut: slip, duck nunca ajuda. Regras de dano do jogador: uppercut +25% em abertura, gancho penetra metade da guarda, soco no corpo faz 75% de dano mas ignora a guarda alta. Oponente sorteia mão, tipo e alvo em ordem fixa de rng.
-- **Tutorial adaptativo** (`580f67c`): `BoxingTutorial` puro (guarda 1 s → 3 jabs → 3 cruzados → 2 ganchos → 2 uppercuts → 2 no corpo → 2 slips → 2 ducks), aprende mão da frente e alcance mediano por tipo na memória; modo `tutorial` no jogo com oponente passivo, hint após 10 s, desiste da etapa após 22 s, gesto de mãos erguidas pula.
-
-Pendente, nesta ordem: validação de tipo e alvo com gravações roteirizadas, e validação com pessoas reais.
-
-**Revisão da estratégia de validação externa (27/11/2026):** o BoxingVI não responde a pergunta de tipo para o nosso domínio. Os clipes são broadcasts de lutas filmados de lado — o soco viaja perpendicular ao eixo da câmera, então o canal de profundidade que a nossa medição usa simplesmente não existe nesses vídeos — e as anotações de pose são AlphaPose 2D em espaço de imagem, incompatíveis com a trajetória corpo-local em larguras de ombro que o classificador consome. O dataset olímpico do Zenodo sofre do mesmo problema (GoPro à beira do ringue, atletas pequenos no frame, dois lutadores se ocluindo). A pergunta "o classificador acerta jab/cross/hook/uppercut e cabeça/corpo numa webcam frontal?" só pode ser respondida com gravações frontais de golpes conhecidos — exatamente a infraestrutura de roteiro que o projeto já tinha para o tênis. Implementado: `BOXING_RECORDING_SCRIPT` (guarda → 3 jabs → 3 cruzados → 2 ganchos → 2 uppercuts → 2 no corpo → slips → ducks → 2 controles negativos), tecla G no modo boxe grava roteirizado com prefixo `boxe-`, e `tests/recordedBoxing.test.ts` julga tipo/alvo por janela com os mesmos tempos do roteiro. Falta uma pessoa real executar o roteiro uma vez para calibrar o floor.
-
-**Estudo profundo com a primeira gravação real (28/11/2026):** a primeira gravação roteirizada (11,3 fps, delegate CPU — a condição real de produção, pior que os 15 fps do UTD) revelou três mecanismos com evidência direta:
-
-1. **Agachar fabrica uppercuts fantasmas.** O referencial do soco é relativo ao ombro; na queda do duck os ombros descem ~0,25 unidades normalizadas e o punho parado no mundo "sobe" 1,0-1,6 larguras no referencial — trajetória idêntica a um uppercut, com extensão de cotovelo real (o braço estica de verdade quando o ombro desce e o punho fica). O sinal local do braço é indistinguível de um soco; o único discriminante é o movimento do referencial. Implementado: veto de onset enquanto a linha do ombro desce rápido (`REFERENCE_VETO_SPEED_SW_PER_S` = 0,7 sw/s, descida apenas). Custo documentado: o floor UTD cai de 23 para 22 clipes — soco atlético com queda de tronco é genuinamente ambíguo (s1t4 desce a 2,1 sw/s) — e o ganho de gameplay (defesa não vira ataque fantasma) supera o clipe. **Resíduo conhecido**: um onset que dispara na rampa da descida antes da velocidade medida cruzar o limiar escapa (o filtro atrasa ~1 frame); um phantom por gravação é o teto atual, codificado no floor.
-
-2. **A forma do soco não pode ser medida na janela errada nem no referencial errado.** Duas corrupções independentes: (a) a janela de confirmação (walk-back + graça) inclui movimento que não é o soco — retração infla `pathLength` e dilui shares, cotovelo estendido de combinações anteriores contamina a origem; (b) o referencial do ombro **gira com o tronco** — um cruzado com rotação correta de quadril varre 1,5-2,0 larguras de lateral no referencial sem nenhum arco real no mundo. Implementado: posições do punho projetadas na base corporal **congelada no onset** (`frozen` nas amostras) e o classificador mede a forma numa janela auto-delimitada — do contato (máximo forward no frame congelado) para trás enquanto o forward sobe sem interrupção e nunca atravessando cotovelo já estendido (soco parte de câmara dobrada). Resultado na gravação real: o jab classifica `straight/head` correto; testes âncora cobrem retração e ruído de câmara. Descoberta adicional: a 11 fps o onset dispara no pico físico da extensão, então a forma vive quase toda *antes* do onset — a janela onset→contato é degenerada em produção.
-
-3. **Recall de confirmação a 11 fps segue o gargalo dominante** (`missingExtension` 24 vs `missingTravel` 13 na gravação): a extensão física breve mal aparece na reconstrução a 11 fps. Reduzir o piso de deslocamento para 0,15 quase não recupera nada e admite falso positivo na guarda — evidência de que o gargalo é extensão, não deslocamento. O bent-stop da caminhada da origem é geometricamente correto mas foi revertido: a confirmação a 11 fps atualmente depende da caminhada cheia — dívida técnica registrada, a ser tratada junto com o trabalho de recall.
-
-**Recall de confirmação resolvido com evidência (28/11/2026):** a instrumentação das janelas falhas revelou que a extensão de cotovelo estava *estruturalmente corrompida* na geometria de produção. Socar em direção à câmera é o pior caso da reconstrução monocular — o braço encurta ao longo do eixo óptico e o ruído de profundidade colapsa o ângulo reconstruído: na gravação real a 11 fps o cosseno bruto dos jabs verdadeiros pica em 0,2-0,37 e **nunca** atinge 0,65 em nenhum frame. O limiar geométrico media o que o braço *é*, não o que ele *mede*. O varrido de limiar contra os três floors mostrou: contagem de falsos positivos **idêntica** em 0,65, 0,2 e sem exigência alguma (a precisão é guardada por velocidade de onset + deslocamento + fechamento por retração), UTD 22→24 clipes, recall da gravação real 7→15 socos. Abaixo de 0,2 só entra phantom de duck — 0,2 é o ponto adotado, com a evidência no código. Descoberta complementar: onsets espelhados nas duas mãos durante socos de uma mão só (rotação de tronco contamina os dois canais) e onsets em slips — nenhum confirma, o que valida a cadeia a jusante.
-
-Pendente, nesta ordem: resíduo do phantom de duck (veto retroativo ou adjudicação), validação cruzada com mais corpos, O bent-stop da caminhada da origem foi **testado e rejeitado com a barra de extensão corrigida**: elimina o phantom residual de duck (origens honestas não inflam o deslocamento do fantasma) mas custa 2 clipes UTD e 1-2 socos reais — e o classificador auto-delimitado já protege a forma independentemente da origem. Recall é a qualidade dominante em produção; a troca não se justifica.
-
-**Adaptação do tutorial ligada ao detector (27/11/2026):** o perfil aprendido no tutorial não era consumido por nada — agora segue o padrão do tênis. O modo tutorial entra com o piso generoso de confirmação (`LEARNING_PUNCH_TRAVEL` = 0,15 larguras, para socos compactos de aprendizes confirmarem) e, ao concluir, informa ao pipeline o deslocamento adaptado: três quartos da mediana do alcance demonstrado, preso entre 0,15 e o padrão 0,25 — a adaptação só afrouxa, nunca aperta além do padrão. O valor persiste no pipeline quando o jogador sai para a luta, e volta ao padrão ao trocar de esporte. Coberto por testes em `boxingTutorial.test.ts` (matemática), `punchDetector.test.ts` (soco compacto confirma só com o piso adaptado) e `boxingGame.test.ts` (fio completo jogo→pipeline).
-
-**Baseline formal UTD-MHAD (27/11/2026, pipeline instrumentada, 32 clipes a13 a 15 fps):** 13/32 clipes confirmam ≥1 soco no interior; 3/8 sujeitos atingem ≥3/4 — abaixo do critério de sucesso (6/8). Os contadores mostram 67 onsets para 15 confirmações, com causas dominantes `missingExtension` 43 e `missingTravel` 35 (e `timedOut` 11), contra **zero** `sampleGaps` e zero `invalidSamples`. Leitura: o rastreamento de pose não é o problema; os socos começam mas não alcançam a extensão de cotovelo (cos ≥ 0,65) ou o deslocamento (≥ 0,25 larguras de ombro) dentro de 350 ms — coerente com socos de shadow boxing frontais, compactos e sem oponente. O próximo passo é revisar a cadeia de confirmação com essa evidência (janela de tempo, exigência de extensão completa, ou ambos), sem afrouxar a ponto de aceitar gestos que não são soco. Observação secundária: parte dos confirmados classifica como `uppercut` em ação rotulada de golpes frontais — a validação de tipo no BoxingVI dirá se é viés do classificador ou do repertório dos sujeitos.
-
-**Robustecimento da cadeia de confirmação (27/11/2026, mesma branch):** três correções de medição — nenhum limiar afrouxado — guiadas pelos contadores e pela análise quadro a quadro:
-
-1. **Origem do curso.** O onset dispara quando o punho já está rápido (≥ 1,5 larguras/s), então boa parte do curso acontecia antes da origem da medição: medido do movimento todo, o punho avança 0,4–1,35 larguras; medido do onset, só 0,12–0,3. O detector agora caminha para trás na série filtrada (até 300 ms) procurando onde o movimento frontal começou.
-2. **Janela fechando antes do pico.** A extensão máxima coincide fisicamente com o início da retração, e os filtros OneEuro atrasam 1–2 quadros — a janela fechava no primeiro frame de retração, antes do cosseno filtrado mostrar o pico. Socos não confirmados ganham graça de 120 ms de retração; confirmados continuam fechando na hora.
-3. **Extensão avaliada no pico bruto.** O cosseno filtrado atenua picos breves em 0,03–0,1; a avaliação no fechamento usa o máximo entre filtrado e bruto sobre a janela (o ruído de um frame isolado não basta: onset, curso e timing continuam exigidos).
-
-Resultado no floor offline permanente (`tests/utdMhadBoxing.test.ts`, gravações gitignored): **23/32 clipes, 6/8 sujeitos em ≥3/4 — critério pré-registrado de sucesso atingido** (era 13/32 e 3/8). Sujeito 5 tem reconstrução geometricamente impossível (o punho ganha meio metro de profundidade num quadro) e o sujeito 2 é marginal (1/4). Controle negativo (`tests/utdMhadNegatives.test.ts`, 56 clipes de 7 ações não-boxe dos mesmos sujeitos): **zero socos falsos em 6 ações**; só jumping jacks (a27) produziu 2 leituras em 1 clipe — precisão limpa. Observação residual: `missingTravel` continua relevante porque a reconstrução de profundidade do MediaPipe é mais ruidosa exatamente quando o braço aponta para a câmera — o canal z é o elo fraco da medição de socos frontais.
-
-**Inspeção visual dos clipes (frames extraídos):** os sujeitos estão longe da câmera (corpo inteiro no frame, figura pequena) e socam de braços pendurados, sem guarda. Os sujeitos marginais 2 e 5 fazem socos genuinamente compactos, com o braço pouco estendido — o residual de detecção neles é dado ruim + movimento fraco, não lógica do detector. Advertência importante para o classificador de tipo: como o soco parte de braço pendurado, a subida da guarda contamina o `verticalRise` medido do início do movimento, e 15/29 confirmados classificam como `uppercut` em ação de golpes frontais — viés de medição nesse dev set, não necessariamente no jogo, onde o tutorial ensina guarda alta antes de socar. **A validação de tipo exige o BoxingVI, como previsto; UTD não responde essa pergunta.**
-
+Date: November 27, 2026 · Studied base: `origin/main` `94ffaaa`. Planning document, not an implementation. It separates what already exists in code, measured evidence, external research, and proposed decisions.
 
 ---
 
-## 1. Resumo executivo
+## 0. Implementation status (Nov. 27, 2026, branch `research/boxing-tracking-plan`)
 
-O boxe já existe na `main`: há detector de soco, guarda, esquiva lateral, aproximação/afastamento, dash, treino de saco, treino de esquiva e luta em primeira pessoa. O problema agora não é “criar boxe do zero”; é tornar o boxe **corporalmente legível e validado**:
+Implemented with passing tests (`npm test && npm run lint && npm run build`):
 
-1. **Endurecer a medição antes de classificar.** Uma avaliação exploratória no UTD-MHAD encontrou pose rastreada em ~96% dos quadros, mas só 14/32 clipes de `front boxing` confirmaram ao menos um soco. Houve 64 `punch-start` contra 15 `punch` confirmados. O gargalo é a cadeia de confirmação, não a presença da pose.
-2. **Separar detecção de classificação.** O `PunchDetector` deve continuar respondendo rápido “houve soco?”. Um classificador puro deve consumir a trajetória medida e responder “jab/cross/hook/uppercut?” e “cabeça/corpo?”.
-3. **Usar datasets para validar, não para retunar até passar.** UTD-MHAD é o primeiro teste porque é frontal e parecido com uma webcam; BoxingVI é o melhor conjunto específico para tipos de soco; o dataset olímpico de Szczyrk/Zenodo é o melhor para alvo cabeça/corpo/bloco/erro; gravações próprias com outras pessoas continuam insubstituíveis.
-4. **Copiar o padrão do tênis:** jogo de timing e adjudicação retroativa, tutorial puro que aprende a pessoa, ajuda generosa quando o movimento compacto não é reconhecido.
-5. **Tutorial adaptativo é parte do tracking.** Ele não é só instrução: é a fase que mede guarda, mão da frente, tamanho do soco, altura de alvo e amplitude de esquiva daquela pessoa.
+- **FPS-parameterized replay** (`f4bef05`): `pose-replay.html?fps=15` samples at the clip's frame rate — prerequisite for UTD evaluation.
+- **Trajectory measurement and classification** (`e39196d`): `PunchMeasurement` (body-local samples in shoulder widths, contact, peak velocity, displacements) is emitted with a confirmed `punch` event; pure `punchClassifier.ts` classifies `straight/hook/uppercut/unknown` and target `head/body/unknown`; `PunchDetector.diagnostics` counts failure reasons (onsets, confirmations, missed extension/travel), and `ActionPipeline.punchDiagnostics` aggregates them by hand.
+- **Typed punches, duck defense, and typed opponent attacks** (`37f7055`): `DuckTracker` in image space (world landmarks are hip-centered and unsuitable); defense matrix `isDodgedTyped` — straight to head: slip/duck; straight to body: only retreat/guard; hook: duck; uppercut: slip, duck never helps. Player damage rules: uppercut +25% when the opponent is open, hook penetrates half guard, body punch deals 75% damage but ignores high guard. Opponent chooses hand, type, and target in fixed RNG order.
+- **Adaptive tutorial** (`580f67c`): pure `BoxingTutorial` (guard 1 s → 3 jabs → 3 crosses → 2 hooks → 2 uppercuts → 2 body punches → 2 slips → 2 ducks), learns lead hand and median reach by type in memory; `tutorial` game mode with passive opponent, hint after 10 s, abandons a stage after 22 s, raised-hands gesture skips.
+
+Pending, in this order: validate type and target against scripted recordings, then validate with real people.
+
+**Revised external-validation strategy (Nov. 27, 2026):** BoxingVI does not answer the type question for our domain. Its clips are fight broadcasts filmed from the side — punches travel perpendicular to the camera axis, so the depth channel used by our measurements simply does not exist in those videos — and its pose annotations are 2D AlphaPose in image space, incompatible with the shoulder-width body-local trajectory consumed by the classifier. The Zenodo Olympic dataset has the same problem (ringside GoPro, athletes small in frame, two fighters occluding each other). The question "Does the classifier get jab/cross/hook/uppercut and head/body right on a front-facing webcam?" can only be answered with frontal recordings of known punches — exactly the scripted-recording infrastructure the project already had for tennis. Implemented: `BOXING_RECORDING_SCRIPT` (guard → 3 jabs → 3 crosses → 2 hooks → 2 uppercuts → 2 body punches → slips → ducks → 2 negative controls), G key in boxing mode records the script with `boxe-` prefix, and `tests/recordedBoxing.test.ts` evaluates type/target by window using the same script timing. A real person still needs to perform the script once to calibrate the floor.
+
+**Deep study with the first real recording (Nov. 28, 2026):** the first scripted recording (11.3 fps, CPU delegate — the real production condition, worse than UTD's 15 fps) revealed three mechanisms with direct evidence:
+
+1. **Crouching fabricates phantom uppercuts.** Punch coordinates are relative to the shoulder; during a duck, the shoulders drop ~0.25 normalized units and a fist stationary in world space "rises" 1.0–1.6 widths in the local reference — a trajectory identical to an uppercut, with real elbow extension (the arm really does extend when the shoulder drops and the fist stays put). The local arm signal is indistinguishable from a punch; the only discriminator is reference motion. Implemented: veto onset while the shoulder line is rapidly descending (`REFERENCE_VETO_SPEED_SW_PER_S` = 0.7 sw/s, downward only). Documented cost: UTD floor drops from 23 to 22 clips — an athletic punch with torso drop is genuinely ambiguous (s1t4 descends at 2.1 sw/s) — and the gameplay gain (defense no longer becomes a phantom attack) outweighs that clip. **Known residual**: an onset that fires on the descent ramp before measured velocity crosses the threshold escapes (the filter adds ~1 frame of delay); one phantom per recording is the current ceiling, encoded in the floor.
+
+2. **Punch shape cannot be measured in the wrong window or reference frame.** Two independent corruptions: (a) the confirmation window (walk-back + grace) includes motion that is not part of the punch — retraction inflates `pathLength` and dilutes shares, while an extended elbow from previous combinations contaminates the origin; (b) the shoulder reference **rotates with the torso** — a cross with correct hip rotation sweeps 1.5–2.0 widths laterally in the reference frame without any real arc in the world. Implemented: wrist positions are projected into the body basis **frozen at onset** (`frozen` in samples), and the classifier measures shape in a self-delimited window — from contact (maximum forward position in the frozen frame) backward while forward increases without interruption and never crossing an already extended elbow (a punch starts from a bent chamber). Result in the real recording: the jab correctly classifies as `straight/head`; anchor tests cover retraction and chamber noise. Additional discovery: at 11 fps, onset fires at the physical peak of extension, so nearly all shape occurs *before* onset — the onset→contact window degenerates in production.
+
+3. **Confirmation recall at 11 fps remains the dominant bottleneck** (`missingExtension` 24 vs. `missingTravel` 13 in the recording): brief physical extension is barely represented in the 11 fps reconstruction. Lowering the travel floor to 0.15 recovers almost nothing and admits a false positive from guard — evidence that extension, not travel, is the bottleneck. The bent-stop of origin walk-back is geometrically correct but was reverted: confirmation at 11 fps currently depends on the full walk-back — technical debt noted for the recall work.
+
+**Confirmation recall resolved with evidence (Nov. 28, 2026):** window instrumentation revealed that elbow extension was *structurally corrupted* in production geometry. Punching toward the camera is the worst case for monocular reconstruction — the arm shortens along the optical axis and depth noise collapses the reconstructed angle: in the real 11 fps recording, raw jab cosine spikes at 0.2–0.37 and **never** reaches 0.65 in any frame. The geometric threshold measured what the arm *is*, not what it *measures as*. Threshold sweeps against three floors showed: false-positive count **identical** at 0.65, 0.2, and with no requirement at all (precision is preserved by onset speed + travel + closure on retraction), UTD 22→24 clips, real-recording recall 7→15 punches. Below 0.2, only the duck phantom appears — 0.2 is the adopted threshold, with evidence in code. Complementary discovery: mirrored onsets in both hands during one-handed punches (torso rotation contaminates both channels) and onsets during slips — neither confirms, validating the downstream chain.
+
+Pending, in this order: residual duck phantom (retroactive veto or adjudication), cross-validation with more bodies. The origin walk-back bent-stop was **tested and rejected with the extension floor corrected**: it removes the residual duck phantom (honest origins do not inflate the phantom's travel) but costs 2 UTD clips and 1–2 real punches — and the self-delimited classifier already protects shape independently of origin. Recall is the dominant production quality; the trade-off is not justified.
+
+**Tutorial adaptation connected to the detector (Nov. 27, 2026):** the profile learned in the tutorial was not consumed by anything — it now follows the tennis pattern. Tutorial mode enters with the generous confirmation floor (`LEARNING_PUNCH_TRAVEL` = 0.15 widths, so compact beginner punches can confirm), then informs the pipeline of adapted travel: three quarters of the median demonstrated reach, clamped between 0.15 and the 0.25 default — adaptation only relaxes, never tightens beyond the default. The value persists in the pipeline when the player leaves for the fight, and returns to default when switching sports. Covered by tests in `boxingTutorial.test.ts` (math), `punchDetector.test.ts` (compact punch confirms only with adapted floor), and `boxingGame.test.ts` (full game→pipeline path).
+
+**Formal UTD-MHAD baseline (Nov. 27, 2026, instrumented pipeline, 32 a13 clips at 15 fps):** 13/32 clips confirm ≥1 punch in the interior; 3/8 subjects reach ≥3/4 — below the success criterion (6/8). Counters show 67 onsets for 15 confirmations, with dominant causes `missingExtension` 43 and `missingTravel` 35 (and `timedOut` 11), versus **zero** `sampleGaps` and zero `invalidSamples`. Interpretation: pose tracking is not the problem; punches start but fail to reach elbow extension (cos ≥ 0.65) or travel (≥ 0.25 shoulder widths) within 350 ms — consistent with frontal shadowboxing, compact punches, and no opponent. Next step is to review the confirmation chain against this evidence (time window, full-extension requirement, or both), without loosening it enough to accept non-punch gestures. Secondary observation: some confirmed punches classify as `uppercut` during actions labeled frontal punches — BoxingVI type validation will tell us whether that is classifier bias or subject repertoire.
+
+**Hardening the confirmation chain (Nov. 27, 2026, same branch):** three measurement fixes — no thresholds relaxed — guided by counters and frame-by-frame analysis:
+
+1. **Stroke origin.** Onset fires once the wrist is already fast (≥ 1.5 widths/s), so much of the stroke occurred before the measurement origin: measured from the full movement, the fist advances 0.4–1.35 widths; measured from onset, only 0.12–0.3. The detector now walks backward through the filtered series (up to 300 ms) to find where forward movement began.
+2. **Window closed before the peak.** Maximum extension physically coincides with the start of retraction, and OneEuro filters delay by 1–2 frames — the window closed on the first retraction frame, before the filtered cosine showed the peak. Unconfirmed punches get 120 ms of retraction grace; confirmed punches still close immediately.
+3. **Extension evaluated at the raw peak.** The filtered cosine attenuates brief peaks by 0.03–0.1; closure evaluation uses the maximum of filtered and raw values across the window (one isolated noisy frame is not enough: onset, travel, and timing are still required).
+
+Result on the permanent offline floor (`tests/utdMhadBoxing.test.ts`, recordings gitignored): **23/32 clips, 6/8 subjects at ≥3/4 — the preregistered success criterion is met** (was 13/32 and 3/8). Subject 5 has geometrically impossible reconstruction (the fist gains half a meter of depth in one frame) and subject 2 is marginal (1/4). Negative control (`tests/utdMhadNegatives.test.ts`, 56 clips from 7 non-boxing actions by the same subjects): **zero false punches in 6 actions**; only jumping jacks (a27) produced 2 readings in 1 clip — clean precision. Residual observation: `missingTravel` remains relevant because MediaPipe depth reconstruction is noisier exactly when the arm points toward the camera — the z channel is the weak link in frontal-punch measurement.
+
+**Visual inspection of clips (extracted frames):** subjects are far from the camera (full body in frame, small figure) and punch with arms hanging, without a guard. Marginal subjects 2 and 5 make genuinely compact punches, with little arm extension — their residual misses are poor input + weak movement, not detector logic. Important caveat for type classification: because punches start from hanging arms, raising the guard contaminates `verticalRise` measured from movement onset, and 15/29 confirmed punches classify as `uppercut` during frontal-punch actions — a measurement bias in this dev set, not necessarily in the game, where the tutorial teaches a high guard before punching. **Type validation requires BoxingVI, as planned; UTD cannot answer that question.**
 
 ---
 
-## 2. O que atletismo e tênis ensinam
+## 1. Executive summary
 
-### 2.1 Pipeline comum
+Boxing already exists on `main`: there is a punch detector, guard, lateral dodge, approach/retreat, dash, heavy-bag training, dodge training, and first-person fighting. The problem is no longer "create boxing from scratch"; it is to make boxing **legible through body movement and validated**:
+
+1. **Harden measurement before classification.** An exploratory UTD-MHAD evaluation found pose tracked in ~96% of frames, but only 14/32 `front boxing` clips confirmed at least one punch. There were 64 `punch-start` events vs. 15 confirmed `punch` events. The bottleneck is the confirmation chain, not pose presence.
+2. **Separate detection from classification.** `PunchDetector` should keep answering quickly, "Was there a punch?" A pure classifier should consume the measured trajectory and answer "jab/cross/hook/uppercut?" and "head/body?"
+3. **Use datasets for validation, not retuning until they pass.** UTD-MHAD is the first test because it is frontal and webcam-like; BoxingVI is the best set specific to punch types; the Szczyrk/Zenodo Olympic dataset is best for head/body/block/miss targets; recordings of other people remain irreplaceable.
+4. **Copy the tennis pattern:** a timing game with retroactive adjudication, a pure tutorial that learns the person, and generous assistance when a compact movement is not recognized.
+5. **Adaptive tutorial is part of tracking.** It is not just instruction: it is the phase that measures that person's guard, lead hand, punch size, target height, and dodge range.
+
+---
+
+## 2. What athletics and tennis teach us
+
+### 2.1 Shared pipeline
 
 ```
 webcam
-  -> PoseClient/pose.worker (MediaPipe Pose Landmarker, CPU por padrão)
-  -> PoseSnapshot com image landmarks + world landmarks
-  -> AdaptiveCalibrator (escala, centro neutro, pulsos de referência)
+  -> PoseClient/pose.worker (MediaPipe Pose Landmarker, CPU by default)
+  -> PoseSnapshot with image landmarks + world landmarks
+  -> AdaptiveCalibrator (scale, neutral center, reference pulses)
   -> ActionPipeline
-       -> eventos discretos (sprint, swing, punch-start, punch)
-       -> controles contínuos (guard, dodgeZone, ringDepth, lateralDash)
-  -> jogo
+       -> discrete events (sprint, swing, punch-start, punch)
+       -> continuous controls (guard, dodgeZone, ringDepth, lateralDash)
+  -> game
 ```
 
-Decisões importantes já provadas no projeto:
+Important decisions already proven in the project:
 
-- **Medir em larguras de ombro.** Cancela distância da câmera e permite comparar corpos diferentes.
-- **Sinal discreto em duas fases.** `*-start` é precoce e não confirmado, serve para animação; o evento confirmado carrega o instante físico estimado do pico e serve para regras.
-- **Adjudicação retroativa.** O tênis julga o contato no `peakTimestampMs`, não no instante em que a confirmação chega. O boxe já usa a mesma ideia com `openingAt` e histórico de zonas.
-- **Módulos de regra puros.** `boxingRules.ts`, `opponentAi.ts` e `trainingRules.ts` não importam DOM nem Three.js. Isso deve continuar.
-- **Calibração implícita.** O `AdaptiveCalibrator` aprende escala, centro neutro e posições de pulso durante o jogo, com evidência temporal e mistura lenta.
-- **Tutorial puro e adaptativo.** `tennis/tutorial.ts` avança por movimento reconhecido, explica após ~10 s parado, desiste/avança após ~22 s, pode ser pulado, aprende mão da raquete e tamanho do golpe sem ficar mais rígido que o padrão.
-- **Fallback generoso.** O tênis tem assistência para jogadores cujos movimentos compactos não passam no detector principal. Boxe precisa do mesmo princípio: um soco claro mas curto não pode simplesmente desaparecer.
+- **Measure in shoulder widths.** Cancels camera distance and makes it possible to compare different bodies.
+- **Two-phase discrete signal.** `*-start` is early and unconfirmed, useful for animation; the confirmed event carries the estimated physical peak time and is used for rules.
+- **Retroactive adjudication.** Tennis judges contact at `peakTimestampMs`, not when confirmation arrives. Boxing already uses the same idea through `openingAt` and zone history.
+- **Pure rule modules.** `boxingRules.ts`, `opponentAi.ts`, and `trainingRules.ts` do not import DOM or Three.js. Keep it that way.
+- **Implicit calibration.** `AdaptiveCalibrator` learns scale, neutral center, and pulse positions during play, using temporal evidence and slow blending.
+- **Pure adaptive tutorial.** `tennis/tutorial.ts` advances on recognized movement, explains after ~10 s without progress, gives up/advances after ~22 s, can be skipped, and learns racket hand and swing size without becoming stricter than the defaults.
+- **Generous fallback.** Tennis assists players whose compact movements do not pass the main detector. Boxing needs the same principle: a clear but short punch must not simply disappear.
 
-### 2.2 A restrição mais importante do projeto
+### 2.2 The project's most important constraint
 
-`docs/jogos-pelo-corpo.md` declara que os limites foram ajustados em gravações de **uma única pessoa**, numa sala/webcam, e que uma gravação nova chegou a derrubar a corrida para 42% de detecção. Essa é a falha central a evitar no boxe: não basta funcionar no corpo do desenvolvedor.
+`docs/jogos-pelo-corpo.md` states that thresholds were tuned using recordings of **one person**, in one room/webcam setup, and that a new recording once dropped running detection to 42%. That is the central failure to avoid in boxing: working on the developer's body is not enough.
 
 ---
 
-## 3. O que já existe no boxe da `main`
+## 3. What already exists in boxing on `main`
 
 ### 3.1 Sensing
 
 `src/kinematics/punchDetector.ts`:
 
-- um detector por mão;
-- mede pulso em coordenadas locais do corpo, com `forward = -z`;
-- onset exige velocidade para a frente e abertura do cotovelo;
-- confirmação exige extensão e deslocamento frontal mínimos dentro de uma janela;
-- potência vem da velocidade de pico;
-- rearma por retração ou repouso;
-- os próprios comentários dizem que os limiares são palpites afináveis testados apenas com poses sintéticas.
+- one detector per hand;
+- measures wrist pulses in body-local coordinates, with `forward = -z`;
+- onset requires forward velocity and elbow opening;
+- confirmation requires minimum extension and forward travel within a window;
+- power comes from peak velocity;
+- rearms on retraction or rest;
+- comments themselves say thresholds are tunable guesses tested only with synthetic poses.
 
-`src/kinematics/postureSignals.ts` e `boxingLocomotion.ts`:
+`src/kinematics/postureSignals.ts` and `boxingLocomotion.ts`:
 
-- `DodgeZoneTracker`: inclinação lateral pequena em relação ao centro calibrado;
-- `RingDepthTracker`: aproximação/afastamento pela escala aparente combinando largura de ombros e altura de torso;
-- `LateralDashTracker`: salto lateral curto;
-- guarda binária por pulsos altos, próximos do corpo e cotovelos dobrados.
+- `DodgeZoneTracker`: small lateral lean relative to calibrated center;
+- `RingDepthTracker`: approach/retreat through apparent scale, combining shoulder width and torso height;
+- `LateralDashTracker`: short lateral jump;
+- binary guard based on wrists held high, close to the body, with bent elbows.
 
-Limitações estruturais atuais:
+Current structural limitations:
 
-- o soco exige quadris além de ombros/cotovelo/pulso, embora `bodyBasis` saiba cair para a vertical gravitacional sem quadris;
-- `ActionPipeline` só alimenta `PunchDetector` quando o gate está `tracked`; quadros `degraded` interrompem a continuidade;
-- a guarda exige as duas mãos e o tronco inteiro;
-- não existe classificação de tipo de soco, altura de alvo, mão da frente/traseira, nem esquiva para baixo (`duck`);
-- não há tutorial/calibração específica de boxe.
+- punching requires hips in addition to shoulders/elbow/wrist, although `bodyBasis` can fall back to gravity vertical without hips;
+- `ActionPipeline` feeds `PunchDetector` only when the gate is `tracked`; `degraded` frames interrupt continuity;
+- guard requires both hands and the whole torso;
+- no punch-type classification, target height, lead/rear hand, or downward dodge (`duck`);
+- no boxing-specific tutorial/calibration.
 
-### 3.2 Jogo
+### 3.2 Game
 
-`src/games/boxing/` já contém:
+`src/games/boxing/` already contains:
 
-- luta em primeira pessoa com HP, 3 rounds de 60 s, guarda, dano, contra-ataque e KO;
-- oponente em ciclo puro guarda → windup → recover, com `openingAt` retroativo;
-- treino de saco por ritmo e treino de esquiva por zonas;
-- movimento de ringue por inclinação sustentada, profundidade e dash;
-- seleção de modo/adversário e controles de teclado de desenvolvimento.
+- first-person fighting with HP, 3 rounds of 60 s, guard, damage, counterattack, and KO;
+- opponent with a pure guard → windup → recover cycle and retroactive `openingAt`;
+- rhythm-based heavy-bag training and zone-based dodge training;
+- ring movement through sustained lean, depth, and dash;
+- mode/opponent selection and development keyboard controls.
 
-O jogo atual trata todo soco confirmado da mesma forma, modulando apenas `power01`, abertura e contra-ataque. A oportunidade do próximo desenho é fazer o **tipo** e o **alvo** importarem sem criar uma simulação complexa demais.
+The current game treats every confirmed punch the same, varying only `power01`, opening, and counterattack. The next design opportunity is to make **type** and **target** matter without building an overly complex simulation.
 
 ---
 
-## 4. Medição exploratória em UTD-MHAD
+## 4. Exploratory UTD-MHAD measurement
 
-### 4.1 Método
+### 4.1 Method
 
-Avaliação exploratória, não um benchmark final e não critério para ajuste de limiar:
+Exploratory evaluation, not a final benchmark and not a criterion for threshold tuning:
 
-- ação `a13` (`front boxing`) do UTD-MHAD, 8 pessoas × 4 tentativas = 32 clipes;
-- RGB 640×480, cabeçalho dos AVI a 15 fps; conversão temporária para WebM preservando resolução e número de quadros, nominalmente a 15 fps;
-- Chromium headless 159, worker real, delegate CPU, Pose Landmarker Lite;
-- `AdaptiveCalibrator` + `ActionPipeline` da `main`, com a banda de centro usada pelo modo boxe;
-- critério de clipe detectado: pelo menos um `punch` confirmado no miolo do clipe (descontados 0,5 s no início e 0,25 s no fim);
-- nenhum limiar foi alterado; nenhum clipe foi escolhido depois de olhar resultado.
+- UTD-MHAD action `a13` (`front boxing`), 8 people × 4 trials = 32 clips;
+- RGB 640×480, AVI headers at 15 fps; temporary conversion to WebM preserving resolution and frame count, nominally at 15 fps;
+- headless Chromium 159, real worker, CPU delegate, Pose Landmarker Lite;
+- `AdaptiveCalibrator` + `ActionPipeline` from `main`, with the center band used by boxing mode;
+- clip detection criterion: at least one confirmed `punch` in the clip interior (excluding 0.5 s at the start and 0.25 s at the end);
+- no thresholds changed; no clip selected after viewing results.
 
-Artefatos e mídia ficaram fora do Git em `/tmp`, seguindo a política de privacidade. SHA-256 do manifesto local dos AVI de `a13`: `d08eef993d3b51e790c0af87f0a3479e88f07a755fd164d136752188444515c5`.
+Artifacts and media were kept outside Git in `/tmp`, following the privacy policy. SHA-256 of the local manifest for the `a13` AVIs: `d08eef993d3b51e790c0af87f0a3479e88f07a755fd164d136752188444515c5`.
 
-### 4.2 Resultado
+### 4.2 Result
 
-| Métrica | Resultado |
+| Metric | Result |
 |---|---:|
-| clipes processados | 32/32 |
-| quadros com tracking `tracked` | média 96,1% |
-| quadros com escala pronta | média 78,3% |
-| clipes com ≥1 soco confirmado | 14/32 (43,8%) |
-| pessoas com ≥3/4 tentativas detectadas | 3/8 |
-| `punch-start` totais | 64 |
-| `punch` confirmados totais | 15 |
-| sujeito 2 | 0/4 tentativas detectadas |
-| sujeito 5 | 0/4 tentativas detectadas |
+| clips processed | 32/32 |
+| frames with `tracked` tracking | 96.1% average |
+| frames with scale ready | 78.3% average |
+| clips with ≥1 confirmed punch | 14/32 (43.8%) |
+| people with ≥3/4 trials detected | 3/8 |
+| total `punch-start` | 64 |
+| total confirmed `punch` | 15 |
+| subject 2 | 0/4 trials detected |
+| subject 5 | 0/4 trials detected |
 
-Por pessoa, tentativas com pelo menos um soco confirmado:
+Per person, trials with at least one confirmed punch:
 
-| pessoa | tentativas detectadas |
+| Person | Trials detected |
 |---:|---:|
 | 1 | 1/4 |
 | 2 | 0/4 |
@@ -174,177 +173,177 @@ Por pessoa, tentativas com pelo menos um soco confirmado:
 | 7 | 3/4 |
 | 8 | 3/4 |
 
-### 4.3 Leitura
+### 4.3 Interpretation
 
-O detector vê o corpo quase sempre, mas começa muito mais socos do que confirma. A hipótese principal não deve ser “abaixar tudo”; deve ser medir onde a cadeia morre:
+The detector sees the body almost all the time, but starts far more punches than it confirms. The primary hypothesis should not be "lower everything"; it should be to measure where the chain fails:
 
-1. o onset dispara tarde, já perto do pico, por causa de 15 fps e filtragem;
-2. o deslocamento frontal em `z` monocular é instável e às vezes não acumula o curso mínimo a partir da amostra anterior ao onset;
-3. quadros `degraded` no meio da extensão fazem o pipeline pular amostras, e uma sequência curta de buracos reinicia o detector;
-4. a retração/deceleração é detectada antes de uma amostra simultaneamente satisfazer extensão e curso;
-5. pessoas diferentes fazem “front boxing” com amplitude e velocidade muito diferentes — exatamente o problema que o projeto já conhece.
+1. onset fires late, near the peak, because of 15 fps and filtering;
+2. monocular forward displacement in `z` is unstable and sometimes does not accumulate the minimum travel from the sample before onset;
+3. `degraded` frames during extension cause the pipeline to skip samples, and a short sequence of gaps resets the detector;
+4. retraction/deceleration is detected before a sample simultaneously satisfies extension and travel;
+5. different people perform "front boxing" with very different range and speed — exactly the problem the project already knows about.
 
-`punch-start` também não é uma contagem limpa de socos candidatos: rearma/re-onset pode inflar o total dentro da mesma ação. Ainda assim, a assimetria é grande demais para ignorar. Como `a13` é rótulo de ação por clipe, não por soco, essa medição não estima precisão nem recall por soco. Também não mede falsos positivos. É evidência de fumaça: o tracking existe, mas ainda não é robusto entre corpos.
+`punch-start` is not a clean count of candidate punches either: rearm/re-onset can inflate the total within one action. Even so, the asymmetry is too large to ignore. Since `a13` is an action label per clip, not per punch, this measurement does not estimate precision or recall per punch. It also does not measure false positives. It is smoke-test evidence: tracking exists, but it is not yet robust across bodies.
 
 ---
 
-## 5. Datasets públicos e papel de cada um
+## 5. Public datasets and the role of each
 
-### 5.1 Matriz de escolha
+### 5.1 Selection matrix
 
-| Dataset | O que tem | Por que importa | Limites/licença | Papel proposto |
+| Dataset | Contents | Why it matters | Limits/license | Proposed role |
 |---|---|---|---|---|
-| [UTD-MHAD](https://personal.utdallas.edu/~kehtar/UTD-MHAD.html) | 8 pessoas, 4 repetições, RGB/depth/skeleton/IMU; ação 13 `front boxing`; frontal | Mais próximo do caso webcam frontal; já usado aqui para corrida | Página não declara licença padronizada; pessoas pequenas no quadro; só uma classe genérica de boxe | **Primeiro smoke test externo** de presença/robustez, não classificação fina |
-| [BoxingVI](https://github.com/Bikudebug/BoxingVI) / [paper](https://arxiv.org/abs/2511.16524) | 6.915 clipes de soco, 20 vídeos YouTube, 18 atletas, 6 classes: cross, jab, lead/rear hook, lead/rear uppercut; limites temporais + pose 2D AlphaPose | Melhor correspondência para classificação de tipos em vídeo monocular real | Repositório sem licença declarada; download em Google Drive; vídeos de treino/instrução, não webcam doméstica; pose AlphaPose ≠ MediaPipe | **Benchmark principal de tipo de soco**, com split por sujeito |
-| [Olympic Boxing Fight Video Dataset](https://doi.org/10.5281/zenodo.21295125) | 22 lutas, 4 GoPro 1080p50 sincronizadas, rostos borrados; classes cabeça/corpo/bloco/erro por mão, anotadas por especialistas | Melhor fonte para alvo cabeça/corpo e resultado bloqueado/errado | CC BY 4.0; lutas reais com oclusão e duas pessoas; participantes de categorias jovens, exige cuidado ético mesmo anonimizado | **Benchmark de alvo e defesa**, não primeira validação de webcam |
-| [Smart Boxer IMU](https://doi.org/10.5281/zenodo.14965635) / [paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC12061147/) | IMU de punho a 200 Hz de boxeadores elite, jab/hook/uppercut de mão lead/rear | Referência de dinâmica temporal e separabilidade dos tipos; CC BY 4.0 | Não é visão; eixos do sensor não são eixos da câmera; dados contínuos precisam segmentação | **Checagem de plausibilidade cinemática**, não entrada do jogo |
-| Berkeley MHAD | 12 pessoas, ação `punching`, mocap + multi-view RGB/depth/acelerômetro | Ground truth 3D corporal e variação de estilo | Site oficial atualmente instável; licença BSD-2 reportada em catálogo secundário, precisa confirmar antes de uso/redistribuição | Referência 3D secundária |
-| [MSR Action3D](https://sites.google.com/view/wanqingli/data-sets/msr-action3d) | `forward punch` e `side-boxing`, 10 sujeitos, depth + skeleton 20 joints | Duas formas de soco em dados controlados | Sem RGB natural completo no formato do nosso pipeline; licença não evidente | Baixa prioridade; comparador esquelético |
-| [NTU RGB+D](https://rose1.ntu.edu.sg/dataset/actionRecognition/) | A50 `punch/slap`, 40 sujeitos, RGB+D+IR+3D joints, 3 câmeras | Escala e diversidade de corpos | Termos exigem projeto acadêmico institucional e e-mail institucional; ação é interação entre duas pessoas, não técnica de boxe | **Não usar neste projeto pessoal** |
-| [UCF101](https://www.crcv.ucf.edu/research/data-sets/ucf101/) / [Kinetics](https://arxiv.org/abs/1705.06950) | classes `BoxingPunchingBag`, `BoxingSpeedBag`, `punching bag`, `punching person (boxing)` | Diversidade visual “in the wild” | Rótulos de clipe, sem demarcação/pose/limpeza suficiente; links YouTube e termos variáveis | Referência qualitativa/estresse, nunca critério de threshold |
-| [BoxMAC](https://arxiv.org/abs/2412.18204) | 15 boxeadores profissionais, 13 rótulos incluindo socos, stance, slip, block, guard, duck, clinch; 60k frames/2.314 clipes | Cobertura rara de defesas | Artigo não deixa disponibilidade/licença igualmente claras; sem pose; cenário de luta | Fonte de inspiração taxonômica e possível benchmark futuro |
+| [UTD-MHAD](https://personal.utdallas.edu/~kehtar/UTD-MHAD.html) | 8 people, 4 repetitions, RGB/depth/skeleton/IMU; action 13 `front boxing`; frontal view | Closest to a front-facing webcam setup; already used here for running | Page does not declare a standard license; people are small in frame; only one generic boxing class | **First external smoke test** for presence/robustness, not fine-grained classification |
+| [BoxingVI](https://github.com/Bikudebug/BoxingVI) / [paper](https://arxiv.org/abs/2511.16524) | 6,915 punch clips, 20 YouTube videos, 18 athletes, 6 classes: cross, jab, lead/rear hook, lead/rear uppercut; temporal boundaries + 2D AlphaPose | Best match for type classification in real monocular video | Repository has no declared license; Google Drive download; training/instruction videos, not home webcams; AlphaPose pose ≠ MediaPipe | **Primary punch-type benchmark**, split by subject |
+| [Olympic Boxing Fight Video Dataset](https://doi.org/10.5281/zenodo.21295125) | 22 fights, 4 synchronized 1080p50 GoPros, blurred faces; head/body/block/miss classes per hand, expert annotated | Best source for head/body target and blocked/missed outcomes | CC BY 4.0; real fights with occlusion and two people; youth-category participants, requiring ethical care even when anonymized | **Target/defense benchmark**, not first webcam validation |
+| [Smart Boxer IMU](https://doi.org/10.5281/zenodo.14965635) / [paper](https://pmc.ncbi.nlm.nih.gov/articles/PMC12061147/) | Wrist IMU at 200 Hz from elite boxers, lead/rear jab/hook/uppercut | Reference for temporal dynamics and type separability; CC BY 4.0 | Not vision; sensor axes are not camera axes; continuous data requires segmentation | **Kinematic plausibility check**, not game input |
+| Berkeley MHAD | 12 people, `punching` action, mocap + multiview RGB/depth/accelerometer | 3D body ground truth and style variation | Official site is currently unstable; BSD-2 license reported in a secondary catalog, needs confirmation before use/redistribution | Secondary 3D reference |
+| [MSR Action3D](https://sites.google.com/view/wanqingli/data-sets/msr-action3d) | `forward punch` and `side-boxing`, 10 subjects, depth + 20-joint skeleton | Two punch forms in controlled data | No complete natural RGB in a format compatible with our pipeline; license unclear | Low priority; skeletal comparator |
+| [NTU RGB+D](https://rose1.ntu.edu.sg/dataset/actionRecognition/) | A50 `punch/slap`, 40 subjects, RGB+D+IR+3D joints, 3 cameras | Scale and body diversity | Terms require an institutional academic project and institutional email; action is an interaction between two people, not boxing technique | **Do not use in this personal project** |
+| [UCF101](https://www.crcv.ucf.edu/research/data-sets/ucf101/) / [Kinetics](https://arxiv.org/abs/1705.06950) | Classes `BoxingPunchingBag`, `BoxingSpeedBag`, `punching bag`, `punching person (boxing)` | Visual diversity "in the wild" | Clip labels only, not enough segmentation/pose/cleanliness; YouTube links and variable terms | Qualitative reference/stress test, never a threshold criterion |
+| [BoxMAC](https://arxiv.org/abs/2412.18204) | 15 professional boxers, 13 labels including punches, stance, slip, block, guard, duck, clinch; 60k frames/2,314 clips | Rare defense coverage | Paper does not make availability/license equally clear; no pose; fight setting | Taxonomy inspiration and possible future benchmark |
 
-### 5.2 Consequência prática
+### 5.2 Practical consequence
 
-Nenhum dataset sozinho responde a pergunta do produto: “uma pessoa comum, em frente a uma webcam de notebook, faz um movimento que nosso detector entende?”. Por isso a validação precisa ser em camadas:
+No single dataset answers the product question: "Can an ordinary person in front of a laptop webcam make a movement our detector understands?" Validation therefore needs layers:
 
-1. **UTD-MHAD**: corpos diferentes em câmera frontal controlada.
-2. **BoxingVI/Olympic**: variedade real de técnica e alvo.
-3. **Gravações próprias com pelo menos 3 outras pessoas**: a única camada que representa distância, enquadramento, iluminação e comportamento do jogador no nosso jogo.
+1. **UTD-MHAD**: different bodies in a controlled frontal camera setup.
+2. **BoxingVI/Olympic**: real technique and target variety.
+3. **Our own recordings with at least 3 other people**: the only layer representing distance, framing, lighting, and player behavior in our game.
 
-Critérios e análise devem ser definidos antes de olhar os resultados. Datasets não entram no repositório; apenas manifestos, hashes e métricas agregadas.
-
----
-
-## 6. Evidência biomecânica útil para o design
-
-A literatura não dá limiares diretos para nossa webcam, mas impede erros de concepção:
-
-- Estudo 3D com 15 amadores encontrou diferenças significativas entre straight/hook/uppercut; o jab teve o menor tempo de entrega (~405 ms) e o lead hook a maior velocidade de punho (~11,95 m/s) ([Tandfonline, 2018](https://www.tandfonline.com/doi/full/10.1080/24748668.2018.1525651)).
-- Estudo de jab/cross/hooks em boxeadores de competição também encontrou tempos menores em jab/cross que em hooks e velocidades de contato da ordem de vários m/s ([Sports Biomechanics, 2011](https://doi.org/10.1080/14763141.2010.547590)).
-- Trabalho clássico com câmeras sincronizadas viu velocidades de contato de 5,9–8,2 m/s e diferenças cinemáticas entre hooks e jabs ([PubMed](https://pubmed.ncbi.nlm.nih.gov/3377096/)).
-- O estudo Smart Boxer relata socos completos em média dentro de ~0,9 s e usa características tempo-frequência de IMU; jab/hook/uppercut separam por padrões de intensidade, curvatura e controle rotacional ([PLOS One, 2025](https://pmc.ncbi.nlm.nih.gov/articles/PMC12061147/)).
-- Um estudo de defesas em boxeadores elite descreve slipping, ducking e sidesteps como movimentos de centro de massa/torso com amplitude, velocidade e simetria dependentes do nível do atleta ([BMC Sports Science, 2026](https://link.springer.com/article/10.1186/s13102-026-01693-x)).
-
-Implicação para webcam a 15–30 fps: um jab pode ocupar só ~6–12 quadros; o pico pode acontecer entre quadros; motion blur é esperado. O design não pode depender de uma única amostra exata nem de `z` fino. Deve depender de **forma da trajetória**, confirmação com janelas generosas e timestamps de pico estimados.
+Criteria and analysis must be defined before results are examined. Datasets stay out of the repository; only manifests, hashes, and aggregate metrics are kept.
 
 ---
 
-## 7. Arquitetura de tracking proposta
+## 6. Biomechanical evidence useful for design
 
-### 7.1 Separar três perguntas
+The literature does not provide direct thresholds for our webcam, but it helps prevent design mistakes:
 
-1. **Houve um soco?** — detector reativo, baixa latência, por mão.
-2. **Que soco foi?** — classificador puro sobre a trajetória já medida.
-3. **O corpo estava defendendo/esquivando?** — controles contínuos independentes, amostrados na janela física do golpe.
+- A 3D study of 15 amateurs found significant differences between straight punches, hooks, and uppercuts; the jab had the shortest delivery time (~405 ms), and the lead hook had the highest fist velocity (~11.95 m/s) ([Tandfonline, 2018](https://www.tandfonline.com/doi/full/10.1080/24748668.2018.1525651)).
+- A study of jabs/crosses/hooks in competitive boxers also found shorter times for jabs/crosses than hooks and contact velocities on the order of several m/s ([Sports Biomechanics, 2011](https://doi.org/10.1080/14763141.2010.547590)).
+- A classic study with synchronized cameras observed contact speeds of 5.9–8.2 m/s and kinematic differences between hooks and jabs ([PubMed](https://pubmed.ncbi.nlm.nih.gov/3377096/)).
+- The Smart Boxer study reports complete punches averaging ~0.9 s and uses time-frequency IMU features; jab/hook/uppercut separate through patterns of intensity, curvature, and rotational control ([PLOS One, 2025](https://pmc.ncbi.nlm.nih.gov/articles/PMC12061147/)).
+- A study of defenses in elite boxers describes slipping, ducking, and sidesteps as center-of-mass/torso movements whose range, speed, and symmetry depend on athlete level ([BMC Sports Science, 2026](https://link.springer.com/article/10.1186/s13102-026-01693-x)).
 
-Isso evita o erro de transformar `PunchDetector` numa máquina enorme e preserva o canal `punch-start` para animação.
-
-### 7.2 Medição que o detector deve preservar
-
-Hoje o evento confirmado carrega apenas mão, potência e timestamps. Para classificar sem adivinhar depois, o detector deve reter amostras da trajetória do onset à confirmação/retração, em unidades de largura de ombro:
-
-- posição local do pulso `(x, y, z)` relativa ao próprio ombro;
-- cosseno/ângulo do cotovelo;
-- tempo, velocidade e altura do pico;
-- posição de origem, pico e fim;
-- curso frontal, lateral e vertical;
-- comprimento do caminho e razão deslocamento/caminho;
-- rotação do tronco aproximada pela linha dos ombros, quando confiável;
-- confiança e contagem de quadros perdidos.
-
-O evento público não precisa expor toda a série crua se isso inflar o protocolo; pode expor um `PunchMeasurement` compacto. Os módulos de teste podem consumir a série interna.
-
-### 7.3 Classificação de tipo
-
-Classes iniciais, deliberadamente pequenas:
-
-| Classe geométrica | Assinatura esperada | Uso no jogo |
-|---|---|---|
-| `straight` | dominância frontal, extensão alta do cotovelo, trajeto relativamente reto | jab/cross dependendo da mão em relação à stance |
-| `hook` | grande componente lateral/curvatura horizontal, cotovelo menos estendido, rotação do tronco | golpe angular, pode contornar parte da guarda |
-| `uppercut` | componente vertical de subida + extensão moderada, trajeto curvo de baixo para cima | punir duck/guarda baixa |
-| `unknown` | evidência insuficiente | sempre deve existir; nunca fingir precisão |
-
-`jab` e `cross` não são apenas geometria do braço: dependem de qual mão é a da frente na stance. O tutorial deve inferir/perguntar corporalmente a stance. Se a stance for incerta, o jogo pode usar `straight-lead`/`straight-rear` hipotéticos ou simplesmente `straight` sem forçar nome boxístico.
-
-Regras de design:
-
-- classificação é probabilística internamente, discreta externamente, com `confidence`;
-- `unknown` é resultado legítimo e usa regra genérica de soco;
-- nunca classificar por um único eixo; hooks/uppercuts compactos são ambíguos por natureza;
-- a classe não pode atrasar o evento: ela é calculada no mesmo ponto de confirmação, usando só dados até aquele instante.
-
-### 7.4 Alvo: cabeça ou corpo
-
-O usuário pediu soco na cabeça e no peito/corpo. A maneira robusta não é tentar ler intenção fina, e sim duas zonas generosas:
-
-- `head`: altura do punho no pico/contato próxima ou acima da linha dos ombros/queixo;
-- `body`: altura claramente abaixo da linha dos ombros, na faixa peito/abdômen;
-- `unknown`: zona intermediária ou tracking fraco.
-
-A altura deve ser relativa ao torso calibrado, não à imagem crua. Inclinar o tronco para baixo não pode, sozinho, transformar todo soco em golpe de corpo; por isso a decisão usa posição do punho em coordenadas corporais e, se disponível, uma referência de guarda aprendida no tutorial.
-
-### 7.5 Defesas
-
-Hoje existem guarda e slip lateral. O plano mínimo completo é:
-
-| Defesa | Sinal | Estado |
-|---|---|---|
-| guarda alta | pulsos perto de rosto/ombros, cotovelos dobrados | existe de forma binária |
-| slip esquerdo/direito | deslocamento lateral pequeno do centro neutro | existe como `dodgeZone` |
-| duck | queda vertical rápida e reversível de ombros/cabeça em relação ao neutro | **falta** |
-| recuo | aumento de distância/aparente encolhimento do corpo | existe como `ringDepthMove`/`ringDepth01` |
-| guarda baixa/corpo | pulsos protegendo torso, não rosto | **opcional, depois de medir** |
-
-`duck` merece um tracker puro próprio, com histerese e proteção contra confundir agachamento lento de reposicionamento com defesa. Como no soco, deve haver onset precoce para animação e estado confirmado/contínuo para regras.
-
-Parry/perry manual fica fora do escopo inicial: um movimento de mão curto lateralmente é muito fácil de confundir com hook, guarda imperfeita ou ajuste de postura numa webcam frontal.
-
-### 7.6 Robustez temporal
-
-Mudanças de pipeline a testar antes de classificar:
-
-1. **Não descartar o soco por um quadro borrado.** Assim como o `SwingDetector`, um buraco curto deve ser pulado; buracos longos reiniciam.
-2. **Separar gates.** O soco não precisa necessariamente dos mesmos quadris que footwork. Se `bodyBasis` tem fallback sem quadris, medir se isso é suficiente para braço; footwork continua exigindo torso inteiro.
-3. **Instrumentar motivo de não confirmação.** Contadores puros: onset sem extensão, extensão sem curso, timeout, gap de amostra, confiança baixa, retração antes de confirmar.
-4. **Medir 15 e 30 fps separadamente.** UTD é 15 fps; webcam pode ser 30/60. Nada de escolher threshold que só existe porque há mais amostras.
-5. **Benchmark de latência.** `pose-bench.html` antes/depois; classificação não pode custar latência perceptível porque usa dados já existentes.
+Implication for a 15–30 fps webcam: a jab may last only ~6–12 frames; its peak may fall between frames; motion blur is expected. The design cannot depend on one exact sample or precise `z`. It should depend on **trajectory shape**, generous confirmation windows, and estimated peak timestamps.
 
 ---
 
-## 8. Gameplay proposto
+## 7. Proposed tracking architecture
 
-### 8.1 Princípio arcade
+### 7.1 Separate three questions
 
-Como no tênis, o jogo deve ser **legível, não uma simulação fiel**. O jogador precisa entender por que ganhou ou perdeu cada troca.
+1. **Was there a punch?** — reactive, low-latency detector, per hand.
+2. **What kind of punch was it?** — pure classifier over the already measured trajectory.
+3. **Was the body defending/dodging?** — independent continuous controls, sampled over the punch's physical window.
 
-Regras centrais propostas:
+This avoids turning `PunchDetector` into a huge state machine and preserves the `punch-start` channel for animation.
 
-- todo soco confirmado causa algum efeito se estiver ao alcance e na janela;
-- classe e alvo modificam risco/recompensa, não criam golpes impossíveis;
-- guarda reduz dano, não anula tudo para sempre;
-- esquivar na direção certa abre contra-ataque;
-- erro de classificação degrada para regra genérica, nunca parece injusto.
+### 7.2 Measurements the detector should preserve
 
-### 8.2 Tabela inicial de consequências
+Today the confirmed event carries only hand, power, and timestamps. To classify without guessing later, the detector should retain trajectory samples from onset through confirmation/retraction, in shoulder-width units:
 
-Uma proposta pequena o bastante para testar:
+- wrist position `(x, y, z)` relative to its own shoulder;
+- elbow cosine/angle;
+- time, velocity, and height at the peak;
+- origin, peak, and end positions;
+- forward, lateral, and vertical travel;
+- path length and displacement/path ratio;
+- approximate torso rotation from the shoulder line, when reliable;
+- confidence and count of missed frames.
 
-| Golpe reconhecido | Vantagem | Custo/risco |
+The public event need not expose the entire raw series if that bloats the protocol; it could expose a compact `PunchMeasurement`. Test modules can consume the internal series.
+
+### 7.3 Punch-type classification
+
+Initial classes, deliberately small:
+
+| Geometric class | Expected signature | Game use |
 |---|---|---|
-| jab/straight lead | rápido, boa chance de interromper windup, pouco comprometimento | dano baixo |
-| cross/straight rear | dano médio/alto, mais alcance | recuperação maior; punível se lento |
-| hook | bônus contra guarda frontal ou quando o alvo está alinhado ao lado | whiff deixa abertura maior |
-| uppercut | bônus contra duck ou guarda baixa | exige proximidade; ruim contra recuo |
-| golpe no corpo | dano menor de HP, mas reduz stamina/guarda ou aumenta lentidão de recuperação | menos decisivo que cabeça |
-| golpe na cabeça | dano maior | mais fácil de defender com slip/guarda alta |
+| `straight` | forward dominance, high elbow extension, relatively straight path | jab/cross depending on hand relative to stance |
+| `hook` | large lateral/horizontal curvature component, less-extended elbow, torso rotation | angular punch, can bypass part of guard |
+| `uppercut` | upward vertical component + moderate extension, curved bottom-to-top path | punish a duck/low guard |
+| `unknown` | insufficient evidence | must always exist; never pretend certainty |
 
-Ainda há uma decisão de design pendente: stamina ou não. A recomendação KISS é **não criar stamina na primeira iteração**. Em vez disso, socos no corpo aplicam um debuff curto e visível de recuperação/guarda do oponente; se isso parecer arbitrário, só então considerar stamina como recurso explícito.
+`jab` and `cross` are not just arm geometry: they depend on which hand leads in the stance. The tutorial should infer or ask for the stance through body movement. If stance is uncertain, the game can use hypothetical `straight-lead`/`straight-rear` labels or simply `straight` without forcing boxing terminology.
 
-### 8.3 Oponente
+Design rules:
 
-Oponente deve deixar de ser apenas `hand + targetZone` e passar a ter um ataque tipado:
+- classification is probabilistic internally, discrete externally, with `confidence`;
+- `unknown` is a legitimate result and uses the generic punch rule;
+- never classify from a single axis; compact hooks/uppercuts are inherently ambiguous;
+- classification must not delay the event: compute it at the same confirmation point using only data available up to then.
+
+### 7.4 Target: head or body
+
+The user asked for punches to the head and chest/body. The robust approach is not to infer fine-grained intent, but to use two generous zones:
+
+- `head`: fist height at peak/contact near or above the shoulder/chin line;
+- `body`: height clearly below the shoulder line, in the chest/abdomen range;
+- `unknown`: intermediate zone or weak tracking.
+
+Height should be relative to calibrated torso, not raw image coordinates. Leaning the torso down must not, by itself, turn every punch into a body shot; therefore the decision uses fist position in body coordinates and, when available, a guard reference learned in the tutorial.
+
+### 7.5 Defenses
+
+Guard and lateral slip exist today. The minimal complete plan is:
+
+| Defense | Signal | Status |
+|---|---|---|
+| high guard | wrists near face/shoulders, elbows bent | exists as a binary signal |
+| left/right slip | small lateral displacement from neutral center | exists as `dodgeZone` |
+| duck | fast, reversible vertical drop of shoulders/head relative to neutral | **missing** |
+| retreat | increased distance/apparent body shrinkage | exists as `ringDepthMove`/`ringDepth01` |
+| low/body guard | wrists protecting torso, not face | **optional, after measurement** |
+
+`duck` deserves its own pure tracker, with hysteresis and protection against confusing a slow repositioning crouch with a defensive move. As with punches, there should be an early onset for animation and a confirmed/continuous state for rules.
+
+Manual parries are out of the initial scope: a short lateral hand movement is very easy to confuse with a hook, an incomplete guard, or a posture adjustment on a front-facing webcam.
+
+### 7.6 Temporal robustness
+
+Changes to test in the pipeline before classification:
+
+1. **Do not discard a punch because of one blurred frame.** As in `SwingDetector`, skip a short gap; reset after long gaps.
+2. **Separate gates.** Punching may not need the same hips as footwork. If `bodyBasis` falls back without hips, measure whether that is enough for the arm; footwork still requires the full torso.
+3. **Instrument non-confirmation reasons.** Pure counters: onset without extension, extension without travel, timeout, sample gap, low confidence, retraction before confirmation.
+4. **Measure 15 and 30 fps separately.** UTD is 15 fps; webcams may be 30/60. Do not choose a threshold that only works because there are more samples.
+5. **Benchmark latency.** Use `pose-bench.html` before/after; classification must not add perceptible latency because it uses data already available.
+
+---
+
+## 8. Proposed gameplay
+
+### 8.1 Arcade principle
+
+As in tennis, the game should be **legible, not a faithful simulation**. The player needs to understand why they won or lost each exchange.
+
+Proposed core rules:
+
+- every confirmed punch has some effect if it is in range and within the timing window;
+- class and target modify risk/reward, rather than creating impossible moves;
+- guard reduces damage; it does not negate everything forever;
+- dodging in the right direction opens a counterattack;
+- a classification error degrades to a generic rule and never feels unfair.
+
+### 8.2 Initial consequences table
+
+A proposal small enough to test:
+
+| Recognized punch | Advantage | Cost/risk |
+|---|---|---|
+| jab/lead straight | fast, good chance to interrupt windup, low commitment | low damage |
+| cross/rear straight | medium/high damage, greater range | longer recovery; punishable if slow |
+| hook | bonus against front guard or when target is aligned to the side | a miss leaves a larger opening |
+| uppercut | bonus against duck or low guard | requires close range; weak against retreat |
+| body punch | lower HP damage, but reduces stamina/guard or slows recovery | less decisive than a head shot |
+| head punch | higher damage | easier to defend with slip/high guard |
+
+One design decision remains open: whether to add stamina. The KISS recommendation is **do not add stamina in the first iteration**. Instead, body punches apply a short, visible debuff to the opponent's recovery/guard; if that feels arbitrary, only then consider stamina as an explicit resource.
+
+### 8.3 Opponent
+
+The opponent should move beyond just `hand + targetZone` and use a typed attack:
 
 ```
 hand: left/right
@@ -354,162 +353,162 @@ lane: -1/0/1
 impactAtMs
 ```
 
-A defesa correta depende do tipo, mas com poucas regras memoráveis:
+The correct defense depends on attack type, with a few memorable rules:
 
-- straight alto: slip ou guarda alta;
-- hook: duck/recuo ou guarda no lado correto;
-- uppercut: não duck; recuo/guarda alta;
-- golpe no corpo: recuo ou guarda baixa, se guarda baixa entrar; caso contrário step/back.
+- high straight: slip or high guard;
+- hook: duck/retreat or guard on the correct side;
+- uppercut: do not duck; retreat/high guard;
+- body punch: retreat or low guard, if low guard is added; otherwise step back.
 
-O telegraph visual precisa ser honesto: o oponente mostra ombro/quadril/luva de forma distinguível antes do impacto. Como no design do tênis, o tempo de reação deve partir do evento físico, e a janela de defesa deve usar amostras corporais no intervalo `[impact, impact + grace]`.
+The visual telegraph must be honest: the opponent shows the shoulder/hip/glove distinctly before impact. As in the tennis design, reaction timing should start from the physical event, and the defense window should use body samples in the interval `[impact, impact + grace]`.
 
-### 8.4 Treino e modos
+### 8.4 Training and modes
 
-- **Saco de pancadas:** ideal para ensinar tipos e alvos. O saco/mitt pode pedir “jab alto”, “cross no corpo”, “hook” em sequência, com pontuação por tipo reconhecido e timing.
-- **Treino de esquiva:** evoluir de zonas laterais para ataques tipados, mas manter a mesma máquina pura de telegraph/active/resolved.
-- **Luta:** entra só depois que o jogador passa por uma versão curta do tutorial, ou pula explicitamente.
+- **Heavy bag:** ideal for teaching punch types and targets. The bag/mitt can ask for "high jab", "body cross", "hook" in sequence, scoring recognized type and timing.
+- **Dodge training:** evolve from lateral zones to typed attacks, while keeping the same pure telegraph/active/resolved state machine.
+- **Fight:** only after the player completes a short version of the tutorial, or explicitly skips it.
 
 ---
 
-## 9. Tutorial adaptativo de boxe
+## 9. Adaptive boxing tutorial
 
-### 9.1 Princípios copiados do tênis
+### 9.1 Principles copied from tennis
 
-- uma instrução por vez;
-- sem adversário ativo enquanto aprende;
-- critérios mais generosos no início;
-- dica depois de ~10 s sem progresso;
-- avança/desiste depois de ~22 s, sem prender a pessoa;
-- gesto das duas mãos para pular;
-- aprende sem ficar mais rígido que os padrões;
-- toda regra do tutorial em classe pura testável, como `TennisTutorial`.
+- one instruction at a time;
+- no active opponent while learning;
+- more generous criteria at the beginning;
+- a hint after ~10 s without progress;
+- advance/give up after ~22 s so the player is not stuck;
+- raised-hands gesture skips;
+- learn without becoming stricter than defaults;
+- keep every tutorial rule in a testable pure class, like `TennisTutorial`.
 
-### 9.2 Sequência proposta
+### 9.2 Proposed sequence
 
-1. **Enquadramento de boxe.** Cabeça, ombros, quadris e pulsos visíveis quando possível; distância suficiente para socos não saírem do quadro. Se os quadris não forem necessários para soco após a separação de gates, a instrução muda para o enquadramento real exigido.
-2. **Guarda.** “Levante os dois punhos perto do rosto”. Segurar ~1 s. Aprende posição de guarda de cada mão e estima stance.
-3. **Jab da frente.** Três repetições. O jogo mostra a mão esperada apenas depois de inferir a stance; se incerto, aceita qualquer straight primeiro e depois nomeia.
-4. **Cross/straight da traseira.** Três repetições. Aprende curso frontal, velocidade e extensão por mão.
-5. **Hook.** Duas repetições por mão ou pelo menos uma lead hook. Aceita movimento amplo no começo; depois mede curvatura compacta.
-6. **Uppercut/corpo.** Duas repetições de subida; depois alvo baixo num pad visual.
-7. **Alvo alto/baixo.** Mittens ou zonas no oponente/saco pedem cabeça/corpo. Aprende o mapeamento vertical daquela pessoa.
-8. **Slip.** Esquerda/direita, com retorno ao centro. Aprende amplitude confortável sem exigir deslocamento exagerado.
-9. **Duck/recuo.** Uma repetição cada; se não reconhecer, mantém slip+guarda como defesas suficientes.
-10. **Mini-combinação.** jab → cross → hook ou jab → corpo → cabeça, sem pressão; depois luta curta de teste.
+1. **Boxing framing.** Head, shoulders, hips, and wrists visible where possible; enough distance that punches stay in frame. If hips are not needed for punching after gate separation, update the instruction to reflect the actual framing requirement.
+2. **Guard.** "Raise both fists near your face." Hold for ~1 s. Learn each hand's guard position and estimate stance.
+3. **Lead jab.** Three repetitions. Show the expected hand only after stance is inferred; if uncertain, accept any straight punch first and name it later.
+4. **Rear cross/straight.** Three repetitions. Learn forward travel, speed, and extension per hand.
+5. **Hook.** Two repetitions per hand or at least one lead hook. Accept a wide movement at first; then measure compact curvature.
+6. **Uppercut/body.** Two upward repetitions; then a low target on a visual pad.
+7. **High/low target.** Mitts or zones on the opponent/bag request head/body. Learn that person's vertical mapping.
+8. **Slip.** Left/right, returning to center. Learn a comfortable range without requiring exaggerated displacement.
+9. **Duck/retreat.** One repetition each; if not recognized, keep slip + guard as sufficient defenses.
+10. **Short combination.** jab → cross → hook or jab → body → head, without pressure; then a short test fight.
 
-### 9.3 O que o tutorial aprende
+### 9.3 What the tutorial learns
 
-| Perfil aprendido | Como usa depois |
+| Learned profile | Later use |
 |---|---|
-| mão da frente/stance | nomear jab/cross e telegrafar instruções corretas |
-| posição de guarda por mão | reduzir falsos negativos de guarda e distinguir alta/baixa |
-| curso e velocidade típicos por tipo | aceitar socos compactos sem abrir para ruído |
-| altura de alvo alto/baixo | separar cabeça/corpo naquela pessoa/câmera |
-| amplitude de slip/duck | adaptar zonas sem deixar ruído virar esquiva |
-| taxa de perda/qualidade da pose | escolher feedback e assistência apropriados |
+| lead hand/stance | name jab/cross and show correct instructions |
+| guard position per hand | reduce false negatives for guard and distinguish high/low |
+| typical travel and speed per type | accept compact punches without opening up to noise |
+| high/low target height | distinguish head/body for that person/camera |
+| slip/duck range | adapt zones without turning noise into a dodge |
+| pose loss/quality rate | choose appropriate feedback and assistance |
 
-O perfil deve viver em memória na sessão, como a mão da raquete do tênis. Persistir dados corporais no navegador exige decisão explícita de privacidade e não é necessário para a primeira versão.
+The profile should live in session memory, like the tennis racket hand. Persisting body data in the browser needs an explicit privacy decision and is not needed for the first version.
 
-### 9.4 Feedback corretivo
+### 9.4 Corrective feedback
 
-O tutorial deve dizer o que mudar, não só “não reconhecido”:
+The tutorial should say what to change, not just "not recognized":
 
-- “estenda mais o braço para a frente” quando extensão insuficiente;
-- “comece com o punho na guarda” quando a origem está errada;
-- “faça o hook mais para o lado” quando lateralidade insuficiente;
-- “suba o punho no final” para uppercut;
-- “mire mais alto/mais baixo” para alvo;
-- “mostre o braço inteiro” quando confiança/oclusão domina.
+- "Extend your arm farther forward" when extension is insufficient;
+- "Start with your fist at guard" when the origin is wrong;
+- "Move the hook farther to the side" when laterality is insufficient;
+- "Raise your fist at the end" for an uppercut;
+- "Aim higher/lower" for the target;
+- "Show your whole arm" when confidence/occlusion dominates.
 
-Esses diagnósticos dependem dos contadores de motivo de falha da seção 7.6 — mais uma razão para instrumentar antes de classificar.
-
----
-
-## 10. Plano de validação
-
-### 10.1 Infraestrutura necessária
-
-Primeiro trabalho de engenharia, independentemente de regra de jogo:
-
-1. tornar `pose-replay` parametrizável por fps (o UTD é 15 fps, não 30);
-2. permitir execução batch/headless que exponha a gravação e métricas, sem redistribuir vídeo;
-3. salvar manifestos com SHA-256 de clipes, conversões, modelo, commit e configuração;
-4. adicionar contadores de motivo de não confirmação do soco;
-5. registrar métricas por sujeito, não só médias globais.
-
-Essas mudanças devem ser PRs pequenos e independentes.
-
-### 10.2 Protocolo UTD-MHAD
-
-Pré-registrar antes do próximo ajuste:
-
-- positivos: `a13 front boxing` (32 clipes);
-- negativos: caminhada, jogging, squat e ações de braço já usadas na avaliação de corrida, mais ações confundíveis (`throw`, `baseball swing`, `tennis forehand`, `tennis serve`, `two-hand push`, `knock`, `catch`, `pick up and throw`) se extraídas;
-- critério de clipe positivo: ≥1 soco confirmado no miolo;
-- critério por pessoa: ≥3/4 tentativas;
-- critério inicial de sucesso proposto: ≥6/8 pessoas, sem falsos positivos materiais nos negativos;
-- reportar `punch-start`, confirmações, potência, tracking, scale readiness e motivos de falha.
-
-Como não há rótulos por soco, esse teste mede sensibilidade mínima por clipe, não contagem exata.
-
-### 10.3 Protocolo BoxingVI
-
-- usar train/validation por sujeito como publicado, ou criar split próprio por atleta se os vídeos/agrupamentos exigirem;
-- passar RGB pelo mesmo worker MediaPipe; não usar AlphaPose como entrada, apenas como referência comparativa;
-- métricas: recall temporal por overlap/tolerância, precisão de eventos, matriz de confusão por tipo, latência onset→confirmação;
-- não ajustar no validation; ajustar apenas em train/dev e reportar validação uma vez.
-
-### 10.4 Protocolo Olympic/Zenodo
-
-- usar apenas trechos revisados/anotados, respeitando a lista de frames revisados;
-- métricas separadas para alvo head/body/block/miss;
-- medir se nosso alvo geométrico concorda com a categoria do árbitro, sem esperar correspondência perfeita: um soco ao corpo na anotação pode ter punho final alto por causa de postura/alcance;
-- manter vídeos fora do Git e citar CC BY 4.0 em qualquer figura ou uso público.
-
-### 10.5 Gravações próprias com outras pessoas
-
-Critério mínimo antes de chamar o boxe de robusto:
-
-- pelo menos 3 pessoas além do desenvolvedor;
-- consentimento explícito; arquivos em `tests/recordings/`, gitignored;
-- roteiro guiado curto: guarda, jab, cross, hooks, uppercuts, alto/baixo, slips, duck, recuo, movimentos neutros;
-- critérios pré-definidos por pessoa e por movimento;
-- reportar separadamente pessoas compactas/rápidas, canhotos e quem nunca boxeou.
+These diagnostics depend on the failure counters in section 7.6 — another reason to instrument before classification.
 
 ---
 
-## 11. Sequência de implementação recomendada
+## 10. Validation plan
 
-1. **Instrumentação e replay batchável.** Pequeno, independente, sem mudar comportamento do jogo.
-2. **Baseline formal UTD.** Repetir a medição com relatório completo e motivos de falha.
-3. **Robustez do detector genérico.** Corrigir gaps/degraded/hips/contagem de falhas, com testes sintéticos e replay; só depois mexer em limiares se a evidência disser isso.
-4. **`PunchMeasurement` + classificador puro.** Sem mudar regras do jogo ainda; validar em fixtures sintéticas e BoxingVI dev.
-5. **Alvo cabeça/corpo.** Validar contra Olympic e gravações próprias; manter `unknown`.
-6. **Tutorial adaptativo.** Em paralelo ao classificador, porque ele produz o perfil necessário para nomes e thresholds pessoais.
-7. **Gameplay tipado.** Oponente, regras de tipo/alvo, treino de saco e esquiva tipados.
-8. **Validação com pessoas reais.** Só então ajustar defaults finais.
+### 10.1 Required infrastructure
 
-A ordem evita o caminho tentador e errado: inventar interações de jogo em cima de um detector que ainda não confirma socos de outras pessoas.
+First engineering work, independent of gameplay rules:
+
+1. make `pose-replay` FPS-parameterized (UTD is 15 fps, not 30);
+2. allow batch/headless execution that exposes recordings and metrics without redistributing video;
+3. save manifests with SHA-256 for clips, conversions, model, commit, and configuration;
+4. add counters for punch non-confirmation reasons;
+5. record metrics per subject, not only global averages.
+
+These should be small, independent PRs.
+
+### 10.2 UTD-MHAD protocol
+
+Preregister before the next tuning change:
+
+- positives: `a13 front boxing` (32 clips);
+- negatives: walking, jogging, squat, and arm actions already used in the running evaluation, plus confusable actions (`throw`, `baseball swing`, `tennis forehand`, `tennis serve`, `two-hand push`, `knock`, `catch`, `pick up and throw`) if extracted;
+- positive clip criterion: ≥1 confirmed punch in the interior;
+- per-person criterion: ≥3/4 trials;
+- proposed initial success criterion: ≥6/8 people, with no material false positives among negatives;
+- report `punch-start`, confirmations, power, tracking, scale readiness, and failure reasons.
+
+Since there are no per-punch labels, this test measures minimum sensitivity per clip, not exact punch count.
+
+### 10.3 BoxingVI protocol
+
+- use the published train/validation split by subject, or create a split by athlete if the videos/groups require it;
+- pass RGB through the same MediaPipe worker; use AlphaPose only as a comparison reference, not as input;
+- metrics: temporal recall by overlap/tolerance, event precision, type confusion matrix, onset→confirmation latency;
+- do not tune on validation; tune only on train/dev and report validation once.
+
+### 10.4 Olympic/Zenodo protocol
+
+- use only reviewed/annotated segments, respecting the reviewed-frame list;
+- separate metrics for head/body/block/miss targets;
+- measure whether our geometric target agrees with the referee's category without expecting perfect correspondence: a body punch in the annotation may have a high final fist position because of posture/reach;
+- keep videos out of Git and cite CC BY 4.0 in any figure or public use.
+
+### 10.5 Our own recordings with other people
+
+Minimum criteria before calling boxing robust:
+
+- at least 3 people besides the developer;
+- explicit consent; files in `tests/recordings/`, gitignored;
+- short guided script: guard, jab, cross, hooks, uppercuts, high/low, slips, duck, retreat, neutral movement;
+- predefined criteria per person and movement;
+- report compact/fast movers, left-handed people, and people who have never boxed separately.
 
 ---
 
-## 12. O que fica fora (YAGNI declarado)
+## 11. Recommended implementation sequence
 
-- parry/perry manual na primeira versão;
-- stamina como barra completa na primeira versão;
-- estimativa fina de força real em Newtons;
-- classificação de estilo ortodoxo/southpaw além do necessário para mão da frente;
-- uso de HandLandmarker para punho/dedos — mãos ocupam poucos pixels em corpo inteiro e o ganho é incerto;
-- treino de modelo ML pesado dentro do navegador;
-- persistência de dados corporais sem decisão explícita de privacidade;
-- redistribuição de vídeos de datasets no repositório.
+1. **Instrumentation and batchable replay.** Small, independent, no gameplay behavior changes.
+2. **Formal UTD baseline.** Repeat the measurement with a complete report and failure reasons.
+3. **Generic detector robustness.** Fix gaps/`degraded`/hips/failure counts with synthetic tests and replay; only then adjust thresholds if the evidence points there.
+4. **`PunchMeasurement` + pure classifier.** Do not change gameplay rules yet; validate against synthetic fixtures and BoxingVI dev.
+5. **Head/body target.** Validate against Olympic and our own recordings; keep `unknown`.
+6. **Adaptive tutorial.** In parallel with the classifier, because it produces the profile needed for labels and personal thresholds.
+7. **Typed gameplay.** Opponent, type/target rules, heavy-bag training, typed dodge.
+8. **Validation with real people.** Only then tune final defaults.
+
+This order avoids the tempting but wrong path: inventing game interactions on top of a detector that still fails to confirm punches from other people.
 
 ---
 
-## 13. Decisões abertas para revisão
+## 12. Explicitly out of scope (YAGNI)
 
-1. **Manter boxing body-only ou aceitar teclado como modo dev explícito?** Hoje o HUD expõe teclado. Recomendação: corpo como experiência principal; teclado apenas com flag/dev, como ferramenta de teste.
-2. **Nomear jab/cross sem stance confiável?** Recomendação: só nomear depois do tutorial inferir; caso contrário usar straight genérico.
-3. **Guarda baixa entra já?** Recomendação: não antes da validação de alvo; guarda alta + recuo bastam para golpes de corpo na primeira iteração.
-4. **Usar BoxingVI sem licença explícita?** Pode ser usado para avaliação interna se o download for acessível, mas nada de redistribuir; pedir/licenciar ou preferir Zenodo CC BY para artefatos públicos.
-5. **Quando endurecer `PunchDetector`?** Somente depois dos contadores de falha mostrarem a causa; não usar a taxa 14/32 como desculpa para ajuste cego.
+- manual parries in the first version;
+- a full stamina bar in the first version;
+- fine-grained estimates of real force in Newtons;
+- orthodox/southpaw classification beyond what is needed for the lead hand;
+- using HandLandmarker for fists/fingers — hands occupy very few pixels in full-body framing and the gain is uncertain;
+- training a heavy ML model inside the browser;
+- persisting body data without an explicit privacy decision;
+- redistributing dataset videos in the repository.
+
+---
+
+## 13. Open decisions for review
+
+1. **Keep boxing body-only or allow keyboard as an explicit dev mode?** The HUD currently exposes keyboard. Recommendation: body control as the main experience; keyboard only behind a flag/dev mode, as a test tool.
+2. **Name jab/cross without a reliable stance?** Recommendation: name them only after the tutorial infers stance; otherwise use generic `straight`.
+3. **Add low guard now?** Recommendation: not before target validation; high guard + retreat are enough for body punches in the first iteration.
+4. **Use BoxingVI without an explicit license?** It may be used for internal evaluation if the download is accessible, but do not redistribute; obtain permission/license or prefer Zenodo CC BY for public artifacts.
+5. **When should `PunchDetector` be tightened?** Only after failure counters show the cause; do not use the 14/32 rate as an excuse for blind tuning.

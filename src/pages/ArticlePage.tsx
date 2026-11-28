@@ -7,8 +7,8 @@ import { drafts, type Draft } from '../data/papers';
 import { useLang } from '../i18n';
 import { buildPdf, markdownToPdfBlocks } from '../lib/pdf';
 
-// Inclui os textos no carregamento da página, sem uma requisição por artigo.
-const sources = import.meta.glob<string>('../../docs/research/[0-9][0-9]-*.md', {
+// Bundle both article languages with the page instead of making a request per article.
+const sources = import.meta.glob<string>('../data/articles-pt/[0-9][0-9]-*.md', {
   query: '?raw',
   import: 'default',
   eager: true,
@@ -25,11 +25,11 @@ const fileNames = new Map(
   }),
 );
 
-/** Idioma que está sendo renderizado agora (definido antes de cada renderização do artigo). */
+/** Language currently being rendered, set before each article render. */
 let activeLang: 'pt' | 'en' = 'pt';
 const t = (pt: string, en: string) => (activeLang === 'pt' ? pt : en);
 
-/** Gera o PDF do artigo completo no idioma em que ele está sendo lido, e baixa sem sair da página. */
+/** Build and download the full article PDF in its current language without leaving the page. */
 function downloadArticle(id: string, title: string, markdown: string, english: boolean) {
   const blob = buildPdf(title, markdownToPdfBlocks(markdown));
   const url = URL.createObjectURL(blob);
@@ -42,7 +42,7 @@ function downloadArticle(id: string, title: string, markdown: string, english: b
   URL.revokeObjectURL(url);
 }
 
-const figures = import.meta.glob<string>('../../docs/research/figures/*.svg', { query: '?url', import: 'default', eager: true });
+const figuresPt = import.meta.glob<string>('../data/articles-pt/figures/*.svg', { query: '?url', import: 'default', eager: true });
 const figuresEn = import.meta.glob<string>('../../docs/research/figures/en/*.svg', { query: '?url', import: 'default', eager: true });
 
 function referenceNumbers(value: string): number[] {
@@ -81,7 +81,7 @@ function shortUrl(value: string): string {
   }
 }
 
-// Glossário só em português: os termos são palavras do texto em português.
+// The glossary only annotates terms found in the Portuguese article sources.
 const glossary: Record<string, { description: string; url: string }> = {
   oclusão: { description: 'Quando um objeto encobre total ou parcialmente outro.', url: 'https://pt.wikipedia.org/wiki/Oclus%C3%A3o_(computa%C3%A7%C3%A3o_gr%C3%A1fica)' },
   rastreamento: { description: 'Acompanhamento da posição ou identidade de um objeto ao longo do tempo.', url: 'https://en.wikipedia.org/wiki/Video_tracking' },
@@ -101,7 +101,7 @@ function GlossaryText({ text }: { text: string }) {
   })}</>;
 }
 
-// Fatores e níveis da matriz da figura 2 (português, inglês).
+// Matrix factors and levels in Portuguese and English.
 const MATRIX_FACTORS: [string, string][] = [['Luz', 'Light'], ['Oclusão', 'Occlusion'], ['Enquadramento', 'Framing']];
 const MATRIX_LEVELS: [string, string][] = [['menor', 'lower'], ['médio', 'medium'], ['maior', 'higher']];
 
@@ -123,7 +123,7 @@ function Figure({ src, description, matrix, left, number }: { src: string; descr
 
 const URL_AT_END = /^(https?:\/\/.*?)([.,;:)\]]*)$/;
 
-/** **negrito**, *itálico* e endereços http(s) viram links; nada de HTML cru. */
+/** Convert **bold**, *italic*, and http(s) addresses to links; do not render raw HTML. */
 function inline(text: string, refs: Map<number, string> = new Map()): ReactNode[] {
   return text.split(/(\*\*[^*]+\*\*|\*[^*]+\*|https?:\/\/\S+|\[\d+(?:\s*[,–-]\s*\d+)*\]|\b(?:[Ff]igura|[Ff]igure)\s+\d+\b)/g).map((s, i) => {
     const figure = s.match(/^(?:[Ff]igura|[Ff]igure)\s+(\d+)$/);
@@ -165,7 +165,7 @@ function inline(text: string, refs: Map<number, string> = new Map()): ReactNode[
 const isRow = (l: string) => l.trimStart().startsWith('|');
 const cells = (l: string) => l.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
 
-/** Subconjunto de Markdown usado pelos artigos: títulos, parágrafos, listas, tabelas e referências; figuras ficam de fora. */
+/** Article Markdown subset: headings, paragraphs, lists, tables, and references; figures are handled separately. */
 function render(md: string, refs: Map<number, string>, english: boolean): ReactNode[] {
   const out: ReactNode[] = [];
   const blocks = md.trim().split(/\n{2,}/);
@@ -178,9 +178,9 @@ function render(md: string, refs: Map<number, string>, english: boolean): ReactN
     else if (lines.every((l) => /^!\[[^\]]*\]\([^)]*\)$/.test(l))) {
       lines.forEach((line, j) => {
         const match = line.match(/^!\[([^\]]*)\]\(figures\/([^/)]+)\)$/);
-        // Versão inglesa da figura quando o artigo está em inglês; senão, a original.
+        // Use the English figure with an English article and the localized source otherwise.
         const src = match && (english ? figuresEn[`../../docs/research/figures/en/${match[2]}`] : undefined)
-          || (match && figures[`../../docs/research/figures/${match[2]}`]);
+          || (match && figuresPt[`../data/articles-pt/figures/${match[2]}`]);
         if (src) {
           const description = blocks[i + 1]?.replace(/^\*\*(?:Figura|Figure) \d+\.\*\*\s*/, '').trim() || t('Figura ilustrativa do artigo.', 'Illustrative figure from the article.');
           out.push(<Figure key={`${i}-${j}`} number={blocks[i + 1]?.match(/^\*\*(?:Figura|Figure) (\d+)\./)?.[1]} src={src} description={description} matrix={match?.[2] === '02-matriz-fatores.svg'} left={(match?.[2]?.split('').reduce((sum, char) => sum + char.charCodeAt(0), 0) ?? 0) % 2 === 0} />);
@@ -265,7 +265,7 @@ export default function ArticlePage() {
   const prev = drafts[idx - 1];
   const next = drafts[idx + 1];
   const paper = drafts[idx];
-  // Título e rótulo curto no idioma da tela (cada artigo tem as duas versões em papers.ts).
+  // Use the current UI language for the title and short label; both versions live in papers.ts.
   const copy = (p: Draft) => (lang === 'en' ? p.en : p);
   const title = useEnglish ? (english.match(/^# (.+)$/m)?.[1] ?? copy(paper).title) : paper.title;
 

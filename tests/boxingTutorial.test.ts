@@ -18,6 +18,14 @@ function reachProof(tutorial: BoxingTutorial) {
 }
 
 describe('BoxingTutorial', () => {
+  it('updates tutorial text when the game language changes', () => {
+    const tutorial = new BoxingTutorial('en');
+    expect(tutorial.text.title).toBe('Guard: fists by your face');
+    expect(tutorial.text.detail).toBe('Raise both hands to skip');
+    tutorial.setLanguage('pt');
+    expect(tutorial.text.title).toBe('Defesa: punhos no rosto');
+  });
+
   it('counts nothing while the instruction is being read, nor off camera', () => {
     const tutorial = new BoxingTutorial();
     run(tutorial, SETTLE_S - 0.1, { guard: true });

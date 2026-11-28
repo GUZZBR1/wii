@@ -1,22 +1,22 @@
-# Propostas de pesquisa sobre avaliação de sistemas por câmera
+# Research proposals for evaluating camera-based systems
 
-Esta pasta reúne cinco artigos em formato de proposta de avaliação. Eles discutem tarefas, medidas, instrumentos e limites; não apresentam resultados de estudos próprios. O sistema é descrito como um sistema de desenho assistido por câmera.
+This folder contains five evaluation proposals. They describe tasks, measures, instruments, and limitations; they do not report results from original studies. The system under study is a camera-assisted drawing system.
 
-Todos os artigos incluem estrutura de resultados com campos `[PENDENTE-DADOS]`. As conclusões permanecem limitadas à proposta até que a coleta prevista seja realizada e analisada. O verificador automático foi executado com os mínimos próprios de cada artigo.
+Each article includes a results section with `[PENDING-DATA]` fields. Conclusions remain limited to the proposal until the planned data collection has been completed and analyzed. The automated checker was run against each article's minimum requirements.
 
-## Coleção e verificação
+## Collection and verification
 
-| Nº | Artigo | Palavras no corpo | Referências | Verificador | Pendência principal |
+| No. | Article | Body words | References | Checker | Main remaining work |
 |---:|---|---:|---:|---|---|
-| 01 | [Simulação e dados sintéticos](01-simulacao-dados-sinteticos.md) | 4.866 | 26 | OK | Comparação com dados reais e preenchimento de `[PENDENTE-DADOS]`. |
-| 02 | [Desempenho e resposta temporal](02-desempenho-temporal.md) | 4.807 | 30 | OK | Medições por classe de dispositivo e tarefa; `[PENDENTE-DADOS]`. |
-| 03 | [Reprodutibilidade e integridade experimental](03-reprodutibilidade-integridade.md) | 5.587 | 30 | OK | Repetições experimentais e preenchimento de `[PENDENTE-DADOS]`. |
-| 04 | [Acessibilidade e interação](04-acessibilidade-interacao.md) | 6.026 | 31 | OK | Submissão ética, recrutamento, estudo e `[PENDENTE-DADOS]`. |
-| 05 | [Qualidade da experiência](05-qualidade-experiencia.md) | 5.210 | 30 | OK | Revisão dos itens, aprovação ética, estudo e `[PENDENTE-DADOS]`. |
+| 01 | [Simulation and synthetic data](01-simulacao-dados-sinteticos.md) | 4,866 | 26 | OK | Compare with real data and fill in `[PENDING-DATA]`. |
+| 02 | [Performance and temporal response](02-desempenho-temporal.md) | 4,807 | 30 | OK | Measure by device class and task; fill in `[PENDING-DATA]`. |
+| 03 | [Reproducibility and experimental integrity](03-reprodutibilidade-integridade.md) | 5,587 | 30 | OK | Repeat the experiments and fill in `[PENDING-DATA]`. |
+| 04 | [Accessibility and interaction](04-acessibilidade-interacao.md) | 6,026 | 31 | OK | Obtain ethics approval, recruit participants, run the study, and fill in `[PENDING-DATA]`. |
+| 05 | [Quality of experience](05-qualidade-experiencia.md) | 5,210 | 30 | OK | Review the items, obtain ethics approval, run the study, and fill in `[PENDING-DATA]`. |
 
-## Revisão editorial antes de circulação externa
+## Editorial review before external circulation
 
-- Conferir novamente os metadados bibliográficos e as citações no texto.
-- Substituir campos pendentes apenas por dados coletados e analisados conforme o protocolo.
-- Revisar as conclusões para manter seu alcance compatível com as pessoas, tarefas e contextos estudados.
-- Obter revisão de autores e participantes colaboradores quando aplicável.
+- Recheck the bibliographic metadata and in-text citations.
+- Replace pending fields only with data collected and analyzed according to the protocol.
+- Keep conclusions within the scope of the people, tasks, and contexts studied.
+- Obtain review from contributing authors and participants when applicable.

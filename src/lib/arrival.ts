@@ -1,6 +1,6 @@
 /**
- * Roda `run` só depois que a volta da arena (`body.is-arriving`) termina; fora dela, na hora.
- * Trabalho pesado durante a animação a faz travar. Devolve o cancelamento.
+ * Run `run` only after the return transition from the arena (`body.is-arriving`) finishes; run it immediately elsewhere.
+ * Heavy work during the animation causes stutter. Return a cancellation function.
  */
 export function afterArrival(run: () => void): () => void {
   if (!document.body.classList.contains('is-arriving')) {

@@ -18,6 +18,8 @@ import { ItemAssets } from './itemAssets';
 import { JUMP_DURATION_S, jumpHeight } from './jump';
 import { parseRanking, type RunResult, rankRun } from './ranking';
 import { RunGate } from '../core/runGate';
+import type { Lang } from '../../i18n';
+import { gameText } from '../../gameText';
 import { DustPool, SCENERY_MAX_Z, SCENERY_MIN_Z, SceneryPool } from './scenery';
 import { scrollZ, timeBoost } from './scroll';
 import { type Lane, nextKind, nextLane } from './spawn';
@@ -27,7 +29,11 @@ export interface GameHudState { score: number; label: string; speed01: number; s
 type Item = { group: THREE.Group; kind: ItemKind; lane: number; z: number; passed: boolean };
 type BiomeColor = Exclude<keyof BiomeSpec, 'id' | 'endDistance' | 'props'>;
 const RANKING_KEY = 'nevergear-track-ranking';
-const GAIT_STATUS: Record<Gait, string> = { idle: 'Parado', walk: 'Andando', run: 'Correndo' };
+const GAIT_STATUS: Record<Gait, { pt: string; en: string }> = {
+  idle: { pt: 'Parado', en: 'Standing' },
+  walk: { pt: 'Andando', en: 'Walking' },
+  run: { pt: 'Correndo', en: 'Running' },
+};
 /** Metres of track one repeat of the surface texture covers. */
 const SURFACE_TILE = 4;
 /** Shadows are cast in a box around the runner and the hurdles coming up. */
@@ -100,9 +106,12 @@ export class TrackGame {
   private shakeTime = 0;
   private readonly gate = new RunGate();
   private result?: RunResult;
-  private status = 'Ande ou corra no lugar com a câmera, ou use ↓';
+  private language: Lang;
+  private status: string;
 
-  constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: GameHudState) => void) {
+  constructor(canvas: HTMLCanvasElement, private readonly onHud: (state: GameHudState) => void, language: Lang = 'pt') {
+    this.language = language;
+    this.status = this.initialStatus();
     this.scene.background = null;
     this.camera.position.set(0, 3.1, 9.4);
     this.camera.lookAt(0, 1.4, -8);
@@ -124,6 +133,28 @@ export class TrackGame {
       this.loop.onQualityChange = (tier) => { this.sun.castShadow = tier === 0; };
     }
     this.hudTimer = window.setInterval(() => this.publishHud(), 80);
+  }
+
+  setLanguage(language: Lang): void {
+    this.language = language;
+    this.status = this.jumpTime > 0 ? gameText(language, 'Salto!', 'Jump!') : this.gaitStatus(this.gait);
+    if (this.feedback?.kind === 'hit') {
+      const penalty = this.feedback.text.match(/−(\d+)/)?.[1];
+      this.feedback = { ...this.feedback, text: this.hitFeedback(penalty) };
+    }
+    this.publishHud();
+  }
+
+  private initialStatus(): string {
+    return gameText(this.language, 'Ande ou corra no lugar com a câmera, ou use ↓', 'Walk or run in place with the camera, or press ↓');
+  }
+
+  private gaitStatus(gait: Gait): string {
+    return GAIT_STATUS[gait][this.language];
+  }
+
+  private hitFeedback(penalty?: string): string {
+    return gameText(this.language, `TROPEÇOU! −${penalty ?? ''}`, `YOU STUMBLED! −${penalty ?? ''}`);
   }
 
   private setupScene(): void {
@@ -221,7 +252,7 @@ export class TrackGame {
       this.pace = applySprint(this.pace, event);
     }
     if (this.result || this.gate.phase !== 'running') return;
-    if (event.type === 'jump') { this.jumpTime = JUMP_DURATION_S; this.jumpSource = 'camera'; this.status = 'Salto!'; }
+    if (event.type === 'jump') { this.jumpTime = JUMP_DURATION_S; this.jumpSource = 'camera'; this.status = gameText(this.language, 'Salto!', 'Jump!'); }
   }
 
   onKey(key: string): void {
@@ -253,7 +284,7 @@ export class TrackGame {
     this.shownSpeed = easeSpeed(this.shownSpeed, this.pace.speed01, dt);
     const speed = this.shownSpeed;
     const gait = gaitFor(speed, this.gait);
-    if (gait !== this.gait) this.status = GAIT_STATUS[gait];
+    if (gait !== this.gait) this.status = this.gaitStatus(gait);
     this.gait = gait;
 
     const cameraInputAgeMs = this.lastSprintInputAtMs !== undefined ? Math.max(0, wallTimeMs - this.lastSprintInputAtMs) : 0;
@@ -276,7 +307,7 @@ export class TrackGame {
       this.jumpTime = Math.max(0, this.jumpTime - jumpDt);
       this.runner.position.y = jumpHeight(this.jumpTime);
       if (this.jumpTime === 0) {
-        this.status = GAIT_STATUS[gait];
+        this.status = this.gaitStatus(gait);
         this.landingDip = 0.22;
         this.dustPool.emit(this.runner.position.x, RUNNER_Z + 0.2, 8);
       }
@@ -318,7 +349,7 @@ export class TrackGame {
         const penalty = this.score.hurdleHit();
         this.shownSpeed = stumble(this.shownSpeed);
         this.shakeTime = SHAKE_DURATION_S;
-        this.showFeedback('hit', `TROPEÇOU! −${penalty}`);
+        this.showFeedback('hit', this.hitFeedback(String(penalty)));
       }
       if (outcome === 'collected') {
         this.showFeedback('coin', `+${this.score.coinCollected()}`);
@@ -356,7 +387,7 @@ export class TrackGame {
       : this.gate.phase === 'countdown'
       ? { title: String(this.gate.count) }
       : this.gate.phase === 'paused'
-        ? { title: 'PAUSADO', detail: 'Tracking perdido · volte ao quadro ou aperte uma tecla para seguir no teclado' }
+        ? { title: gameText(this.language, 'PAUSADO', 'PAUSED'), detail: gameText(this.language, 'Tracking perdido · volte ao quadro ou aperte uma tecla para seguir no teclado', 'Tracking lost · step back into frame or press a key to continue with the keyboard') }
         : undefined;
     const label = String(score).padStart(5, '0');
     const key = `${label}-${speed}-${this.status}-${this.feedback?.id}-${combo}-${banner?.title}-${this.result?.points}`;

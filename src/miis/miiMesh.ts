@@ -10,10 +10,10 @@ import {
 import { type MiiFaceSpec, SKIN_PALETTE } from '../mii/miiSpec';
 import type { SiteMii } from './siteMii';
 
-/** Mii estilizado: pés em y=0, olhando para +z, cerca de 2 unidades de altura. */
+/** Stylized Mii: feet at y=0, facing +z, about 2 units tall. */
 export interface MiiModel {
   readonly root: THREE.Group;
-  /** `phase` avança com a caminhada; `amount` 0 deixa o Mii parado. */
+  /** `phase` advances during the walk; `amount` 0 keeps the Mii still. */
   pose(phase: number, amount: number): void;
 }
 
@@ -32,7 +32,7 @@ function ball(radius: number) {
   return new THREE.SphereGeometry(radius, 12, 10);
 }
 
-/** A mesma cabeça dos jogos (formato, cabelo, nariz e rosto desenhado), virada para +z. */
+/** The same game head (shape, hair, nose, and drawn face), facing +z. */
 function createHead(face: MiiFaceSpec, textureSize: number) {
   const head = new THREE.Group();
   head.rotation.y = Math.PI;

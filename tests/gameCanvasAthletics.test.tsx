@@ -1,12 +1,15 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import type { AthleticsHudState } from '../src/games/athletics/AthleticsGame';
 import { GameCanvas } from '../src/ui/GameCanvas';
+import { LangProvider } from '../src/i18n';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 const athletics = vi.hoisted(() => ({ updateHud: undefined as ((state: AthleticsHudState) => void) | undefined }));
+
+beforeEach(() => localStorage.setItem('nevergear-lang', 'pt'));
 
 vi.mock('../src/games/athletics/AthleticsGame', () => ({
   AthleticsGame: class {
@@ -20,7 +23,7 @@ it('labels estimated finish times until the race results are complete', async ()
   document.body.appendChild(container);
   const root = createRoot(container);
   try {
-    await act(async () => { root.render(<GameCanvas sport="athletics" onEngine={() => {}} tracking="TRACKING" />); });
+    await act(async () => { root.render(<LangProvider><GameCanvas sport="athletics" onEngine={() => {}} tracking="TRACKING" /></LangProvider>); });
     const hud: AthleticsHudState = {
       score: 100, label: '0:14.0', speed01: 0, status: 'Chegada!',
       finished: {

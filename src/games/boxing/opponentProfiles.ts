@@ -2,6 +2,7 @@ export const OPPONENT_PROFILES = [
   {
     id: 'rookie',
     label: 'Iniciante',
+    labelEn: 'Rookie',
     skill: 0.25,
     miiSeed: 'boxing-rookie',
     shirtColor: 0x38a864,
@@ -12,6 +13,7 @@ export const OPPONENT_PROFILES = [
   {
     id: 'aggressive',
     label: 'Agressivo',
+    labelEn: 'Aggressive',
     skill: 0.55,
     miiSeed: 'boxing-aggressive',
     shirtColor: 0xd84a3a,
@@ -22,6 +24,7 @@ export const OPPONENT_PROFILES = [
   {
     id: 'technical',
     label: 'Técnico',
+    labelEn: 'Technical',
     skill: 0.85,
     miiSeed: 'boxing-technical',
     shirtColor: 0x6e55c8,

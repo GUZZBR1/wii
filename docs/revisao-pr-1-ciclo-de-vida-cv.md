@@ -1,78 +1,78 @@
-# Revisão do PR — corridas de ciclo de vida no pipeline câmera/visão
+# PR Review — lifecycle races in the camera/vision pipeline
 
-Data: 24 de novembro de 2026 · Commit analisado: `3319e38` (branch `fix/cv-pipeline-bottlenecks`) · Escopo: `src/App.tsx`, `src/cv/poseClient.ts`, `src/cv/pose.worker.ts`, `src/cv/protocol.ts`, `src/ui/CameraPip.tsx` — ciclo de vida introduzido no commit `e5d9bf0` ("Split PoseClient lifecycle and slim the worker protocol").
+Date: November 24, 2026 · Commit reviewed: `3319e38` (branch `fix/cv-pipeline-bottlenecks`) · Scope: `src/App.tsx`, `src/cv/poseClient.ts`, `src/cv/pose.worker.ts`, `src/cv/protocol.ts`, `src/ui/CameraPip.tsx` — lifecycle introduced in commit `e5d9bf0` ("Split PoseClient lifecycle and slim the worker protocol").
 
 ---
 
-## Contexto do design
+## Design context
 
-A intenção declarada do PR é separar **ciclo de vida do landmarker** de **ciclo de vida da captura** (`e5d9bf0`, mensagem do commit): `init()` sobe o worker em paralelo ao `getUserMedia` (`src/App.tsx:104-108`), o worker fica quente entre desliga/liga de câmera (`stopCamera` chama só `pauseCapture`, `src/App.tsx:70-71`), e `dispose()` só roda em erro fatal ou desmontagem (`poseClient.ts:113-116`, `poseClient.ts:123-127`, `src/App.tsx:40`). O design em si é correto e resolve o gargalo #5 do `docs/analise-de-gargalos.md`. Os achados abaixo são **corridas nas bordas** desse novo ciclo de vida — não no design, mas na falta de um identificador de "tentativa" que invalide continuações atrasadas.
+The PR's stated intent is to separate **Landmarker lifecycle** from **capture lifecycle** (`e5d9bf0`, commit message): `init()` starts the worker in parallel with `getUserMedia` (`src/App.tsx:104-108`), the worker stays warm across camera stop/start (`stopCamera` calls only `pauseCapture`, `src/App.tsx:70-71`), and `dispose()` runs only on a fatal error or unmount (`poseClient.ts:113-116`, `poseClient.ts:123-127`, `src/App.tsx:40`). The design itself is sound and addresses bottleneck #5 in `docs/analise-de-gargalos.md`. The findings below are **edge races** in this new lifecycle — not flaws in the design itself, but missing an "attempt" identifier to invalidate late continuations.
 
-Esta revisão foi feita contra fontes primárias: o próprio código e, onde o comportamento externo importa, as especificações (W3C mediacapture, HTML Standard) e MDN — ver **Fontes** ao final.
+This review used primary sources: the code itself and, where external behavior matters, the specifications (W3C Media Capture, HTML Standard) and MDN — see **Sources** at the end.
 
-## Resumo executivo
+## Executive summary
 
-| # | Achado | Veredito | Gravidade |
+| # | Finding | Verdict | Severity |
 |---|--------|----------|-----------|
-| 1 | **Stream vazado**: erro de init (falta WASM/modelo ou timeout de 30 s) durante o prompt de permissão → `stopCamera` roda antes do stream existir → usuário clica "Permitir" → `getUserMedia` resolve tarde e o stream fica **preso ao `<video>` com tracks vivas (LED aceso), `cameraOn=true`, sem captura**. Dobras: 2º `getUserMedia` sobrescreve `streamRef` sem parar as tracks do 1º; cleanup de unmount não para tracks em nenhum caso. | **Confirmado** | Alta |
-| 2 | Religar a câmera com worker quente não emite nenhum `onStatus` → PiP fica com **'Câmera desligada' enquanto TRACKING funciona**. | **Confirmado** | Média |
-| 3 | `pauseCapture` zera `busy` com um FRAME ainda no worker → retomada posta 2º frame → invariante "um frame em trânsito" degrada (e piora a cada toggle); resposta POSE tardia executa `onPose` em câmera desligada (alimenta gate/detectores; pode escalar a eventos de jogo se várias respostas acumularem). | **Confirmado** | Média |
-| A | Adjacentes: hang no `await loadeddata` se `srcObject` for zerado no meio; `worker.onerror` durante captura mata o worker quente (correto, mas `busy` precisa ser zerado no `dispose`); `init()` concorrente faz dedup correto; `visionReady` pode gerar `unhandledrejection` se `init()` rejeitar cedo. | Confirmados (variados) | Baixa–Média |
+| 1 | **Leaked stream**: init error (missing WASM/model or 30 s timeout) while the permission prompt is open → `stopCamera` runs before the stream exists → user clicks "Allow" → `getUserMedia` resolves late and the stream remains **attached to `<video>` with live tracks (LED on), `cameraOn=true`, but no capture**. Variants: a second `getUserMedia` overwrites `streamRef` without stopping the first stream's tracks; unmount cleanup never stops tracks. | **Confirmed** | High |
+| 2 | Restarting the camera with a warm worker emits no `onStatus` → the PiP says **'Camera off' ("Camera off") while TRACKING works**. | **Confirmed** | Medium |
+| 3 | `pauseCapture` resets `busy` while a FRAME is still in the worker → resume posts a second frame → the "one frame in flight" invariant degrades (and worsens on every toggle); a late POSE reply runs `onPose` while the camera is off (feeding the gate/detectors; could escalate to gameplay events if replies accumulate). | **Confirmed** | Medium |
+| A | Adjacent issues: `await loadeddata` can hang if `srcObject` is cleared mid-wait; `worker.onerror` during capture kills the warm worker (correct, but `busy` must be reset in `dispose`); concurrent `init()` deduplicates correctly; `visionReady` can cause an `unhandledrejection` if `init()` rejects early. | Confirmed (various) | Low–Medium |
 
 ---
 
-## Achado 1 — câmera ligada sem rastreamento quando o init falha com a permissão pendente
+## Finding 1 — camera on without tracking if init fails while permission is pending
 
-**Veredito: confirmado**, em todas as partes, inclusive o segundo clique (vazamento por sobrescrita) e o unmount (nenhum `track.stop()` no cleanup).
+**Verdict: confirmed**, including every part: the second click (leak from overwriting the stream) and unmount (no `track.stop()` in cleanup).
 
-### O que é
+### What happens
 
-`startCamera` dispara `client.init(callbacks)` **em paralelo** ao `await getUserMedia(...)` (`src/App.tsx:104-108`). O prompt de permissão pode ficar aberto por tempo arbitrário — o algoritmo do `getUserMedia` na spec trava se o usuário nunca responder: *"If the user never responds, this algorithm stalls on this step."* (w3c.github.io/mediacapture-main, passo 11.5.1 do método getUserMedia). Nesse intervalo, dois caminhos produzem `onStatus('error')` no cliente:
+`startCamera` starts `client.init(callbacks)` **in parallel** with `await getUserMedia(...)` (`src/App.tsx:104-108`). The permission prompt can remain open for an arbitrary amount of time — the `getUserMedia` algorithm in the specification stalls if the user never responds: *"If the user never responds, this algorithm stalls on this step."* (w3c.github.io/mediacapture-main, step 11.5.1 of the `getUserMedia` method). During that interval, two paths can produce `onStatus('error')` in the client:
 
-1. **ERROR fatal de init** (`pose.worker.ts:63`) — ex.: fetch do `.wasm`/`.task` falha → `worker.onmessage` ramo `ERROR` com `fatal: true` (`poseClient.ts:113-116`) → `onStatus('error', …)` → `onReady?.()` → `dispose()` (termina o worker, `ready=false`, `initPromise=undefined`, `poseClient.ts:87-97`).
-2. **Timeout de 30 s do `spawn`** (`poseClient.ts:130-137`) — `Promise.race` vence sem `READY` → `onStatus('error', 'Inicialização do MediaPipe excedeu 30 segundos.')` → `dispose()`.
+1. **Fatal init ERROR** (`pose.worker.ts:63`) — for example, fetching `.wasm`/`.task` fails → the `ERROR` branch in `worker.onmessage` has `fatal: true` (`poseClient.ts:113-116`) → `onStatus('error', …)` → `onReady?.()` → `dispose()` (terminates the worker, sets `ready=false`, clears `initPromise`, `poseClient.ts:87-97`).
+2. **30 s `spawn` timeout** (`poseClient.ts:130-137`) — `Promise.race` wins without `READY` → `onStatus('error', 'MediaPipe initialization timed out after 30 seconds.')` → `dispose()`.
 
-No App, o handler (`src/App.tsx:87-90`) faz `setCameraStatus(detail)` → `status === 'error'` → `setTracking('SEM POSE')` → **`stopCamera()`** → `setCameraStatus(detail)` de novo (a segunda escrita é deliberada e preserva a mensagem de erro sobre o `'Câmera desligada'` do `stopCamera`, `src/App.tsx:77`).
+In the app, the handler (`src/App.tsx:87-90`) calls `setCameraStatus(detail)` → `status === 'error'` → `setTracking('SEM POSE')` → **`stopCamera()`** → calls `setCameraStatus(detail)` again (the second write is intentional; it preserves the error message over `stopCamera`'s `'Camera off'`, `src/App.tsx:77`).
 
-### A corrida, passo a passo
+### The race, step by step
 
-1. `stopCamera()` roda enquanto `getUserMedia` está pendente → `streamRef.current` ainda é `undefined` → `streamRef.current?.getTracks()` (`src/App.tsx:72`) **não para nada**; `video.srcObject = null`, `setCameraOn(false)`.
-2. Usuário clica "Permitir" → `getUserMedia` resolve com um `MediaStream` vivo → `streamRef.current = stream` (`src/App.tsx:109`) → `video.srcObject = stream` (`src/App.tsx:112`) → `await video.play()` → `loadeddata` → `setCameraOn(true)` (`src/App.tsx:118`).
-3. `await visionReady` (`src/App.tsx:119`) já resolveu (o `onReady` foi chamado no caminho de erro) → `if (!client.isReady || streamRef.current !== stream) return;` (`src/App.tsx:120`) → `client.isReady === false` (dispose zerou `ready`) → **return silencioso**.
+1. `stopCamera()` runs while `getUserMedia` is pending → `streamRef.current` is still `undefined` → `streamRef.current?.getTracks()` (`src/App.tsx:72`) **stops nothing**; `video.srcObject = null`, `setCameraOn(false)`.
+2. The user clicks "Allow" → `getUserMedia` resolves with a live `MediaStream` → `streamRef.current = stream` (`src/App.tsx:109`) → `video.srcObject = stream` (`src/App.tsx:112`) → `await video.play()` → `loadeddata` → `setCameraOn(true)` (`src/App.tsx:118`).
+3. `await visionReady` (`src/App.tsx:119`) has already resolved (`onReady` ran on the error path) → `if (!client.isReady || streamRef.current !== stream) return;` (`src/App.tsx:120`) → `client.isReady === false` (`dispose` reset `ready`) → **silent return**.
 
-### Estado final exato da UI
+### Exact final UI state
 
-- `cameraOn === true` → `CameraPip` renderiza o `<video>` ao vivo, o chip de tracking `'SEM POSE'` (`src/ui/CameraPip.tsx:26`) e a barra com `⏻`, seletor L/R e `CALIBRAR` desabilitado (`src/ui/CameraPip.tsx:29-37`) — **não** o botão ATIVAR.
-- Linha de status (`src/ui/CameraPip.tsx:40`): a **mensagem de erro do init** (ex.: `GPU falhou (…); fallback CPU também falhou (…).`) — a segunda `setCameraStatus(detail)` de `src/App.tsx:89` vence o `'Câmera desligada'`.
-- **Tracks vivas e LED da webcam acesa** — o stream está anexado e alimentando o `<video>`; só nada consome os frames porque `beginCapture` nunca rodou e o worker foi terminado.
-- Vazamento só é resolvido quando o usuário aperta `⏻` (aí `stopCamera` para as tracks de `streamRef`) — ou nunca, se ele apenas sair da página pensando que "a câmera falhou".
+- `cameraOn === true` → `CameraPip` renders the live `<video>`, the `'SEM POSE'` tracking chip (`src/ui/CameraPip.tsx:26`) and the bar with `⏻`, L/R selector and disabled `CALIBRAR` (`src/ui/CameraPip.tsx:29-37`) — **not** the ENABLE button.
+- Status line (`src/ui/CameraPip.tsx:40`): the **init error message** (for example, `GPU failed (...); CPU fallback also failed (...).`) — the second `setCameraStatus(detail)` at `src/App.tsx:89` wins over `'Camera off'`.
+- **Tracks remain live and the webcam LED stays on** — the stream is attached and feeding `<video>`; nothing consumes the frames because `beginCapture` never ran and the worker was terminated.
+- The leak is resolved only when the user presses `⏻` (`stopCamera` then stops the tracks in `streamRef`) — or never, if they simply leave the page thinking that "the camera failed".
 
-Base normativa: um `MediaStreamTrack` de câmera só solta o dispositivo quando **todos** os tracks daquela fonte param/terminam — *"A source that is notified of a track ending will be stopped, unless other MediaStreamTrack objects depend on it."* (w3c.github.io/mediacapture-main, método `stop()`), e a spec incentiva explicitamente `stop()` porque o recurso é caro e afeta os indicadores de privacidade (seção "Garbage Collection" de MediaStreamTrack).
+Specification basis: a camera `MediaStreamTrack` releases the device only when **all** tracks for that source stop/end — *"A source that is notified of a track ending will be stopped, unless other MediaStreamTrack objects depend on it."* (w3c.github.io/mediacapture-main, `stop()` method). The specification explicitly encourages calling `stop()` because the resource is costly and affects privacy indicators (the MediaStreamTrack "Garbage Collection" section).
 
-### Dobra 1 — segundo clique em ATIVAR / clique duplo
+### Case 1 — clicking ENABLE again / double-clicking
 
-Dois cenários, ambos confirmados:
+Two scenarios, both confirmed:
 
-- **Depois do estado vazado**, o botão visível é `⏻`, não ATIVAR — o usuário precisa parar antes (e aí `stopCamera` limpa o stream vazado). Mas o caso real de sobrescrita existe:
-- **Clique duplo em ATIVAR durante o start** — `cameraOn` só vira `true` na linha 118, perto do fim; durante todo o `getUserMedia` o botão ATIVAR continua na tela e clicável (`src/ui/CameraPip.tsx:29`). Duas invocações concorrentes de `startCamera` fazem dois `getUserMedia` — e cada chamada cria **um novo `MediaStreamTrack` sobre a mesma fonte** (w3c.github.io/mediacapture-main: *"Several MediaStreamTrack objects can represent the same media source, e.g., when the user chooses the same camera in the UI shown by two consecutive calls to getUserMedia()."*). A tentativa que resolver por último executa `streamRef.current = stream2` (`src/App.tsx:109`) **sem parar as tracks de `stream1`** — que ficam inalcançáveis. Como a fonte só para quando todos os tracks terminam, a **LED da webcam permanece acesa mesmo depois de `⏻`** (que só para `stream2`). A única guarda anti-corrida existente hoje, `streamRef.current !== stream` (`src/App.tsx:120`), faz a tentativa perdedora dar `return` — mas não para os tracks dela.
-- **`init()` concorrente em si é seguro**: `initPromise ??=` faz dedup (`poseClient.ts:46`) e `this.callbacks = callbacks` (`poseClient.ts:44`) é atribuído antes de qualquer early-return, então o **último** chamador é quem recebe `READY`/erros — correto, porque a última tentativa é a corrente.
+- **After the leaked state**, the visible button is `⏻`, not ENABLE — the user has to stop first (at which point `stopCamera` cleans up the leaked stream). But the real overwrite case does exist:
+- **Double-clicking ENABLE while startup is in progress** — `cameraOn` only becomes `true` on line 118, near the end; throughout `getUserMedia`, the ENABLE button remains visible and clickable (`src/ui/CameraPip.tsx:29`). Two concurrent `startCamera` calls make two `getUserMedia` calls — and each call creates **a new `MediaStreamTrack` for the same source** (w3c.github.io/mediacapture-main: *"Several MediaStreamTrack objects can represent the same media source, e.g., when the user chooses the same camera in the UI shown by two consecutive calls to getUserMedia()."*). The attempt that resolves last assigns `streamRef.current = stream2` (`src/App.tsx:109`) **without stopping the tracks in `stream1`**, which then become unreachable. Since the source stops only when all tracks end, the **webcam LED stays on even after `⏻`** (which only stops `stream2`). The only race guard currently present, `streamRef.current !== stream` (`src/App.tsx:120`), makes the losing attempt return — but does not stop its tracks.
+- **Concurrent `init()` calls are safe on their own**: `initPromise ??=` deduplicates them (`poseClient.ts:46`), and `this.callbacks = callbacks` (`poseClient.ts:44`) is assigned before any early return, so the **last** caller receives `READY`/errors — correctly, because it belongs to the current attempt.
 
-### Dobra 2 — unmount no meio do `getUserMedia`
+### Case 2 — unmount during `getUserMedia`
 
-O cleanup do efeito de montagem é `return () => { clientRef.current?.dispose(); };` (`src/App.tsx:40`) — **não toca em `streamRef` em hipótese alguma**, nem para uma câmera totalmente ligada, nem para o caso da resolução tardia: se o componente desmonta com o prompt pendente e o usuário depois permite, `streamRef.current = stream` roda em componente morto, `setCameraOn(true)` dispara estado em componente desmontado e o stream vaza até a navegação da página. Verificado: nenhuma linha do arquivo para tracks fora de `stopCamera` (`src/App.tsx:72`).
+The mount effect's cleanup is `return () => { clientRef.current?.dispose(); };` (`src/App.tsx:40`) — **it never touches `streamRef`**, either for a camera that is already on or for a late resolution: if the component unmounts while the prompt is pending and the user later grants permission, `streamRef.current = stream` runs in a dead component, `setCameraOn(true)` updates state after unmount, and the stream leaks until page navigation. Verified: no line in the file stops tracks outside `stopCamera` (`src/App.tsx:72`).
 
-### Causa-raiz
+### Root cause
 
-`startCamera` não tem noção de "a tentativa já morreu" **entre** o `await getUserMedia` e o `streamRef.current = stream`. Todas as condições de aborto existentes (`streamRef.current !== stream`, `!client.isReady`) só são testadas **depois** de o stream já ter sido anexado ao `<video>` e `setCameraOn(true)` já ter rodado — e nenhuma delas para os tracks no caminho de saída. `stopCamera` só sabe parar `streamRef.current`, o que é estruturalmente incapaz de pegar um stream que ainda não foi atribuído.
+`startCamera` has no way to know that "the attempt has already ended" **between** `await getUserMedia` and `streamRef.current = stream`. All existing abort conditions (`streamRef.current !== stream`, `!client.isReady`) are checked only **after** the stream has already been attached to `<video>` and `setCameraOn(true)` has run — and none stops the tracks on the way out. `stopCamera` can only stop `streamRef.current`, so by design it cannot reach a stream that has not yet been assigned.
 
-### Correção proposta — contador de tentativa (attempt generation)
+### Proposed fix — attempt generation counter
 
-Tratar **init + permissão + attach como uma única tentativa**: um `attemptRef` incrementado por `stopCamera` e pelo cleanup de unmount; `startCamera` captura o id no início e revalida após cada `await` — incluindo **antes** de `streamRef.current = stream`. Pseudo-diff:
+Treat **init + permission + attachment as one attempt**: increment an `attemptRef` in `stopCamera` and in the unmount cleanup; `startCamera` captures the ID at the beginning and revalidates after every `await` — including **before** `streamRef.current = stream`. Pseudodiff:
 
 ```ts
 const attemptRef = useRef(0);
 
-// efeito de montagem — cleanup também para tracks e invalida tentativas em voo
+// mount effect — cleanup also stops tracks and invalidates in-flight attempts
 return () => {
   attemptRef.current += 1;
   clientRef.current?.dispose();
@@ -81,24 +81,24 @@ return () => {
 };
 
 const stopCamera = useCallback(() => {
-  attemptRef.current += 1;                 // invalida qualquer startCamera em voo
+  attemptRef.current += 1;                 // invalidate any in-flight startCamera call
   clientRef.current?.pauseCapture();
   streamRef.current?.getTracks().forEach((t) => { t.stop(); });
   streamRef.current = undefined;
-  /* ...restante inalterado... */
+  /* ...restante unchanged... */
 }, []);
 
 const startCamera = useCallback(async () => {
-  stopCamera();                            // cancela tentativa anterior + tracks pendentes
+  stopCamera();                            // cancel the previous attempt and stop pending tracks
   const attempt = ++attemptRef.current;
   const isStale = () => attemptRef.current !== attempt;
   const callbacks: PoseClientCallbacks = {
     onStatus: (status, detail) => {
-      if (isStale()) return;               // status de tentativa morta não pisa na UI
+      if (isStale()) return;               // a dead attempt must not overwrite the UI status
       setCameraStatus(detail);
       if (status === 'error') { setTracking('SEM POSE'); stopCamera(); setCameraStatus(detail); }
     },
-    onPose: (raw) => { if (isStale()) return; /* inalterado */ },
+    onPose: (raw) => { if (isStale()) return; /* unchanged */ },
   };
   try {
     await audioRef.current.unlock();
@@ -106,7 +106,7 @@ const startCamera = useCallback(async () => {
     clientRef.current ??= new PoseClient();
     const client = clientRef.current;
     const visionReady = client.init(callbacks);
-    const stream = await navigator.mediaDevices.getUserMedia({ /* inalterado */ });
+    const stream = await navigator.mediaDevices.getUserMedia({ /* unchanged */ });
     if (isStale()) {                       // erro/stop chegou durante o prompt
       stream.getTracks().forEach((t) => { t.stop(); });
       return;
@@ -127,47 +127,47 @@ const startCamera = useCallback(async () => {
     if (!client.isReady || isStale() || streamRef.current !== stream) return;
     client.beginCapture(video, callbacks);
   } catch (error) {
-    if (isStale()) return;                 // ex.: AbortError de play() interrompido por stop
+    if (isStale()) return;                 // e.g. play aborted by stop
     stopCamera();
-    setCameraStatus(error instanceof Error ? error.message : 'Não foi possível iniciar a câmera.');
+    setCameraStatus(error instanceof Error ? error.message : 'Could not start the camera.');
   }
 }, [stopCamera, dispatchEvent]);
 ```
 
-Observações de desenho:
+Design notes:
 
-- **Incrementar no `stopCamera` e no unmount** é o que torna `isStale()` verdadeiro exatamente nos cenários do bug — todo caminho fatal de init passa por `onStatus('error')` → `stopCamera` → `attemptRef++`, então qualquer continuação tardia de `getUserMedia`/`play()`/`visionReady` é detectada.
-- **`stopCamera()` no topo do `startCamera`** resolve a dobra do clique duplo: para `streamRef` pendente, para tracks de uma tentativa anterior já anexada e reseta pipeline/calibrador — tudo o que a nova tentativa precisa de qualquer forma. Custo: um flash de `'Câmera desligada'` antes de `'Carregando…'`; se incomodar, extrair só a parte de tracks em vez do `stopCamera` completo.
-- **`if (isStale()) return` no `catch`** evita que um `AbortError` — inevitável quando `stopCamera` zera `video.srcObject` durante `await video.play()` (ver achado A) — sobrescreva a mensagem de erro original com *"The play() request was interrupted…"*.
-- **Por que não `AbortSignal`?** `getUserMedia` não aceita sinal de cancelamento (a API não tem parâmetro para isso na spec), então o contador é necessário de qualquer forma — e ele também decide o que fazer com o stream **já resolvido** (parar os tracks), coisa que um abort não faria.
-- **Preservação do status de erro:** confirmada — `src/App.tsx:89` já re-escreve `setCameraStatus(detail)` depois de `stopCamera()`; com o gate `isStale`, erros de tentativas mortas nem chegam à UI. Os outros efeitos de `stopCamera` mid-attempt (`pauseCapture`, `pipeline.reset()`, `calibrator.reset()`, `drawPose` sem snapshot) são inócuos ou desejáveis.
+- **Incrementing in `stopCamera` and on unmount** makes `isStale()` true in exactly the bug scenarios — every fatal init path goes through `onStatus('error')` → `stopCamera` → `attemptRef++`, so any late continuation of `getUserMedia`/`play()`/`visionReady` is detected.
+- **Calling `stopCamera()` at the top of `startCamera`** resolves the double-click case: it stops a pending `streamRef`, stops tracks from a previously attached attempt, and resets the pipeline/calibrator — all things the new attempt needs anyway. Cost: a brief `'Camera off'` flash before `'Carregando…'`; if that is distracting, extract only the track cleanup instead of calling the full `stopCamera`.
+- **`if (isStale()) return` in `catch`** prevents an `AbortError` — inevitable when `stopCamera` clears `video.srcObject` during `await video.play()` (see adjacent finding A) — from replacing the original error message with *"The play() request was interrupted…"*.
+- **Why not `AbortSignal`?** `getUserMedia` does not accept a cancellation signal (the API has no such parameter in the specification), so a counter is needed anyway — and it also determines what to do with a stream that has **already resolved** (stop its tracks), which abort alone would not do.
+- **Preserving the error status:** confirmed — `src/App.tsx:89` already writes `setCameraStatus(detail)` again after `stopCamera()`; with the `isStale` gate, errors from dead attempts do not reach the UI. The other mid-attempt effects of `stopCamera` (`pauseCapture`, `pipeline.reset()`, `calibrator.reset()`, `drawPose` without a snapshot) are harmless or desirable.
 
-### Casos de borda cobertos pelo desenho
+### Edge cases covered by this design
 
-- Erro **antes** de `getUserMedia` resolver → stream novo é parado no `isStale()` pós-await; LED nem chega a acender de forma permanente.
-- Erro **depois** de `streamRef` atribuído → `stopCamera` já para os tracks; os checks `isStale()` subsequentes abortam antes de `setCameraOn(true)`/`beginCapture`.
-- ATIVAR duas vezes rápido → a 2ª chamada invalida a 1ª; a 1ª para seu próprio stream ao resolver e sai cedo.
-- Unmount mid-flight → cleanup incrementa o contador e para `streamRef`; resolução tardia para os tracks novos e retorna antes de mexer no `<video>`/estado.
-- Timeout de 30 s **depois** de o usuário já ter desligado manualmente → callbacks da tentativa morta são descartados pelo gate `isStale` → status fica `'Câmera desligada'` (o `dispose()` interno do cliente ainda roda — correto, o worker travado não deve ficar quente).
-- `READY` tardio com câmera desligada (init completou após o stop) → `onStatus('ready')` filtrado pelo gate → não sobrescreve `'Câmera desligada'`.
+- Error **before** `getUserMedia` resolves → the new stream is stopped by the post-await `isStale()` check; the LED does not stay on.
+- Error **after** `streamRef` is assigned → `stopCamera` has already stopped the tracks; subsequent `isStale()` checks abort before `setCameraOn(true)`/`beginCapture`.
+- Two quick ENABLE clicks → the second call invalidates the first; when the first resolves, it stops its own stream and exits early.
+- Unmount mid-flight → cleanup increments the counter and stops `streamRef`; a late resolution stops its new tracks and returns before touching `<video>` or state.
+- 30-second timeout **after** the user has manually turned the camera off → callbacks from the dead attempt are discarded by the `isStale` gate → status remains `'Camera off'` (the client's internal `dispose()` still runs — correctly, the stuck worker should not stay warm).
+- Late `READY` while the camera is off (init completes after stop) → `onStatus('ready')` is filtered by the gate → it does not overwrite `'Camera off'`.
 
-### Verificação
+### Verification
 
-Sem cobertura automatizada no caminho de câmera (AGENTS.md). Repro manual: `npm run dev` → DevTools → Network → *Request blocking* para `**/mediapipe/models/*.task` (ou `*.wasm`) → ATIVAR CÂMERA → **não responder** ao prompt de permissão por alguns segundos (o init falha rápido por fetch) → clicar "Permitir" → hoje: LED acesa + vídeo vivo + 'SEM POSE' + erro no status + nunca rastreia; com a correção: LED apaga imediatamente ao permitir e o status permanece com a mensagem de erro, `cameraOn` continua `false`.
+There is no automated coverage for the camera path (AGENTS.md). Manual reproduction: `npm run dev` → DevTools → Network → *Request blocking* for `**/mediapipe/models/*.task` (or `*.wasm`) → ENABLE CAMERA → **leave the permission prompt unanswered** for a few seconds (init fails quickly on fetch) → click "Allow" → current behavior: LED on + live video + 'SEM POSE' + error in status + tracking never starts; with the fix: the LED turns off as soon as permission is granted, the status retains the error message, and `cameraOn` remains `false`.
 
 ---
 
-## Achado 2 — status preso em 'Câmera desligada' ao religar com worker quente
+## Finding 2 — status remains 'Camera off' ("Camera off") when restarting with a warm worker
 
-**Veredito: confirmado.**
+**Verdict: confirmed.**
 
-### O que é
+### What happens
 
-Segunda ativação com worker quente: `init(callbacks)` faz `this.callbacks = callbacks; if (this.ready) return;` (`poseClient.ts:44-45`) — retorna imediatamente, **sem** reemitir `onStatus('loading')` nem `onStatus('ready')` (o `spawn` inteiro é pulado — a mensagem `READY` só existe uma vez por worker, `poseClient.ts:107-110`). O fluxo continua: `getUserMedia` (permissão já concedida), `play()`, `loadeddata`, `setCameraOn(true)`, `await visionReady` (resolvido), `beginCapture(video, callbacks)` (`src/App.tsx:121`) — e `beginCapture` **não emite `onStatus` em nenhum caminho** (`poseClient.ts:50-75`). Resultado: a última escrita em `cameraStatus` foi o `'Câmera desligada'` do `stopCamera` (`src/App.tsx:77`) e ela permanece na linha de status do PiP enquanto o chip vai a `TRACKING` — UI inconsistente: vídeo ao vivo, poses fluindo, status dizendo que a câmera está desligada.
+On a second start with the worker warm, `init(callbacks)` runs `this.callbacks = callbacks; if (this.ready) return;` (`poseClient.ts:44-45`) — it returns immediately, **without** re-emitting `onStatus('loading')` or `onStatus('ready')` (the entire `spawn` is skipped — the `READY` message exists only once per worker, `poseClient.ts:107-110`). The flow continues: `getUserMedia` (permission already granted), `play()`, `loadeddata`, `setCameraOn(true)`, `await visionReady` (already resolved), `beginCapture(video, callbacks)` (`src/App.tsx:121`) — but `beginCapture` **does not emit `onStatus` on any path** (`poseClient.ts:50-75`). The last write to `cameraStatus` was therefore `'Camera off'` from `stopCamera` (`src/App.tsx:77`), and it remains in the PiP status line while the chip changes to `TRACKING` — an inconsistent UI: live video and flowing poses, but a status that says the camera is off.
 
-### Correção proposta
+### Proposed fix
 
-A revisão sugere `setCameraStatus('MediaPipe pronto · capturando')` antes de `beginCapture` — funciona, mas **perde o delegate** (`GPU`/`CPU`) que o label do `READY` carrega (`poseClient.ts:110`). Melhor: emitir o status de dentro do `beginCapture`, que é o único lugar que sabe que a captura realmente começou (os early-returns de `poseClient.ts:52` significam "não começou"):
+The review suggests calling `setCameraStatus('MediaPipe ready · capturing')` before `beginCapture` — that works, but **loses the delegate** (`GPU`/`CPU`) carried by the `READY` label (`poseClient.ts:110`). Better: emit the status from `beginCapture`, the only place that knows capture has actually started (the early returns at `poseClient.ts:52` mean "it did not start"):
 
 ```ts
 private delegate: Delegate = 'GPU';
@@ -176,39 +176,39 @@ private delegate: Delegate = 'GPU';
 this.ready = true;
 this.delegate = message.delegate;                       // NOVO
 this.onReady?.();
-this.callbacks?.onStatus('ready', `MediaPipe pronto · ${message.delegate}`);
+this.callbacks?.onStatus('ready', `MediaPipe ready · ${message.delegate}`);
 
-// spawn — FALLBACK (poseClient.ts:111-112): manter o label correto pós-fallback
+// spawn — FALLBACK (poseClient.ts:111-112): keep the label correct after fallback
 this.delegate = message.to;                             // NOVO
-this.callbacks?.onStatus('fallback', 'GPU indisponível; usando CPU.');
+this.callbacks?.onStatus('fallback', 'GPU unavailable; using CPU.');
 
-// beginCapture — depois de this.capturing = true:
-this.callbacks?.onStatus('ready', `MediaPipe pronto · ${this.delegate} · capturando`);
+// beginCapture — after this.capturing = true:
+this.callbacks?.onStatus('ready', `MediaPipe ready · ${this.delegate} · capturing`);
 ```
 
-Isso mantém **todas** as transições de status de visão dentro do `PoseClient` (um único ponto de emissão, consistente com `loading`/`ready`/`fallback`/`error`) e funciona tanto no primeiro start quanto em religamentos. Alternativa menor: expor `get delegate()` e compor o label no App — mais acoplamento por menos ganho.
+This keeps **all** vision status transitions inside `PoseClient` (one emission point, consistent with `loading`/`ready`/`fallback`/`error`) and works both on the first start and on restarts. A smaller alternative is to expose `get delegate()` and compose the label in the app — more coupling for less benefit.
 
-### Ordenação de `onStatus('ready')` tardio
+### Ordering of late `onStatus('ready')`
 
-Pergunta da revisão: um `READY` chegando **depois** de um stop está corretamente ordenado? Hoje: init ainda em voo → usuário desliga → init completa → `READY` → `onStatus('ready', 'MediaPipe pronto · GPU')` (`poseClient.ts:110`) sobrescreve `'Câmera desligada'` → PiP mostra SEM SINAL + "MediaPipe pronto". Não quebra nada (o worker quente é intencional), mas é cosmético-inconsistente; o gate `isStale` do achado 1 resolve de graça — READY de tentativa morta é descartado e o próximo ATIVAR mostra `'… · capturando'` via `beginCapture`.
+Review question: is a `READY` arriving **after** a stop ordered correctly? Current behavior: init is still in flight → user turns the camera off → init completes → `READY` → `onStatus('ready', 'MediaPipe ready · GPU')` (`poseClient.ts:110`) overwrites `'Camera off'` → PiP shows NO SIGNAL + "MediaPipe ready". Nothing breaks (the warm worker is intentional), but the UI is cosmetically inconsistent; the `isStale` gate from Finding 1 resolves it at no extra cost — `READY` from a dead attempt is discarded, and the next ENABLE shows `'… · capturing'` through `beginCapture`.
 
 ---
 
-## Achado 3 — `pauseCapture` quebra "um frame em trânsito" e entrega pose em câmera desligada
+## Finding 3 — `pauseCapture` breaks the "one frame in flight" invariant and delivers poses while the camera is off
 
-**Veredito: confirmado**, com um agravante a mais que a revisão não explicitou: o excesso de frames em trânsito **se acumula a cada ciclo pausa/retomada**, não é só transitório.
+**Verdict: confirmed**, with one additional aggravating factor that the review did not mention: excess in-flight frames **accumulate with each pause/resume cycle**; this is not just transient.
 
-### O que é
+### What happens
 
-`pauseCapture` (`poseClient.ts:77-85`) faz `this.busy = false` (linha 84) enquanto o worker pode ainda estar processando o último `FRAME` postado (`poseClient.ts:148`). Na retomada, `capture()` vê `busy === false` e posta um **segundo** frame. Quando a resposta do primeiro chega, `this.busy = false` (`poseClient.ts:118`) de novo — agora com o segundo ainda em voo → na prática o invariante "um frame em trânsito" passa a admitir **dois** permanentemente após um toggle. E piora: cada `pauseCapture` no meio de N frames em voo adiciona +1 ao teto do próximo ciclo — a dívida de latência (um frame velho enfileirado atrás do atual) cresce a cada desliga/liga.
+`pauseCapture` (`poseClient.ts:77-85`) sets `this.busy = false` (line 84) while the worker may still be processing the last posted `FRAME` (`poseClient.ts:148`). On resume, `capture()` sees `busy === false` and posts a **second** frame. When the first frame's response arrives, `this.busy = false` is set again (`poseClient.ts:118`) while the second is still in flight — in practice, after a toggle the "one frame in flight" invariant now allows **two** frames permanently. It gets worse: each `pauseCapture` while N frames are in flight adds +1 to the next cycle's ceiling — the latency debt (an old frame queued behind the current one) grows with every off/on cycle.
 
-Segunda metade: uma resposta `POSE` aterrissando durante a pausa executa `this.callbacks?.onPose(...)` incondicionalmente (`poseClient.ts:117-121`) → no App isso roda `pipeline.update`, `setTracking`, `drawPose` e o loop de eventos `dispatchEvent` (`src/App.tsx:91-98`) que dispara `engine.onAction` e **sons** (`audioRef.hit/jump/step`, `src/App.tsx:65-67`) — com a câmera desligada.
+The other half: a `POSE` response arriving during the pause unconditionally calls `this.callbacks?.onPose(...)` (`poseClient.ts:117-121`) → in the app this runs `pipeline.update`, `setTracking`, `drawPose`, and the `dispatchEvent` loop (`src/App.tsx:91-98`), which triggers `engine.onAction` and **sounds** (`audioRef.hit/jump/step`, `src/App.tsx:65-67`) — while the camera is off.
 
-**Quão nocivo é hoje, na prática:** `stopCamera` roda `pipelineRef.current.reset()` (`src/App.tsx:78`), o `TrackingGate` precisa de 3 frames bons consecutivos para `tracked` (`src/kinematics/trackingGate.ts:13-17`) e `ActionPipeline.update` só emite eventos com `tracked` + calibração — então **uma** resposta tardia isolada chega a `'degraded'`: nenhum evento/som, só `setTracking` invisível (o chip nem renderiza com `cameraOn=false`, `src/ui/CameraPip.tsx:26`), `drawPose` invisível, e **poluição do estado do gate** que vaza para a sessão seguinte (o próximo start não reseta o pipeline — um frame velho conta como "frame bom" da nova sessão). O cenário de eventos/som de verdade exige ≥3 respostas tardias acumuladas — possível justamente por causa da degradação do invariante. Ou seja: o dano direto hoje é limitado, mas a combinação das duas metades torna o dano real cumulativo. **Drop é o comportamento correto; entregar é errado** — uma pose de frame capturado antes do stop não deve dirigir jogo nem overlay.
+**Practical impact today:** `stopCamera` runs `pipelineRef.current.reset()` (`src/App.tsx:78`), `TrackingGate` needs 3 consecutive good frames to become `tracked` (`src/kinematics/trackingGate.ts:13-17`), and `ActionPipeline.update` emits events only when tracking and calibration are both active — so **one** isolated late response reaches `'degraded'`: no event or sound, only an invisible `setTracking` (the chip is not rendered while `cameraOn=false`, `src/ui/CameraPip.tsx:26`), an invisible `drawPose`, and **pollution of gate state** that leaks into the next session (the next start does not reset the pipeline — an old frame counts as a "good frame" in the new session). Actual events/sounds require at least 3 accumulated late responses — possible precisely because the invariant degrades. In other words, direct damage is limited today, but the two halves together make the actual damage cumulative. **Dropping is correct; delivering is wrong** — a pose from a frame captured before stop should not drive the game or overlay.
 
-Garantia de que a resposta sempre chega (para `busy` não travar): o worker responde **exatamente uma vez** por `FRAME` — `!landmarker` → `bitmap.close()` + `ERROR` (`pose.worker.ts:75-78`); `try` → `POSE` (`pose.worker.ts:82-86`); `catch` → `ERROR` fatal ou não (`pose.worker.ts:87-94`); `finally` → `bitmap.close()` (`pose.worker.ts:95-97`). Exceção: `worker.terminate()` — a spec esvazia a fila de mensagens da porta ("*empty the port message queue of the port that the worker's implicit port is entangled with*", html.spec.whatwg.org/multipage/workers.html#terminate-a-worker), então uma resposta postada e não entregue **morre** — mas nesse caso o cliente também está morto; por isso o reset correto é no `dispose` (abaixo).
+The response is guaranteed to arrive (so `busy` does not remain stuck): the worker responds **exactly once** for each `FRAME` — `!landmarker` → `bitmap.close()` + `ERROR` (`pose.worker.ts:75-78`); `try` → `POSE` (`pose.worker.ts:82-86`); `catch` → fatal or non-fatal `ERROR` (`pose.worker.ts:87-94`); `finally` → `bitmap.close()` (`pose.worker.ts:95-97`). Exception: `worker.terminate()` — the specification empties the port's message queue ("*empty the port message queue of the port that the worker's implicit port is entangled with*", html.spec.whatwg.org/multipage/workers.html#terminate-a-worker), so a posted but undelivered response **is lost** — but in that case the client is dead too; therefore the correct reset belongs in `dispose` (below).
 
-### Correção proposta
+### Proposed fix
 
 ```ts
 pauseCapture(): void {
@@ -218,91 +218,91 @@ pauseCapture(): void {
   if (this.rafId !== undefined) cancelAnimationFrame(this.rafId);
   this.rafId = undefined;
   this.video = undefined;
-  // NÃO zerar busy: o worker ainda pode estar processando um FRAME;
-  // a resposta (POSE ou ERROR) é quem zera — invariante "um em trânsito" preservado.
+  // Do not clear busy: the worker may still be processing a FRAME;
+  // the response (POSE or ERROR) clears it, preserving the one-frame-in-flight invariant.
 }
 
 // POSE handler (poseClient.ts:117-121):
 } else if (message.type === 'POSE') {
   this.busy = false;                       // sempre: sinaliza que o worker terminou o frame
-  if (!this.capturing) return;             // NOVO: descarta pose de câmera já parada
+  if (!this.capturing) return;             // NOVO: discard a pose captured before the camera stopped
   const { type: _type, ...data } = message;
-  this.callbacks?.onPose({ /* inalterado */ });
+  this.callbacks?.onPose({ /* unchanged */ });
 }
 
 // dispose (poseClient.ts:87-97): ADICIONAR
 this.busy = false;                         // worker terminado: resposta nunca chega (terminate esvazia a fila)
 ```
 
-Notas de desenho:
+Design notes:
 
-- **`busy=false` tem que sair de `pauseCapture` e ir para `dispose`** — não é opcional: o mesmo `PoseClient` é reutilizado (`clientRef.current ??=`, `src/App.tsx:102`) após `dispose` (que zera `initPromise`, permitindo re-spawn). Se `busy` ficar `true` num dispose durante captura, o próximo `beginCapture`→`capture()` sai cedo em `if (this.busy) return` (`poseClient.ts:141`) e **nunca mais envia frame** — trava silenciosa de tracking.
-- `beginCapture` **não deve** zerar `busy` — é o mesmo bug do `pauseCapture` sob outro nome (a resposta pendente zeraria depois, reabrindo a janela de 2-em-voo).
-- Timestamps continuam monotônicos mesmo com frames extra em voo — vêm do `now` crescente do rVFC e o `Math.max(now, lastTimestamp + 0.01)` (`poseClient.ts:143-144`) garante monotonicidade estrita, exigida pelo modo `VIDEO` do MediaPipe (ai.google.dev/mediapipe/solutions/vision/pose_landmarker/web_js: "monotonic timestamps"). Ou seja: o bug degrada latência/throughput, não causa exceção — por isso passou despercebido.
-- **Hardening opcional:** se quiser também descartar pose de uma **sessão anterior** (pausa → retomada rápida: a resposta antiga chega com `capturing === true`), guardar `this.busyEpoch` ao postar o FRAME e incrementar um `captureEpoch` no `pauseCapture`; no handler, comparar. Hoje essa pose velha só adiciona um frame com `dt` estranho aos detectores — aceitável.
+- **`busy=false` must move from `pauseCapture` to `dispose`** — this is required: the same `PoseClient` is reused (`clientRef.current ??=`, `src/App.tsx:102`) after `dispose` (which clears `initPromise`, allowing a respawn). If `busy` remains `true` after a dispose during capture, the next `beginCapture` → `capture()` exits early at `if (this.busy) return` (`poseClient.ts:141`) and **never sends another frame** — a silent tracking deadlock.
+- `beginCapture` **must not** reset `busy` — that would be the same bug as `pauseCapture` under another name (the pending response would clear it later, reopening the two-in-flight window).
+- Timestamps remain monotonic even with extra frames in flight — they come from the increasing rVFC `now`, and `Math.max(now, lastTimestamp + 0.01)` (`poseClient.ts:143-144`) guarantees strict monotonicity, as required by MediaPipe's `VIDEO` mode (ai.google.dev/mediapipe/solutions/vision/pose_landmarker/web_js: "monotonic timestamps"). In other words, the bug degrades latency/throughput rather than causing an exception — which is why it went unnoticed.
+- **Optional hardening:** to also discard poses from a **previous session** (pause → quick resume: the old response arrives while `capturing === true`), store `this.busyEpoch` when posting the FRAME and increment a `captureEpoch` in `pauseCapture`; compare them in the handler. Today, that stale pose only adds a frame with an unusual `dt` to the detectors — acceptable.
 
-### Casos de borda
+### Edge cases
 
-- Pausa durante `await createImageBitmap` (`poseClient.ts:146-147`): o check `!this.capturing` já fecha o bitmap e zera `busy` — correto, nada foi postado; sem mudança.
-- Pausa → retomada antes da resposta: com o fix, `capture()` pula frames enquanto `busy` estiver `true`; quando a resposta chega, `busy` limpa e o próximo rVFC envia — exatamente um em voo o tempo todo.
-- `ERROR` não-fatal durante pausa → `busy=false` (correto, é a resposta do frame) + `onStatus('fallback')` — status cosmético em câmera desligada; worker sobrevive para a próxima sessão.
-- `worker.onerror` → `dispose` → com o fix, `busy` zera no dispose; sem ele, deadlock silencioso na reativação.
+- Pause during `await createImageBitmap` (`poseClient.ts:146-147`): the existing `!this.capturing` check closes the bitmap and clears `busy` — correct, since nothing was posted; no change needed.
+- Pause → resume before the response: with the fix, `capture()` skips frames while `busy` is `true`; when the response arrives, `busy` clears and the next rVFC sends a frame — exactly one in flight at all times.
+- Non-fatal `ERROR` during pause → `busy=false` (correct, it is the frame's response) + `onStatus('fallback')` — cosmetic status while the camera is off; the worker survives for the next session.
+- `worker.onerror` → `dispose` → with the fix, `busy` clears in `dispose`; without it, reactivation silently deadlocks.
 
-### Verificação
+### Verification
 
-- **Unit-testável** (ver seção seguinte): com `Worker`/`createImageBitmap`/rVFC falsos, dá para asserir em Vitest que após `pauseCapture`+`beginCapture` existe **no máximo 1 FRAME sem resposta** e que `onPose` não é chamado para respostas durante pausa.
-- Manual: ligar tracking → alternar ⏻/ATIVAR várias vezes rápido → contar `FRAME` vs `POSE`/`ERROR` no `onmessage` (um `console.debug` temporário basta); antes do fix, o delta cresce a cada ciclo.
-
----
-
-## Achados adjacentes
-
-1. **Unmount não para tracks** — já coberto no achado 1 (dobra 2): `src/App.tsx:40` precisa parar `streamRef` no cleanup, não apenas `dispose()` do cliente.
-2. **Hang no `await loadeddata`** (`src/App.tsx:114-117`): se `stopCamera` roda durante a espera, `video.srcObject = null` invoca o *media element load algorithm* (srcObject setter → "Invoke this's media element load algorithm", html.spec.whatwg.org/multipage/media.html), que dispara `emptied` e zera `readyState` → `loadeddata` nunca mais dispara → `startCamera` fica pendurado para sempre (sem vazamento de tracks — `stopCamera` já as parou — mas a função nunca termina). O patch do achado 1 adiciona um listener `emptied` ao lado do `loadeddata`, coberto. Em paralelo: `await video.play()` **não** trava nessa janela — o algoritmo de load resolve/rejeita pending play promises imediatamente ("reject pending play promises with AbortError"), o que no Chrome vira o `AbortError` "The play() request was interrupted by a new load request" — daí a importância do `if (isStale()) return` no `catch`.
-3. **`worker.onerror` durante captura** (`poseClient.ts:123-127`): status `error` + `dispose` — mata o worker quente e desliga a câmera. Comportamento coerente com "dispose só em fatal" (um erro de script no worker é fatal para aquela instância), mas reforça a necessidade do `busy=false` dentro de `dispose`.
-4. **`init()` concorrente**: dedup correto via `initPromise ??=` e callbacks do último chamador vencem — combinado com o contador de tentativa, fica totalmente correto.
-5. **`unhandledrejection` potencial**: `const visionReady = client.init(callbacks)` (`src/App.tsx:104`) só é aguardado na linha 119 — se `init()` rejeitar cedo (ex.: `new Worker` lançar `SecurityError`), a janela entre as duas linhas pode gerar `Uncaught (in promise)` no console. Mitigação barata: `const visionReady = client.init(callbacks); visionReady.catch(() => {});` ou aguardar via `Promise.all([visionReady, getUserMedia...])` — opcional.
-6. **`stopCamera` dentro de `onStatus('error')`**: `pipeline.reset()`, `calibrator.reset()`, `drawPose` — inócuos mid-attempt (reset desejável de qualquer forma); `'Câmera desligada'` não clobbera o erro porque `src/App.tsx:89` re-escreve `detail` depois — verificado.
+- **Unit-testable** (see the next section): with fake `Worker`/`createImageBitmap`/rVFC, Vitest can assert that after `pauseCapture` + `beginCapture` there is **at most 1 FRAME without a response** and that `onPose` is not called for responses received during a pause.
+- Manual: start tracking → quickly toggle ⏻/ENABLE several times → count `FRAME` versus `POSE`/`ERROR` in `onmessage` (a temporary `console.debug` is enough); before the fix, the difference grows with each cycle.
 
 ---
 
-## O que é testável neste repo
+## Adjacent findings
 
-O `npm test` roda Vitest em **ambiente node** (`vite.config.ts`, `test.environment: 'node'`, `include: tests/**/*.test.ts`) e o AGENTS.md explicita que o caminho de worker/câmera não tem cobertura automatizada — verificação manual via `npm run dev` → ATIVAR CÂMERA → TRACKING.
-
-**Unit-testável em node puro** (proposta: `tests/poseClient.test.ts` + stubs de globais):
-
-- `vi.stubGlobal('Worker', FakeWorker)` — classe falsa que grava `postMessage` e expõe `emit(reply)` para injetar `READY`/`POSE`/`ERROR`/`FALLBACK` sob demanda;
-- `vi.stubGlobal('createImageBitmap', async () => ({ close: vi.fn() }))`, `requestAnimationFrame`/`cancelAnimationFrame` falsos, `vi.stubGlobal('window', { setTimeout })`, `vi.stubGlobal('location', { origin: 'http://localhost' })` (`mediapipeAssetUrls` usa `location.origin`, `poseClient.ts:11-16`); `import.meta.env.BASE_URL` vem do transform do Vitest (Vite) — `'/'` por `base: '/'`;
-- vídeo falso `{ readyState: 4, requestVideoFrameCallback: (cb) => id, cancelVideoFrameCallback: vi.fn() }`.
-
-Com isso dá para cobrir **deterministicamente**: dedup de `init()` (duas chamadas → um `Worker` construído, ambas resolvem), invariante de um-em-trânsito após `pauseCapture`+`beginCapture`, drop de `POSE` com `!capturing`, `busy=false` garantido por `dispose`, timeout de 30 s com `vi.useFakeTimers()`, e o `delegate` exposto/emítido após `READY`/`FALLBACK`. Não cobre: comportamento real de `getUserMedia`, rVFC real, `MediaStreamTrack` — esses ficam para a verificação manual descrita em cada achado. Alternativa com dependência nova: `happy-dom`/`jsdom` + `@testing-library/react` para o `App` — provavelmente desproporcional para este projeto.
+1. **Unmount does not stop tracks** — already covered in Finding 1 (Case 2): `src/App.tsx:40` must stop `streamRef` in cleanup, not just call `dispose()` on the client.
+2. **Hang while awaiting `loadeddata`** (`src/App.tsx:114-117`): if `stopCamera` runs during the wait, `video.srcObject = null` invokes the *media element load algorithm* (srcObject setter → "Invoke this's media element load algorithm", html.spec.whatwg.org/multipage/media.html), which fires `emptied` and resets `readyState` → `loadeddata` never fires again → `startCamera` hangs forever (no track leak — `stopCamera` already stopped them — but the function never finishes). The patch in Finding 1 adds an `emptied` listener alongside `loadeddata`, covering this case. In parallel, `await video.play()` does **not** hang in this window — the load algorithm immediately resolves/rejects pending play promises ("reject pending play promises with AbortError"), which becomes the `AbortError` "The play() request was interrupted by a new load request" in Chrome — hence the importance of `if (isStale()) return` in `catch`.
+3. **`worker.onerror` during capture** (`poseClient.ts:123-127`): status `error` + `dispose` — it kills the warm worker and turns off the camera. This is consistent with "dispose only on fatal" (a worker script error is fatal for that instance), but reinforces the need for `busy=false` in `dispose`.
+4. **Concurrent `init()` calls**: deduplication via `initPromise ??=` is correct and the last caller's callbacks win — with the attempt counter, the behavior is fully correct.
+5. **Potential `unhandledrejection`**: `const visionReady = client.init(callbacks)` (`src/App.tsx:104`) is not awaited until line 119 — if `init()` rejects early (e.g., `new Worker` throws `SecurityError`), the gap between those lines can produce `Uncaught (in promise)` in the console. Cheap mitigation: `const visionReady = client.init(callbacks); visionReady.catch(() => {});` or await via `Promise.all([visionReady, getUserMedia...])` — optional.
+6. **`stopCamera` inside `onStatus('error')`**: `pipeline.reset()`, `calibrator.reset()`, `drawPose` — harmless mid-attempt (a reset is desirable anyway); `'Camera off'` does not clobber the error because `src/App.tsx:89` rewrites `detail` afterward — verified.
 
 ---
 
-## Fontes
+## What can be tested in this repo
 
-**Código (path:linha):**
+`npm test` runs Vitest in a **Node environment** (`vite.config.ts`, `test.environment: 'node'`, `include: tests/**/*.test.ts`), and AGENTS.md states that the worker/camera path has no automated coverage — verify it manually with `npm run dev` → ENABLE CAMERA → TRACKING.
 
-- `src/App.tsx:36-41` — efeito de montagem: `warmVisionAssets` + cleanup só com `dispose()`.
-- `src/App.tsx:70-83` — `stopCamera`: `pauseCapture` (71), `getTracks().stop()` (72), `srcObject = null` (74), `'Câmera desligada'` (77), resets (78-82).
-- `src/App.tsx:85-126` — `startCamera`: callbacks (86-99, erro em 89), `init` paralelo (104), `getUserMedia` (105-108), `streamRef` (109), `srcObject`/`play`/`loadeddata` (112-117), `setCameraOn` (118), `await visionReady` + bail (119-120), `beginCapture` (121), `catch` (122-125).
-- `src/cv/poseClient.ts:43-48` — `init`/`initPromise` dedup; `50-75` — `beginCapture` (sem `onStatus`); `77-85` — `pauseCapture` (`busy=false` na 84); `87-97` — `dispose`; `99-138` — `spawn` (`READY` 107-110, `FALLBACK` 111-112, `ERROR` 113-116, `POSE` 117-121, `onerror` 123-127, race/timeout 130-137); `140-153` — `capture`.
-- `src/cv/pose.worker.ts:48-66` — `INIT`→`READY`/`ERROR`; `68-72` — `DISPOSE`; `74-98` — `FRAME`→`POSE`/`ERROR` + `bitmap.close()` no `finally`.
+**Unit-testable in plain Node** (proposal: `tests/poseClient.test.ts` + global stubs):
+
+- `vi.stubGlobal('Worker', FakeWorker)` — a fake class records `postMessage` and exposes `emit(reply)` to inject `READY`/`POSE`/`ERROR`/`FALLBACK` on demand;
+- `vi.stubGlobal('createImageBitmap', async () => ({ close: vi.fn() }))`, fake `requestAnimationFrame`/`cancelAnimationFrame`, `vi.stubGlobal('window', { setTimeout })`, `vi.stubGlobal('location', { origin: 'http://localhost' })` (`mediapipeAssetUrls` uses `location.origin`, `poseClient.ts:11-16`); `import.meta.env.BASE_URL` comes from Vitest's (Vite) transform — `'/'` due to `base: '/'`;
+- fake video `{ readyState: 4, requestVideoFrameCallback: (cb) => id, cancelVideoFrameCallback: vi.fn() }`.
+
+This setup can **deterministically** cover: `init()` deduplication (two calls → one `Worker` constructed, both resolve), the one-in-flight invariant after `pauseCapture` + `beginCapture`, dropping `POSE` when `!capturing`, `busy=false` guaranteed by `dispose`, a 30-second timeout with `vi.useFakeTimers()`, and the `delegate` exposed/emitted after `READY`/`FALLBACK`. It does not cover real `getUserMedia` behavior, real rVFC, or `MediaStreamTrack` — those remain part of the manual verification described for each finding. An alternative requiring new dependencies is `happy-dom`/`jsdom` + `@testing-library/react` for `App` — probably disproportionate for this project.
+
+---
+
+## Sources
+
+**Code (path:line):**
+
+- `src/App.tsx:36-41` — mount effect: `warmVisionAssets` + cleanup that only calls `dispose()`.
+- `src/App.tsx:70-83` — `stopCamera`: `pauseCapture` (71), `getTracks().stop()` (72), `srcObject = null` (74), `'Camera off'` (77), resets (78-82).
+- `src/App.tsx:85-126` — `startCamera`: callbacks (86-99, error at 89), parallel `init` (104), `getUserMedia` (105-108), `streamRef` (109), `srcObject`/`play`/`loadeddata` (112-117), `setCameraOn` (118), `await visionReady` + bail-out (119-120), `beginCapture` (121), `catch` (122-125).
+- `src/cv/poseClient.ts:43-48` — `init`/`initPromise` deduplication; `50-75` — `beginCapture` (no `onStatus`); `77-85` — `pauseCapture` (`busy=false` at 84); `87-97` — `dispose`; `99-138` — `spawn` (`READY` 107-110, `FALLBACK` 111-112, `ERROR` 113-116, `POSE` 117-121, `onerror` 123-127, race/timeout 130-137); `140-153` — `capture`.
+- `src/cv/pose.worker.ts:48-66` — `INIT` → `READY`/`ERROR`; `68-72` — `DISPOSE`; `74-98` — `FRAME` → `POSE`/`ERROR` + `bitmap.close()` without `finally`.
 - `src/cv/protocol.ts:49-60` — `WorkerRequest`/`WorkerReply`.
-- `src/ui/CameraPip.tsx:25-40` — SEM SINAL (25), chip de tracking (26), ATIVAR vs controles (29-39), linha de status (40).
-- `src/kinematics/trackingGate.ts:13-27` — 3 frames bons → `tracked`, 4 ruins → `lost`, `reset()`.
-- `src/kinematics/actionPipeline.ts` — eventos só com `tracked` + calibração.
+- `src/ui/CameraPip.tsx:25-40` — NO SIGNAL (25), tracking chip (26), ENABLE vs controls (29-39), status line (40).
+- `src/kinematics/trackingGate.ts:13-27` — 3 good frames → `tracked`, 4 bad frames → `lost`, `reset()`.
+- `src/kinematics/actionPipeline.ts` — events only when tracking and calibration are active.
 - `src/App.tsx:63-68` — `dispatchEvent` → `engine.onAction` + `audio.hit/jump/step`.
 
-**Especificações/docs (URL):**
+**Specifications/docs (URL):**
 
-- https://w3c.github.io/mediacapture-main/#dom-mediadevices-getusermedia — algoritmo getUserMedia: *"If the user never responds, this algorithm stalls on this step."* (permissão pendente indefinida); criação de novo `MediaStreamTrack` por chamada (passo 9.5).
+- https://w3c.github.io/mediacapture-main/#dom-mediadevices-getusermedia — `getUserMedia` algorithm: *"If the user never responds, this algorithm stalls on this step."* (permission may remain pending indefinitely); a new `MediaStreamTrack` is created per call (step 9.5).
 - https://w3c.github.io/mediacapture-main/#mediastreamtrack — *"Several MediaStreamTrack objects can represent the same media source, e.g., when the user chooses the same camera in the UI shown by two consecutive calls to getUserMedia()."*
 - https://w3c.github.io/mediacapture-main/#dom-mediastreamtrack-stop — `stop()`: *"A source that is notified of a track ending will be stopped, unless other MediaStreamTrack objects depend on it."*
-- https://w3c.github.io/mediacapture-main/#life-cycle-and-media-flow — *"Authors are encouraged to call stop() on MediaStreamTrack, especially capture tracks since the underlying resource are costly and it can have effects on the privacy indicators presented to the user."* (GC de track ≠ `stop()` garantido).
-- https://html.spec.whatwg.org/multipage/workers.html#terminate-a-worker — terminate: descarta tasks enfileiradas e *"empty the port message queue of the port that the worker's implicit port is entangled with"* (resposta em trânsito morre).
+- https://w3c.github.io/mediacapture-main/#life-cycle-and-media-flow — *"Authors are encouraged to call stop() on MediaStreamTrack, especially capture tracks since the underlying resource are costly and it can have effects on the privacy indicators presented to the user."* (track garbage collection does not guarantee `stop()`).
+- https://html.spec.whatwg.org/multipage/workers.html#terminate-a-worker — termination discards queued tasks and *"empty the port message queue of the port that the worker's implicit port is entangled with"* (an in-flight response is lost).
 - https://developer.mozilla.org/en-US/docs/Web/API/Worker/terminate — *"the worker is terminated immediately without any chance to complete its ongoing operations."*
-- https://html.spec.whatwg.org/multipage/media.html — setter de `srcObject` → *"Invoke this's media element load algorithm"*; load algorithm: pending play promises resolvidas/rejeitadas imediatamente (AbortError) e evento `emptied` quando o provider é removido; `loadeddata` só dispara quando `readyState` atinge `HAVE_CURRENT_DATA` pela 1ª vez após cada load.
-- https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/play — `play()` retorna Promise rejeitada em falha de reprodução.
-- https://ai.google.dev/mediapipe/solutions/vision/pose_landmarker/web_js — modo `VIDEO`: *"Synchronous tracking across decoded video frames with monotonic timestamps."*
+- https://html.spec.whatwg.org/multipage/media.html — the `srcObject` setter → *"Invoke this's media element load algorithm"*; the load algorithm immediately resolves/rejects pending play promises (AbortError) and fires `emptied` when the provider is removed; `loadeddata` fires only when `readyState` first reaches `HAVE_CURRENT_DATA` after each load.
+- https://developer.mozilla.org/en-US/docs/Web/API/HTMLMediaElement/play — `play()` returns a Promise rejected on playback failure.
+- https://ai.google.dev/mediapipe/solutions/vision/pose_landmarker/web_js — `VIDEO` mode: *"Synchronous tracking across decoded video frames with monotonic timestamps."*

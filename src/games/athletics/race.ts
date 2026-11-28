@@ -1,4 +1,6 @@
 import { RestartGesture } from '../core/restartGesture';
+import type { Lang } from '../../i18n';
+import { gameText, localizedFramingAdvice } from '../../gameText';
 
 export { RESTART_AFTER_S, RESTART_HOLD_S } from '../core/restartGesture';
 /**
@@ -143,6 +145,7 @@ function advanceRival(rival: Rival, goal: Goal, fromS: number, toS: number): voi
 }
 
 export class Race {
+  private language: Lang;
   phase: Phase = 'framing';
   countdown = COUNTDOWN_S;
   warmupLeft = WARMUP_S;
@@ -170,7 +173,8 @@ export class Race {
   private effortAgeS = 0;
   private effortSampleAtMs?: number | null;
 
-  constructor(readonly goal: Goal = 100, rng: () => number = () => 0.5) {
+  constructor(readonly goal: Goal = 100, rng: () => number = () => 0.5, language: Lang = 'pt') {
+    this.language = language;
     this.rivals = RIVALS.map((rival) => {
       const sample = rng();
       const variation = Number.isFinite(sample) ? Math.min(1, Math.max(0, sample)) : 0.5;
@@ -190,6 +194,12 @@ export class Race {
     if (sampleAtMs === null || (sampleAtMs !== undefined && !Number.isFinite(sampleAtMs))) this.effortAgeS = Infinity;
     else if (sampleAtMs === undefined || sampleAtMs !== this.effortSampleAtMs) this.effortAgeS = 0;
     this.effortSampleAtMs = sampleAtMs;
+  }
+
+  setLanguage(language: Lang): void { this.language = language; }
+
+  get displayAdvice(): string | undefined | null {
+    return this.advice === null ? null : localizedFramingAdvice(this.language, this.advice);
   }
 
   /** The latest reading, or nothing once it is too old to trust. */
@@ -214,7 +224,9 @@ export class Race {
   /** What to do when the bar will not fill; undefined while it is filling. */
   get coaching(): string | undefined {
     if (this.phase !== 'warmup' || (this.retries === 0 && this.warmupLeft > WARMUP_S - 2) || this.reading >= MIN_TRIED_EFFORT) return undefined;
-    return this.handsHidden ? 'Mostre as mãos na câmera' : 'Mexa mais os braços, como quem corre';
+    return this.handsHidden
+      ? gameText(this.language, 'Mostre as mãos na câmera', 'Keep your hands in view')
+      : gameText(this.language, 'Mexa mais os braços, como quem corre', 'Swing your arms as if you were running');
   }
 
   get effort01(): number {
@@ -316,7 +328,7 @@ export class Race {
       const timeS = this.elapsedS + remaining / Math.max((currentSpeed + endSpeed) / 2, 1e-6);
       return { name: rival.name, timeS, you: false, status: 'estimated', place: 0 };
     });
-    const you: Standing[] = this.finishS === undefined ? [] : [{ name: 'Você', timeS: this.finishS, you: true, status: 'confirmed', place: 0 }];
+    const you: Standing[] = this.finishS === undefined ? [] : [{ name: gameText(this.language, 'Você', 'You'), timeS: this.finishS, you: true, status: 'confirmed', place: 0 }];
     const sorted = [...rivals, ...you].sort((a, b) => a.timeS - b.timeS);
     return sorted.map((standing, index) => ({ ...standing, place: index > 0 && sorted[index - 1]!.timeS === standing.timeS ? sorted.findIndex((other) => other.timeS === standing.timeS) + 1 : index + 1 }));
   }

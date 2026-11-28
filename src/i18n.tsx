@@ -5,23 +5,25 @@ export type Lang = 'pt' | 'en';
 
 const STORAGE_KEY = 'nevergear-lang';
 
-/** Idioma salvo; sem preferência salva, segue o idioma do navegador (português ou inglês). */
-function initialLang(): Lang {
-  const saved = readStored(STORAGE_KEY);
+/** Prefer a saved choice, then the first supported browser language, and default to English. */
+export function resolveLanguage(saved: string | null, preferred: readonly string[]): Lang {
   if (saved === 'pt' || saved === 'en') return saved;
-  if (typeof navigator === 'undefined') return 'en';
-  // Ordem de preferência do navegador: o primeiro idioma conhecido decide.
+  const firstSupported = preferred.find((code) => /^(pt|en)(?:-|$)/i.test(code));
+  return firstSupported && /^pt(?:-|$)/i.test(firstSupported) ? 'pt' : 'en';
+}
+
+function initialLang(): Lang {
+  if (typeof navigator === 'undefined') return resolveLanguage(readStored(STORAGE_KEY), []);
   const preferred = navigator.languages?.length ? navigator.languages : [navigator.language];
-  const first = preferred.find((code) => /^(pt|en)\b/i.test(code));
-  return first && /^pt\b/i.test(first) ? 'pt' : 'en';
+  return resolveLanguage(readStored(STORAGE_KEY), preferred);
 }
 
 interface LangValue {
   lang: Lang;
   setLang: (lang: Lang) => void;
-  /** Escolhe o texto do idioma atual: tr('português', 'english'). */
+  /** Select text for the active language: tr('Portuguese', 'English'). */
   tr: <T = string>(pt: T, en: T) => T;
-  /** Locale BCP 47 do idioma atual, para datas e ordenação. */
+  /** BCP 47 locale for dates and sorting. */
   locale: string;
 }
 
@@ -54,9 +56,9 @@ export function LangProvider({ children }: { children: ReactNode }) {
 
 export function useLang(): LangValue {
   const value = useContext(LangContext);
-  if (!value) throw new Error('useLang precisa estar dentro de <LangProvider>');
+  if (!value) throw new Error('useLang must be used inside <LangProvider>');
   return value;
 }
 
-/** Texto de dados estáticos: um objeto { pt, en }. */
+/** Static bilingual text stored as a { pt, en } object. */
 export type Bilingual = { pt: string; en: string };

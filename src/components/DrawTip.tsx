@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useLang } from '../i18n';
 
-// Frases dos balões: cada ocorrência de "Nevergear" ganha a próxima frase ainda não usada.
+// Speech-bubble lines: each occurrence of "Nevergear" gets the next unused line.
 const TIPS: { pt: string; en: string }[] = [
   { pt: 'Seu corpo é o controle.', en: 'Your body is the controller.' },
   { pt: 'Sem fio, sem controle, só você.', en: 'No cable, no controller, just you.' },
-  { pt: 'Salte de verdade.', en: 'Jump for real.' },
+  { pt: 'Mexa o corpo inteiro.', en: 'Move your whole body.' },
   { pt: 'Incline o tronco para trocar de raia.', en: 'Lean your torso to switch lanes.' },
   { pt: 'Corra no lugar, o corpo faz o resto.', en: 'Run in place, the body does the rest.' },
   { pt: 'Fique parado quatro segundos e a câmera calibra.', en: 'Stand still for four seconds and the camera calibrates.' },
@@ -13,18 +13,18 @@ const TIPS: { pt: string; en: string }[] = [
   { pt: 'O vídeo nunca sai do seu dispositivo.', en: 'The video never leaves your device.' },
   { pt: 'Enquadre o corpo inteiro para correr.', en: 'Frame your whole body to run.' },
   { pt: 'No tênis, chegue mais perto da câmera.', en: 'In tennis, step closer to the camera.' },
-  { pt: 'Sem câmera? Setas e espaço também jogam.', en: 'No camera? Arrow keys and space play too.' },
+  { pt: 'No boxe, você também pode usar o teclado.', en: 'Boxing also supports keyboard controls.' },
   { pt: 'Trinta e três pontos, um jogador.', en: 'Thirty-three landmarks, one player.' },
   { pt: 'Aqueça antes de jogar.', en: 'Warm up before you play.' },
   { pt: 'Mão firme, raquetada limpa.', en: 'Steady hand, clean swing.' },
   { pt: 'Todo recorde começa no primeiro passo.', en: 'Every record starts with a first step.' },
   { pt: 'Mais um round?', en: 'One more round?' },
   { pt: 'Bata na bola, não na parede.', en: 'Hit the ball, not the wall.' },
-  { pt: 'Respire entre as barreiras.', en: 'Breathe between hurdles.' },
-  { pt: 'Tropeçar na barreira também ensina.', en: 'Hitting a hurdle teaches too.' },
+  { pt: 'Respire entre as etapas.', en: 'Take a breath between stages.' },
+  { pt: 'Cada partida dá outra chance.', en: 'Every match gives you another chance.' },
   { pt: 'Pose é só um jeito de dizer movimento.', en: 'Pose is just a way of saying movement.' },
   { pt: 'Luz boa, rastreio melhor.', en: 'Good light, better tracking.' },
-  { pt: 'Dê espaço antes de pular.', en: 'Make room before you jump.' },
+  { pt: 'Fique atento ao espaço ao seu redor.', en: 'Pay attention to the space around you.' },
   { pt: 'A arena abre no navegador, sem instalar nada.', en: 'The arena opens in the browser, nothing to install.' },
   { pt: 'Hoje é dia de bater o seu recorde.', en: 'Today is a good day to beat your record.' },
 ];
@@ -46,13 +46,13 @@ function caretAt(x: number, y: number): { node: Node; offset: number } | null {
   return r ? { node: r.startContainer, offset: r.startOffset } : null;
 }
 
-// Acha a palavra "Nevergear" sob o ponteiro, em qualquer texto da página (sem marcar nada no HTML).
+// Find the word "Nevergear" under the pointer anywhere on the page without marking up the HTML.
 function findWord(x: number, y: number, target: EventTarget | null): Hit | null {
   const el = target instanceof Element ? target : null;
   if (!el || el.closest('.draw-tip, .wordmark, input, textarea, canvas')) return null;
   const caret = caretAt(x, y);
   if (!caret || caret.node.nodeType !== Node.TEXT_NODE) return null;
-  // Junta os nós de texto vizinhos (a máquina de escrever da Vision deixa uma letra por nó).
+  // Join adjacent text nodes; Vision's typewriter creates one node per letter.
   const run: Text[] = [];
   let first: Node = caret.node;
   while (first.previousSibling?.nodeType === Node.TEXT_NODE) first = first.previousSibling;
@@ -80,7 +80,7 @@ function findWord(x: number, y: number, target: EventTarget | null): Hit | null 
   const rect = range.getBoundingClientRect();
   const slack = 3;
   if (x < rect.left - slack || x > rect.right + slack || y < rect.top - slack || y > rect.bottom + slack) return null;
-  // Identidade estável: primeiro nó da sequência + deslocamento (não depende de outros textos da página).
+  // Stable identity: first node in the sequence plus offset; unrelated page text does not affect it.
   return { rect, node: run[0], offset: a };
 }
 

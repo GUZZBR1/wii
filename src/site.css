@@ -43,7 +43,7 @@ body {
   transition: background-color 350ms ease, color 350ms ease;
 }
 button { color: inherit; font: inherit; }
-/* translúcida: nos títulos de linhas apertadas, a marcação de uma linha cobre a de cima */
+/* Translucent: on tightly spaced headings, the selection highlight from one line overlaps the line above it. */
 ::selection { color: var(--ink); background: rgba(0, 150, 220, .45); }
 
 .site-header { transform: translateX(-50%); transition: translate .4s cubic-bezier(.22, .61, .36, 1), visibility 0s linear 0s; }
@@ -68,7 +68,7 @@ button { color: inherit; font: inherit; }
 }
 .nav-link:hover::after, .nav-link:focus-visible::after { transform: scaleX(1); }
 .nav-link.is-active::after, .product-label.is-active .product-word::after { transform: scaleX(1); }
-/* O preto enche a palavra da esquerda para a direita no hover. */
+/* Black fills the word from left to right on hover. */
 .nav-link.vision-link, .product-word {
   color: transparent;
   background: linear-gradient(90deg, var(--ink) 0 50%, var(--muted) 50% 100%) 100% 0 / 200% 100% no-repeat;
@@ -187,8 +187,8 @@ a:focus-visible, button:focus-visible { outline: 2px solid #1a8fc4; outline-offs
   align-items: flex-start;
   justify-content: space-between;
   gap: 8px;
-  /* Padding e margem negativa se anulam: o retangulo so aparece no hover,
-     sem deslocar o layout. */
+  /* Padding and negative margin cancel each other: the rectangle appears only on hover
+     without shifting the layout. */
   position: relative;
   margin: -6px -9px 0;
   padding: 6px 9px;
@@ -201,7 +201,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid #1a8fc4; outline-offs
     border-color 520ms ease 140ms,
     box-shadow 720ms ease 140ms;
 }
-/* O nome sobe depois da imagem, mais devagar, num retangulo proprio. */
+/* The name rises after the image, more slowly, in its own rectangle. */
 .archive-card:hover .archive-caption,
 .archive-card:focus-visible .archive-caption,
 .archive-card.is-active .archive-caption {
@@ -272,7 +272,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid #1a8fc4; outline-offs
   padding: 0 .018em;
   transition: color 260ms ease;
 }
-/* Teste: cada letra da marca da um pulinho quando o mouse passa por ela. */
+/* Each letter in the wordmark hops when the pointer passes over it. */
 .wordmark-letter {
   position: relative;
   display: inline-block;
@@ -280,7 +280,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid #1a8fc4; outline-offs
 }
 .wordmark-letter:hover { transform: translateY(-.07em); transition-duration: 200ms; }
 @media (prefers-reduced-motion: reduce) { .wordmark-letter, .wordmark-letter:hover { transition: none; transform: none; } }
-/* A webcam e o pingo do "i" final e acompanha o pulo dele. */
+/* The webcam is the dot on the final "i" and follows its hop. */
 .webcam-anchor { transition: translate 420ms cubic-bezier(.3,1.5,.5,1); }
 .wordmark:has(.wordmark-letter:last-child:hover) ~ .webcam-interaction .webcam-anchor {
   translate: 0 -.07em;
@@ -395,7 +395,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid #1a8fc4; outline-offs
 }
 .scrollbar-thumb { transform-origin: center; box-shadow: 0 1px 3px rgba(26, 110, 168, .138); }
 .scrollbar-control:hover .scrollbar-thumb, .scrollbar-control:focus-visible .scrollbar-thumb { background-color: var(--accent); }
-/* modo claro: o pill se confundia com o papel; reforca borda, trilho e thumb */
+/* Light mode: the pill blended into the page; strengthen its border, track, and thumb. */
 :root body .scrollbar-control {
   border-color: rgba(26, 143, 196, .45);
   background: #fff;
@@ -407,7 +407,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid #1a8fc4; outline-offs
 :root body .scrollbar-control:focus-visible .scrollbar-thumb { background-color: #1a8fc4; }
 .definition-card-anchor {
   @apply absolute left-1/2 top-[calc(100%+12px)] w-[min(380px,calc(100vw-32px))] origin-top;
-  pointer-events: none; /* o invólucro vazio nao pode bloquear cliques na pagina */
+  pointer-events: none; /* The empty wrapper must not block clicks on the page. */
 }
 .definition-card {
   @apply relative w-full rounded-[23px] border p-[22px];
@@ -487,7 +487,7 @@ a:focus-visible, button:focus-visible { outline: 2px solid #1a8fc4; outline-offs
   content: '';
   filter: blur(18px);
 }
-/* Tema claro: fundo cinza bem claro atras da arte, ainda distinto do branco. */
+/* Light theme: a very light gray background behind the artwork, still distinct from white. */
 :root body .construction-art::before {
   inset: 6% 6% 2%;
   border-radius: 40px;
@@ -562,16 +562,21 @@ a:focus-visible, button:focus-visible { outline: 2px solid #1a8fc4; outline-offs
   .webcam-trigger.is-rec .webcam-rec, .webcam-trigger:hover .webcam-rec, .webcam-trigger:focus-visible .webcam-rec { animation: none; opacity: 1; }
 }
 
-/* Entrada: tunel de dobra radial (lib/warp.ts) num canvas sobre a pagina. */
+/* Entry: radial warp tunnel (lib/warp.ts) on a canvas above the page. */
 body.is-falling { overflow: hidden; }
 
 /* Arena (rota /app). */
 .arena-page { position: fixed; inset: 0; z-index: 5; background: #eef1f3; }
 .arena { position: absolute; inset: 0; }
+.arena-page .arena-language { position: absolute; z-index: 80; top: 14px; right: 16px; display: flex; gap: 3px; min-width: 0; margin: 0; padding: 4px; border: 1px solid #58708066; border-radius: 999px; background: #fffffff0; box-shadow: 0 2px 8px #20384833; }
+.arena-page .arena-language button { min-width: 38px; padding: 5px 8px; border: 0; border-radius: 999px; background: transparent; color: #42515b; font: 700 11px/1 'DM Mono', monospace; cursor: pointer; }
+.arena-page .arena-language button[aria-pressed='true'] { background: #1a8fc4; color: white; }
+.arena-page .arena-language button:focus-visible { outline: 2px solid #075d86; outline-offset: 2px; }
+@media (max-width: 640px) { .arena-page .arena-language { top: 8px; right: 8px; } }
 .arena-exit { position: absolute; left: 4%; bottom: 18%; padding: 9px 22px; border: 2px solid #34beed; border-radius: 999px; background: #ffffffe0; color: #4a525a; font: 500 12px 'DM Mono', monospace; text-decoration: none; backdrop-filter: blur(8px); }
 .arena-exit:hover, .arena-exit:focus-visible { border-color: var(--accent); }
 
-/* Flash: estouro branco ao chegar, com zumbido de luz que se dissipa. */
+/* Flash: a white burst on arrival, with a light haze that dissipates. */
 .arena-flash { position: fixed; inset: 0; z-index: 100; pointer-events: none; background: #fff;
   animation: flashbang 1.3s cubic-bezier(.1, .7, .2, 1) forwards; }
 @keyframes flashbang {
@@ -585,14 +590,14 @@ body.is-falling { overflow: hidden; }
   .arena-flash { display: none; }
 }
 
-/* Saida da arena: o inverso da entrada. */
+/* Arena exit: the reverse of entry. */
 .arena-leave { position: fixed; inset: 0; z-index: 100; pointer-events: none; background: #fff; opacity: 0;
   animation: flash-in 1.1s cubic-bezier(.8, .3, .9, .9) forwards; }
 @keyframes flash-in { 0% { opacity: 0; } 88%, 100% { opacity: 1; } }
 .arena-page.is-leaving .arena { animation: arena-go-light 1.1s ease-in forwards; }
 @keyframes arena-go-light { 0% { filter: none; } 100% { filter: brightness(2.2) blur(6px); } }
 body.is-arriving { overflow: hidden; }
-/* Sombras e desfoques redesenhados em escala 9x travam a volta da arena. */
+/* Repainting shadows and blurs at 9× scale makes the return from the arena stutter. */
 body.is-arriving #root * { text-shadow: none !important; box-shadow: none !important; filter: none !important; backdrop-filter: none !important; -webkit-backdrop-filter: none !important; }
 body.is-arriving #root { transform-origin: 50% 40%; animation: rise-back 1.5s cubic-bezier(.55, .2, .95, .55) forwards; will-change: transform, opacity; }
 body.is-arriving::before { position: fixed; inset: 0; z-index: 90; pointer-events: none; content: ''; background: #fff; opacity: 1;
@@ -601,7 +606,7 @@ body.is-arriving::before { position: fixed; inset: 0; z-index: 90; pointer-event
 @keyframes white-away { 0% { opacity: 1; } 38%, 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .arena-leave, body.is-arriving #root, body.is-arriving::before, .arena-page.is-leaving .arena { animation: none; } }
 
-/* Papers: as propostas de artigo giram numa elipse em volta do titulo. */
+/* Papers: research proposals orbit the title on an ellipse. */
 .papers-ascii-bg { position: absolute; left: 50%; top: 50%; z-index: 0; width: min(78vw, 78svh); transform: translate(-50%, -50%); opacity: .9; pointer-events: none; user-select: none; }
 .crystal-ascii-canvas { display: block; width: 100%; aspect-ratio: 1; }
 
@@ -625,7 +630,7 @@ body.is-arriving::before { position: fixed; inset: 0; z-index: 90; pointer-event
 .papers-card-n { font: 400 11px 'DM Mono', monospace; letter-spacing: .08em; color: #415f70; }
 .papers-card-name { font: 500 clamp(13px, 1.5vw, 16px)/1.2 Manrope, system-ui, sans-serif; letter-spacing: -.02em; overflow-wrap: anywhere; }
 .papers-orbit-item:has(.papers-card:focus-visible) { z-index: 40 !important; }
-.papers.has-open .papers-orbit-item:not(:has(.papers-card:focus-visible)) { z-index: 5 !important; } /* o painel fica por cima de todos os cartões */
+.papers.has-open .papers-orbit-item:not(:has(.papers-card:focus-visible)) { z-index: 5 !important; } /* Keep the panel above every card. */
 .papers-center { position: relative; z-index: 10; display: grid; justify-items: center; gap: 0; width: min(560px, 100%); text-align: center; pointer-events: none; }
 .papers-detail { pointer-events: auto; }
 .papers-title { margin: 0; font: 800 clamp(52px, 11vw, 132px)/.83 Manrope, system-ui, sans-serif; letter-spacing: -.035em; /* mesma voz do wordmark Draw */ padding-bottom: .2em; /* folga p/ as hastes de p e s nao tocarem o texto */ color: var(--ink); text-shadow: 0 0 .12em var(--paper), 0 0 .3em var(--paper), 0 0 .6em color-mix(in srgb, var(--paper) 80%, transparent), 0 .04em .08em color-mix(in srgb, var(--ink) 35%, transparent); }
@@ -650,7 +655,7 @@ body.is-arriving::before { position: fixed; inset: 0; z-index: 90; pointer-event
 @media (max-width: 640px) { .papers-orbit { inset: 80px max(40px, env(safe-area-inset-right)) 26px max(40px, env(safe-area-inset-left)); } .papers-orbit-item { width: 112px; } .papers-card { min-height: 64px; padding: 11px 12px; border-radius: 22px; } }
 @media (prefers-reduced-motion: reduce) { .papers-line { animation: none; } .papers-card, .papers-open, .papers-close { transition: none; } .papers-card:hover, .papers-card:focus-visible, .papers-card.is-open, .papers-open:hover, .papers-close:hover, .papers-open:focus-visible, .papers-close:focus-visible { transform: none; } }
 
-/* Leitura de um artigo (/papers/:n). */
+/* Article reader (/papers/:n). */
 .article { max-width: 680px; margin: 0 auto; padding: 112px 20px 96px; color: var(--ink); }
 .article-back { display: inline-block; margin-bottom: 28px; font: 400 12px 'DM Mono', monospace; letter-spacing: .06em; color: var(--muted); text-decoration: none; border-bottom: 1px solid color-mix(in srgb, var(--ink) 22%, transparent); }
 .article-back:hover { color: var(--ink); }
@@ -685,9 +690,9 @@ body.is-arriving::before { position: fixed; inset: 0; z-index: 90; pointer-event
 .article-nav a { color: var(--ink); text-decoration: none; }
 :root body .article-meta { color: #1f2a32; }
 
-/* Papers: subprojetos, logo abaixo do carrossel. */
+/* Papers: subprojects, directly below the carousel. */
 
-/* Descricao e subprojetos so aparecem quando o mouse passa pelo titulo; a onda corre pelas letras. */
+/* The description and subprojects appear only when the pointer hovers over the title; a wave travels through its letters. */
 
 .article-contents { margin: 28px 0; padding: 12px 18px; border: 1px solid color-mix(in srgb, var(--ink) 14%, transparent); }
 .article-contents h2 { margin: 4px 0 12px; }
@@ -742,13 +747,13 @@ body.is-arriving::before { position: fixed; inset: 0; z-index: 90; pointer-event
 .article-language button:disabled { opacity: .5; cursor: not-allowed; }
 .article-language-note { color: var(--muted); font-size: 13px !important; }
 
-/* Troca de idioma: escondida atrás do botão de tema; aparece ao passar o mouse ou focar. */
+/* Language switch: hidden behind the theme button; revealed on hover or focus. */
 .lang-menu { display: flex; gap: 6px; font-family: var(--mono); font-size: 12px; letter-spacing: .04em; }
 .lang-menu button { background: none; border: 0; padding: 2px 0; color: var(--muted, inherit); cursor: pointer; }
 .lang-menu button:hover, .lang-menu button:focus-visible { color: var(--ink, inherit); outline: none; text-decoration: underline; }
 .lang-menu button[aria-pressed='true'] { color: var(--ink, inherit); }
 
-/* Balao das ocorrencias de "Draw": pequeno, com uma corzinha leve por frase. */
+/* Speech bubble for occurrences of "Draw": small, with a subtle tint for each line. */
 .draw-tip {
   position: fixed; z-index: 90; width: max-content; max-width: 260px; padding: 10px 14px; box-sizing: border-box;
   transform: translate(-50%, -100%); pointer-events: none;
@@ -766,14 +771,14 @@ body.is-arriving::before { position: fixed; inset: 0; z-index: 90; pointer-event
 @keyframes draw-tip-in { from { opacity: 0; margin-top: 6px; } }
 @media (prefers-reduced-motion: reduce) { .draw-tip { animation: none; } }
 
-/* Abertura: sequência de documentário. A imagem é WebGL (lib/introScene.ts); aqui só a tipografia, sem caixas. Sempre clara, no branco e azul do site. */
+/* Intro: a documentary title sequence. The image is WebGL (lib/introScene.ts); this layer contains typography only, with no panels, in the site's white and blue palette. */
 .intro { position: fixed; z-index: 9999; inset: 0; overflow: hidden; background: #f4f8fa; color: #05090c; transition: opacity 1.2s ease; text-shadow: 0 0 18px #fff, 0 0 4px #fff; }
 .intro ::selection { color: #05090c; background: #34beed73; }
 .intro > * { transition: opacity .5s ease; }
 .intro.is-leaving { opacity: 0; pointer-events: none; transition: opacity 1s ease .5s; }
 .intro.is-leaving > *, .intro.is-leaving [aria-live] * { opacity: 0 !important; animation-play-state: paused !important; transition: opacity .5s ease; }
 body.intro-active { overflow: hidden; }
-/* A entrada da página fica parada no primeiro quadro enquanto a abertura cobre a tela. */
+/* Keep the page entry on its first frame while the intro covers the screen. */
 body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-surface img, .archive-caption, .wordmark, .product-emerge, .site-header, .scrollbar-control) { animation-play-state: paused; }
 .site-header, .scrollbar-control { animation: page-soft-in 1.2s ease .2s backwards; }
 @keyframes page-soft-in { from { opacity: 0; } }
@@ -788,7 +793,7 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
 .intro-thought { padding: 22px 0 26px; font: 300 clamp(20px, 2.35vw, 36px)/1.35 var(--sans); letter-spacing: -.005em; text-wrap: balance; animation-delay: .8s !important; }
 .intro-credit { font: 400 11px/1.6 var(--mono); letter-spacing: .08em; color: #1f2a32; animation-delay: 1s !important; }
 @keyframes intro-type { 0% { opacity: 0; filter: blur(12px); translate: 0 14px; } 24%, 84% { opacity: 1; filter: blur(0); translate: 0 0; } 100% { opacity: 0; filter: blur(7px); translate: 0 -6px; } }
-/* a obra está desenhada no canvas; a <img> fica para leitores de tela e para quando não há WebGL */
+/* The artwork is drawn on canvas; keep the image for screen readers and browsers without WebGL. */
 .intro-art { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .intro.is-flat .intro-art { position: static; width: 100%; height: auto; max-height: 34vh; margin-bottom: 20px; object-fit: contain; opacity: .85; filter: grayscale(1); }
 .intro-flat-mark { position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); }
@@ -810,17 +815,17 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
 }
 @keyframes intro-still { 0%, 100% { opacity: 0; } 15%, 90% { opacity: 1; } }
 
-/* Tema claro com um toque do Nevergear: branco azulado, linhas finas de TV e vidro com borda azul. O escuro não muda. */
+/* Light theme with a Nevergear touch: blue-white, fine TV scanlines, and glass with a blue edge. Dark mode does not change. */
 :root body { background: repeating-linear-gradient(#0000 0 3px, #ffffff8c 3px 4px) fixed, linear-gradient(#ffffff, var(--paper) 45%, #e3f3fb) fixed, var(--paper); }
 :root body .nav-shell { border-color: #34beed80; box-shadow: 0 6px 20px rgba(26, 143, 196, .14), inset 0 1px #fff; }
 :root body .nav-link::after { background: #34beed; }
 :root body .product-status { border-color: #34beed; background: linear-gradient(#fff 0 48%, #e6f1f7 52%, #f4fafd); box-shadow: 0 3px 10px rgba(26, 143, 196, .22), inset 0 1px #fff; }
 
-/* Mao 3D como ponteiro do site: canvas em tela cheia, sem capturar eventos. */
+/* Site-wide 3D hand pointer: full-screen canvas that does not capture events. */
 .site-hand-video { position: fixed; left: 0; bottom: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
 .hand-layer { position: fixed; inset: 0; z-index: 120; overflow: hidden; pointer-events: none; }
 .hand-layer canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .94; pointer-events: none; }
-/* Anel na ponta do indicador: so aparece na pinca e no punho de voltar. */
+/* Ring at the index fingertip: visible only during a pinch or back gesture. */
 .site-tip { --tip-accent: color-mix(in srgb, var(--accent) 45%, var(--ink)); position: absolute; top: 0; left: 0; width: 0; height: 0; }
 .site-tip-cross { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); color: var(--tip-accent); font: 500 18px/1 'DM Mono', monospace; user-select: none; }
 .site-tip-ring { position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; rotate: -90deg; fill: none; stroke: var(--tip-accent); stroke-width: 2.5; }
@@ -831,7 +836,7 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
 @keyframes site-tip-flash { from { opacity: 1; scale: .4; } to { opacity: 0; scale: 1.5; } }
 .product-status.site-camera-off { position: fixed; z-index: 60; right: 16px; bottom: 16px; cursor: pointer; background: color-mix(in srgb, var(--paper) 88%, transparent); }
 
-/* Hover da mao: o mesmo destaque do mouse. */
+/* Hand hover uses the same highlight as mouse hover. */
 .nav-link[data-hand-hover="true"]::after, .product-label:has([data-hand-hover="true"]) .product-word::after, .wordmark[data-hand-hover="true"]::before { transform: scaleX(1); }
 .nav-link.vision-link[data-hand-hover="true"], .product-label:has([data-hand-hover="true"]) .product-word { background-position: 0 0; }
 .theme-toggle[data-hand-hover="true"] { opacity: .7; }
@@ -855,7 +860,7 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
   .archive-card[data-hand-hover="true"] .archive-art-surface, .archive-card[data-hand-hover="true"] .archive-caption, .papers-card[data-hand-hover="true"], .papers-open[data-hand-hover="true"], .papers-close[data-hand-hover="true"] { transform: none; }
 }
 
-/* Criador de Mii (home) e Miis passeando pelo site */
+/* Home-page Mii creator and Miis wandering around the site. */
 .mii-creator { position: relative; z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: clamp(20px, 4vw, 56px); max-width: 1040px; margin: 0 auto; padding: 72px 24px 80px; }
 .mii-creator .mii-stage { display: flex; min-width: 0; flex-direction: column; gap: 12px; }
 .mii-creator .mii-preview { height: 380px; cursor: grab; touch-action: pan-y; }
@@ -873,16 +878,16 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
 .mii-creator .mii-file input { position: absolute; inset: 0; width: 100%; opacity: 0; cursor: pointer; }
 .mii-creator .mii-file:focus-within { outline: 2px solid #1a8fc4; outline-offset: 4px; }
 .mii-creator .mii-status { min-height: 1.4em; margin: 0; text-align: center; font-size: 13px; color: var(--muted); }
-/* Os Miis andam entre o fundo e o conteúdo. Seção com fundo opaco não pode ter z-index, senão os esconde. */
+/* Miis walk between the background and page content. Opaque sections must not have z-index, or they hide the walkers. */
 .mii-plaza { position: fixed; z-index: 0; inset: 0; pointer-events: none; }
 .mii-plaza canvas { display: block; width: 100%; height: 100%; }
 .mii-lift { position: fixed; z-index: 80; inset: 0; width: 100%; height: 100%; pointer-events: none; }
 .mii-grump { position: fixed; z-index: 55; top: 0; left: 0; padding: 4px 10px; border: 1px solid var(--aero-edge); border-radius: 999px; background: var(--aero-glass); box-shadow: var(--aero-shadow); font: 700 12px var(--sans); pointer-events: none; white-space: nowrap; }
 .archive-card, .games-showcase :is(h2, li, .games-showcase-iron, .vision-cta), .vision-page > *, .product-content > *, .article > :not(.article-return) { position: relative; z-index: 1; }
-/* Sombras do conteúdo caem sobre os Miis e dão a profundidade. */
+/* Content shadows fall over the Miis to create depth. */
 .archive-card, .games-showcase .gameplay-video-frame { filter: drop-shadow(0 14px 14px rgba(16, 42, 58, .28)); }
 :is(.games-showcase, .vision-page, .product-content, .article, .mii-creator) :is(h1, h2, h3, p) { text-shadow: 0 6px 8px rgba(16, 42, 58, .22); }
-/* Controles do Mii: pílulas de vidro Frutiger Aero (docs/website-design.md). */
+/* Mii controls: Frutiger Aero glass pills (docs/website-design.md). */
 .mii-creator .mii-actions button, .mii-creator .mii-file {
   position: relative; isolation: isolate; overflow: hidden; min-height: 40px; padding: 9px 22px;
   border: 1.5px solid #1a8fc4; border-radius: 999px; color: #05090c; font: 700 13px var(--sans); cursor: pointer; user-select: none;
@@ -892,7 +897,7 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
 }
 .mii-creator .mii-actions .mii-save { padding-inline: 34px; border-color: #0b6f9e; color: #fff; text-shadow: 0 1px 2px #0b6f9e;
   background: linear-gradient(180deg, #34beed 0%, #1a8fc4 48%, #0b6f9e 52%, #1a8fc4 100%); }
-/* Reflexo no topo e um brilho que atravessa a pílula uma vez no hover. */
+/* A top highlight and one light sweep across the pill on hover. */
 .mii-creator .mii-actions button::before, .mii-creator .mii-file::before {
   position: absolute; z-index: -1; top: 2px; right: 9px; left: 9px; height: 42%; border-radius: 999px; content: ''; pointer-events: none;
   background: linear-gradient(180deg, rgba(255, 255, 255, .95), rgba(255, 255, 255, .15));
@@ -924,7 +929,7 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
 .mii-creator .mii-field input[type="range"] { min-height: 32px; accent-color: #1a8fc4; cursor: pointer; }
 .mii-creator .mii-field :focus-visible { outline: 2px solid #1a8fc4; outline-offset: 3px; }
 
-/* Amostras de cor como bolinhas de vidro. */
+/* Color samples styled as glass beads. */
 .mii-creator .mii-swatches button {
   width: 30px; height: 30px; border: 2px solid #fff; border-radius: 50%; cursor: pointer;
   background-image: radial-gradient(ellipse 70% 45% at 50% 20%, rgba(255, 255, 255, .8), transparent 100%);
@@ -947,7 +952,7 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
 
 .mii-creator .mii-fine summary { margin-bottom: 8px; cursor: pointer; font: 400 12px var(--mono); color: var(--muted); }
 
-/* Frutiger Aero / Nevergear Sports: um só acabamento para botões e painéis do site (docs/website-design.md). */
+/* Frutiger Aero / Nevergear Sports: one finish for site buttons and panels (docs/website-design.md). */
 :root {
   --aero-edge: rgba(52, 190, 237, .55);
   --aero-glass: linear-gradient(180deg, #fff 0%, #f8fcfe 48%, #e6f4fb 100%);
@@ -970,7 +975,7 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
   transform: translateY(1px); box-shadow: 0 2px 6px rgba(26, 110, 168, .24), inset 0 2px 6px rgba(26, 110, 168, .24);
 }
 :is(.article-download, .article-language button, .article-return, .article-retry, .gameplay-video-control, .games-showcase .vision-cta):focus-visible { outline: 2px solid #1a8fc4; outline-offset: 3px; }
-/* Ação principal: azul cheio. */
+/* Primary action: solid blue. */
 .games-showcase .vision-cta, .games-showcase .vision-cta:hover, .article-language button[aria-pressed="true"], .article-language button[aria-pressed="true"]:enabled:hover {
   border-color: #0b6f9e; background: linear-gradient(180deg, #35a9d3 0%, #1384b3 48%, #08719f 52%, #08648f 100%); color: #fff; text-shadow: 0 1px 2px #0b6f9e;
 }
@@ -981,7 +986,7 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
   .article-download, .article-language button, .article-return, .article-retry, .gameplay-video-control, .games-showcase .vision-cta { transition: none; }
 }
 
-/* Marca Nevergear: sempre o logo (public/images/nevergear-logo.png), nunca o nome redesenhado em fonte. */
+/* Nevergear brand: always use the logo (public/images/nevergear-logo.png), never retype the name in a font. */
 .brand-logo { display: block; width: 100%; height: auto; }
 .wordmark .brand-logo { width: 5.2em; max-width: none; }
 .definition-card h1 .brand-logo { width: 150px; }

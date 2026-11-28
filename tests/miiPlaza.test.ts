@@ -27,7 +27,7 @@ function seeded(seed = 1) {
 describe('passeio dos Miis', () => {
   const bounds = { width: 400, height: 1600 };
 
-  it('mantém todos dentro da página e os espalha pela altura inteira', () => {
+  it('keeps everyone inside the page and spreads them across its full height', () => {
     const rng = seeded();
     const walkers = createWalkers(31, bounds, rng);
     for (let i = 0; i < 3600; i++) for (const walker of walkers) stepWalker(walker, 1 / 60, bounds, rng);
@@ -41,7 +41,7 @@ describe('passeio dos Miis', () => {
     expect(Math.max(...ys) - Math.min(...ys)).toBeGreaterThan(bounds.height / 2);
   });
 
-  it('dá meia-volta na borda', () => {
+  it('turns around at the edge', () => {
     const walker = {
       x: bounds.width - SIDE_MARGIN,
       y: 500,
@@ -56,7 +56,7 @@ describe('passeio dos Miis', () => {
     expect(walker.x).toBeLessThan(bounds.width - SIDE_MARGIN);
   });
 
-  it('puxa para dentro quem ficou fora depois de a página encolher', () => {
+  it('brings walkers back inside after the page shrinks', () => {
     const walker = { x: 900, y: 3000, heading: 0, timer: 10, walking: false, delay: 0, entering: 0 };
     stepWalker(walker, 0, bounds);
     expect(walker).toMatchObject({ x: bounds.width - SIDE_MARGIN, y: bounds.height - BOTTOM_MARGIN });
@@ -64,7 +64,7 @@ describe('passeio dos Miis', () => {
 });
 
 describe('modelo 3D', () => {
-  it('monta o elenco e cada formato com os pés no chão', () => {
+  it('creates the cast and each body shape with its feet on the ground', () => {
     const base = siteMiiFromProfile(DEFAULT_PLAYER_MII);
     const variants = [
       ...CPU_MIIS.map(siteMiiFromProfile),
@@ -81,7 +81,7 @@ describe('modelo 3D', () => {
 });
 
 describe('profundidade dos Miis', () => {
-  it('encolhe quem está longe e limita o tamanho fora da janela', () => {
+  it('shrinks distant walkers and limits their size beyond the viewport', () => {
     expect(depthScale(0, 800)).toBeLessThan(depthScale(800, 800));
     expect(depthScale(-50, 800)).toBe(depthScale(0, 800));
     expect(depthScale(900, 800)).toBe(depthScale(800, 800));
@@ -114,7 +114,7 @@ describe('chegada dos Miis', () => {
 });
 
 describe('Mii incomodado', () => {
-  it('pula e treme no começo e volta ao normal', () => {
+  it('jumps and shakes at first, then returns to normal', () => {
     expect(grumpPose(0.13).hop).toBeGreaterThan(5);
     expect(grumpPose(GRUMP_SECONDS)).toEqual({ hop: 0, tilt: expect.closeTo(0), yaw: expect.closeTo(0) });
   });

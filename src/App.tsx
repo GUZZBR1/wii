@@ -28,6 +28,7 @@ import { HomeMenu } from './ui/NevergearMenu';
 import { MiiCreator } from './ui/MiiCreator';
 import { NevergearSplash } from './ui/NevergearSplash';
 import { readStored, writeStored } from './lib/storage';
+import { useLang } from './i18n';
 import './arena.css';
 
 type Screen = 'home' | 'lobby' | 'ironman' | 'play' | 'summary' | 'mii';
@@ -42,6 +43,7 @@ const readMutedPreference = () => readStored(MUTE_STORAGE_KEY) === '1';
 const writeMutedPreference = (muted: boolean) => void writeStored(MUTE_STORAGE_KEY, muted ? '1' : '0');
 
 export default function App({ exit }: { exit?: ReactNode }) {
+  const { lang, tr } = useLang();
   const [splash, setSplash] = useState(true);
   const [screen, setScreen] = useState<Screen>('home');
   const [boxingSetup, setBoxingSetup] = useState<BoxingSetup>({ ...DEFAULT_BOXING_SETUP, mode: 'tutorial' });
@@ -91,6 +93,10 @@ export default function App({ exit }: { exit?: ReactNode }) {
   useEffect(() => {
     audioRef.current.setMuted(muted);
   }, [muted]);
+
+  useEffect(() => {
+    audioRef.current.setLanguage(lang);
+  }, [lang]);
 
   useEffect(() => {
     void navigator.permissions?.query({ name: 'camera' as PermissionName }).then((permission) => {
@@ -246,7 +252,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       if (keepPhotos) photoTrailRef.current.add(raw.timestampMs, videoRef.current);
       if (recorderRef.current) {
         const current = recorderRef.current.push(raw);
-        if (current) setRecordingPrompt(`${current.segment.prompt} · ${Math.ceil(current.remainingMs / 1000)}`);
+      if (current) setRecordingPrompt(`${current.segment.prompt[lang]} · ${Math.ceil(current.remainingMs / 1000)}`);
         else finishRecording();
       }
       const frame = perceive(raw);
@@ -536,26 +542,26 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
     {screen === 'ironman' && <IronManLobby onPlay={startIronMan} onBack={() => go('home')} />}
 
-    {screen === 'summary' && ironResults && <section className="menu iron-summary" aria-label="Resumo do Iron Man">
+    {screen === 'summary' && ironResults && <section className="menu iron-summary" aria-label={tr('Resumo do Iron Man', 'Iron Man summary')}>
       <div className="iron-summary-card">
         <span className="iron-eyebrow">Nevergear Sports</span>
-        <h1>Iron Man concluído!</h1>
-        <p>Você completou as três modalidades.</p>
+        <h1>{tr('Iron Man concluído!', 'Iron Man complete!')}</h1>
+        <p>{tr('Você completou as três modalidades.', 'You completed all three events.')}</p>
         <ol>{ironResults.map((result) => <li key={result.sport}>
-          <strong>{result.sport === 'athletics' ? 'Atletismo · 100 m' : result.sport === 'tennis' ? 'Tênis' : 'Boxe'}</strong>
+          <strong>{result.sport === 'athletics' ? tr('Atletismo · 100 m', 'Athletics · 100 m') : result.sport === 'tennis' ? tr('Tênis', 'Tennis') : tr('Boxe', 'Boxing')}</strong>
           <span>{result.detail}</span>
         </li>)}</ol>
-        <button type="button" className="nevergear-btn" onClick={exitGame}>Voltar ao menu</button>
+        <button type="button" className="nevergear-btn" onClick={exitGame}>{tr('Voltar ao menu', 'Return to menu')}</button>
       </div>
     </section>}
-    {screen === 'play' && ironResults && <div className="iron-progress">IRON MAN · ETAPA {ironResults.length + 1} DE 3</div>}
-    {screen === 'play' && headCut && <div className="framing-hint" role="alert">Sua cabeça saiu do quadro · incline a câmera para cima ou afaste-se</div>}
-    {screen === 'play' && keepPhotos && <div className="photo-notice">● guardando fotos dos últimos 20 s · E salva</div>}
+    {screen === 'play' && ironResults && <div className="iron-progress">{tr('IRON MAN · ETAPA', 'IRON MAN · STAGE')} {ironResults.length + 1} {tr('DE', 'OF')} 3</div>}
+    {screen === 'play' && headCut && <div className="framing-hint" role="alert">{tr('Sua cabeça saiu do quadro · incline a câmera para cima ou afaste-se', 'Your head is out of frame · tilt the camera up or move farther away')}</div>}
+    {screen === 'play' && keepPhotos && <div className="photo-notice">{tr('● guardando fotos dos últimos 20 s · E salva', '● keeping photos from the last 20 s · press E to save')}</div>}
     {recordingPrompt && <div className="recording-prompt" role="status">● {recordingPrompt}</div>}
 
     {screen === 'play' && <div className="hud-dock">
-      <button type="button" className="dock-btn" onClick={exitGame}>{ironResults ? '‹ Sair do Iron Man' : '‹ Menu'}</button>
-      <button type="button" className="dock-btn round" onClick={toggleMute} title={muted ? 'Áudio desligado' : 'Áudio ligado'}>{muted ? '×' : '♫'}</button>
+      <button type="button" className="dock-btn" onClick={exitGame}>{ironResults ? tr('‹ Sair do Iron Man', '‹ Leave Iron Man') : tr('‹ Menu', '‹ Menu')}</button>
+      <button type="button" className="dock-btn round" onClick={toggleMute} title={muted ? tr('Áudio desligado', 'Audio off') : tr('Áudio ligado', 'Audio on')}>{muted ? '×' : '♫'}</button>
     </div>}
 
     <HandCursor store={handStore} active={menu && cameraOn} onBack={handBack} />

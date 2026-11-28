@@ -15,7 +15,7 @@ const HIT_TEST_REFRESH_MS = 150;
 
 const INTERACTIVE_TARGET = 'button, [role="button"], a, summary, input[type="range"]';
 
-/** Só o elemento do topo conta: o cursor não atravessa painéis para clicar no que está atrás. */
+/** Only the topmost element counts; the cursor cannot pass through panels to click what is behind them. */
 function targetAt(hit: Element | null): HTMLElement | null {
   const target = hit?.closest<HTMLElement>(INTERACTIVE_TARGET) ?? null;
   return target?.matches(':disabled') ? null : target;
@@ -85,12 +85,12 @@ export function useHandHitTest(
     if (!target) return;
     target.setAttribute(HOVER, 'true');
     target.dispatchEvent(new PointerEvent('pointerenter'));
-    // O onPointerEnter do React é derivado de pointerover, não do pointerenter nativo.
+    // React's onPointerEnter is derived from pointerover, not the native pointerenter event.
     target.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
   }, []);
 
   useEffect(() => {
-    // Clique e voltar valem só na subida do sinal, não a cada amostra em que ele segue ligado.
+    // Click and back actions trigger on the signal's rising edge, not on every sample while it stays active.
     const handle = () => {
       const input = store.current;
       const enabled = interactive(input, activeRef.current);

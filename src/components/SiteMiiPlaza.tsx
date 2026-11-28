@@ -20,9 +20,9 @@ import { getPlayerMii, usePlayerMii } from '../miis/miiStore';
 import { type SiteMii, siteMiiFromProfile } from '../miis/siteMii';
 import { useLang } from '../i18n';
 
-/** Pixels por unidade do modelo: um Mii médio fica com cerca de 64 px. */
+/** Model pixels per unit: an average Mii is about 64 px tall. */
 const SCALE = 32;
-/** Parte do elenco que passeia: um quarto fica de fora para a página não lotar. */
+/** Portion of the cast that wanders; leave one quarter out so the page does not feel crowded. */
 const CROWD = 0.75;
 /** Movimento do ponteiro, em px, a partir do qual o clique vira arrasto. */
 const DRAG_SLOP = 6;
@@ -40,7 +40,7 @@ interface Actor {
   grumpFor: number;
 }
 
-/** Miis passeando atrás do conteúdo da página. O canvas nunca recebe o ponteiro: clique e arrasto são lidos na janela. */
+/** Miis wander behind page content. The canvas never receives pointer events; clicks and drags are read from the window. */
 export default function SiteMiiPlaza() {
   const { tr } = useLang();
   const player = usePlayerMii();
@@ -56,14 +56,14 @@ export default function SiteMiiPlaza() {
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     } catch {
-      return; // sem WebGL o site segue normal, só sem a praça
+      return; // Without WebGL the site still works, but the plaza stays hidden.
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     host.append(renderer.domElement);
 
     const scene = new THREE.Scene();
     scene.add(...createMiiLights());
-    // 1 unidade = 1 px CSS, com a origem no canto superior esquerdo da janela.
+    // One unit equals one CSS pixel, with the origin at the viewport's top-left corner.
     const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -2000, 2000);
     const bounds = () => ({
       width: document.documentElement.clientWidth,
@@ -104,7 +104,7 @@ export default function SiteMiiPlaza() {
         grumpFor: GRUMP_SECONDS,
       };
     });
-    // Chegam aos poucos pelas laterais e cantos, o jogador primeiro. Sem movimento, já começam no lugar.
+    // They arrive gradually from the sides and corners, with the player first. With reduced motion, they start in place.
     if (!still.matches) {
       walkers.forEach((walker, index) => {
         enterFromEdge(walker, index, bounds(), window.scrollY, window.innerHeight);
@@ -125,7 +125,7 @@ export default function SiteMiiPlaza() {
     const resize = () => {
       const previousArea = area;
       area = bounds();
-      // A página mudou de tamanho (rota, imagens, janela): mantém o elenco espalhado.
+      // The page size changed (route, images, or viewport); keep the cast spread out.
       for (const { walker } of actors) {
         walker.x *= area.width / previousArea.width;
         walker.y *= area.height / previousArea.height;
@@ -174,7 +174,7 @@ export default function SiteMiiPlaza() {
         const kicking = held || grumbling;
         if (walking || kicking) actor.phase += dt * (kicking ? 18 : 9);
         model.pose(actor.phase, walking || kicking ? 1 : 0);
-        // Quem está mais baixo na tela fica na frente.
+        // Characters lower on the screen appear in front.
         const grump = grumpPose(actor.grumpFor);
         const lift = held ? 14 : grumbling ? grump.hop : 0;
         model.root.position.set(walker.x, -screenY + lift, screenY);
@@ -182,7 +182,7 @@ export default function SiteMiiPlaza() {
         model.root.scale.copy(actor.baseScale).multiplyScalar(depth);
         actor.shadow.position.set(walker.x, -screenY, screenY - SCALE);
         actor.shadow.scale.set(18 * depth, 5 * depth, 1);
-        // Andando, olha para onde vai; parado, olha para quem está lendo.
+        // While walking, look in the direction of travel; while idle, look toward the reader.
         const yaw = walking ? Math.atan2(Math.cos(walker.heading), Math.sin(walker.heading)) : 0;
         model.root.rotation.set(
           0.16,
@@ -195,12 +195,12 @@ export default function SiteMiiPlaza() {
         const show = grumpy !== null && grumpy.grumpFor < GRUMP_SECONDS;
         bubble.hidden = !show;
         if (show && grumpy) {
-          // Embaixo dos pés e sem sair pela lateral.
+          // Keep the shadow under the feet and inside the viewport edge.
           const x = Math.min(Math.max(grumpy.walker.x - 34, 4), window.innerWidth - 80);
           bubble.style.translate = `${x}px ${grumpy.walker.y - scrollY + 6}px`;
         }
       }
-      // Só o Mii no colo passa por cima do conteúdo: é desenhado sozinho e copiado para a tela da frente.
+      // Only the carried Mii moves above the content: draw it alone and copy it to the foreground canvas.
       const carried = drag?.moved ? drag.actor : null;
       const lift = liftRef.current;
       if (lift) lift.hidden = !carried;
@@ -222,7 +222,7 @@ export default function SiteMiiPlaza() {
     };
     frame = requestAnimationFrame(tick);
 
-    /** O Mii sob o ponteiro, se não houver conteúdo da página na frente dele. */
+    /** The Mii under the pointer, unless page content covers it. */
     const actorAt = (target: EventTarget | null, clientX: number, clientY: number) => {
       if (!(target instanceof Element) || target.closest(CLICK_IGNORE)) return null;
       let hit: Actor | null = null;
@@ -236,7 +236,7 @@ export default function SiteMiiPlaza() {
       }
       return hit;
     };
-    /** Incomoda o Mii sob o ponto. Serve ao clique do mouse e à pinça da mão (miiPick). */
+    /** Startle the Mii under the point. Used for mouse clicks and hand pinches (miiPick). */
     const pickAt = (clientX: number, clientY: number, target: Element | null | undefined) => {
       const hit = actorAt(target ?? null, clientX, clientY);
       if (hit) {
@@ -256,7 +256,7 @@ export default function SiteMiiPlaza() {
       if (event.button !== 0 || drag) return;
       const actor = actorAt(event.target, event.clientX, event.clientY);
       if (!actor) return;
-      // Guarda a distância entre o ponteiro e os pés, para o Mii não pular ao ser pego.
+      // Preserve the distance between the pointer and the feet so the Mii does not jump when grabbed.
       drag = {
         actor,
         id: event.pointerId,
@@ -266,7 +266,7 @@ export default function SiteMiiPlaza() {
         y: actor.walker.y - event.clientY - window.scrollY,
         moved: false,
       };
-      if (event.pointerType === 'mouse') event.preventDefault(); // não seleciona texto ao arrastar
+      if (event.pointerType === 'mouse') event.preventDefault(); // Do not select text while dragging.
     };
     const move = (event: PointerEvent) => {
       if (!drag) {
@@ -290,14 +290,14 @@ export default function SiteMiiPlaza() {
       if (!drag || event.pointerId !== drag.id) return;
       if (drag.moved) {
         swallowClick = event.type === 'pointerup';
-        // Larga o Mii parado um instante antes de ele voltar a passear.
+        // Leave the Mii still briefly before it starts wandering again.
         drag.actor.walker.walking = false;
         drag.actor.walker.timer = 1.2;
         document.body.style.cursor = '';
       }
       drag = null;
     };
-    // No toque, só impede a rolagem quando o dedo começou em cima de um Mii.
+    // On touch devices, prevent scrolling only when the gesture starts on a Mii.
     const holdScroll = (event: TouchEvent) => {
       if (drag) event.preventDefault();
     };

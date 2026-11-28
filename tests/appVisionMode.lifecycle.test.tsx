@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { HandSnapshot } from '@nevergear/spatial-core';
 import { handSnapshot } from './fixtures/syntheticHand';
 import App from '../src/App';
+import { LangProvider } from '../src/i18n';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -78,6 +79,7 @@ vi.mock('../src/cv/poseClient', () => ({
 
 vi.mock('../src/games/audio', () => ({
   ProceduralAudio: class {
+    setLanguage(): void {}
     setMuted(): void {}
     unlock(): Promise<void> {
       return Promise.resolve();
@@ -148,6 +150,7 @@ describe('App vision mode lifecycle', () => {
   let originalHaveCurrentData: PropertyDescriptor | undefined;
 
   beforeEach(() => {
+    localStorage.setItem('nevergear-lang', 'pt');
     harness.poseInit.mockResolvedValue(undefined);
   });
 
@@ -199,7 +202,7 @@ describe('App vision mode lifecycle', () => {
     container = document.createElement('div');
     document.body.appendChild(container);
     root = createRoot(container);
-    await act(async () => root?.render(<App />));
+    await act(async () => root?.render(<LangProvider><App /></LangProvider>));
     const video = container.querySelector('video');
     expect(video).not.toBeNull();
     Object.defineProperty(video!, 'readyState', { configurable: true, value: 2 });

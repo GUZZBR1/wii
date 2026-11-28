@@ -1,185 +1,184 @@
-# Design do tênis estilo Nevergear Sports — Baseline Rally
+# Nevergear Sports-style tennis design — Baseline Rally
 
-Data: 25 de novembro de 2026 · Documento de design para reescrita do `TennisGame`. Deriva da análise de gargalos feita em sessão (ver `analise-gargalos-corrida.md` para o pipeline genérico) e das pesquisas de CV em `docs/`. Separa claramente o que é **fato verificado no código**, o que é **conhecimento do domínio** e o que é **decisão de design**.
+Date: November 25, 2026 · Design document for rewriting `TennisGame`. Derived from the session bottleneck analysis (see `analise-gargalos-corrida.md` for the generic pipeline) and the CV research in `docs/`. Clearly distinguishes **facts verified in code**, **domain knowledge**, and **design decisions**.
 
 ---
 
-## 1. O que é o Nevergear Sports Tennis, mecanicamente
+## 1. How Nevergear Sports Tennis works mechanically
 
-Conhecimento de domínio sobre o original (Nevergear, 2006):
+Domain knowledge about the original Wii Sports (2006):
 
-1. **O jogador não controla movimentação** — o Mii corre sozinho até a bola. A única habilidade é o swing.
-2. **Direção = timing**: o mesmo swing natural manda a bola cruzada (contato cedo, à frente do corpo) ou paralela (contato tarde, atrás). Não existe "mira com o braço".
-3. Potência importa menos que timing; bola rápida demais é risco de erro, não só virtude.
-4. Saque: flick para cima lança a bola, swing no ápice define a qualidade.
-5. Forehand/backhand são inferidos do lado do gesto; o jogo é generoso com janelas — é arcade.
-6. Não há spin por torção de punho que importe materialmente para o core loop.
+1. **The player does not control movement** — the Mii runs to the ball automatically. Swinging is the only skill.
+2. **Direction = timing**: the same natural swing sends the ball cross-court (early contact, in front of the body) or down the line (late contact, behind the body). There is no “aim with your arm.”
+3. Power matters less than timing; a ball that is too fast is a risk for an error, not simply a virtue.
+4. Serve: an upward flick tosses the ball, and a swing at the apex determines serve quality.
+5. Forehand/backhand are inferred from the side of the gesture; the game uses generous windows — it is an arcade game.
+6. Wrist-twist spin does not materially affect the core loop.
 
-## 2. Restrições do nosso sensor — o que dá e o que não dá para copiar
+## 2. Sensor constraints — what can and cannot be copied
 
-Fatos verificados no código e nas medições de `pesquisa-pipeline-cv.md` §7.5:
+Facts verified in code and measurements from `pesquisa-pipeline-cv.md` §7.5:
 
-| Capacidade | Estado | Consequência para o design |
+| Capability | Status | Design consequence |
 |---|---|---|
-| Instante do pico do swing (`peakTimestampMs`) | **Bom** — quantização de ±16-33 ms a 30 fps, timestamps monotônicos | A mecânica central (timing) vive no nosso melhor canal — mesmo acaso feliz do Nevergear |
-| Lado do swing (forehand/backhand) | **Bom** — sinal lateral forte | Autenticidade barata: direção espelha no backhand como no tênis real |
-| Velocidade de pico | **Grosseiro mas utilizável** — diferenças finitas de posição filtrada | Potência em 3-4 níveis, não contínua fina |
-| Altura do contato (y do punho no pico) | **Utilizável** — landmark estável | Smash/voleio emergem de graça |
-| vy no pico (subindo/descendo) | **Utilizável como proxy** | Topspin/slice cosmético-físico no bounce |
-| Posição lateral precisa do punho | **Ruidoso** — e a mira atual usa isso | **Abolir mira por posição; adotar mira por timing** |
-| Profundidade (z) | **O mais ruidoso** — monocular | Não usar z para nada crítico |
-| Orientação do punho/spin por torção | **Impossível** | Não faz parte do core loop nem no Nevergear original — ignorar |
-| Latência fóton→evento confirmado | **~100-500 ms** — pipeline + confirmação + arbitragem | Exige adjudicação retroativa (§4) — o coração deste design |
-| Latência até *onset* do swing | **~50-100 ms** — um frame após cruzar o limiar | Canal precoce para animação (`swing-start`) |
+| Swing peak instant (`peakTimestampMs`) | **Good** — quantized to ±16–33 ms at 30 fps, monotonic timestamps | The core mechanic (timing) uses our best channel — the same happy accident as in Wii Sports. |
+| Swing side (forehand/backhand) | **Good** — strong lateral signal | Inexpensive authenticity: direction mirrors on a backhand, as in real tennis. |
+| Peak speed | **Coarse but usable** — finite differences of filtered position | Power in 3–4 levels, not finely continuous. |
+| Contact height (wrist y at peak) | **Usable** — stable landmark | Smashes/volleys emerge for free. |
+| `vy` at peak (rising/falling) | **Usable as a proxy** | Cosmetic/physical topspin or slice on the bounce. |
+| Precise lateral wrist position | **Noisy** — current aiming uses it | **Remove position-based aiming; use timing-based aiming.** |
+| Depth (`z`) | **Noisiest** — monocular | Do not use `z` for anything critical. |
+| Wrist orientation/spin from twisting | **Impossible** | Not part of the core loop in the original Wii Sports game either — ignore it. |
+| Photon-to-confirmed-event latency | **~100–500 ms** — pipeline + confirmation + arbitration | Requires retroactive adjudication (§4) — the heart of this design. |
+| Latency to swing *onset* | **~50–100 ms** — one frame after crossing the threshold | Early channel for animation (`swing-start`). |
 
-Restrições físicas que não se resolvem em software: motion blur do punho rápido em webcam de ambiente (exposição 15-33 ms/frame), oclusão do punho pelo torso no backswing, teto de 30-60 fps da câmera. O design assume que **swings ocasionalmente se perdem** — nenhum swing perdido pode custar um ponto de forma injusta: as janelas de contato são generosas e o whiff é sempre culpa visível do jogador (bola passou), nunca do detector.
+Physical constraints cannot be solved in software: motion blur from a fast-moving wrist on a room webcam (15–33 ms/frame exposure), wrist occlusion by the torso during the backswing, and a camera limit of 30–60 fps. The design assumes that **swings will occasionally be missed** — a missed swing must never unfairly cost a point: contact windows are generous and a whiff is always visibly the player’s fault (the ball went by), never the detector’s.
 
-## 3. O jogo
+## 3. The game
 
-### 3.1 Quadra e geometria
+### 3.1 Court and geometry
 
-Unidades aproximadamente métricas, escala arcade comprimida:
-
-```
-z = -10 ───────── baseline do oponente
-z = 0   ═════════ rede (altura 0,9 no centro)
-z = +10 ───────── baseline do jogador
-x ∈ [-3,5, +3,5]  singles (laterais)
-```
-
-- Avatar do jogador em z ≈ +8,3; oponente em z ≈ -8,3.
-- **Plano de contato** z_contact = +7,2 (à frente do jogador); o oponente tem o seu em -7,2.
-- Alcance lateral do avatar: raio de alcance ~1,15 u a partir do centro do corpo.
-
-### 3.2 Movimentação automática (como no Nevergear)
-
-O avatar corre sozinho: intercepta lateralmente a projeção da bola com velocidade máxima ~5,5 u/s. O jogador real **não precisa se mexer** — e o design não usa lane-lean no tênis. A largura do placement do oponente pressiona indiretamente: se o avatar ainda está se deslocando quando a bola chega, a qualidade máxima do retorno cai (cap de potência) — é assim que bolas abertas ficam difíceis sem nunca serem impossíveis.
-
-### 3.3 Máquina de estados do rally
+Approximately metric units, compressed to arcade scale:
 
 ```
-SERVE_TOSS ──swing──> adjudica saque ──> RALLY (bola viva)
-    │miss (bola cai)                         │
-    └─ re-toss (sem penalidade)              ├─ bola em voo para o oponente → AI retorna ou erra
-                                             ├─ bola em voo para o jogador → swing ou passa
-                                             └─ bola quica 2×, sai, ou rede → POINT_OVER
-POINT_OVER ──> placar (15/30/40/game) ──> próximo saque (alterna por game)
-MATCH_OVER ──> tela de resultado ──> reinício automático
+z = -10 ───────── opponent baseline
+z = 0   ═════════ net (height 0.9 at the center)
+z = +10 ───────── player baseline
+x ∈ [-3.5, +3.5] singles sidelines
 ```
 
-Regras arcade simplificadas (decisões de design):
+- Player avatar at z ≈ +8.3; opponent at z ≈ -8.3.
+- **Contact plane** `z_contact = +7.2` (in front of the player); the opponent’s plane is at -7.2.
+- Avatar lateral reach: reach radius of ~1.15 u from the center of the body.
 
-- **Sem service box nem dupla falta**: o saque vale como qualquer bola — precisa passar a rede e cair na quadra. Errar o toss não penaliza: re-toss infinito com dica na HUD. (Service box é trabalho de geometria sem ganho de showcase.)
-- Volley permitido: bola sem quica pode ser contatada — timing igual.
-- Uma quica no máximo, como no tênis real; a segunda quica encerra o ponto.
-- Placar clássico 15/30/40/deuce/vantagem por game; games alternam o sacador; match = melhor de 3 games (configurável), com reinício automático.
+### 3.2 Automatic movement (as in Wii Sports)
 
-### 3.4 Adjudicação de contato — o coração do design
+The avatar runs on its own: it intercepts the ball’s lateral projection at a maximum speed of ~5.5 u/s. The real player **does not need to move** — and lane-lean is not used in tennis. Opponent placement applies indirect pressure: if the avatar is still moving when the ball arrives, the maximum return quality drops (power cap) — this is how wide balls become difficult without ever becoming impossible.
 
-**Problema**: o evento de swing chega 100-500 ms depois do contato físico real. Se o jogo consultar a posição atual da bola quando o evento chega, o timing está corrompido.
+### 3.3 Rally state machine
 
-**Solução — adjudicação retroativa**: a trajetória da bola é balística e perfeitamente conhecida. Quando o evento chega:
+```
+SERVE_TOSS ──swing──> adjudicate serve ──> RALLY (ball in play)
+    │miss (ball drops)                        │
+    └─ re-toss (no penalty)                   ├─ ball in flight to opponent → AI returns or misses
+                                              ├─ ball in flight to player → swing or let it pass
+                                              └─ ball bounces twice, goes out, or hits net → POINT_OVER
+POINT_OVER ──> scoreboard (15/30/40/game) ──> next serve (alternates each game)
+MATCH_OVER ──> results screen ──> automatic restart
+```
 
-1. `t_peak = event.peakTimestampMs` — o instante físico do contato (estimativa do detector).
-2. Retrocede a bola analiticamente a `t_peak`: posição, velocidade, quantas quicas já houve.
-3. `timingError = t_peak − t_ideal`, onde `t_ideal` é o instante em que a bola cruza o plano de contato em altura golpeável (0,4-2,2 u).
-4. Janelas (arcade, generosas — decisão de design afinável):
-   - `|timingError| ≤ 500 ms` e bola ao alcance lateral (≤2,2 u) e não morta (sem segunda quica, não passada) → **contato**.
-   - Fora disso → **whiff** (a bola segue viva; o ponto se resolve pela física).
-5. Direção do retorno: mapeamento contínuo `timingError → ângulo lateral` com sinal dependente do lado do stroke — cedo → cruzada, tarde → paralela; no backhand espelha, como no tênis real. `timingError` extremo (>~350 ms) manda a bola tão aberta que sai — o erro nasce da geometria, não de regra especial.
-6. Potência: `power01` do evento modula a velocidade de saída (11-20 u/s). Cap reduzido se o avatar estava em deslocamento. Bola alta (acima do ombro no contato) vira smash: ângulo para baixo, bônus de velocidade.
-7. Spin: vy do punho no pico — subindo forte = topspin (quica kickando para cima/frente), descendo = slice (quica rasteiro). Efeito físico **apenas no bounce** — visível e honesto.
+Simplified arcade rules (design decisions):
 
-**Rewind visual**: no instante da adjudicação, a bola é reposicionada no ponto de contato com a nova velocidade **avançada pelo delta** (t_now − t_peak), para que a posição renderizada seja a que a bola de saída teria agora. Há um pop de 1-2 frames — mascarado pelo som de contato e pela animação de swing do avatar, que começou no `swing-start` (§3.5). É o mesmo cheat de todo netcode retroativo e de todo jogo de câmera.
+- **No service box or double fault**: a serve counts like any other ball — it must clear the net and land in the court. A missed toss is not penalized: toss again indefinitely, with a HUD hint. (Service boxes require geometric work with no showcase benefit.)
+- Volley is allowed: the ball can be hit without bouncing — timing is the same.
+- At most one bounce, as in real tennis; the second bounce ends the point.
+- Classic 15/30/40/deuce/advantage scoring per game; the server alternates each game; match is best of 3 games (configurable), with automatic restart.
 
-**O que acontece quando o detector perde um swing**: a bola passa e o ponto se resolve pela física — indistinguível de um whiff real. Aceitável porque raro; inaceitável seria o inverso (swing fantasma), que o detector já evita por design.
+### 3.4 Contact adjudication — the heart of the design
 
-### 3.5 O canal precoce: evento `swing-start`
+**Problem**: the swing event arrives 100–500 ms after the actual physical contact. If the game checks the ball’s current position when the event arrives, timing is corrupted.
 
-Novo evento do pipeline, emitido no frame em que o swing cruza o limiar de onset (antes de qualquer confirmação — pode ser abortado e não vira swing confirmado). Latência ~50-100 ms vs. ~150-500 ms do confirmado. Usos:
+**Solution — retroactive adjudication**: the ball trajectory is ballistic and perfectly known. When the event arrives:
 
-- **Animação do avatar**: o windup+stroke procedural (~300 ms) começa no onset — quando a adjudicação chega, a raquete já está no meio do movimento e o frame de contato cai sincronizado com o snap da bola. É o que fecha a ilusão de causalidade.
-- Não usado para adjudicação: é sinal não confirmado; backswings e ajustes de braço disparam também — visualmente inofensivo (parece preparação).
+1. `t_peak = event.peakTimestampMs` — the physical instant of contact (estimated by the detector).
+2. Analytically rewind the ball to `t_peak`: position, velocity, and number of bounces so far.
+3. `timingError = t_peak − t_ideal`, where `t_ideal` is when the ball crosses the contact plane at a hittable height (0.4–2.2 u).
+4. Windows (arcade, generous — tunable design decision):
+   - `|timingError| ≤ 500 ms`, the ball is within lateral reach (≤2.2 u), and it is live (no second bounce and not past the player) → **contact**.
+   - Otherwise → **whiff** (the ball remains live; physics resolves the point).
+5. Return direction: continuous mapping from `timingError → lateral angle`, with sign dependent on the stroke side — early → cross-court, late → down the line; it mirrors on a backhand, as in real tennis. An extreme `timingError` (>~350 ms) sends the ball so wide that it goes out — the miss comes from geometry, not a special rule.
+6. Power: event `power01` modulates outgoing speed (11–20 u/s). The cap is reduced if the avatar was moving. A high ball (above the shoulder at contact) becomes a smash: downward angle and speed bonus.
+7. Spin: wrist `vy` at the peak — rising strongly = topspin (kicks up/forward on the bounce), falling = slice (stays low on the bounce). Physical effect **only on the bounce** — visible and honest.
 
-### 3.6 Balística alvo — como se constrói a trajetória de saída
+**Visual rewind**: at adjudication, reposition the ball at the contact point with its new velocity **advanced by the delta** (`t_now − t_peak`), so the rendered position is where the outgoing ball would be now. This causes a 1–2 frame pop, masked by the contact sound and avatar swing animation, which began at `swing-start` (§3.5). This is the same cheat used by all retroactive netcode and camera-based games.
 
-Em vez de empurrar velocidades e torcer, **resolve-se a trajetória para um alvo** (técnica padrão de arcade, determinística e testável):
+**If the detector misses a swing**: the ball goes by and physics resolves the point — indistinguishable from a real whiff. This is acceptable because it is rare; the reverse (a ghost swing) would be unacceptable, and the detector already avoids it by design.
 
-1. Escolhe-se o alvo de quique `(x_t, z_t)`: lateral do timing (contínuo, clamp ±20°), profundidade da potência (mais forte = mais fundo/rápido), mais um jitter pequeno com seed determinístico.
-2. `T = (z_contato − z_t) / v_forward` — tempo de voo imposto pela velocidade escolhida.
-3. `vx = (x_t − x_0)/T`, `vy = (gT²/2 − y_0)/T` — solução exata do projétil para `y(T) = 0` com gravidade g.
+### 3.5 The early channel: `swing-start` event
 
-Consequências emergentes sem regra especial: bola forte sai rasa (risco de rede em contato baixo — física real); ângulos extremos saem pela lateral; smash em bola alta aponta para baixo e é quase indefensável. A rede é uma colisão física no plano z=0 com altura 0,9 — bater nela encerra o ataque como no tênis.
+A new pipeline event, emitted on the frame when a swing crosses the onset threshold (before any confirmation — it can be aborted and never become a confirmed swing). Latency is ~50–100 ms vs. ~150–500 ms for the confirmed event. Uses:
 
-### 3.7 Oponente AI
+- **Avatar animation**: procedural windup + stroke (~300 ms) starts at onset — by the time adjudication arrives, the racket is already mid-swing and the contact frame aligns with the ball’s snap. This closes the illusion of causality.
+- Do not use it for adjudication: it is unconfirmed; backswings and arm adjustments also trigger it — visually harmless (it looks like preparation).
 
-- **Movimento**: intercepta a projeção da bola no seu plano com velocidade máxima ~5 u/s; retorna ao centro depois do golpe.
-- **Devolução**: quando a bola entra na sua janela, gera retorno por balística alvo para um ponto no lado do jogador. Placement com variância controlada pela dificuldade; velocidade e profundidade idem.
-- **Erro**: chance de erro (rede/fora) cresce com a qualidade da bola recebida (velocidade + largura + smash). Dificuldade rampa suave com os games — começa generosa (bolas centrais e lentas) para o jogador aprender o timing.
-- Winners acontecem quando a bola é rápida e aberta: o avatar do jogador não chega a tempo e o cap de qualidade cai — mas o ponto nunca é impossível, porque alcance é garantido salvo combinação extrema (decisão arcade).
+### 3.6 Target ballistics — how the outgoing trajectory is built
 
-### 3.8 HUD, áudio e feedback
+Instead of pushing velocities and hoping, **solve the trajectory for a target** (standard arcade technique, deterministic and testable):
 
-- Placar tênis real: games + pontos correntes (15/30/40/AD), indicador de quem saca.
-- Feedback de timing a cada contato: `CEDO`/`PERFEITO`/`TARDE` + direção resultante — ensina a mecânica central.
-- Mensagens de estado: prompt de saque, whiff (`bola passou!`), rede, fora, game/match.
-- Som de contato existente (`audio.hit(power)`) dispara na adjudicação; bounce e saque podem reusar `step`/`jump` — sem novos assets.
+1. Choose the bounce target `(x_t, z_t)`: lateral position from timing (continuous, clamped to ±20°), depth from power (harder = deeper/faster), plus a small deterministic-seed jitter.
+2. `T = (z_contact − z_t) / v_forward` — flight time determined by the chosen speed.
+3. `vx = (x_t − x_0)/T`, `vy = (gT²/2 − y_0)/T` — exact projectile solution for `y(T) = 0` under gravity `g`.
 
-### 3.9 Teclado (modo dev/teste sem câmera)
+Emergent consequences without special rules: a hard ball travels flatter (risk of the net on low contact — real physics); extreme angles go out at the sideline; a smash from a high ball points down and is nearly indefensible. The net is a physical collision at the `z=0` plane with a height of 0.9 — hitting it ends the attack, as in tennis.
 
-Espaço dispara um swing sintético com `peakTimestampMs = agora` — ou seja, **o timing do teclado é autêntico**: apertar cedo cruza, tarde paralela. Power fixo 0,65 (shift+espaço = 1,0). É suficiente para validar todo o jogo sem webcam — e é como o showcase se demonstra em máquina sem câmera boa.
+### 3.7 Opponent AI
 
-## 4. Arquitetura da implementação
+- **Movement**: intercept the ball’s projection on the opponent’s plane at a maximum speed of ~5 u/s; return to center after the shot.
+- **Return**: when the ball enters the opponent’s window, generate a target-ballistic return to a point on the player’s side. Placement variance is controlled by difficulty; speed and depth are too.
+- **Error**: the chance of an error (net/out) increases with the quality of the incoming ball (speed + width + smash). Difficulty ramps smoothly across games — it starts generously (central, slow balls) so the player can learn the timing.
+- Winners happen when the ball is fast and wide: the player’s avatar cannot reach it in time and the quality cap drops — but the point is never impossible because reach is guaranteed except for extreme combinations (arcade decision).
 
-### Módulos puros (sem Three.js — testáveis em Vitest, TDD estrito)
+### 3.8 HUD, audio, and feedback
 
-| Módulo | Responsabilidade |
+- Real tennis scoreboard: games + current points (15/30/40/AD), and a server indicator.
+- Timing feedback on every contact: `EARLY`/`PERFECT`/`LATE` + resulting direction — teaches the central mechanic.
+- State messages: serve prompt, whiff (“the ball went by!”), net, out, game/match.
+- Existing contact sound (`audio.hit(power)`) plays at adjudication; bounce and serve can reuse `step`/`jump` — no new assets.
+
+### 3.9 Keyboard (dev/test mode without a camera)
+
+Space triggers a synthetic swing with `peakTimestampMs = now` — in other words, **keyboard timing is authentic**: press early for cross-court, late for down the line. Fixed power is 0.65 (shift+space = 1.0). This is enough to validate the whole game without a webcam — and is how the showcase is demonstrated on machines without a good camera.
+
+## 4. Implementation architecture
+
+### Pure modules (no Three.js — testable with Vitest, strict TDD)
+
+| Module | Responsibility |
 |---|---|
-| `src/games/tennis/tennisScore.ts` | FSM de placar 15/30/40/deuce/game/match, alternância de saque |
-| `src/games/tennis/ballistics.ts` | Projétil: `advance` (posição/velocidade em t), `timeAtPlane`, `bounce`, `solveOutgoing` (alvo → velocidade) |
-| `src/games/tennis/contactAdjudicator.ts` | Retrocesso da bola a `t_peak`, janelas, timingError → direção/potência/qualidade, whiff |
-| `src/games/tennis/opponentAi.ts` | Alvo de movimento, geração de devolução, modelo de erro e dificuldade |
+| `src/games/tennis/tennisScore.ts` | Scoring FSM for 15/30/40/deuce/game/match, alternating serve |
+| `src/games/tennis/ballistics.ts` | Projectile: `advance` (position/velocity at t), `timeAtPlane`, `bounce`, `solveOutgoing` (target → velocity) |
+| `src/games/tennis/contactAdjudicator.ts` | Rewind ball to `t_peak`, windows, `timingError` → direction/power/quality, whiff |
+| `src/games/tennis/opponentAi.ts` | Movement target, return generation, error and difficulty model |
 
-`TennisGame.ts` fica com cena Three.js, máquina de estados, animações e HUD — integração fina sobre os módulos.
+`TennisGame.ts` owns the Three.js scene, state machine, animations, and HUD — a thin integration layer over the modules.
 
-### Mudanças no pipeline de sensing
+### Changes to the sensing pipeline
 
-> Nota de arquitetura (25/nov): a pipeline CV foi extraída para o pacote `@nevergear/spatial-core` (`packages/core`) — protocolo em `packages/core/src/providers/poseProtocol.ts`, worker em `packages/core/src/providers/pose.worker.ts`. O pacote também já traz infraestrutura de **hand tracking** (`HandClient`, modelo hospedado) e replay gravado, hoje fora do caminho do app. Fusão pose+mão fica como trabalho futuro: o HandLandmarker foi desenhado para mãos em close, e a mão ocupa poucos pixels num enquadramento de corpo inteiro a ~2 m — ganho incerto, custo certo de inferência. O tênis desta iteração sai inteiro da pose, que é o caminho medido e conhecido.
+> Architecture note (Nov. 25): the CV pipeline was extracted into the `@nevergear/spatial-core` package (`packages/core`) — protocol in `packages/core/src/providers/poseProtocol.ts`, worker in `packages/core/src/providers/pose.worker.ts`. The package also includes **hand-tracking** infrastructure (`HandClient`, hosted model) and recording replay, both currently outside the app’s path. Pose + hand fusion is future work: HandLandmarker is designed for close-up hands, while a hand occupies only a few pixels in a full-body frame from ~2 m — uncertain gain, certain inference cost. This tennis iteration uses pose alone, the measured and understood path.
 
-1. **Evento `swing-start`** — novo tipo em `SportActionEvent`; `SwingDetector` emite no frame do onset.
-2. **Enriquecimento do `swing` confirmado**: `contactY` (altura do punho no pico, larguras de ombro relativas ao ombro), `verticalSpeed` (vy no pico — proxy de spin), `onsetTimestampMs`.
-3. **Câmera 60 fps**: `frameRate: { ideal: 60 }` sem teto — dobra amostras por swing onde o hardware permite.
-4. **Fallback GPU→CPU por latência**: mediana dos tempos reais de inferência dos primeiros frames (descartando o primeiro, que carrega warmup); mediana > budget → recria em CPU e reporta `FALLBACK`. Fecha a armadilha medida no §7.5 da pesquisa (GL de software: 5-10 fps sem fallback). Medir em frames reais evita o problema de origem de relógio de probes sintéticos no init.
+1. **`swing-start` event** — new `SportActionEvent` type; `SwingDetector` emits on the onset frame.
+2. **Enrich confirmed `swing`**: `contactY` (wrist height at peak, relative to shoulder width), `verticalSpeed` (`vy` at peak — spin proxy), `onsetTimestampMs`.
+3. **60 fps camera**: `frameRate: { ideal: 60 }` with no cap — doubles swing samples where hardware allows.
+4. **Latency-based GPU→CPU fallback**: median the real inference times of the first frames (discard the first, which includes warm-up); median above budget → recreate on CPU and report `FALLBACK`. This closes the trap measured in §7.5 of the research (software GL: 5–10 fps without fallback). Measurements from real frames avoid the clock-source problem of synthetic init probes.
 
-### Estratégia de testes
+### Test strategy
 
-- TDD estrito nos quatro módulos puros: teste primeiro, determinístico, sem `setTimeout` — tempo é sempre parâmetro.
-- Swing: fixtures sintéticas estendidas para onset/altura/vy — mesmas convenções de `tests/kinematics.test.ts`.
-- Fallback GPU: função de decisão pura testada; integração verificada manualmente em `scripts/pose-bench.html`.
-- `TennisGame` não é testado em Vitest (Three.js/WebGL) — toda a lógica de decisão vive nos módulos puros; a cena é integração verificada manualmente com teclado.
+- Strict TDD for the four pure modules: test first, deterministic, no `setTimeout` — time is always an input.
+- Swing: extend synthetic fixtures for onset/height/`vy` — same conventions as `tests/kinematics.test.ts`.
+- GPU fallback: test the pure decision function; verify integration manually with `scripts/pose-bench.html`.
+- Do not test `TennisGame` in Vitest (Three.js/WebGL) — all decision logic lives in pure modules; verify the scene manually with a keyboard.
 
-## 5. O que fica fora (YAGNI declarado)
+## 5. Out of scope (declared YAGNI)
 
-- Service box / dupla falta / tie-break.
-- Spin por torção de punho (impossível com o sensor).
-- Modo fantoche contínuo (raquete do avatar dirigida pelo punho em tempo real) — futuro se a animação procedural não convencer.
-- Multiplayer / duplas.
-- Dificuldade adaptativa além da rampa linear.
+- Service boxes / double faults / tie-breaks.
+- Wrist-twist spin (impossible with the sensor).
+- Continuous puppet mode (avatar racket driven by the wrist in real time) — future work if procedural animation is unconvincing.
+- Multiplayer / doubles.
+- Adaptive difficulty beyond the linear ramp.
 
-## Como o Nevergear Sports faz, e o que adotamos
+## How Wii Sports Tennis does it, and what we adopted
 
-Consultado em [MiiWiki](https://miiwiki.org/wiki/Tennis) e
-[Wikibooks](https://en.wikibooks.org/wiki/Wii_Sports/Tennis). São fontes de fãs.
+Consulted [MiiWiki](https://miiwiki.org/wiki/Tennis) and
+[Wikibooks](https://en.wikibooks.org/wiki/Wii_Sports/Tennis). These are fan sources.
 
-| Nevergear Sports, segundo as fontes | Aqui |
+| Wii Sports, according to the sources | Here |
 | --- | --- |
-| Movimento automático; o jogador só rebate | Igual |
-| Tempo e altura da raquetada definem a direção | O tempo define o lado; onde o golpe termina define o arco |
-| Saque: lança a bola e bate; no topo sai um saque rápido com rastro branco | Igual, mas o lançamento é automático |
-| Baixo para alto faz lob; alto para baixo faz slice | Terminar bem acima da cabeça (altura prevista pela velocidade de subida): bola alta. Terminar abaixo do peito: rasante |
-| Sempre em duplas | Simples |
-| 1 game, melhor de 3 ou de 5; 15, 30, 40 e vantagem | Melhor de 3 |
-| Torcida de Miis | Torcida simples |
+| Automatic movement; the player only returns the ball | Same |
+| Swing timing and height determine direction | Timing determines the side; where the swing ends determines the arc |
+| Serve: toss and hit; at the top, a fast serve gets a white trail | Same, but the toss is automatic |
+| Low-to-high makes a lob; high-to-low makes a slice | Finish well above the head (height predicted from upward speed): high ball. Finish below the chest: low shot |
+| Always doubles | Singles |
+| 1 game, best of 3 or 5; 15, 30, 40, and advantage | Best of 3 |
+| Mii crowd | Simple crowd |
 
-**As fontes não falam de falta, dupla falta nem das regras de rede e fora.** Por decisão nossa, para o
-jogo fluir: um golpe que acerta a bola sempre passa a rede, e o saque sempre entra.
+**The sources do not discuss faults, double faults, or net/out rules.** To keep the game flowing, we decided that any swing that hits the ball always clears the net, and serves always land in.

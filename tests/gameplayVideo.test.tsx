@@ -165,7 +165,7 @@ describe('GameplayVideo', () => {
     expect(playMock).toHaveBeenCalledTimes(1);
 
     pauseMock.mockClear();
-    // Saiu para 10% visivel: nem entra nem sai — mantem o estado anterior.
+    // At 10% visibility, neither enter nor exit; keep the previous state.
     await setVisible(true, 0.1);
     expect(pauseMock).not.toHaveBeenCalled();
 
@@ -193,7 +193,7 @@ describe('GameplayVideo', () => {
 
   it('stays paused for reduced-motion users until they opt in with the button', async () => {
     mockMotionPreference(true);
-    // O estado inicial e lido na montagem: remonta para valer a preferencia.
+    // The initial state is read on mount; remount to apply the preference.
     const { container, root } = await renderVideo();
 
     await setVisible(true);

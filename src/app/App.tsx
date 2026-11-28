@@ -32,11 +32,11 @@ export default function App() {
     document.body.classList.toggle('home-scroll', location.pathname === '/');
   }, [location.pathname]);
 
-  const inArena = /^\/app\/?$/.test(location.pathname); // a arena e '/app'
-  // A abertura toca a cada carregamento da pagina (nao a cada navegacao interna); a arena fica de fora.
+  const inArena = /^\/app\/?$/.test(location.pathname); // The arena route is /app.
+  // Play the intro on each page load, but not during internal navigation or inside the arena.
   const [introOpen, setIntroOpen] = useState(() => !/^\/app\/?$/.test(location.pathname));
 
-  // A praça de Miis (WebGL) só monta depois que a volta da arena termina.
+  // Mount the WebGL Mii plaza only after the return transition from the arena finishes.
   const [plazaReady, setPlazaReady] = useState(false);
   useEffect(() => {
     if (inArena) {

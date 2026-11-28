@@ -1,10 +1,10 @@
 import { useCallback, useState } from 'react';
 
-/** Passagem entre telas, como no Nevergear: clareia até o branco, troca, e o branco se dissolve. */
+/** Nevergear-style screen transition: fade to white, switch screens, then dissolve the overlay. */
 export function useScreenFade<S>(show: (screen: S) => void) {
   const [fade, setFade] = useState<{ phase: 'out'; to: S } | { phase: 'in' }>();
 
-  // Sem animação não há `animationend`: quem pede menos movimento troca direto.
+  // Reduced-motion mode has no `animationend`; switch immediately instead.
   const go = useCallback((to: S) => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) show(to);
     else setFade({ phase: 'out', to });

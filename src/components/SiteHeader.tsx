@@ -101,7 +101,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
   const productOpacity = 1;
   const productX = 0;
   const webcamOpacity = useTransform(scrollY, [0, 40], [1, 0]);
-  // Quando a webcam (o pingo do último i na home) some, o pingo de verdade aparece no lugar.
+  // When the webcam (the dot on the final home-page i) disappears, the actual dot appears in its place.
   const inverseBrandScale = useTransform(() => 1 / brandScale.get());
   const glassAmount = useTransform(progress, [0, 0.22], [0, 44]);
   const borderAmount = useTransform(progress, [0, 0.18], [0, 11]);
@@ -487,7 +487,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
             <h1><img className="brand-logo" src="/images/nevergear-logo.png" alt="Nevergear" width={1200} height={234} /></h1>
             <p className="definition-kind"><em>{tr('arcade', 'arcade')}</em> · {tr('jogo no navegador', 'browser game')}</p>
             <p className="definition-phrase">
-              {tr('Uma arena no navegador em que o corpo é o controle: corrida de obstáculos e tênis jogados por pose, só com a webcam.', 'A browser arena where the body is the controller: hurdle running and tennis played by pose, with just a webcam.')}
+              {tr('Uma arena no navegador em que o corpo é o controle: atletismo, boxe e tênis jogados por pose, só com a webcam.', 'A browser arena where the body is the controller: athletics, boxing and tennis played by pose, with just a webcam.')}
             </p>
             <p className="definition-note">{tr('Seu corpo é o controle.', 'Your body is the controller.')}</p>
           </motion.aside>

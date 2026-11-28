@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import App from '../src/App';
+import { LangProvider } from '../src/i18n';
 import { pose } from './fixtures/syntheticPose';
 import type { PoseSnapshot } from '../src/cv/protocol';
 
@@ -19,6 +20,8 @@ const captures = vi.hoisted(() => ({
 
 vi.mock('../src/ui/NevergearSplash', () => ({ NevergearSplash: () => null }));
 vi.mock('../src/ui/PoseOverlay', () => ({ drawPose: vi.fn() }));
+
+beforeEach(() => localStorage.setItem('nevergear-lang', 'pt'));
 
 vi.mock('../src/ui/GameCanvas', async () => {
   const React = await import('react');
@@ -74,7 +77,7 @@ it('switches the camera back to hand tracking when play exits to the channel men
   };
 
   try {
-    await act(async () => { root.render(<App />); });
+    await act(async () => { root.render(<LangProvider><App /></LangProvider>); });
     await click('ATIVAR CÂMERA');
     await act(flush);
     expect(captures.handBegins).toBe(1);
@@ -134,7 +137,7 @@ it('runs the three Iron Man stages in order, shows the summary, and discards a c
     captures.gameProps!.ironMan!.onComplete({ sport, detail });
   });
   try {
-    await act(async () => root.render(<App />));
+    await act(async () => root.render(<LangProvider><App /></LangProvider>));
     await start();
     expect(captures.gameProps).toMatchObject({ sport: 'athletics', goal: 100 });
     await finish('athletics', '15 segundos · 2º lugar');
@@ -162,6 +165,7 @@ it('runs the three Iron Man stages in order, shows the summary, and discards a c
 it('reads and updates the migrated mute preference under the Nevergear key', async () => {
   const { migrateRenamedStorage } = await import('../src/lib/migrateStorage');
   localStorage.clear();
+  localStorage.setItem('nevergear-lang', 'pt');
   localStorage.setItem('wii-web-sports.muted.v1', '1');
   migrateRenamedStorage(localStorage);
   window.matchMedia = (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList;
@@ -169,7 +173,7 @@ it('reads and updates the migrated mute preference under the Nevergear key', asy
   document.body.appendChild(container);
   const root = createRoot(container);
   try {
-    await act(async () => { root.render(<App />); });
+    await act(async () => { root.render(<LangProvider><App /></LangProvider>); });
     const click = async (text: string) => {
       const button = [...container.querySelectorAll('button')].find((candidate) => candidate.textContent === text);
       expect(button, text).toBeDefined();

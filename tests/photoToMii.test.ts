@@ -463,7 +463,7 @@ describe('photoToMii — colorimetry, cues, and edge cases', () => {
     const normalRes = mapFaceToMii({ landmarks: makeBaseLandmarks(), baseProfile: DEFAULT_PLAYER_MII });
     const yawedRes = mapFaceToMii({ landmarks: yawed, baseProfile: DEFAULT_PLAYER_MII });
     expect(yawedRes.confidence).toBeLessThan(normalRes.confidence);
-    expect(yawedRes.warnings.some((w) => w.includes('inclinado'))).toBe(true);
+    expect(yawedRes.warnings.some((w) => w.includes('tilted sideways'))).toBe(true);
   });
 });
 

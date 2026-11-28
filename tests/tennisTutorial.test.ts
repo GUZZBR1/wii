@@ -4,6 +4,14 @@ import { GIVE_UP_AFTER_S, HINT_AFTER_S, LEARNING_TRAVEL, TennisTutorial } from '
 const stroke = (side: 'forehand' | 'backhand', travel = 3, hand: 'left' | 'right' = 'right') => ({ hand, side, travel });
 
 describe('tennis warm-up', () => {
+  it('updates tutorial text when the game language changes', () => {
+    const tutorial = new TennisTutorial('en');
+    expect(tutorial.text.title).toBe('Swing the racket 3 times');
+    expect(tutorial.text.detail).toContain('of 3');
+    tutorial.setLanguage('pt');
+    expect(tutorial.text.title).toBe('Dê 3 raquetadas');
+  });
+
   it('walks through the four steps as the movements are recognised', () => {
     const tutorial = new TennisTutorial();
     for (let i = 0; i < 3; i += 1) tutorial.swing(stroke('forehand'));

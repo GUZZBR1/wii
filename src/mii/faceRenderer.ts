@@ -23,7 +23,7 @@ function rgba(hex: number, alpha: number): string {
 
 function context2d(canvas: HTMLCanvasElement): CanvasRenderingContext2D {
   const context = canvas.getContext('2d');
-  if (!context) throw new Error('Canvas 2D indisponível');
+  if (!context) throw new Error('Canvas 2D is unavailable');
   return context;
 }
 

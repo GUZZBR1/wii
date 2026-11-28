@@ -1,136 +1,136 @@
-# Calibração adaptativa contínua — implicit calibration durante o jogo
+# Continuous adaptive calibration — implicit calibration during play
 
-Data: 25 de novembro de 2026. Complementa `docs/pesquisa-calibracao-corpo-parcial.md`.
+Date: November 25, 2026. Complements `docs/pesquisa-calibracao-corpo-parcial.md`.
 
-## Pergunta
+## Question
 
-A calibração precisa ser uma cerimônia visível — “fique parado, mostre o corpo inteiro, espere” — ou o sistema pode estimar e melhorar suas referências enquanto a pessoa simplesmente joga?
+Does calibration need to be a visible ceremony — “stand still, show your whole body, wait” — or can the system estimate and improve its references while someone simply plays?
 
-## Veredicto
+## Verdict
 
-Pode ser contínua e invisível. A literatura de motion capture chama isso de **calibração implícita**, **online calibration** ou **self-calibration during dynamic activity**. Exemplos próximos:
+It can be continuous and invisible. Motion-capture literature calls this **implicit calibration**, **online calibration**, or **self-calibration during dynamic activity**. Related examples include:
 
-- JointTracker usa estimador Bayesiano recursivo para calibrar cadeias humanas durante movimento, sem pose estática inicial;
-- trabalhos recentes de IMU descrevem “implicit calibration”: uso imediato, com estimativa online a partir de restrições observadas numa janela curta e diversificada;
-- técnicas clássicas de rastreamento usam mediana/MAD, consenso temporal, estimadores recursivos e seleção de amostras por incerteza.
+- JointTracker uses a recursive Bayesian estimator to calibrate human kinematic chains during movement, without an initial static pose.
+- Recent IMU work describes “implicit calibration”: immediate use, with online estimation from constraints observed over a short, varied window.
+- Classic tracking techniques use median/MAD, temporal consensus, recursive estimators, and uncertainty-based sample selection.
 
-A implementação atual do app segue essa família, mas permanece deliberadamente simples: **não é um filtro de Kalman completo nem uma posterior Bayesiana formal**. É um estimador online robusto, com priors leves e atualização lenta.
+The app’s current implementation follows this family, but remains deliberately simple: **it is neither a full Kalman filter nor a formal Bayesian posterior**. It is a robust online estimator with light priors and slow updates.
 
-## Algoritmo implementado
+## Implemented algorithm
 
-### 1. Evidência por frame, não modo de calibração
+### 1. Evidence from each frame, not a calibration mode
 
-`src/cv/adaptiveCalibrator.ts` consome os mesmos frames de gameplay. Um frame só vira evidência central quando:
+`src/cv/adaptiveCalibrator.ts` consumes the same frames used for gameplay. A frame becomes central evidence only when:
 
-- ombros `[11,12]` e quadris `[23,24]` existem em imagem e mundo;
-- confiança mínima é pelo menos `0.55`;
-- a geometria não é degenerada;
-- intervalos longos sem callback não contam como tempo observado.
+- shoulders `[11,12]` and hips `[23,24]` exist in image and world coordinates;
+- minimum confidence is at least `0.55`;
+- the geometry is not degenerate;
+- long intervals without a callback do not count as observed time.
 
-Pernas, pés e punhos não são requisitos para essa evidência central.
+Legs, feet, and wrists are not required for this central evidence.
 
-### 2. Largura dos ombros — mediana robusta rolante
+### 2. Shoulder width — rolling robust median
 
-`shoulderWidth` é quase constante para a mesma pessoa. A estimativa usa mediana sobre uma janela rolante de 8 s e uma atualização publicada lenta. Isso evita dois problemas:
+`shoulderWidth` is nearly constant for the same person. The estimate uses a median over an 8-second rolling window and a slow published update. This avoids two problems:
 
-- ruído frame a frame não vira velocidade fantasma no swing;
-- uma mudança breve de distância/câmera ou poucos outliers não reescrevem a escala.
+- frame-to-frame noise does not become phantom swing velocity;
+- a brief change in camera distance or a few outliers do not rewrite the scale.
 
-A prontidão da escala (`readiness.scale01`) combina span observado, cobertura temporal e dispersão da mediana.
+Scale readiness (`readiness.scale01`) combines observed span, temporal coverage, and median dispersion.
 
-### 3. Vertical neutra — consenso temporal tipo RANSAC
+### 3. Neutral vertical — RANSAC-style temporal consensus
 
-`leanUp0` vem de pernas estendidas verificadas quando há evidência suficiente; caso contrário, usa a direção do tronco. Em vez de média, usa consenso vetorial temporal:
+`leanUp0` comes from verified extended legs when there is enough evidence; otherwise, it uses torso direction. Instead of averaging, it uses temporal vector consensus:
 
-1. cada vetor candidato pontua pelo peso dos vetores que concordam com ele dentro de 15°;
-2. o grupo dominante vence;
-3. a referência é a combinação normalizada desse grupo.
+1. Each candidate vector is scored by the weight of vectors that agree with it within 15°.
+2. The dominant group wins.
+3. The reference is the normalized combination of that group.
 
-É uma forma simples de consenso tipo RANSAC/mode: inclinações transitórias e frames ruidosos não puxam a vertical como puxariam uma média.
+This is a simple RANSAC-style consensus or mode: transient leans and noisy frames do not pull the vertical as they would an average.
 
-### 4. Inclinação neutra — moda de histograma com priors fracos
+### 4. Neutral lean — histogram mode with weak priors
 
-`torsoLeanRad0` é estimado por uma moda de histograma seguida de mediana local. Dois priors fracos protegem contra feedback de controle:
+`torsoLeanRad0` is estimated using a histogram mode followed by a local median. Two weak priors protect against control feedback:
 
-- prior de postura ereta: inclinações grandes são menos prováveis de ser neutras;
-- prior do posterior atual: desviar da referência publicada não recentra imediatamente o neutro.
+- An upright-posture prior makes large leans less likely to be neutral.
+- A prior based on the current posterior prevents deviations from the published reference from immediately recentering neutral.
 
-Esses priors não impedem adaptação. Uma postura nova sustentada e recorrente ainda acumula evidência e move a referência lentamente. Essa lentidão é intencional: sem ela, segurar uma inclinação para controlar a raia recentraria o neutro e criaria drift circular — o jogo pediria inclinação cada vez maior.
+These priors do not prevent adaptation. A sustained, recurring new posture still accumulates evidence and moves the reference slowly. This is intentional: without that delay, holding a lean to control the lane would recenter neutral and create circular drift — the game would require an increasingly large lean.
 
-A prontidão neutra (`readiness.neutral01`) combina tempo, cobertura, força da moda e dispersão local. Ela converge mais devagar que a escala porque a inclinação lateral também é entrada de controle.
+Neutral readiness (`readiness.neutral01`) combines time, coverage, mode strength, and local dispersion. It converges more slowly than scale because lateral lean is also a control input.
 
-### 5. Repouso dos punhos — clustering espacial recorrente em baixa velocidade
+### 5. Wrist rest position — recurring low-velocity spatial clustering
 
-Para cada mão, independentemente:
+For each hand independently:
 
-1. o punho é transformado para coordenadas locais do corpo, normalizadas por `shoulderWidth`;
-2. velocidade é calculada nesse mesmo referencial, então balanço do torso não conta como movimento do punho;
-3. só frames de baixa velocidade entram como candidatos a repouso;
-4. um cluster denso precisa ser recorrente — ao menos dois episódios separados ou uma permanência longa;
-5. a referência publicada é a mediana do cluster e muda lentamente.
+1. The wrist is transformed into body-local coordinates and normalized by `shoulderWidth`.
+2. Velocity is calculated in the same reference frame, so torso sway does not count as wrist movement.
+3. Only low-velocity frames are considered rest candidates.
+4. A dense cluster must recur — in at least two separate episodes or one long hold.
+5. The published reference is the cluster median and changes slowly.
 
-Uma única pausa curta não vira referência. Isso reduz o risco de tratar o fim de uma raquetada como posição neutra.
+A single short pause does not become a reference. This reduces the risk of treating the end of a racket swing as a neutral position.
 
-### 6. Publicação progressiva por dependência
+### 6. Progressive publication by dependency
 
-O perfil deixa de ser tudo-ou-nada:
+The profile is no longer all-or-nothing:
 
-- corrida/cadência/salto não dependem do perfil;
-- swing depende da escala corporal (`scale01`), então pode ativar cedo;
-- raia depende da referência neutra (`neutral01`), então ativa depois;
-- referência de punho é opcional e por mão; sem ela o swing ainda rearma por baixa velocidade sustentada.
+- Running, cadence, and jumping do not depend on the profile.
+- Swing depends on body scale (`scale01`), so it can activate early.
+- Lane control depends on the neutral reference (`neutral01`), so it activates later.
+- Wrist reference is optional and tracked per hand; without it, swing detection still rearms after sustained low velocity.
 
-O jogador não vê fases, progresso, diagnóstico ou instrução de calibração.
+The player sees no calibration phases, progress, diagnostics, or calibration instructions.
 
-## Limite fundamental: identificabilidade
+## Fundamental limit: identifiability
 
-Não existe algoritmo que distingua perfeitamente estas duas situações usando só uma câmera monocular:
+No algorithm using only a monocular camera can perfectly distinguish these two situations:
 
-1. a pessoa mudou mesmo sua postura neutra;
-2. a pessoa está segurando uma inclinação por muito tempo como entrada de controle.
+1. The person has actually changed their neutral posture.
+2. The person is holding a lean as a control input for a long time.
 
-Por isso a solução não promete adaptação instantânea e perfeita. A proteção correta é uma combinação de:
+For that reason, the solution does not promise perfect, instantaneous adaptation. The correct safeguards combine:
 
-- prior de estabilidade;
-- adaptação lenta;
-- evidência recorrente;
-- histerese;
-- janelas rolantes;
-- prontidão separada por controle.
+- a stability prior;
+- slow adaptation;
+- recurring evidence;
+- hysteresis;
+- rolling windows;
+- readiness separated by control.
 
-Esse é o trade-off inerente de calibração implícita. A versão implementada escolhe não sacrificar a estabilidade do controle para adaptar rápido demais.
+This is the inherent trade-off of implicit calibration. The implemented version chooses not to sacrifice control stability in order to adapt too quickly.
 
-## Testes atuais
+## Current tests
 
-`tests/adaptiveCalibration.test.ts` cobre:
+`tests/adaptiveCalibration.test.ts` covers:
 
-- publicação torso-only em menos de 1 s sem pernas/punhos;
-- não publicar antes de span/cobertura mínimos;
-- gaps longos sem callback não contarem como evidência;
-- mediana robusta da largura dos ombros;
-- preferência por vertical de pernas estendidas e fallback para tronco;
-- rejeição de core oculto/confiança NaN;
-- adaptação lenta de postura neutra;
-- não recentrar depois de inclinação curta estilo raia;
-- ativação de swing antes da referência neutra de raia;
-- não aprender repouso de punho por uma única pausa curta;
-- aprender repouso por recorrência.
+- torso-only publication in under 1 second without legs or wrists;
+- withholding publication until minimum span and coverage are met;
+- long callback gaps not counting as evidence;
+- robust median of shoulder width;
+- preference for vertical from extended legs and fallback to the torso;
+- rejection of a hidden core or `NaN` confidence;
+- slow adaptation to a neutral posture;
+- no recentering after a short lane-style lean;
+- swing activation before the neutral lane reference;
+- not learning a wrist rest position from one short pause;
+- learning a rest position from recurrence.
 
-## Validação que ainda falta
+## Validation still needed
 
-Os testes sintéticos provam lógica, não ergonomia real. Antes de ajustar números, medir com webcam real/replay:
+Synthetic tests establish the logic, not real-world ergonomics. Before adjusting the numbers, measure the following with a real webcam or replay:
 
-- jitter p95 de ombros/quadril e punhos em luz normal/baixa/contraluz;
-- tempo até `scale01` e `neutral01` cruzarem os limiares;
-- frequência de falsos lane/swing durante os primeiros 10 s;
-- drift de neutro ao segurar inclinações de raia por 1 s, 3 s e 10 s;
-- convergência das referências de punho durante rallies reais;
-- comparação CPU/GPU e 30/60 fps.
+- p95 shoulder/hip and wrist jitter in normal, low, and backlit conditions;
+- time until `scale01` and `neutral01` cross their thresholds;
+- false lane and swing frequency during the first 10 seconds;
+- neutral drift while holding lane-control leans for 1, 3, and 10 seconds;
+- convergence of wrist references during real rallies;
+- CPU/GPU and 30/60 fps comparisons.
 
-## Fontes externas consultadas
+## External sources consulted
 
 - [JointTracker: recursive online calibration/tracking for human kinematic chains](https://pmc.ncbi.nlm.nih.gov/articles/PMC11216284/)
 - [Transformer IMU Calibrator — dynamic/implicit calibration during activity](https://arxiv.org/pdf/2506.10580)
 - [High-Accuracy Real-Time Whole-Body Human Motion Tracking Based on Constrained Nonlinear Kalman Filtering](https://arxiv.org/abs/1511.04278)
 
-Essas fontes motivam a direção; a implementação aqui é específica para os invariantes e limitações do BlazePose monocular.
+These sources motivate the direction; this implementation is specific to BlazePose’s monocular invariants and limitations.

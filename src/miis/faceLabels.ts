@@ -1,6 +1,6 @@
 import type { Bilingual } from '../i18n';
 
-// Nomes na ordem dos índices de MiiFaceSpec (os mesmos do editor da arena).
+// Labels in MiiFaceSpec index order, shared with the arena editor.
 export const FACE_STYLES: readonly (readonly [
   'head' | 'hair' | 'eyes' | 'brows' | 'nose' | 'mouth' | 'beard' | 'glasses',
   Bilingual,

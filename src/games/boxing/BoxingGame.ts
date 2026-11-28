@@ -12,6 +12,7 @@ import { RunGate, type RunPhase } from '../core/runGate';
 import { applyLatePunch, applyOpponentPunch, applyPlayerPunch, createBoxing, MAX_HP, ROUND_COUNT, tickRound, type BoxingState } from './boxingRules';
 import type { BoxingMode } from './boxingModes';
 import { type BoxingStepKind, BoxingTutorial, LEARNING_PUNCH_TRAVEL } from './boxingTutorial';
+import type { Lang } from '../../i18n';
 import { HIT_FEEL, HitImpulse, type HitKind, playerHitKind } from './hitFeel';
 import { createImpactRing, createImpactSparkPool, type ImpactEffectKind, type ImpactSparkPool } from './impactEffects';
 import { createMiiBoxer, type MiiBoxer, type MiiBoxerFootwork, type MiiBoxerState } from './miiBoxer';
@@ -126,6 +127,62 @@ const MOVE_KEYS: Record<string, { forward: number; strafe: number }> = {
 const clampUnit = (value: number) => Math.max(-1, Math.min(1, value));
 const PLANTED: Readonly<Required<MiiBoxerFootwork>> = Object.freeze({ speed01: 0, forward: 0, strafe: 0 });
 
+const BOXING_TEXT_EN: Readonly<Record<string, string>> = {
+  'Soque quando a guarda abrir': 'Punch when the guard opens',
+  'Siga o ritmo do saco': 'Follow the bag rhythm',
+  'Leia o golpe e ocupe a zona segura': 'Read the punch and move to the safe zone',
+  'Defesa, soco e esquiva': 'Guard, punch, and dodge',
+  'Prepare o ritmo': 'Get ready for the rhythm',
+  'Leia o golpe': 'Read the punch',
+  'Guarda alta': 'Keep your guard up',
+  'ISSO!': 'NICE!',
+  'LONGE DEMAIS': 'TOO FAR',
+  'ADVERSÁRIO ESQUIVOU': 'OPPONENT DODGED',
+  'NOCAUTE!': 'KNOCKOUT!',
+  'CONTRA-ATAQUE!': 'COUNTERATTACK!',
+  'EM CHEIO!': 'RIGHT ON TARGET!',
+  'ACERTOU!': 'HIT!',
+  'BLOQUEADO': 'BLOCKED',
+  'Tutorial completo!': 'Tutorial complete!',
+  'APRENDI!': 'GOT IT!',
+  'Nova luta': 'New fight',
+  'ESQUIVOU! AGORA!': 'DODGED! NOW!',
+  'DEFENDEU': 'BLOCKED',
+  'NOCAUTE…': 'KNOCKOUT…',
+  'LEVOU UM SOCO': 'YOU GOT PUNCHED',
+  'FRACO': 'WEAK',
+  'JÁ CONTADO': 'ALREADY COUNTED',
+  'FORA DO RITMO': 'OFF BEAT',
+  'PERDEU O RITMO': 'MISSED THE BEAT',
+  'ESQUIVOU!': 'DODGED!',
+  'CEDO, MAS VALEU': 'EARLY, BUT IT COUNTS',
+  'TARDE DEMAIS': 'TOO LATE',
+  'Saco completo!': 'Bag complete!',
+  'Esquiva completa!': 'Dodge challenge complete!',
+  'Acertaram você!': 'You were hit!',
+  'Desafio perdido': 'Challenge failed',
+  'VOCÊ VENCEU!': 'YOU WIN!',
+  Empate: 'Draw',
+  'Adversário venceu': 'Opponent wins',
+  PAUSA: 'PAUSED',
+  'Volte para a câmera ou aperte W A S D': 'Return to the camera or press W A S D',
+  Intervalo: 'Break',
+  'ESQUIVE!': 'DODGE!',
+  'Afaste-se um pouco': 'Move a little farther away',
+  'Mostre os quadris para esquivar de lado': 'Show your hips to dodge sideways',
+};
+
+function boxingText(text: string, language: Lang): string {
+  if (language === 'pt') return text;
+  const exact = BOXING_TEXT_EN[text];
+  if (exact) return exact;
+  const safeLane = text.match(/^Ocupe (a esquerda|a direita|o centro)$/);
+  if (safeLane) return `Move to ${safeLane[1] === 'a esquerda' ? 'the left' : safeLane[1] === 'a direita' ? 'the right' : 'the center'}`;
+  const tally = text.match(/^(\d+) esquivas · (\d+) golpes sofridos$/);
+  if (tally) return `${tally[1]} dodges · ${tally[2]} hits taken`;
+  return text;
+}
+
 const HANDS = ['left', 'right'] as const;
 
 function createGloveGlow(boxer: MiiBoxer, hand: Hand): THREE.Mesh | undefined {
@@ -158,6 +215,7 @@ function createPlayerBoxer(): MiiBoxer {
 }
 
 export interface BoxingGameOptions {
+  language?: Lang;
   mode?: BoxingMode;
   holdResult?: boolean;
   opponent?: OpponentProfileId;
@@ -236,6 +294,7 @@ export class BoxingGame {
   private readonly holdResult: boolean;
   private readonly motionRng: () => number;
   private readonly profile: OpponentProfile;
+  private language: Lang;
 
   private match: BoxingState = createBoxing();
   private ai: OpponentAiState;
@@ -333,6 +392,7 @@ export class BoxingGame {
     private readonly rng: () => number = Math.random,
     private readonly options: BoxingGameOptions = {},
   ) {
+    this.language = options.language ?? 'pt';
     this.mode = options.mode ?? 'fight';
     this.holdResult = options.holdResult ?? false;
     this.motionRng = options.motionRng ?? (() => 0);
@@ -365,7 +425,7 @@ export class BoxingGame {
     }
     if (this.mode === 'dodge') this.dodgeChallenge = new DodgeChallenge();
     if (this.mode === 'tutorial') {
-      this.tutorial = new BoxingTutorial();
+      this.tutorial = new BoxingTutorial(this.language);
       this.shownStep = this.tutorial.step;
       this.options.onPunchTravel?.(LEARNING_PUNCH_TRAVEL);
     }
@@ -396,6 +456,16 @@ export class BoxingGame {
 
   setTracking(tracking: string): void {
     this.applyTracking(tracking);
+    this.publishHud();
+  }
+
+  setLanguage(language: Lang): void {
+    this.language = language;
+    this.tutorial?.setLanguage(language);
+    if (this.tutorial) {
+      const { title, detail } = this.tutorial.text;
+      this.status = this.tutorial.done ? 'Tutorial completo!' : `${title} — ${detail}`;
+    }
     this.publishHud();
   }
 
@@ -1131,7 +1201,7 @@ export class BoxingGame {
     }
     if (this.mode === 'dodge') this.dodgeChallenge = new DodgeChallenge();
     if (this.mode === 'tutorial') {
-      this.tutorial = new BoxingTutorial();
+      this.tutorial = new BoxingTutorial(this.language);
       this.shownStep = this.tutorial.step;
       this.travelAdapted = false;
       // The travel floor is not lowered again: the next completion re-adapts it, and in the
@@ -1375,25 +1445,26 @@ export class BoxingGame {
   }
 
   private publishHud(): void {
+    const display = (text: string) => boxingText(text, this.language);
     const training = this.trainingScoreboard();
     const finished = this.mode === 'fight' ? this.match.winner !== undefined : this.trainingFinished();
     const countdownDetail = this.mode === 'bag' ? 'Prepare o ritmo' : this.mode === 'dodge' ? 'Leia o golpe' : this.mode === 'tutorial' ? 'Defesa, soco e esquiva' : 'Guarda alta';
-    const banner = this.gate.phase === 'countdown' ? { title: String(this.gate.count), detail: countdownDetail }
-      : this.gate.phase === 'paused' ? { title: 'PAUSA', detail: 'Volte para a câmera ou aperte W A S D' }
-      : finished ? { title: this.status }
+    const banner = this.gate.phase === 'countdown' ? { title: String(this.gate.count), detail: display(countdownDetail) }
+      : this.gate.phase === 'paused' ? { title: display('PAUSA'), detail: display('Volte para a câmera ou aperte W A S D') }
+      : finished ? { title: display(this.status) }
       : this.hipsHiddenForMs >= HIPS_HINT_AFTER_MS && !(this.mode === 'fight' && this.ai.phase.kind === 'windup')
-        ? { title: 'Afaste-se um pouco', detail: 'Mostre os quadris para esquivar de lado' }
-      : this.mode === 'fight' && this.breakMsLeft > 0 ? { title: `ROUND ${this.match.round}`, detail: 'Intervalo' }
+        ? { title: display('Afaste-se um pouco'), detail: display('Mostre os quadris para esquivar de lado') }
+      : this.mode === 'fight' && this.breakMsLeft > 0 ? { title: `ROUND ${this.match.round}`, detail: display('Intervalo') }
       : this.mode === 'fight' && !this.pendingBell && this.ai.phase.kind === 'windup'
-        ? { title: 'ESQUIVE!' }
+        ? { title: display('ESQUIVE!') }
         : undefined;
     const selectionOpen = this.gate.phase === 'countdown' || finished;
     this.onHud({
       score: training?.score ?? this.match.opponentHp,
       label: training ? String(training.score) : `${this.match.playerHp} × ${this.match.opponentHp}`,
       speed01: 0,
-      status: this.status,
-      feedback: this.feedback,
+      status: display(this.status),
+      feedback: this.feedback ? { ...this.feedback, text: display(this.feedback.text) } : undefined,
       banner: this.tutorial && this.gate.phase === 'running' ? this.tutorial.text : banner,
       learn: this.tutorial && !this.tutorial.done && this.gate.phase === 'running'
         ? { progress01: Math.round(this.tutorial.progress01 * 50) / 50, step: this.tutorial.stepIndex + 1, steps: this.tutorial.stepCount }

@@ -9,7 +9,7 @@ const quantize = (progress: number) => Math.round(Math.min(1, Math.max(0, progre
 
 interface Props {
   store: HandInputStore;
-  /** Falso fora dos menus com a aba de mão: o cursor se despede e deixa de interagir. */
+  /** False outside menus with the hand tab; the cursor fades and stops interacting. */
   active: boolean;
   onBack: () => void;
 }
@@ -18,7 +18,7 @@ export function HandCursor({ store, active, onBack }: Props) {
   const cursorRef = useRef<HTMLDivElement>(null);
   useHandHitTest(store, active, onBack, cursorRef);
   const visible = useHandInput(store, (hand) => hand.current.visible);
-  // Ao sair, o cursor some com a aparência da última amostra visível, não a do frame já sem mão.
+  // On exit, fade the cursor using the last visible sample, not the current frame with no hand.
   const synced = useHandInput(store, (hand) => hand.lastVisible.synced);
   const pinching = useHandInput(store, (hand) => hand.lastVisible.pinching);
   const back = useHandInput(store, (hand) => hand.lastVisible.backProgress > 0);
@@ -26,7 +26,7 @@ export function HandCursor({ store, active, onBack }: Props) {
   const progress = useHandInput(store, ({ lastVisible }) =>
     quantize(lastVisible.backProgress > 0 ? lastVisible.backProgress : lastVisible.synced ? 0 : lastVisible.syncProgress),
   );
-  // A confirmação dura mais que o frame do pinchRelease; cada clique reinicia a animação pela key.
+  // Keep confirmation visible longer than the pinchRelease frame; the key restarts the animation for each click.
   const flash = useHandInput(store, (hand) => hand.clicks);
 
   const rotating = rotation === 'ROTATING' || rotation === 'RECOVERY';
@@ -36,7 +36,7 @@ export function HandCursor({ store, active, onBack }: Props) {
   const classes = ['hand-cursor', state, rotationClass, pinching ? 'pinching' : '', active && visible ? '' : 'off'].filter(Boolean).join(' ');
 
   return <div className="hand-layer" aria-hidden="true">
-    {/* O transform é escrito direto no elemento pelo loop de useHandHitTest. */}
+    {/* useHandHitTest writes the transform directly to this element from its animation loop. */}
     <div ref={cursorRef} className={classes}>
       <div className="hand-body">
         <svg className="hand-ring" viewBox="0 0 80 80" aria-hidden="true">

@@ -1,6 +1,6 @@
 /**
- * O Mii como o site o usa. O rosto é o `MiiFaceSpec` dos jogos (mesma chave salva), então
- * o Mii criado na home é o que entra na arena; nome, roupa e porte só existem no site.
+ * The site's Mii representation. The face uses the games' `MiiFaceSpec` (the same saved key), so
+ * the Mii created on the home page enters the arena; name, outfit, and build are site-only details.
  */
 import {
   EYE_PALETTE,
@@ -26,7 +26,7 @@ export interface SiteMii {
   readonly face: MiiFaceSpec;
 }
 
-// Estilos do catálogo/foto → índices dos estilos dos jogos.
+// Map catalog/photo styles to the game-style indices.
 const HEAD = { oval: 1, round: 0, square: 2, tapered: 5 };
 const HAIR = {
   short: 1, spiky: 3, bob: 4, long: 9, bald: 0, ponytail: 5,
@@ -94,7 +94,7 @@ export function saveSiteMii(mii: SiteMii): SiteMii {
   try {
     globalThis.localStorage?.setItem(STORAGE_KEY, JSON.stringify({ name, shirtColor, height, build }));
   } catch {
-    // Sem armazenamento: vale só nesta visita.
+    // Without storage, this value lasts only for the current visit.
   }
   const face = normalizeMiiFaceSpec(mii.face);
   saveFace(face);

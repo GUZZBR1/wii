@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { useLang } from '../i18n';
 
 import {
   cellNoise,
@@ -30,6 +31,7 @@ function motionPulse(elapsed: number, start: number, duration: number, period: n
 }
 
 export default function VisionAsciiPortrait() {
+  const { tr } = useLang();
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -328,7 +330,7 @@ export default function VisionAsciiPortrait() {
     <div
       className="vision-portrait"
       role="img"
-      aria-label="Retrato em ASCII da Sailor Moon; ela abre e pisca os olhos, dá uma piscadela, e as mechas do cabelo se movem."
+      aria-label={tr('Retrato em ASCII da Sailor Moon; ela abre e pisca os olhos, dá uma piscadela, e as mechas do cabelo se movem.', 'ASCII portrait of Sailor Moon; she opens and blinks her eyes, winks, and her hair moves.')}
     >
       <canvas aria-hidden="true" className="vision-portrait-canvas" ref={canvasRef} tabIndex={-1} />
     </div>

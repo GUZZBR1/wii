@@ -5,7 +5,7 @@ import { createMiiStage, type MiiStage } from '../miis/miiStage';
 import type { SiteMii } from '../miis/siteMii';
 import { useLang } from '../i18n';
 
-/** Prévia 3D do rascunho; arraste para girar. Um renderer por montagem. */
+/** 3D preview of the draft; drag to rotate. Use one renderer per mount. */
 export default function MiiPreview({ mii }: { mii: SiteMii }) {
   const { tr } = useLang();
   const hostRef = useRef<HTMLDivElement>(null);

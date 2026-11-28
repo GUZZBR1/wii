@@ -1,345 +1,217 @@
-# Pesquisa: exposição mínima de webcam para calibração por pessoa
+# Research: minimum webcam exposure for per-person calibration
 
-Pergunta: qual o **mínimo** de exposição de câmera — tempo, enquadramento, luz — para calibrar
-de verdade o sistema para cada pessoa, hoje (corrida/tênis) e para o que o motor vier a
-suportar. Síntese de quatro frentes: literatura de acurácia do BlazePose, biomecânica de
-postura parada, técnicas de webcam/imagem, prática de produtos comerciais — mais análise
-estatística própria de convergência sobre o `Calibrator` atual.
+> **Scope note (November 28, 2026):** This analysis describes an earlier implementation, when the menu offered Athletics and Tennis and calibration used an explicit settle-and-collect window. Boxing and continuous, implicit calibration were added later. The discussion of camera conditions and temporally correlated pose noise remains useful; the game list, calibration timings, and implementation-specific conclusions below are historical. For current gameplay and input requirements, see [the current game guide](jogos-pelo-corpo.md).
 
-Rótulos: **[G]** documento/fonte Google · **[I]** estudo independente revisado · **[P]**
-documentação primária de fabricante · **[A]** acadêmico · **[C]** comunidade/blog ·
-**[Calc]** aritmética derivada aqui · **[Inf]** inferência/síntese, não resultado direto.
+Question at the time of this study: what is the **minimum** camera exposure—time, framing, and lighting—needed to calibrate the earlier Athletics and Tennis implementation, and what might the engine need for later capabilities? This synthesis covers four areas: BlazePose accuracy research, quiet-standing biomechanics, webcam and imaging techniques, and commercial product practice. It also includes an original statistical analysis of convergence for the `Calibrator` used in that implementation snapshot.
+
+Evidence labels: **[G]** Google document/source · **[I]** independent peer-reviewed study · **[P]** primary manufacturer documentation · **[A]** academic source · **[C]** community/blog · **[Calc]** arithmetic derived here · **[Inf]** inference/synthesis, not a direct result.
 
 ---
 
-## 1. Resposta executiva
+## 1. Executive answer
 
-O projeto atual pede **1s de settle + 3s de coleta ≈ 4s parado**. A análise mostra:
+The current project asks the player to **settle for 1 s and collect for 3 s, or about 4 s standing still**. The analysis shows:
 
-1. **O código usa 1,8 segundos de sinal válido como hipótese de engenharia.** Esse valor
-   arredonda para baixo o pior caso anteriormente aceito (65% × 2800 ms = 1,82 s); não é
-   um mínimo estatístico demonstrado para este app. A janela anterior de 3 s era uma
-   política tolerante a falhas, não evidência de que 1,8 s baste.
-2. **O sway justifica medir janelas de vários segundos, mas não determina sozinho o piso.**
-   Soames & Atha encontraram uma frequência modal primária de 0,30–0,45 Hz em posturografia
-   de adultos jovens (períodos equivalentes de ~2,2–3,3 s), além de picos secundários e
-   terciários. Isso não prova o erro de uma mediana de landmarks do BlazePose Lite nem que
-   uma janela menor que meio-período cause erro sistemático no nosso produto.
-3. **O código pode baixar o tempo de forma adaptativa** quando os gates implementados
-   fecham. O benefício observado nos testes é de fixtures sintéticas estáticas; a economia
-   e a qualidade em webcam real ainda precisam de validação.
-4. **O que não é redutível**: calibração por sessão não pode ser eliminada para detectores
-   de referência neutra (baseline de salto, referência de raia, posição de prontidão),
-   porque esses parâmetros dependem de **postura habitual da pessoa naquele dia, naquela
-   câmera** — não de antropometria fixa. Kinect zerou calibração porque (a) tinha sensor
-   de profundidade com escala métrica real e (b) detecção absoluta, não referência-relativa.
-   Nosso motor é referência-relativa por design — e a pesquisa de inclinação já documentou
-   que "a referência calibrada trata a postura habitual da pessoa como vertical"
-   (`pesquisa-inclinacao-tronco.md`). Isso é feature, não bug: é o que torna o detector
-   robusto; mas amarra a calibração à sessão.
-5. **O gargalo de qualidade não é resolução nem fps — é luz estável e enquadramento.**
-   Não existe lux mínimo publicado pelo Google para BlazePose; a convergência de prática
-   industrial aponta ≥300 lux no sujeito como alvo prudente, luz frontal difusa, e exposição
-   estável (sem hunting) como mais importantes que qualquer número de megapixels.
+1. **The code uses 1.8 seconds of valid signal as an engineering hypothesis.** This rounds down the previously accepted worst case (65% × 2800 ms = 1.82 s); it is not a statistically demonstrated minimum for this app. The previous 3-second window was a fault-tolerant policy, not evidence that 1.8 seconds is enough.
+2. **Postural sway supports measuring windows of several seconds, but does not determine the minimum by itself.** Soames & Atha found a primary modal frequency of 0.30–0.45 Hz in posturography of young adults (equivalent periods of about 2.2–3.3 s), along with secondary and tertiary peaks. This does not establish the error of a median of BlazePose Lite landmarks, nor prove that a window shorter than half a period causes systematic error in our product.
+3. **The code can shorten the time adaptively** when its implemented gates converge. The benefit observed in tests comes from static synthetic fixtures; the time savings and quality on a real webcam still need validation.
+4. **Some calibration cannot be removed:** session calibration is necessary for neutral-reference detectors (jump baseline, lane reference, ready position), because those parameters depend on **the person’s habitual posture on that day and with that camera**, not on fixed anthropometry. Kinect avoided calibration because (a) it had a depth sensor with real metric scale and (b) it used absolute detection rather than relative references. Our engine is reference-relative by design. The torso-lean research already documents that “the calibrated reference treats the person’s habitual posture as vertical” (`docs/pesquisa-inclinacao-tronco.md`). That is a feature, not a bug: it makes the detector robust, but ties calibration to the session.
+5. **The main quality bottleneck is not resolution or frame rate; it is stable lighting and framing.** Google has not published a minimum lux level for BlazePose. Convergent industry practice points to ≥300 lux on the subject as a prudent target, with diffuse frontal light and stable exposure (without hunting) more important than megapixel count.
 
 ---
 
-## 2. Por que a mediana converge rápido — e onde ela não converge
+## 2. Why the median converges quickly—and where it does not
 
-### 2.1 Estatística da mediana
+### 2.1 Median statistics
 
-Para ruído iid gaussiano σ por amostra, o erro da mediana de N amostras é
-≈ **1,253·σ/√N**. Com σ=5mm (ordem do jitter pós-filtragem + sway), bastam ~10 amostras
-**independentes** para erro de mediana ~1,6mm — desprezível frente aos orçamentos de erro
-dos detectores (§4). O gargalo não é contagem de frames: é **independência** entre eles.
+For iid Gaussian noise with standard deviation σ per sample, the median’s error over N samples is approximately **1.253·σ/√N**. With σ = 5 mm (on the order of post-filtering jitter plus sway), about 10 **independent** samples are enough for a median error of roughly 1.6 mm—negligible relative to the detectors’ error budgets (§4). The bottleneck is not the number of frames; it is **independence** between them.
 
-### 2.2 Dupla filtragem destrói independência temporal
+### 2.2 Double filtering destroys temporal independence
 
-MediaPipe aplica OneEuro internamente (`auditoria-mediapipe.md` achado #1):
-`min_cutoff 0.05/beta 80` em landmarks de imagem → α≈0.01 parado. Constante de tempo
-≈ 1/α frames ≈ 100 frames ≈ **3,3s a 30fps** [Calc]. Consequência documentada em
-`pesquisa-robustez-gestos.md`: o ruído residual é **deriva lenta**, não ruído branco —
-"defeats N-consecutive-frame logic". Numa janela de 3s, o componente de ruído suavizado
-tem apenas **~1-3 amostras efetivamente independentes**. A mediana continua útil contra
-outliers transientes (frames ruins, oclusão), mas não comprime a deriva lenta — ela passa.
+MediaPipe applies One Euro filtering internally (finding #1 in `docs/auditoria-mediapipe.md`): `min_cutoff 0.05/beta 80` for image landmarks gives α ≈ 0.01 while still. The time constant is about 1/α frames ≈ 100 frames ≈ **3.3 s at 30 fps** [Calc]. As documented in `docs/pesquisa-robustez-gestos.md`, the residual noise is **slow drift**, not white noise—it “defeats N-consecutive-frame logic.” In a 3-second window, the smoothed noise component has only **about 1–3 effectively independent samples**. The median remains useful against transient outliers (bad frames and occlusion), but it does not suppress slow drift; that passes through.
 
-Implicação central: **aumentar fps ou densidade de amostras não melhora a calibração**.
-O que melhora é (a) tempo de janela cobrindo mais ciclos de sway e (b) rejeitar frames ruins.
+The central implication is that **increasing frame rate or sample density does not improve calibration**. What helps is (a) a window long enough to cover more sway cycles and (b) rejecting bad frames.
 
-### 2.3 Sway postural: o chão físico da "pessoa parada"
+### 2.3 Postural sway: the physical floor of “standing still”
 
-Literature de posturografia **[I]**:
+Posturography literature **[I]**:
 
-- Quadril parado: RMS **~4-5mm**; ombros **~5-6mm** (Wiesmeier 2015, PMC4477145)
-- CoP olhos abertos, 30s: excursão max-min **22mm AP / 12mm ML** (Kenny 2019, PMC6449971)
-- Movimento ponto-a-ponto em ~1s: **~4mm RMS** olhos abertos (Doyle 2008, análise de difusão)
-- Espectro do centro de pressão: Soames & Atha observaram 90–95% da energia abaixo de 2 Hz,
-  com moda primária em 0,30–0,45 Hz e picos secundários/terciários mais altos. Centro de
-  pressão em plataforma não é o mesmo sinal que landmarks estimados por webcam.
-- Pés juntos **dobram** o sway lateral; olhos fechados aumentam tudo
+- Quiet hip: RMS **about 4–5 mm**; shoulders: **about 5–6 mm** (Wiesmeier 2015, PMC4477145).
+- Center of pressure (CoP), eyes open, 30 s: peak-to-peak excursion of **22 mm AP / 12 mm ML** (Kenny 2019, PMC6449971).
+- Point-to-point movement over about 1 s: **about 4 mm RMS** with eyes open (Doyle 2008, diffusion analysis).
+- Center-of-pressure spectrum: Soames & Atha found 90–95% of energy below 2 Hz, with a primary mode at 0.30–0.45 Hz and higher secondary/tertiary peaks. Center of pressure on a platform is not the same signal as webcam-estimated landmarks.
+- Standing with feet together **doubles** lateral sway; closing the eyes increases all sway.
 
-Consequência para janela de calibração [Inf]:
+Implications for the calibration window [Inf]:
 
-- A moda primária medida corresponde a períodos de ~2,2–3,3 s; uma captura de 2–4 s pode
-  conter aproximadamente um ciclo, dependendo do sujeito e da condição.
-- As fontes consultadas não medem o erro de uma mediana de landmarks nessa janela. Os
-  envelopes em milímetros acima descrevem CoP e não são limites de erro deste app.
-- Portanto, o limiar de 1,8 s é uma hipótese a validar com sinais reais antes de tratá-lo
-  como piso de qualidade do produto. O teste sintético verifica contagem temporal, não
-  precisão da postura estimada.
+- The measured primary mode corresponds to periods of about 2.2–3.3 s; a 2–4-second capture may contain roughly one cycle, depending on the person and condition.
+- The sources reviewed do not measure the error of a landmark median over this window. The millimetre ranges above describe CoP and are not error bounds for this app.
+- Therefore, the 1.8-second threshold is a hypothesis to validate with real signals before treating it as a product-quality floor. The synthetic test checks elapsed-time accounting, not the accuracy of the estimated posture.
 
-### 2.4 Erro sistemático não averageia — mas cancela por consistência
+### 2.4 Systematic error does not average out—but consistency can cancel it
 
-Medições independentes de acurácia absoluta do BlazePose em webcam comum **[I]**:
-Physio2.2M (C920, 30Hz, 3/3,5m, contra mocap de marcadores): MPJPE 2D **83-97mm**,
-3D **146-162mm**, eixo z ~2× pior que x/y (Lite pior que Full/Heavy por ~15mm).
+Independent studies of absolute BlazePose accuracy on ordinary webcams **[I]**: Physio2.2M (C920, 30 Hz, 3/3.5 m, compared with marker-based motion capture) reports 2D MPJPE of **83–97 mm**, 3D MPJPE of **146–162 mm**, and z-axis error about twice x/y error (Lite is about 15 mm worse than Full/Heavy).
 
-Esses números pareceriam fatais — mas **calibração não precisa de acurácia absoluta,
-precisa de consistência**. O detector usa o mesmo sistema de medida enviesado na
-calibração e no jogo; o viés fixo cancela. O que não cancela:
+Those numbers look fatal, but **calibration does not need absolute accuracy; it needs consistency**. The detector uses the same biased measurement system during calibration and gameplay, so fixed bias cancels. What does not cancel:
 
-1. **Viés dependente de pose/posição** — a pessoa calibra em pé neutra mas joga inclinada,
-   agachada, com braço estendido; erros dependentes de configuração não cancelam.
-2. **Mudança de condição entre calibração e jogo** — câmera moveu, pessoa trocou de
-   distância, luz mudou. `pesquisa-inclinacao-tronco.md` já documenta: "Recompute or
-   invalidate calibration if the camera moves. Camera-aligned coordinates have no way
-   to detect this."
-3. **Eixo de profundidade** — z é o mais fraco (2× erro); qualquer detector futuro que
-   dependa de profundidade herda o pior eixo (issue #19 do striking).
+1. **Pose- or position-dependent bias:** the person calibrates standing neutrally, then plays while leaning, crouching, or extending an arm; configuration-dependent errors do not cancel.
+2. **A changed condition between calibration and gameplay:** the camera moves, the person changes distance, or the lighting changes. `docs/pesquisa-inclinacao-tronco.md` already documents: “Recompute or invalidate calibration if the camera moves. Camera-aligned coordinates have no way to detect this.”
+3. **The depth axis:** z is the weakest axis (about twice the error); any future detector that depends on depth inherits the weakest signal (striking issue #19).
 
 ---
 
-## 3. Os pisos físicos de exposição (condições, não tempo)
+## 3. Physical exposure floors (conditions, not duration)
 
-### 3.1 Enquadramento e pixels no corpo
+### 3.1 Framing and pixels on the body
 
-Consenso multi-fonte:
+Multi-source consensus:
 
-| Âncora | Valor | Fonte |
+| Anchor | Value | Source |
 |---|---|---|
-| Envelope da avaliação legada MediaPipe | imagens avaliadas com pessoa a **2-4m**; não é garantia para este app | [G] avaliação Pose |
-| Limite de escopo do model card BlazePose GHUM | pessoas a mais de **4m** fora de escopo; sem distância mínima validada | [G] model card |
-| Tamanho mínimo do sujeito | **256×256px** "para melhores resultados" (heurístico, ambíguo) | [G] ML Kit |
-| Altura do sujeito | idealmente **≥1/3 da altura do frame** | [P] Apple Vision |
-| Entrada mínima | 480×360px | [G] ML Kit |
-| Detector interno | crop da pessoa reescalado para 256² — resolução extra no frame não cria detalhe que o sensor não resolveu | [G] paper |
+| Legacy MediaPipe evaluation envelope | Images evaluated with people at **2–4 m**; this is not a guarantee for this app | [G] Pose evaluation |
+| BlazePose GHUM model-card scope limit | People beyond **4 m** are out of scope; no validated minimum distance | [G] model card |
+| Minimum subject size | **256×256 px** “for best results” (heuristic, ambiguous) | [G] ML Kit |
+| Subject height | Ideally **≥1/3 of the frame height** | [P] Apple Vision |
+| Minimum input | 480×360 px | [G] ML Kit |
+| Internal detector | Person crop is resized to 256²; more frame resolution cannot recover detail the sensor did not resolve | [G] paper |
 
-Geometria para nossa câmera típica (78° diag, HFOV ~70°, VFOV ~43°, classe C920) **[Calc]**:
-a 2m, pessoa de 1,7m ≈ **771px em 720p** — não cabe na vertical (107% do frame);
-a 2,5m ≈ 617px (86%, cabe com margem); a 1,5m **não cabe** em nenhuma hipótese.
-Em 640×480 o corpo inteiro exige ~2,3-3m dependendo da altura da pessoa — consistente
-com a faixa usada na avaliação legada do MediaPipe e com a prática da indústria (Kinect 1,8-2,5m,
-PS Eye/PSVR 1,5-2m, Peloton/Tempo ~1,8-2,4m, OpenCap 2-3m) **[P/A]**.
+Geometry for our typical camera (78° diagonal, HFOV ~70°, VFOV ~43°, C920 class) **[Calc]**: at 2 m, a 1.7 m person is about **771 px tall at 720p**—too tall for the frame (107% of its height). At 2.5 m, the person is about 617 px (86%, with room to fit); at 1.5 m, the person does not fit under any assumption. At 640×480, a full body requires roughly 2.3–3 m, depending on height. This is consistent with the range used in the legacy MediaPipe evaluation and industry practice (Kinect 1.8–2.5 m, PS Eye/PSVR 1.5–2 m, Peloton/Tempo ~1.8–2.4 m, OpenCap 2–3 m) **[P/A]**.
 
-Largura de ombro de 40cm a 2-2,5m ≈ **145-181px em 720p** (~90-113px em 480p escalado)
-[Calc] — muito acima do piso de geometria degenerada do `Calibrator` (0.03), ou seja,
-o gate existe para cropping extremo, não para distância normal.
+A 40 cm shoulder width at 2–2.5 m is about **145–181 px at 720p** (about 90–113 px at 480p after scaling) [Calc]—far above the `Calibrator`’s degenerate-geometry floor (0.03). The gate is for extreme cropping, not normal distances.
 
-Modo de falha documentado: pessoa de 240px num frame 1080p **não é detectada** no frame
-inteiro, mas é detectada após crop [C/G, issue mediapipe#5157] — o detector de corpo
-inteiro opera a 224² e perde pessoas pequenas antes do landmarker ter chance.
+Documented failure mode: a 240 px person in a 1080p frame is **not detected** in the full frame, but is detected after cropping [C/G, MediaPipe issue #5157]. The full-body detector operates at 224² and can lose small people before the landmarker gets a chance.
 
-**Piso de enquadramento**: cabeça visível (requisito do detector, que usa face como
-proxy de presença), corpo ocupando ≥1/3 do frame, joints relevantes longe das bordas,
-margem para movimento. Corrida precisa de corpo inteiro (tornozelos); tênis de
-ombros-a-joelhos + mãos — split já implementado.
+**Framing floor**: the head must be visible (a detector requirement, because the face is used as a proxy for presence); the body should occupy at least one third of the frame; relevant joints should stay away from the edges, with room to move. Running needs the full body, including ankles; tennis needs shoulders to knees plus hands—the split is already implemented.
 
-### 3.2 Luz e exposição — o verdadeiro multiplicador
+### 3.2 Lighting and exposure—the real multiplier
 
-**Não existe lux mínimo publicado para BlazePose** — Google respondeu explicitamente não
-ter calibração disso [G, issue #3453]. O que existe:
+**Google has not published a minimum lux level for BlazePose**; it explicitly said it has no calibration for this [G, issue #3453]. Available guidance:
 
-- Logitech recomenda **>300 lux** para manter 720p/60 constante na C922 [P]
-- Theia (mocap profissional multicâmera) recomenda **≥500 lux, ideal 1000** [P]
-- Iluminação típica: escritório 300-500 lux, **sala de estar 50-200 lux** — ou seja,
-  o caso doméstico típico está abaixo do regime bom [I]
-- Em baixa luz a webcam: estende exposição (máx 33ms a 30fps), sobe ganho (ruído),
-  e/ou **derruba fps** — comportamento documentado em laptops (15fps a 20 lux) e
-  controlado por `EXPOSURE_AUTO_PRIORITY` no V4L2 [P]
+- Logitech recommends **more than 300 lux** to sustain 720p/60 on the C922 [P].
+- Theia (professional multi-camera motion capture) recommends **at least 500 lux, ideally 1,000** [P].
+- Typical lighting: offices are 300–500 lux; **living rooms are 50–200 lux**—so typical home use is below the preferred range [I].
+- In low light, a webcam extends exposure (up to 33 ms at 30 fps), increases gain (noise), and/or **drops frame rate**. This behavior is documented on laptops (15 fps at 20 lux) and controlled by `EXPOSURE_AUTO_PRIORITY` in V4L2 [P].
 
-**Para a calibração especificamente, motion blur não é o constraint**: sway é mm/s —
-1/30s de exposição borra 0,33mm [Calc]. Os problemas reais em baixa luz são:
-ruído de ganho, **hunting de auto-exposição** (variação brilho frame-a-frame — documentado
-como falha de webcams pelo DXOMARK/VCX), queda de fps, e flicker de luz artificial
-(banding em rolling shutter se anti-flicker 50/60Hz errado) [P/I].
+**For calibration, motion blur is not the constraint**: sway is measured in mm/s, so a 1/30 s exposure blurs by 0.33 mm [Calc]. The real low-light problems are gain noise, **auto-exposure hunting** (frame-to-frame brightness changes, documented as a webcam failure by DXOMARK/VCX), dropped frame rate, and artificial-light flicker (rolling-shutter banding when 50/60 Hz anti-flicker settings are wrong) [P/I].
 
-**Para o jogo depois da calibração, o constraint inverte**: mão a 1-3m/s borra
-17-50mm em 1/60s, 33-100mm em 1/30s [Calc] — ~25-70px em escala de corpo inteiro,
-comparável a segmentos inteiros. Exposição alvo para gameplay: **≤1/60s, ideal ≤1/120s** —
-o que exige ainda mais luz. Mesma sala que "calibra" pode não "jogar".
+**After calibration, the gameplay constraint reverses**: a hand moving at 1–3 m/s blurs by 17–50 mm at 1/60 s and 33–100 mm at 1/30 s [Calc]—about 25–70 px at full-body scale, comparable to entire limb segments. Target gameplay exposure: **≤1/60 s, ideally ≤1/120 s**, which requires even more light. The same room may be bright enough to “calibrate” but not to “play.”
 
-Estudo único de degradação controlada com Pose Landmarker Full [I, JMIR 2026]:
-subexposição sintética moderada e desfoque tiveram efeito **negligenciável** no erro
-angular médio — mas era simulação digital sobre vídeo de laboratório, não ruído real
-de sensor barato. Evidência fraca; não generalizar.
+One controlled degradation study with Pose Landmarker Full [I, JMIR 2026] found **negligible** effects on mean angular error from moderate synthetic underexposure and blur. However, it digitally simulated degradation on laboratory video; it did not measure noise from a low-cost sensor. This is weak evidence and should not be generalized.
 
-### 3.3 Confiança de landmarks
+### 3.3 Landmark confidence
 
-Estudo multi-câmera contra Vicon **[I]**: erro sobe marcadamente abaixo de visibility
-**0.5**; variância sobe abaixo de **0.8**. Prática derivada: 0.5 piso de usabilidade,
-**0.7-0.8 para frames de calibração** seria o conservador. O threshold atual 0.55 fica
-no meio — razoável dado que a mediana já rejeita outliers, mas os piores frames que
-passam em 0.55-0.7 são os que a mediana precisa absorver.
+A multi-camera study against Vicon **[I]** found that error increases markedly below visibility **0.5**, while variance increases below **0.8**. A practical derivation is 0.5 as a usability floor and **0.7–0.8 for calibration frames** as a conservative target. The current threshold of 0.55 is in the middle—reasonable given that the median rejects outliers, but the worst frames that pass at 0.55–0.7 are the ones the median must absorb.
 
-### 3.4 fps e rolling shutter
+### 3.4 Frame rate and rolling shutter
 
-- Nenhum estudo controlado de fps vs acurácia espacial. 30fps é o denominador de todas
-  as validações [I]. fps menor não piora o frame individual; piora cobertura temporal.
-- Rolling shutter (readout típico 16-40ms em consumer) [P]: irrelevante para calibração
-  parada (shear de ~0.1mm); relevante para membros rápidos no jogo (25-75mm de shear
-  topo-embaixo a 1-3m/s) [Calc].
-- A 7fps (dispositivo degradado) os requisitos 12 amostras/2,8s ainda passam —
-  `analise-gargalos-corrida.md` já notou que o gate é folgado; o custo é que cada
-  blecaute consome fatia maior da cobertura.
+- No controlled study of frame rate versus spatial accuracy was found. 30 fps is the denominator used by all validations [I]. Lower frame rate does not worsen an individual frame; it reduces temporal coverage.
+- Rolling shutter (typical readout of 16–40 ms on consumer cameras) [P] is irrelevant to a still calibration (about 0.1 mm of shear), but relevant to fast limbs in gameplay (25–75 mm of top-to-bottom shear at 1–3 m/s) [Calc].
+- At 7 fps (a degraded device), the requirements of 12 samples over 2.8 s still pass. `docs/analise-gargalos-corrida.md` already notes that the gate is permissive; the cost is that each blackout consumes a larger share of the coverage window.
 
 ---
 
-## 4. Orçamento de erro por parâmetro — o que amarra o piso de tempo
+## 4. Error budget by parameter—what sets the time floor
 
-Precisão necessária vs. o que cada parâmetro calibrado alimenta:
+Required precision versus what each calibrated parameter feeds:
 
-| Parâmetro | Consumidor | Orçamento de erro | Dificuldade |
+| Parameter | Consumer | Error budget | Difficulty |
 |---|---|---|---|
-| `world.shoulderWidth` | escala de velocidades de swing | ~10% (4cm) — folgado | trivial: converge em <1s |
-| `readyWristLocal` | re-arm de swing (raio 0.35 larguras ~14cm) | ~5cm — muito folgado | trivial |
-| `image.torsoHeight` | escala de joelho/salto | ~5-10% | fácil |
-| `world.leanUp0` | referência de raia; fire 0.15rad (8,6°) | ~2-3° (~2-3cm de geometria de perna) | moderado: exige pernas estendidas verificadas — já implementado |
-| `image.kneeToHipY0` | offset neutro de joelho; bandas on/off 0.1/0.05 | ~0.02-0.03 unidades (~1-2cm) | apertado |
-| `image.hipY0` | baseline de salto; arming ≤0.03, takeoff 0.08 torso | **~0.02 torso (~1-1,5cm) — o mais apertado** | difícil: bias de 0.03 come a banda de arming inteira |
+| `world.shoulderWidth` | Swing-speed scale | ~10% (4 cm)—loose | Trivial: converges in <1 s |
+| `readyWristLocal` | Swing re-arming (radius 0.35 widths, ~14 cm) | ~5 cm—very loose | Trivial |
+| `image.torsoHeight` | Knee/jump scale | ~5–10% | Easy |
+| `world.leanUp0` | Lane reference; triggers at 0.15 rad (8.6°) | ~2–3° (~2–3 cm of leg geometry) | Moderate: requires verified extended legs—already implemented |
+| `image.kneeToHipY0` | Neutral knee offset; on/off bands 0.1/0.05 | ~0.02–0.03 units (~1–2 cm) | Tight |
+| `image.hipY0` | Jump baseline; arming ≤0.03, takeoff 0.08 torso | **~0.02 torso (~1–1.5 cm)—the tightest** | Difficult: bias of 0.03 consumes the entire arming band |
 
-Os dois parâmetros apertados são **verticais e dependem de postura neutra real** — é onde
-o erro de época do sway morde. Com sway vertical/ML de ~4-6mm RMS e mediana sobre uma
-janela que cobre ~1 ciclo (2-3s), erro residual esperado ~2-4mm [Inf] — dentro do
-orçamento, com margem pequena. Uma janela de 1s que por acaso captura um extremo de
-transferência de peso (15-30mm) estoura o orçamento 2-10×. **É por isso que ~2s de
-sinal válido é o piso, não ~0,5s** — e por isso o gate de imobilidade e a verificação
-de pernas estendidas importam mais que a contagem de amostras.
+The two tightest parameters are **vertical and depend on the true neutral posture**—this is where sway phase error matters. With vertical/ML sway of about 4–6 mm RMS and a median over a window covering roughly one cycle (2–3 s), expected residual error is about 2–4 mm [Inf], within the budget but with little margin. A 1-second window that happens to capture an extreme weight shift (15–30 mm) exceeds the budget by 2–10×. **That is why about 2 seconds of valid signal is the floor, not about 0.5 s**, and why the stillness gate and extended-leg check matter more than the sample count.
 
 ---
 
-## 5. Hipótese de implementação para o piso de tempo
+## 5. Implementation hypothesis for the time floor
 
-As fontes não permitem derivar um mínimo de **sinal válido** para esta aplicação:
+The sources do not establish a minimum amount of **valid signal** for this application:
 
-1. **Independência de ruído**: ~10 realizações independentes para mediana comprimir ruído
-   branco residual. Com ruído correlacionado em τ~0,3-1s (pós-dupla-filtragem, ordem de
-   grandeza [Inf]), isso pede 1-3s de janela. Não é o constraint dominante.
-2. **Exposição a sway**: a literatura sugere componentes de baixa frequência em CoP, mas não
-   converte isso em duração mínima para landmarks de pose. O limite de **1,8 s** é uma
-   hipótese de implementação pendente de medir duração e erro com webcam real.
-3. **Robustez a outliers**: a mediana tolera até <50% de amostras contaminadas; o antigo
-   gate de 65% permitia até 35% de quadros inválidos, mas isso não mede erro residual nem
-   garante qualidade em uma janela mais curta.
-4. **Verificação de postura** (pernas estendidas, imobilidade): instantânea por frame,
-   mas precisa coexistir com os frames válidos — na prática já coberta pelos itens acima.
+1. **Noise independence:** about 10 independent observations are needed for the median to compress residual white noise. With correlated noise at τ ~0.3–1 s (after double filtering; order of magnitude [Inf]), this calls for a 1–3 s window. It is not the dominant constraint.
+2. **Exposure to sway:** the literature suggests low-frequency CoP components, but does not convert them into a minimum duration for pose landmarks. The **1.8 s** limit is an implementation hypothesis pending measurement of duration and error with a real webcam.
+3. **Outlier robustness:** the median tolerates fewer than 50% contaminated samples. The old 65% gate allowed up to 35% invalid frames, but that does not measure residual error or guarantee quality in a shorter window.
+4. **Posture checks** (extended legs, stillness): these are evaluated per frame but must coincide with valid frames; in practice, the previous items already cover the duration requirement.
 
-Política do código: **1,8 s de sinal válido e pelo menos 2 s de span**, com cobertura de
-65% na coleta após o assentamento. Em fixtures estáticas, a tentativa completa em 2 s;
-nenhum desses números foi validado como limite de precisão com uma pessoa e webcam reais.
+Code policy: **1.8 s of valid signal and at least 2 s of span**, with 65% coverage during collection after settling. With static fixtures, the full attempt takes 2 s. None of these values has been validated as an accuracy limit with a real person and webcam.
 
-### 5.1 Onde dá para ganhar tempo sem perder qualidade
+### 5.1 Where time can be saved without sacrificing quality
 
-1. **Saída adaptativa antecipada**: o código atual sonda os gates de cobertura por frame e
-   termina após ≥1,8 s de sinal válido (2 s no fixture perfeito). Ele não mede drift
-   independente nem exige 90% de cobertura; esses critérios só devem ser adicionados após
-   definir uma medida e validar com webcam real.
-2. **Fundir settle com coleta**: a implementação atual inclui os frames desde a âncora no
-   piso de sinal válido, mas avalia cobertura de falhas só depois do assentamento. O teste
-   sintético converge em 2 s; o ganho e a estabilidade da âncora precisam de avaliação real.
-3. **Calibração por esporte com escopo mínimo**: ainda é uma possibilidade de desenho.
-   Hoje ambos os esportes pedem ombros, punhos, quadris e joelhos; a trilha de tênis ainda
-   não tem um perfil reduzido nem um piso próprio validado.
-4. **Não ganha nada**: subir fps (ruído correlacionado), subir resolução (crop interno
-   256²), aumentar contagem mínima de amostras além do span temporal.
+1. **Adaptive early exit:** the current code checks coverage gates on every frame and finishes after ≥1.8 s of valid signal (2 s with an ideal fixture). It does not measure independent drift or require 90% coverage; add such criteria only after defining a measure and validating it with a real webcam.
+2. **Merge settling with collection:** the current implementation counts frames from the anchor toward the valid-signal floor, but evaluates dropout coverage only after settling. The synthetic test converges in 2 s; the gain and anchor stability need real evaluation.
+3. **Sport-specific calibration with minimum scope:** this remains a design option. Today both sports request shoulders, wrists, hips, and knees; tennis does not yet have a reduced profile or a separately validated floor.
+4. **No benefit:** increasing frame rate (correlated noise), increasing resolution (the internal crop is 256²), or increasing the minimum sample count beyond the time span.
 
-### 5.2 O que não se deve fazer
+### 5.2 What not to do
 
-- **Reduzir o piso sem medir erro com webcam real**: os fixtures sintéticos não têm sway e
-  não mostram se uma calibração mais curta contamina hipY0, joelhos ou a posição de prontidão.
-- **Eliminar calibração por sessão**: os parâmetros apertados são posturais e de sessão.
-  O que dá para eliminar é *re-calibração desnecessária* (cache de perfil por pessoa?
-  — mas câmera/cômodo mudam; e coordenadas câmera-alinhadas não detectam mudança de
-  câmera, ver §2.4).
-- **Baixar confiança de calibração abaixo de 0.5**: evidência independente mostra erro
-  crescendo marcado ali.
-- **Copiar Theia (500px de altura de pessoa, 1000 lux)**: é mocap profissional
-  multicâmera; impossível e desnecessário em webcam 480p.
+- **Do not lower the floor without measuring error with a real webcam:** synthetic fixtures contain no sway and cannot show whether shorter calibration contaminates `hipY0`, knee references, or the ready position.
+- **Do not eliminate session calibration:** the tightest parameters are posture- and session-dependent. What can be eliminated is *unnecessary recalibration* (for example, caching a profile per person—but the camera or room may change, and camera-aligned coordinates cannot detect a camera change; see §2.4).
+- **Do not lower calibration confidence below 0.5:** independent evidence shows a marked increase in error below that point.
+- **Do not copy Theia’s setup (a 500 px subject height, 1,000 lux):** it is professional multi-camera motion capture, impossible and unnecessary for a 480p webcam.
 
 ---
 
-## 6. Spec mínima consolidada — "exposição mínima para calibrar de verdade"
+## 6. Consolidated minimum-calibration specification
 
-### Condições (pré-requisitos de qualidade)
+### Conditions (quality prerequisites)
 
-| Dimensão | Referência de engenharia | Alvo exploratório | Evidência |
+| Dimension | Engineering reference | Exploratory target | Evidence |
 |---|---|---|---|
-| Distância (corpo inteiro) | ~2m (e cabeça visível) | 2-2,5m | [G][P][Calc] |
-| Altura do sujeito no frame | ≥1/3 | ≥1/2 com margem de movimento | [P Apple][Inf] |
-| Distância máxima | 4m (fora de escopo além) | ≤3m | [G] |
-| Luz no sujeito | ~300 lux, frontal difusa, sem contra-luz | 500+ lux | [P Logitech/Theia][Inf] |
-| Exposição durante calibração | qualquer até 1/30s (sway não borra) | estável, sem hunting | [Calc][P] |
-| Exposição para gameplay | ≤1/60s | ≤1/120s | [Calc][Inf] |
-| fps | ~15 (cobertura ainda fecha) | 30 estável | [Inf] |
-| Confiança de landmark em frame de calibração | ≥0.5-0.55 | ≥0.7 | [I] |
-| Câmera | fixa, imóvel durante e após calibração | — | [G/Inf] |
-| Postura | pés em largura natural, olhos abertos, braços relaxados consistentes | alvo visual fixo | [I posturografia] |
+| Distance (full body) | ~2 m (with the head visible) | 2–2.5 m | [G][P][Calc] |
+| Subject height in frame | ≥1/3 | ≥1/2 with room to move | [P Apple][Inf] |
+| Maximum distance | 4 m (out of scope beyond this) | ≤3 m | [G] |
+| Light on subject | ~300 lux, diffuse frontal light, no backlight | 500+ lux | [P Logitech/Theia][Inf] |
+| Exposure during calibration | Any setting up to 1/30 s (sway does not blur) | Stable, no hunting | [Calc][P] |
+| Exposure during gameplay | ≤1/60 s | ≤1/120 s | [Calc][Inf] |
+| Frame rate | ~15 fps (coverage still converges) | Stable 30 fps | [Inf] |
+| Landmark confidence in calibration frame | ≥0.5–0.55 | ≥0.7 | [I] |
+| Camera | Fixed; do not move during or after calibration | — | [G/Inf] |
+| Posture | Natural foot width, eyes open, relaxed and consistent arms | Fixed visual target | [I posturography] |
 
-### Tempo
+### Time
 
-| Componente | Mínimo teórico | Design atual | Caminho de melhoria |
+| Component | Theoretical minimum | Current design | Improvement path |
 |---|---|---|---|
-| Sinal válido acumulado | **1,8s no código** | Não medido em webcam real | Hipótese derivada do gate anterior (65% × 2800 ms) |
-| Janela de relógio | ≥2s de span no código | Não medida em webcam real | Teste sintético estático |
-| Settle | Fundido à exposição desde a âncora | Verificar estabilidade de cada referência | Regra atual + teste sintético |
-| Total por tentativa (caso bom) | 2s nos fixtures | Não medido em webcam real | Testes não medem sway nem erro do perfil |
-| Tênis apenas (escopo reduzido) | Ainda não implementado | Medir antes de definir piso | Proposta exploratória |
+| Accumulated valid signal | **1.8 s in code** | Not measured on a real webcam | Hypothesis derived from the previous gate (65% × 2800 ms) |
+| Clock window | ≥2 s span in code | Not measured on a real webcam | Static synthetic test |
+| Settling | Merged into exposure from the anchor | Verify stability of each reference | Current rule plus synthetic test |
+| Total attempt (good conditions) | 2 s in fixtures | Not measured on a real webcam | Tests do not measure sway or profile error |
+| Tennis-only (reduced scope) | Not implemented yet | Measure before setting a floor | Exploratory proposal |
 
-### Falhas de ambiente a instruir (consenso de indústria, [P]×7 fabricantes)
+### Environmental issues to explain (industry consensus, [P] × 7 manufacturers)
 
-Luz frontal difusa; nunca janela/lâmpada atrás da pessoa; sem sol direto; fundo estático
-e sem espelhos/TVs; roupa ajustada contrastando com o fundo; sem outras pessoas/pets em
-cena; sem padrões fortes na parede. Não mostrar checklist permanente — surfacing por
-falha repetida (padrão dos produtos comerciais).
+Use diffuse frontal light; never place a window or lamp behind the person; avoid direct sunlight; use a static background without mirrors or TVs; wear fitted clothing that contrasts with the background; keep other people and pets out of the frame; avoid strong wall patterns. Do not show a permanent checklist—surface guidance after repeated failures, following commercial product practice.
 
 ---
 
-## 7. Lacunas que nenhuma fonte fecha (e o repo já sabia)
+## 7. Gaps no source resolves (and the repository already knew about)
 
-1. **Jitter de repouso do BlazePose Lite em webcam comum, em mm** — não existe número
-   publicado; o repo já prescreveu o experimento (`pesquisa-robustez-gestos.md`: 10s
-   parado, medir SD/p95). É a medição que faltaria para transformar §2.2 de ordem-de-
-   grandeza em número. Coberto pela issue #20.
-2. **Acurácia vs. iluminação real de webcam** (não simulação digital) — não existe.
-3. **Compressão MJPEG de USB vs. acurácia de pose** — não medido; 720p/1080p em USB2
-   implicam MJPEG (442-995 Mbit/s não comprimidos vs. 480 teóricos) [Calc][P].
-4. **Distribuição populacional do erro de landmarks em janelas de 2-4s** — posturografia
-   mede CoP por outras durações; não fornece erro de BlazePose Lite para este uso.
-5. **Validação com pessoa e câmera reais** — zero no projeto até aqui (issue #20);
-   todas as amplitudes de sinal humano são estimativas de literatura.
+1. **BlazePose Lite resting jitter on an ordinary webcam, in millimetres:** no published value exists. The repository already prescribed the experiment (`docs/pesquisa-robustez-gestos.md`: stand still for 10 s and measure SD/p95). This is the missing measurement needed to turn §2.2 from an order-of-magnitude estimate into a number. Tracked by issue #20.
+2. **Accuracy versus real webcam lighting** (not digital simulation): no data found.
+3. **USB MJPEG compression versus pose accuracy:** not measured; 720p/1080p over USB 2 imply MJPEG (442–995 Mbit/s uncompressed versus 480 theoretical) [Calc][P].
+4. **Population distribution of landmark error over 2–4 s windows:** posturography measures CoP over other durations; it does not provide BlazePose Lite error for this use.
+5. **Validation with a real person and camera:** none in the project so far (issue #20); all human-signal amplitudes are estimates from the literature.
 
-## 8. Resposta em uma frase
+## 8. One-sentence answer
 
-> **Hipótese atual do código: 1,8 segundos de sinal válido**, com corpo enquadrado e câmera
-> imóvel. A literatura de sway motiva medir exposições de vários segundos, mas não valida
-> esse limiar para landmarks do BlazePose Lite; a validação com webcam real ainda falta. A
-> implementação mantém tolerância a falhas via cobertura temporal e deve ser ajustada com
-> medições reais de erro e duração.
+> **The current code’s hypothesis is 1.8 seconds of valid signal**, with the body framed and the camera stationary. Sway literature motivates measuring exposures of several seconds, but does not validate this threshold for BlazePose Lite landmarks; validation with a real webcam is still missing. The implementation tolerates dropouts through temporal coverage and should be tuned using real measurements of error and duration.
 
 ---
 
-### Fontes principais
+### Main sources
 
-- Physio2.2M — acurácia BlazePose vs. mocap em C920 [I]: https://www.nature.com/articles/s41598-025-22626-7
+- Physio2.2M—BlazePose accuracy versus motion capture on a C920 [I]: https://www.nature.com/articles/s41598-025-22626-7
 - BlazePose paper/model card [G]: https://arxiv.org/abs/2006.10204 · https://developers.google.com/ml-kit/images/vision/pose-detection/pose_model_card.pdf
-- Avaliação legada MediaPipe Pose [G]: https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/pose.md (datasets com pessoas a 2–4 m; não valida este app)
+- Legacy MediaPipe Pose evaluation [G]: https://github.com/google-ai-edge/mediapipe/blob/master/docs/solutions/pose.md (datasets with people at 2–4 m; does not validate this app)
 - ML Kit Pose guidance [G]: developers.google.com/ml-kit/vision/pose-detection/android
-- Posturografia: Kenny 2019 (PMC6449971), Wiesmeier 2015 (PMC4477145), Gatev (PMC2269093), Doyle 2008 SDA, [Soames & Atha 1982](https://pubmed.ncbi.nlm.nih.gov/6981506/) (frequência espectral de CoP, não janela de precisão de landmarks)
+- Posturography: Kenny 2019 (PMC6449971), Wiesmeier 2015 (PMC4477145), Gatev (PMC2269093), Doyle 2008 SDA, [Soames & Atha 1982](https://pubmed.ncbi.nlm.nih.gov/6981506/) (CoP spectral frequency, not landmark accuracy window)
 - Multi-view webcam/Vicon [I]: PMC13766164 · stereo vs. monocular: PMC11644880
-- Degradação controlada Pose Landmarker [I]: PMC13747219 · PoseBench: arxiv.org/abs/2505.23760
+- Controlled Pose Landmarker degradation [I]: PMC13747219 · PoseBench: arxiv.org/abs/2505.23760
 - Logitech C922 lux [P]: support.logi.com/hc/en-us/articles/360023345533
 - Theia camera setup [P]: docs.theiamarkerless.com · OpenCap [A]: journals.plos.org/ploscompbiol/article?id=10.1371/journal.pcbi.1011462
 - ExerCam [A]: mdpi.com/2076-3417/11/19/9132 · Apple Vision [P]: WWDC2020/10653
 - Kinect zero-calibration [P]: Zhang, Microsoft Research IEEE MM 2012
-- Interno: `docs/auditoria-mediapipe.md`, `docs/pesquisa-inclinacao-tronco.md`,
-  `docs/pesquisa-robustez-gestos.md`, `docs/autocalibracao-tolerancia-perda.md`,
-  `docs/analise-gargalos-corrida.md`, `src/cv/calibrator.ts`, `src/cv/autoCalibrator.ts`
+- Internal: `docs/auditoria-mediapipe.md`, `docs/pesquisa-inclinacao-tronco.md`, `docs/pesquisa-robustez-gestos.md`, `docs/autocalibracao-tolerancia-perda.md`, `docs/analise-gargalos-corrida.md`, `src/cv/calibrator.ts`, `src/cv/autoCalibrator.ts`

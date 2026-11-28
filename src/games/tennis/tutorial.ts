@@ -1,4 +1,5 @@
 import type { Hand } from '../../cv/protocol';
+import type { Lang } from '../../i18n';
 
 /** No progress for this long and the step explains itself; longer still and it moves on. */
 export const HINT_AFTER_S = 10;
@@ -10,11 +11,11 @@ const DEFAULT_TRAVEL = 1.9;
 type Side = 'forehand' | 'backhand';
 export type StepKind = 'swings' | 'other-side' | 'toss' | 'serve';
 
-const STEPS: readonly { kind: StepKind; needed: number; title: string; hint: string }[] = [
-  { kind: 'swings', needed: 3, title: 'Dê 3 raquetadas', hint: 'Mostre o braço inteiro e bata de um lado ao outro' },
-  { kind: 'other-side', needed: 2, title: 'Agora do outro lado', hint: 'Comece com o braço do lado contrário' },
-  { kind: 'toss', needed: 2, title: 'Lance a bola com a mão livre', hint: 'Suba a mão sem raquete até a altura do rosto' },
-  { kind: 'serve', needed: 2, title: 'Saque: lance e bata', hint: 'Uma mão lança, a outra bate' },
+const STEPS: readonly { kind: StepKind; needed: number; title: { pt: string; en: string }; hint: { pt: string; en: string } }[] = [
+  { kind: 'swings', needed: 3, title: { pt: 'Dê 3 raquetadas', en: 'Swing the racket 3 times' }, hint: { pt: 'Mostre o braço inteiro e bata de um lado ao outro', en: 'Show your whole arm and swing from side to side' } },
+  { kind: 'other-side', needed: 2, title: { pt: 'Agora do outro lado', en: 'Now from the other side' }, hint: { pt: 'Comece com o braço do lado contrário', en: 'Start with the arm on the opposite side' } },
+  { kind: 'toss', needed: 2, title: { pt: 'Lance a bola com a mão livre', en: 'Toss the ball with your free hand' }, hint: { pt: 'Suba a mão sem raquete até a altura do rosto', en: 'Raise your racket-free hand to face height' } },
+  { kind: 'serve', needed: 2, title: { pt: 'Saque: lance e bata', en: 'Serve: toss and hit' }, hint: { pt: 'Uma mão lança, a outra bate', en: 'Toss with one hand and hit with the other' } },
 ];
 
 /**
@@ -22,6 +23,7 @@ const STEPS: readonly { kind: StepKind; needed: number; title: string; hint: str
  * recognised. It learns which arm holds the racket and how short this player's strokes are. Pure.
  */
 export class TennisTutorial {
+  private language: Lang;
   private index = 0;
   private count = 0;
   private idleS = 0;
@@ -29,6 +31,10 @@ export class TennisTutorial {
   private readonly travels: number[] = [];
   private readonly hands: Hand[] = [];
   private readonly sides: Side[] = [];
+
+  constructor(language: Lang = 'pt') { this.language = language; }
+
+  setLanguage(language: Lang): void { this.language = language; }
 
   get done(): boolean { return this.index >= STEPS.length; }
   get step(): StepKind | undefined { return STEPS[this.index]?.kind; }
@@ -46,10 +52,10 @@ export class TennisTutorial {
 
   get text(): { title: string; detail: string } {
     const step = STEPS[this.index];
-    if (!step) return { title: 'Pronto!', detail: 'Vamos jogar' };
+    if (!step) return this.language === 'en' ? { title: 'Ready!', detail: "Let's play" } : { title: 'Pronto!', detail: 'Vamos jogar' };
     return {
-      title: step.title,
-      detail: `${this.count} de ${step.needed}${this.idleS >= HINT_AFTER_S ? ` · ${step.hint}` : ' · levante as duas mãos para pular'}`,
+      title: step.title[this.language],
+      detail: `${this.count} ${this.language === 'en' ? 'of' : 'de'} ${step.needed}${this.idleS >= HINT_AFTER_S ? ` · ${step.hint[this.language]}` : this.language === 'en' ? ' · raise both hands to skip' : ' · levante as duas mãos para pular'}`,
     };
   }
 

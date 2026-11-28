@@ -13,16 +13,16 @@ const PARAGRAPHS: Bilingual[] = [
     en: 'We play with our bodies before learning any rule. Before memorizing buttons, reading tutorials or plugging in a console, there is a simple gesture: running, jumping, hitting the ball.',
   },
   {
-    pt: 'Nevergear transforma esse gesto em controle em tempo real. A webcam acompanha o seu corpo; visão computacional estima a pose e a converte em ações — andar, saltar, trocar de raia, dar uma raquetada — sem controle, sem cabo e sem instalar nada.',
-    en: 'Nevergear turns that gesture into real-time control. The webcam follows your body; computer vision estimates your pose and converts it into actions — walking, jumping, switching lanes, swinging a racket — with no controller, no cable and nothing to install.',
+    pt: 'Nevergear transforma esse gesto em controle em tempo real. A webcam acompanha o seu corpo; visão computacional estima a pose e a converte em ações — correr, socar, esquivar, dar uma raquetada — sem controle, sem cabo e sem instalar nada.',
+    en: 'Nevergear turns that gesture into real-time control. The webcam follows your body; computer vision estimates your pose and converts it into actions — running, punching, dodging, swinging a racket — with no controller, no cable and nothing to install.',
   },
   {
-    pt: 'A visão é que o corpo não seja só um sensor. Uma corrida no lugar vira velocidade, um salto vira obstáculo vencido, uma raquetada vira ponto. Tudo roda no navegador, e o vídeo é processado no seu dispositivo, sem sair dele.',
-    en: 'The vision is that the body is more than a sensor. Running in place becomes speed, a jump becomes a cleared hurdle, a swing becomes a point. It all runs in the browser, and your video is processed on your device and never leaves it.',
+    pt: 'A visão é que o corpo não seja só um sensor. Uma corrida no lugar vira velocidade, um soco abre espaço, uma esquiva evita o golpe, uma raquetada vira ponto. Tudo roda no navegador, e o vídeo é processado no seu dispositivo, sem sair dele.',
+    en: 'The vision is that the body is more than a sensor. Running in place becomes speed, a punch creates an opening, a dodge avoids a hit, and a racket swing scores a point. It all runs in the browser, and your video is processed on your device and never leaves it.',
   },
   {
-    pt: 'Começamos pela fundação: uma arena arcade com corrida e tênis, rastreamento estável e detecção confiável de cada movimento. O destino é mais ambicioso: mais esportes, mais jogadores e uma arena em que qualquer pessoa joga com o corpo inteiro.',
-    en: 'We start with the foundation: an arcade arena with running and tennis, stable tracking and reliable detection of every movement. The destination is more ambitious: more sports, more players and an arena where anyone plays with their whole body.',
+    pt: 'Começamos pela fundação: uma arena arcade com atletismo, boxe e tênis, rastreamento estável e detecção confiável de cada movimento. O destino é mais ambicioso: mais esportes, mais jogadores e uma arena em que qualquer pessoa joga com o corpo inteiro.',
+    en: 'We start with the foundation: an arcade arena with athletics, boxing and tennis, stable tracking and reliable detection of every movement. The destination is more ambitious: more sports, more players and an arena where anyone plays with their whole body.',
   },
 ];
 
@@ -41,7 +41,7 @@ export default function VisionPage() {
       if (element) segments.push({ element, text: tr(paragraph.pt, paragraph.en), pace: 32 });
     });
     if (signoff.current) segments.push({ element: signoff.current, text: tr(SIGNOFF.pt, SIGNOFF.en), pace: 34 });
-    // Idioma trocado: apaga o que já foi escrito (inclusive a névoa da revelação) antes de digitar de novo.
+    // When the language changes, clear the typed text and reveal blur before typing the new copy.
     segments.forEach(({ element }) => { element.textContent = ''; });
 
     const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');

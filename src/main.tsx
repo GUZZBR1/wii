@@ -7,12 +7,12 @@ import App from './app/App';
 import { LangProvider } from './i18n';
 import './site.css';
 
-// O estúdio de desenho saiu do site: apaga o que ele deixou salvo neste navegador.
+// The drawing studio was removed from the site; clear the data it left in this browser.
 try {
   for (const key of Object.keys(localStorage)) {
     if (key.startsWith('draw-studio-')) localStorage.removeItem(key);
   }
-} catch { /* sem armazenamento: não há o que apagar */ }
+} catch { /* Without storage, there is nothing to clear. */ }
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

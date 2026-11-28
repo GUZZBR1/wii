@@ -1,3 +1,4 @@
+import type { Lang } from '../../i18n';
 /** No progress for this long and the step explains itself; longer still and it moves on. */
 export const HINT_AFTER_S = 9;
 export const GIVE_UP_AFTER_S = 22;
@@ -19,13 +20,13 @@ export const LEARNING_PUNCH_TRAVEL = 0.15;
 
 export type BoxingStepKind = 'guard' | 'punch' | 'left' | 'right' | 'duck' | 'proof';
 
-const STEPS: readonly { kind: BoxingStepKind; title: string; hint: string }[] = [
-  { kind: 'guard', title: 'Defesa: punhos no rosto', hint: 'Levante os dois punhos até o queixo' },
-  { kind: 'punch', title: 'Soco: 5 para a frente', hint: 'Estique o braço na direção da tela, rápido' },
-  { kind: 'left', title: 'Esquiva: incline para a esquerda', hint: 'Incline o tronco, sem tirar os pés do lugar' },
-  { kind: 'right', title: 'Agora para a direita', hint: 'Incline o tronco, sem tirar os pés do lugar' },
-  { kind: 'duck', title: 'Agora abaixe', hint: 'Dobre os joelhos e leve a cabeça para baixo' },
-  { kind: 'proof', title: 'Prova: desvie dos socos', hint: 'Qualquer esquiva vale' },
+const STEPS: readonly { kind: BoxingStepKind; title: { pt: string; en: string }; hint: { pt: string; en: string } }[] = [
+  { kind: 'guard', title: { pt: 'Defesa: punhos no rosto', en: 'Guard: fists by your face' }, hint: { pt: 'Levante os dois punhos até o queixo', en: 'Raise both fists to your chin' } },
+  { kind: 'punch', title: { pt: 'Soco: 5 para a frente', en: 'Punch: 5 straight ahead' }, hint: { pt: 'Estique o braço na direção da tela, rápido', en: 'Quickly extend your arm toward the screen' } },
+  { kind: 'left', title: { pt: 'Esquiva: incline para a esquerda', en: 'Dodge: lean left' }, hint: { pt: 'Incline o tronco, sem tirar os pés do lugar', en: 'Lean your torso without moving your feet' } },
+  { kind: 'right', title: { pt: 'Agora para a direita', en: 'Now to the right' }, hint: { pt: 'Incline o tronco, sem tirar os pés do lugar', en: 'Lean your torso without moving your feet' } },
+  { kind: 'duck', title: { pt: 'Agora abaixe', en: 'Now duck' }, hint: { pt: 'Dobre os joelhos e leve a cabeça para baixo', en: 'Bend your knees and lower your head' } },
+  { kind: 'proof', title: { pt: 'Prova: desvie dos socos', en: 'Test: dodge the punches' }, hint: { pt: 'Qualquer esquiva vale', en: 'Any dodge counts' } },
 ];
 
 /** Continuous inputs sampled once per frame while the tutorial runs. */
@@ -43,6 +44,7 @@ export interface TutorialFrame {
  * teaches the player; the detectors follow whoever is in front of the camera on their own. Pure.
  */
 export class BoxingTutorial {
+  private language: Lang;
   private index = 0;
   private stepS = 0;
   private heldS = 0;
@@ -53,6 +55,10 @@ export class BoxingTutorial {
   private retried = false;
   /** Steps completed by doing them, not by giving up. */
   learned = 0;
+
+  constructor(language: Lang = 'pt') { this.language = language; }
+
+  setLanguage(language: Lang): void { this.language = language; }
 
   get done(): boolean { return this.index >= STEPS.length; }
   get step(): BoxingStepKind | undefined { return STEPS[this.index]?.kind; }
@@ -77,11 +83,17 @@ export class BoxingTutorial {
 
   get text(): { title: string; detail: string } {
     const step = STEPS[this.index];
-    if (!step) return { title: 'Pronto!', detail: 'Agora é pra valer' };
-    let detail = 'Levante as duas mãos para pular';
-    if (step.kind === 'punch') detail = `${this.punches} de ${PUNCHES_NEEDED}`;
-    else if (step.kind === 'proof') detail = this.attackInS !== undefined ? 'ESQUIVE!' : `${this.proofDodged} de ${PROOF_NEEDED}`;
-    return { title: step.title, detail: this.stepS >= HINT_AFTER_S ? step.hint : detail };
+    if (!step) return this.language === 'en'
+      ? { title: 'Ready!', detail: 'Now the real fight begins' }
+      : { title: 'Pronto!', detail: 'Agora é pra valer' };
+    const title = step.title[this.language];
+    const hint = step.hint[this.language];
+    let detail = this.language === 'en' ? 'Raise both hands to skip' : 'Levante as duas mãos para pular';
+    if (step.kind === 'punch') detail = `${this.punches} ${this.language === 'en' ? 'of' : 'de'} ${PUNCHES_NEEDED}`;
+    else if (step.kind === 'proof') detail = this.attackInS !== undefined
+      ? (this.language === 'en' ? 'DODGE!' : 'ESQUIVE!')
+      : `${this.proofDodged} ${this.language === 'en' ? 'of' : 'de'} ${PROOF_NEEDED}`;
+    return { title, detail: this.stepS >= HINT_AFTER_S ? hint : detail };
   }
 
   /** Frame inputs only count while the camera can see the player. */

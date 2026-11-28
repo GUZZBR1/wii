@@ -4,13 +4,13 @@ import { useLang } from '../i18n';
 import { createIntroScene, type Frame, type Layer } from '../lib/introScene';
 import { classify, createGovernor, isSoftware, LADDER, levelOf, loadQuality, percentile, reusableLevel, saveQuality, type Mode } from '../lib/quality';
 
-// Timeline única, em segundos: perguntas, um plano por marco, marca final e saída.
+// One timeline, in seconds: questions, one shot per milestone, the closing wordmark, and exit.
 const LEAD = 7;
 const SHOT = 4.2;
 const OUTRO = 4;
 const FADE = 1.5;
-const VEIL = .5; // primeiro o conteúdo da abertura some; só então a página é revelada
-const MOVE = 1.5; // quanto do plano a câmera leva viajando até o próximo marco
+const VEIL = .5; // Hide the intro content first; only then reveal the page.
+const MOVE = 1.5; // Camera travel time from one milestone to the next.
 
 const OPENING = [
   { pt: 'Como fazer um computador enxergar o corpo?', en: 'How do you make a computer see the body?' },
@@ -32,7 +32,7 @@ const MODES: Mode[] = ['auto', 'lite', 'medium', 'ultra'];
 const BENCH_FRAMES = 14;
 const BENCH_LIMIT_MS = 900;
 
-// A carga do benchmark imita o plano mais pesado: três obras grandes desfocadas, luz, poeira e película, sob preto.
+// The benchmark load imitates the heaviest shot: three large blurred works, light, dust, and film grain on black.
 function benchFrame(index: number): Frame {
   const width = window.innerWidth;
   const height = window.innerHeight;
@@ -43,7 +43,7 @@ function benchFrame(index: number): Frame {
   return { time: index / 60, travel: index / 30, lightX: 0, lightY: 0, glow: 1, fade: 1, layers };
 }
 
-/** Um quadro por vez, sem travar a página; devolve o degrau medido. */
+/** Render one frame at a time without blocking the page; return the measured quality level. */
 function benchmark(scene: Scene, done: (level: number) => void) {
   const hardware = {
     cores: navigator.hardwareConcurrency,
@@ -65,7 +65,7 @@ function benchmark(scene: Scene, done: (level: number) => void) {
   return () => cancelAnimationFrame(raf);
 }
 
-/** Posição da câmera em "marcos": viaja, assenta e segue avançando devagar. */
+/** Camera position in "milestones": travel, settle, and keep moving slowly. */
 function cameraAt(t: number, calm: boolean) {
   const shot = (t - LEAD) / SHOT;
   if (calm) return Math.min(total - 1, Math.max(0, Math.floor(shot)));
@@ -76,11 +76,11 @@ function cameraAt(t: number, calm: boolean) {
   return arrive + clamp(shot - index) * .06;
 }
 
-/** Abertura: a câmera atravessa os marcos do movimento como controle, até o Kinect. */
+/** Intro: the camera moves through milestones in motion input, ending at Kinect. */
 export default function Intro({ onDone }: { onDone: () => void }) {
   const { tr } = useLang();
   const [calm] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  // -1: perguntas; 0..total-1: cada marco; total: marca Nevergear.
+  // -1: questions; 0..total-1: each milestone; total: Nevergear mark.
   const [step, setStep] = useState(-1);
   const [leaving, setLeaving] = useState(false);
   const [flat, setFlat] = useState(false); // sem WebGL: as obras entram como imagens
@@ -127,15 +127,15 @@ export default function Intro({ onDone }: { onDone: () => void }) {
     };
     const tick = (now: number) => {
       const elapsed = now - last;
-      clock.current += Math.min(elapsed / 1000, .1); // aba escondida não pula a história
+      clock.current += Math.min(elapsed / 1000, .1); // A hidden tab must not skip the story.
       last = now;
       const t = clock.current;
       if (t >= END) { done.current(); return; }
       raf = requestAnimationFrame(tick);
-      // Na saída o quadro e o texto ficam congelados e apenas se apagam, mesmo ao pular no meio.
+      // During exit, freeze the frame and text and only fade them out, even when the intro is skipped midway.
       if (t >= FADE_AT) {
         setLeaving(true);
-        if (t >= FADE_AT + VEIL) document.body.classList.remove('intro-active'); // solta a entrada da página
+        if (t >= FADE_AT + VEIL) document.body.classList.remove('intro-active'); // Release the page entrance.
         return;
       }
       setStep(t >= OUTRO_AT ? total : t >= LEAD ? Math.floor((t - LEAD) / SHOT) : -1);
@@ -146,12 +146,12 @@ export default function Intro({ onDone }: { onDone: () => void }) {
       const tall = width < height;
       const camera = cameraAt(t, calm);
       const motion = calm ? 0 : t;
-      // Câmera na mão: um balanço lento, que cresce nas camadas próximas.
+      // Handheld camera: a slow sway that grows in the nearer layers.
       const swayX = calm ? 0 : Math.sin(t * .23) * .012 + Math.sin(t * .51) * .005;
       const swayY = calm ? 0 : Math.cos(t * .19) * .01;
       const layers: Layer[] = [];
 
-      // De trás para a frente, para as próximas cobrirem as distantes.
+      // Draw from back to front so nearer objects cover distant ones.
       for (let index = total - 1; index >= 0; index--) {
         const ahead = index - camera;
         const depth = 1 + ahead * (ahead > 0 ? 1.15 : .62);
@@ -178,7 +178,7 @@ export default function Intro({ onDone }: { onDone: () => void }) {
         });
       }
 
-      // A marca abre a história, recua para a névoa e volta no fim.
+      // The wordmark opens the story, recedes into the haze, and returns at the end.
       const opening = ease(t / 2.4) * (1 - ease((t - LEAD + 1.6) / 1.6));
       const closing = ease((t - OUTRO_AT - .5) / 1.8);
       const strength = Math.max(opening * .9, closing);
@@ -220,7 +220,7 @@ export default function Intro({ onDone }: { onDone: () => void }) {
         layers,
       }, quality);
     };
-    // Sem perfil válido salvo, mede antes de começar a história (a tela ainda está preta).
+    // Without a valid saved profile, measure performance before the story starts (the screen is still black).
     const start = (first: number | undefined) => {
       if (first !== undefined) { measured = first; governor = createGovernor(first); }
       last = performance.now();
@@ -238,7 +238,7 @@ export default function Intro({ onDone }: { onDone: () => void }) {
     };
   }, [calm]);
 
-  // Trocar o modo vale na hora; voltar para "auto" descarta a medida e mede de novo na próxima abertura.
+  // Apply a mode change immediately; returning to "auto" discards the measurement and reruns it on the next opening.
   const cycleMode = () => {
     const next = MODES[(MODES.indexOf(mode) + 1) % MODES.length];
     if (next === 'auto') remembered.current = { mode: next };

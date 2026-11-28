@@ -1,28 +1,28 @@
 <!doctype html>
-<!-- Benchmark local de inferência do PoseLandmarker no worker real do build.
-     Uso: `npm run build && cp scripts/pose-bench.html dist/bench.html && npm run preview`,
-     depois abra http://localhost:4173/bench.html. Resultados em window.BENCH / console.
-     Para o caminho "tracked" (pessoa real): `curl -o dist/pose.jpg
-     https://storage.googleapis.com/mediapipe-assets/pose.jpg` antes de abrir a página. -->
+<!-- Local PoseLandmarker inference benchmark using the worker from the production build.
+     Usage: `npm run build && cp scripts/pose-bench.html dist/bench.html && npm run preview`,
+     then open http://localhost:4173/bench.html. Results are available in window.BENCH / console.
+     For the tracked path (a real person): run `curl -o dist/pose.jpg
+     https://storage.googleapis.com/mediapipe-assets/pose.jpg` before opening the page. -->
 <meta charset="utf-8">
 <title>pose bench</title>
 <script type="module">
-// Descobre o chunk do worker (nome tem hash do build) a partir do bundle principal.
+// Find the worker chunk (its name includes the build hash) from the main bundle.
 const indexHtml = await (await fetch('/')).text();
 const mainJs = indexHtml.match(/src="([^"]*index-[^"]+\.js)"/)[1];
 const mainSrc = await (await fetch(mainJs)).text();
 const WORKER_URL = `/${mainSrc.match(/assets\/pose\.worker-[A-Za-z0-9_-]+\.js/)[0]}`;
-// wasm dir = versão do tasks-vision; bundle guarda só "1.2.3" → sonda HEAD cada semver único.
+// The WASM directory uses the tasks-vision version; the bundle keeps only the version number, so probe each unique semver with HEAD.
 const semvers = [...new Set(mainSrc.match(/\d+\.\d+\.\d+/g))];
 let WASM = null;
 for (const v of semvers) {
   const probe = `/mediapipe/wasm-${v}/vision_wasm_module_internal.js`;
   const res = await fetch(probe, { method: 'HEAD' });
-  // vite preview/dev respondem 200+index.html em rotas inexistentes (SPA fallback) — exige JS de verdade
+  // Vite preview/dev return 200 + index.html for missing routes (SPA fallback), so require a real JavaScript response.
   if (res.ok && (res.headers.get('content-type') ?? '').includes('javascript')) { WASM = `${location.origin}/mediapipe/wasm-${v}`; break; }
 }
-if (!WASM) throw new Error('dir wasm versionado não encontrado');
-// nome do modelo = sha8 do conteúdo, derivável do SHA256SUMS servido
+if (!WASM) throw new Error('Versioned WASM directory not found');
+// The model name uses the content SHA-256 prefix, available in the served SHA256SUMS file.
 const sums = await (await fetch('/mediapipe/models/SHA256SUMS')).text();
 const sha8 = sums.match(/[0-9a-f]{64}/)[0].slice(0, 8);
 const MODEL = `${location.origin}/mediapipe/models/pose_landmarker_lite.${sha8}.task`;
@@ -87,14 +87,14 @@ async function bench(delegate, canvas, label) {
       };
     });
     const dt = performance.now() - t0;
-    // primeiro frame com landmarks — sustenta a afirmação de warm-up (§7.5)
+    // First frame with landmarks — supports the warm-up claim in §7.5.
     if (res.type === 'POSE' && res.landmarks?.length && out.firstPoseIndex === undefined) {
       out.firstPoseIndex = i;
       out.firstPoseMsAfterReady = +(performance.now() - readyAt).toFixed(1);
     }
-    // FALLBACK no meio da rodada: frames seguintes rodam no landmarker NOVO (outro delegate)
-    // — misturar os tempos nos mesmos percentis é inválido; invalida a rodada.
-    if (res.type === 'FELL_BACK') { out.invalid = 'GPU→CPU mid-run: amostras misturariam delegates'; break; }
+    // A mid-run fallback switches to a new landmarker and delegate. Mixing these timings in the
+    // same percentiles would be invalid, so reject the run.
+    if (res.type === 'FELL_BACK') { out.invalid = 'GPU→CPU mid-run: samples would mix delegates'; break; }
     if (i >= WARMUP) {
       out.bitmapMs.push(bitmapMs);
       if (res.type === 'POSE') { out.times.push(dt); if (res.landmarks?.length) out.detected++; else out.empty++; }
@@ -109,7 +109,7 @@ async function bench(delegate, canvas, label) {
   return out;
 }
 
-// foto real opcional: coloque qualquer jpg com pessoa em dist/pose.jpg para medir o caminho "tracked"
+// Optional real-person photo: place any JPG at dist/pose.jpg to measure the tracked path.
 let photo = null;
 try {
   const img = new Image();
@@ -118,7 +118,7 @@ try {
   const photoH = Math.round(img.naturalHeight * (640 / img.naturalWidth));
   photo = new OffscreenCanvas(640, photoH);
   photo.getContext('2d').drawImage(img, 0, 0, 640, photoH);
-} catch { console.log('sem /pose.jpg — rodando só a figura sintética'); }
+} catch { console.log('No /pose.jpg — running only the synthetic figure.'); }
 
 const stick = new OffscreenCanvas(W, H);
 drawPerson(stick.getContext('2d'));
