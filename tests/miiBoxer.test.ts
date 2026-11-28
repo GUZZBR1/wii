@@ -1,7 +1,6 @@
 import * as THREE from 'three';
 import { describe, expect, it } from 'vitest';
 import {
-  createFirstPersonGloves,
   createMiiBoxer,
   type MiiBoxer,
   type MiiBoxerState,
@@ -109,6 +108,7 @@ describe('createMiiBoxer', () => {
   it('measurably changes the pose for every state', () => {
     const sampleTimes: Record<MiiBoxerState, number> = {
       idle: 0.5,
+      ready: 0.5,
       guard: 0.5,
       windup: 0.5,
       punch: 0.12,
@@ -314,91 +314,5 @@ describe('createMiiBoxer', () => {
   it('rejects non-finite animation times', () => {
     const boxer = createMiiBoxer();
     expect(() => boxer.animate(Number.NaN)).toThrow(TypeError);
-  });
-});
-
-describe('createFirstPersonGloves', () => {
-  it('creates two large translucent merged gloves without skinned or instanced meshes', () => {
-    const gloves = createFirstPersonGloves();
-    const meshes = meshesIn(gloves.root);
-    expect(meshes).toHaveLength(2);
-    for (const mesh of meshes) {
-      expect(mesh).not.toBeInstanceOf(THREE.SkinnedMesh);
-      expect(mesh).not.toBeInstanceOf(THREE.InstancedMesh);
-      expect(mesh.geometry.getAttribute('color')).toBeDefined();
-      expect(mesh.geometry.getAttribute('position')!.count).toBeGreaterThan(300);
-      mesh.geometry.computeBoundingBox();
-      const size = mesh.geometry.boundingBox!.getSize(new THREE.Vector3());
-      expect(Math.max(size.x, size.y, size.z)).toBeGreaterThan(0.35);
-      const material = mesh.material as THREE.MeshStandardMaterial;
-      expect(material.vertexColors).toBe(true);
-      expect(material.transparent).toBe(true);
-      expect(material.opacity).toBeGreaterThan(0);
-      expect(material.opacity).toBeLessThan(1);
-      expect(material.depthWrite).toBe(false);
-    }
-  });
-
-  it('uses resources that disposeObjectTree can release exactly once', () => {
-    expectTreeDisposable(createFirstPersonGloves().root);
-  });
-
-  it('animates deterministically and moves only the punching glove forward', () => {
-    const gloves = createFirstPersonGloves();
-    const input = { guard: 1, leftPunch: 0, rightPunch: 0 };
-    gloves.animate(1.25, input);
-    const initial = snapshotPose(gloves.root);
-    gloves.animate(1.25, input);
-    expect(snapshotPose(gloves.root)).toEqual(initial);
-
-    const left = named(gloves.root, 'first-person-left-glove');
-    const right = named(gloves.root, 'first-person-right-glove');
-    const leftStart = left.position.clone();
-    const rightStart = right.position.clone();
-    gloves.animate(1.25, { ...input, leftPunch: 1 });
-    expect(left.position.z).toBeLessThan(leftStart.z - 0.3);
-    expect(left.position.distanceTo(leftStart)).toBeGreaterThan(0.3);
-    expect(right.position.distanceTo(rightStart)).toBe(0);
-  });
-
-  it('changes pose when guard or punch inputs change', () => {
-    const gloves = createFirstPersonGloves();
-    gloves.animate(0.8, { guard: 0, leftPunch: 0, rightPunch: 0 });
-    const relaxed = snapshotPose(gloves.root);
-    gloves.animate(0.8, { guard: 1, leftPunch: 0.5, rightPunch: 0 });
-    const guardedPunch = snapshotPose(gloves.root);
-    expect(poseDifference(relaxed, guardedPunch)).toBeGreaterThan(0.5);
-  });
-
-  it('uses the explicit time for idle glove motion', () => {
-    const gloves = createFirstPersonGloves();
-    const input = { guard: 0.65, leftPunch: 0, rightPunch: 0 };
-    gloves.animate(0.2, input);
-    const early = snapshotPose(gloves.root);
-    gloves.animate(0.85, input);
-    const late = snapshotPose(gloves.root);
-    expect(poseDifference(early, late)).toBeGreaterThan(0.01);
-  });
-});
-
-describe('first-person gloves framing', () => {
-  it('leaves the opponent visible between and above the resting fists', () => {
-    const gloves = createFirstPersonGloves();
-    gloves.animate(0, { guard: 0.35 });
-    const camera = new THREE.PerspectiveCamera(55, 2, 0.1, 80);
-    gloves.root.updateMatrixWorld(true);
-    camera.updateMatrixWorld(true);
-    for (const mesh of meshesIn(gloves.root)) {
-      const position = mesh.geometry.getAttribute('position');
-      for (let index = 0; index < position.count; index += 1) {
-        const point = new THREE.Vector3()
-          .fromBufferAttribute(position, index)
-          .applyMatrix4(mesh.matrixWorld)
-          .project(camera);
-        expect(point.y).toBeLessThan(-0.3);
-        expect(Math.abs(point.x)).toBeGreaterThan(0.2);
-      }
-    }
-    disposeObjectTree(gloves.root);
   });
 });

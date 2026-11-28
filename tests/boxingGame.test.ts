@@ -486,9 +486,31 @@ describe('BoxingGame body controls and animation', () => {
     internals(game).playerPos = { x: 0, z: 2.4 };
     run(STEP_S);
     expect(internals(game).camera.position.z).toBeGreaterThan(before);
-    expect(internals(game).camera.position.z).toBeLessThan(2.4);
+    expect(internals(game).camera.position.z).toBeLessThan(4.25);
     run(1);
-    expect(internals(game).camera.position.z).toBeCloseTo(2.4, 3);
+    // 1.85 m behind the player.
+    expect(internals(game).camera.position.z).toBeCloseTo(4.25, 3);
+  });
+
+  it('shows the player boxer between a higher camera and the opponent, and moves it with the dodge', () => {
+    const { game, run } = start();
+    const view = game as unknown as {
+      playerBoxer: { root: { position: { x: number; y: number; z: number } } };
+      camera: { position: { x: number; y: number; z: number } };
+      opponentMotion: { position: { z: number } };
+    };
+    run(1);
+    const body = view.playerBoxer.root.position;
+    const standing = { x: body.x, y: body.y };
+    expect(view.camera.position.z).toBeGreaterThan(body.z + 1);
+    expect(body.z).toBeGreaterThan(view.opponentMotion.position.z);
+    expect(view.camera.position.y - body.y).toBeGreaterThan(2);
+    game.setDodgeZone(1);
+    game.setDuck(true);
+    run(0.5);
+    expect(Math.abs(body.x - standing.x)).toBeGreaterThan(0.4);
+    expect(body.y).toBeLessThan(standing.y - 0.3);
+    expect(Math.abs(view.camera.position.x - body.x)).toBeGreaterThan(0.2);
   });
 
   it('freezes the glove at impact without freezing the fight clock', () => {
