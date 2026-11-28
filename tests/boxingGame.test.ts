@@ -582,7 +582,7 @@ describe('BoxingGame review fixes', () => {
 
 describe('BoxingGame tutorial mode', () => {
   const tutorialPunch = (peakTimestampMs: number, kind: 'straight' | 'hook' | 'uppercut' = 'straight', target: 'head' | 'body' = 'head', hand: 'left' | 'right' = 'left'): SportActionEvent => ({
-    ...punch(peakTimestampMs),
+    ...(punch(peakTimestampMs) as Extract<SportActionEvent, { type: 'punch' }>),
     hand,
     punchKind: kind,
     punchTargetZone: target,
