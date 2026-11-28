@@ -1,10 +1,12 @@
 import { useEffect, useRef } from 'react';
-import { cellNoise, chooseGlyph, cssColor, inkOnLight, luminance, parseRgb, rankGlyphs } from '../lib/ascii';
+import { cellNoise, chooseGlyph, cssColor, inkOnLight, luminance, parseRgb } from '../lib/ascii';
+import { fitGlyphGrid, MONO_FONT, sampleCell, sampleImage, sizeCanvasToGrid } from '../lib/asciiCanvas';
 
 const SAMPLE_SIZE = 3;
 const REVEAL_DURATION = 4.6;
 const REVEAL_FADE = 0.09;
-const ALT = 'Um macaco de capacete conversa com um australopiteco sobre uma planta de obra, enquanto um neandertal segura uma britadeira ao lado de uma maquete.';
+const ALT =
+  'Um macaco de capacete conversa com um australopiteco sobre uma planta de obra, enquanto um neandertal segura uma britadeira ao lado de uma maquete.';
 
 // Cor da tinta no tema claro: tons naturais (marrons e pele nao viram preto)
 // e branco trocado por um cinza suave.
@@ -21,7 +23,13 @@ type Cell = { character: string; fill: string; appearAt: number; x: number; y: n
 
 type Props = { src?: string; alt?: string; className?: string; decorative?: boolean; richLight?: boolean };
 
-export default function ProductAsciiArt({ src = '/images/product-construction-diorama.png', alt = ALT, className = 'construction-ascii', decorative = false, richLight = false }: Props) {
+export default function ProductAsciiArt({
+  src = '/images/product-construction-diorama.png',
+  alt = ALT,
+  className = 'construction-ascii',
+  decorative = false,
+  richLight = false,
+}: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -48,8 +56,6 @@ export default function ProductAsciiArt({ src = '/images/product-construction-di
     let fontSize = 0;
     let lastWidth = 0;
     let lastLight: boolean | null = null;
-    let outputWidth = 0;
-    let outputHeight = 0;
 
     const layout = () => {
       const box = canvas.getBoundingClientRect();
@@ -58,58 +64,28 @@ export default function ProductAsciiArt({ src = '/images/product-construction-di
       lastWidth = box.width;
       lastLight = light;
       fontSize = Math.max(4.5, Math.min(7, box.width * 0.0072));
-      output.font = `${fontSize}px "DM Mono", monospace`;
-      cellW = output.measureText('M').width;
-      cellH = fontSize * 1.12;
-      const cols = Math.floor(box.width / cellW);
-      const rows = Math.max(1, Math.round((cols * cellW * image.naturalHeight) / (image.naturalWidth * cellH)));
-      outputWidth = box.width;
-      outputHeight = rows * cellH;
-      canvas.style.height = `${outputHeight}px`;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.round(outputWidth * dpr);
-      canvas.height = Math.round(outputHeight * dpr);
-      output.setTransform(dpr, 0, 0, dpr, 0, 0);
-      output.font = `${fontSize}px "DM Mono", monospace`;
-      output.textBaseline = 'top';
-      const glyphs = rankGlyphs(output.font, cellW, cellH);
-
-      source.width = cols * SAMPLE_SIZE;
-      source.height = rows * SAMPLE_SIZE;
-      sourceContext.clearRect(0, 0, source.width, source.height);
-      sourceContext.imageSmoothingQuality = 'high';
-      sourceContext.drawImage(image, 0, 0, source.width, source.height);
-      const pixels = sourceContext.getImageData(0, 0, source.width, source.height).data;
+      output.font = `${fontSize}px ${MONO_FONT}`;
+      const grid = fitGlyphGrid(output, box.width, image, fontSize);
+      const { cols, rows, cellW: gridCellW, cellH: gridCellH, glyphs } = grid;
+      cellW = gridCellW;
+      cellH = gridCellH;
+      sizeCanvasToGrid(canvas, output, box.width, grid);
+      const pixels = sampleImage(source, sourceContext, image, cols, rows, SAMPLE_SIZE);
       const total = cols * rows;
       const tones = new Float32Array(total);
       const coverage = new Float32Array(total);
       const rgb = new Float32Array(total * 3);
-      const samples = SAMPLE_SIZE * SAMPLE_SIZE;
+      const cell: [number, number, number] = [0, 0, 0];
 
       for (let row = 0; row < rows; row += 1) {
         for (let col = 0; col < cols; col += 1) {
-          let red = 0;
-          let green = 0;
-          let blue = 0;
-          let alpha = 0;
-          for (let sy = 0; sy < SAMPLE_SIZE; sy += 1) {
-            let offset = ((row * SAMPLE_SIZE + sy) * source.width + col * SAMPLE_SIZE) * 4;
-            for (let sx = 0; sx < SAMPLE_SIZE; sx += 1) {
-              const weight = pixels[offset + 3] / 255;
-              red += pixels[offset] * weight;
-              green += pixels[offset + 1] * weight;
-              blue += pixels[offset + 2] * weight;
-              alpha += weight;
-              offset += 4;
-            }
-          }
           const index = row * cols + col;
-          coverage[index] = alpha / samples;
+          coverage[index] = sampleCell(pixels, source.width, col, row, SAMPLE_SIZE, cell);
           if (coverage[index] < 0.3) continue;
-          rgb[index * 3] = red / alpha;
-          rgb[index * 3 + 1] = green / alpha;
-          rgb[index * 3 + 2] = blue / alpha;
-          tones[index] = luminance([rgb[index * 3], rgb[index * 3 + 1], rgb[index * 3 + 2]]) ** (1 / 2.2);
+          rgb[index * 3] = cell[0];
+          rgb[index * 3 + 1] = cell[1];
+          rgb[index * 3 + 2] = cell[2];
+          tones[index] = luminance([cell[0], cell[1], cell[2]]) ** (1 / 2.2);
         }
       }
 
@@ -165,7 +141,9 @@ export default function ProductAsciiArt({ src = '/images/product-construction-di
           const stretched = Math.max(0, Math.min(1, (tones[index] - low) / Math.max(0.01, high - low)));
           const detail = tones[index] - (counts[index] ? sums[index] / counts[index] : 0);
           const base = light ? 1 - stretched : 0.18 + 0.82 * stretched;
-          const density = Math.max(light ? (richLight ? 0.75 : 0.22) : 0.08, Math.min(1, base + (light ? -4 : 4) * detail)) * Math.min(1, coverage[index] * 1.4);
+          const density =
+            Math.max(light ? (richLight ? 0.75 : 0.22) : 0.08, Math.min(1, base + (light ? -4 : 4) * detail)) *
+            Math.min(1, coverage[index] * 1.4);
           const glyph = chooseGlyph(glyphs, density * maxDarkness);
           if (glyph.darkness < (light ? 0.004 : 0.012)) continue;
           next.push({
@@ -199,7 +177,8 @@ export default function ProductAsciiArt({ src = '/images/product-construction-di
         drawCell(cells[firstActive], 1);
         firstActive += 1;
       }
-      for (let index = firstActive; index < cursor; index += 1) drawCell(cells[index], (threshold - cells[index].appearAt) / REVEAL_FADE);
+      for (let index = firstActive; index < cursor; index += 1)
+        drawCell(cells[index], (threshold - cells[index].appearAt) / REVEAL_FADE);
       output.globalAlpha = 1;
       if (firstActive < cells.length) frame = requestAnimationFrame(draw);
     };
@@ -232,7 +211,9 @@ export default function ProductAsciiArt({ src = '/images/product-construction-di
     });
     themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
 
-    void Promise.all([document.fonts.ready, image.decode()]).then(start).catch(() => undefined);
+    void Promise.all([document.fonts.ready, image.decode()])
+      .then(start)
+      .catch(() => undefined);
 
     return () => {
       disposed = true;

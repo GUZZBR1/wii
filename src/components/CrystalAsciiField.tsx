@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { MONO_FONT } from '../lib/asciiCanvas';
 import { createCrystalField, impulseCrystal, stepCrystal, updateCrystalBase } from './crystalField';
 
 const GLYPHS = ' .:+=xX#%@';
@@ -147,7 +148,7 @@ export default function CrystalAsciiField() {
       atlas.width = spriteW * GLYPHS.length;
       atlas.height = spriteH * LEVELS * 2;
       const dark = darkTheme;
-      atlasCtx.font = `${Math.min(cellH * 0.9, cellW * 1.55) * dpr}px "DM Mono", monospace`;
+      atlasCtx.font = `${Math.min(cellH * 0.9, cellW * 1.55) * dpr}px ${MONO_FONT}`;
       atlasCtx.textBaseline = 'middle';
       for (let accent = 0; accent < 2; accent++) {
         for (let level = 0; level < LEVELS; level++) {

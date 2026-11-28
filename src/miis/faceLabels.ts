@@ -16,6 +16,14 @@ export const FACE_STYLES: readonly (readonly [
   ['glasses', { pt: 'Óculos', en: 'Glasses' }, [{ pt: 'Sem', en: 'None' }, { pt: 'Redondos', en: 'Round' }, { pt: 'Quadrados', en: 'Square' }, { pt: 'Esportivos', en: 'Sport' }, { pt: 'Finos', en: 'Thin' }, { pt: 'Grossos', en: 'Thick' }]],
 ];
 
+/**
+ * Every name the two Mii editors show, in the order of the `MiiFaceSpec` indices. The 3D editors
+ * label their style buttons from here; keep the order in step with `MII_STYLE_COUNT`.
+ */
+export const FACE_STYLE_NAMES = Object.fromEntries(
+  FACE_STYLES.map(([key, , options]) => [key, options.map((option) => option.pt)]),
+) as unknown as Record<(typeof FACE_STYLES)[number][0], readonly string[]>;
+
 export const FACE_SLIDERS = [
   ['eyeY', { pt: 'Altura dos olhos', en: 'Eye height' }, 42, 62],
   ['eyeSpacing', { pt: 'Espaço entre olhos', en: 'Eye spacing' }, 12, 26],

@@ -1,6 +1,17 @@
 import { useEffect, useRef } from 'react';
 
-import { cellNoise, chooseGlyph, cssColor, interpolateInto, luminance, parseRgb, portraitColor, rankGlyphs, smoothstep, type RankedGlyph } from '../lib/ascii';
+import {
+  cellNoise,
+  chooseGlyph,
+  cssColor,
+  interpolateInto,
+  luminance,
+  parseRgb,
+  portraitColor,
+  smoothstep,
+  type RankedGlyph,
+} from '../lib/ascii';
+import { fitGlyphGrid, MONO_FONT, sampleImage, sizeCanvasToGrid } from '../lib/asciiCanvas';
 
 const SAMPLE_SIZE = 3;
 const REVEAL_DURATION = 2.8;
@@ -13,7 +24,7 @@ function eyeMask(x: number, y: number, centerX: number) {
 }
 
 function motionPulse(elapsed: number, start: number, duration: number, period: number) {
-  const phase = ((elapsed - start) % period + period) % period;
+  const phase = (((elapsed - start) % period) + period) % period;
   if (elapsed < start || phase >= duration) return 0;
   return smoothstep(0, 0.13, phase) * (1 - smoothstep(duration - 0.13, duration, phase));
 }
@@ -69,34 +80,18 @@ export default function VisionAsciiPortrait() {
       const box = canvas.getBoundingClientRect();
       if (!box.width) return;
       fontSize = Math.max(6, Math.min(10, box.width * 0.02));
-      output.font = `${fontSize}px "DM Mono", monospace`;
-      cellW = output.measureText('M').width;
-      cellH = fontSize * 1.12;
-      cols = Math.floor(box.width / cellW);
-      const aspect = closedImage.naturalWidth && closedImage.naturalHeight
-        ? closedImage.naturalWidth / closedImage.naturalHeight
-        : 1.1;
-      rows = Math.max(1, Math.round((cols * cellW) / (aspect * cellH)));
+      const grid = fitGlyphGrid(
+        output,
+        box.width,
+        { naturalWidth: closedImage.naturalWidth || 1.1, naturalHeight: closedImage.naturalHeight || 1 },
+        fontSize,
+      );
+      ({ cols, rows, cellW, cellH, glyphs } = grid);
       outputWidth = box.width;
-      outputHeight = rows * cellH;
-      canvas.style.height = `${outputHeight}px`;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      canvas.width = Math.round(outputWidth * dpr);
-      canvas.height = Math.round(outputHeight * dpr);
-      output.setTransform(dpr, 0, 0, dpr, 0, 0);
-      output.font = `${fontSize}px "DM Mono", monospace`;
-      output.textBaseline = 'top';
-      glyphs = rankGlyphs(output.font, cellW, cellH);
-
-      source.width = cols * SAMPLE_SIZE;
-      source.height = rows * SAMPLE_SIZE;
+      outputHeight = sizeCanvasToGrid(canvas, output, box.width, grid);
       if (closedImage.complete && openImage.complete && closedImage.naturalWidth && openImage.naturalWidth) {
-        sourceContext.clearRect(0, 0, source.width, source.height);
-        sourceContext.drawImage(closedImage, 0, 0, source.width, source.height);
-        closedPixels = sourceContext.getImageData(0, 0, source.width, source.height).data;
-        sourceContext.clearRect(0, 0, source.width, source.height);
-        sourceContext.drawImage(openImage, 0, 0, source.width, source.height);
-        openPixels = sourceContext.getImageData(0, 0, source.width, source.height).data;
+        closedPixels = sampleImage(source, sourceContext, closedImage, cols, rows, SAMPLE_SIZE);
+        openPixels = sampleImage(source, sourceContext, openImage, cols, rows, SAMPLE_SIZE);
       }
     };
 
@@ -138,15 +133,16 @@ export default function VisionAsciiPortrait() {
           const cellX = (col + 0.5) / cols;
           const cellY = (row + 0.5) / rows;
           const side = cellX < 0.5 ? -1 : 1;
-          const hairBand = Math.max(
-            1 - smoothstep(0.16, 0.39, cellX),
-            smoothstep(0.61, 0.84, cellX),
-          ) * smoothstep(0.34, 0.53, cellY) * (1 - smoothstep(0.94, 1, cellY));
+          const hairBand =
+            Math.max(1 - smoothstep(0.16, 0.39, cellX), smoothstep(0.61, 0.84, cellX)) *
+            smoothstep(0.34, 0.53, cellY) *
+            (1 - smoothstep(0.94, 1, cellY));
           let hairShift = 0;
           if (hairBand > 0 && hairFlow > 0 && !reducedMotion.matches) {
-            const wave = Math.sin(elapsed * 0.78 - cellY * 17 + side * 0.6) * 0.5
-              + Math.sin(elapsed * 1.13 - cellY * 29 - side * 0.9) * 0.3
-              + Math.sin(elapsed * 0.49 - cellY * 9 + side * 1.8) * 0.2;
+            const wave =
+              Math.sin(elapsed * 0.78 - cellY * 17 + side * 0.6) * 0.5 +
+              Math.sin(elapsed * 1.13 - cellY * 29 - side * 0.9) * 0.3 +
+              Math.sin(elapsed * 0.49 - cellY * 9 + side * 1.8) * 0.2;
             hairShift = wave * hairBand * hairFlow * source.width * 0.03;
           }
           const closedBlend = Math.max(
@@ -198,9 +194,10 @@ export default function VisionAsciiPortrait() {
           blue /= Math.max(0.001, alpha * samples);
           const sourceLum = luminance([red, green, blue]);
           const compositeLum = sourceLum * alpha + paperLum * (1 - alpha);
-          let darkness = paperLum > 0.5
-            ? Math.max(0, (paperLum - compositeLum) / paperLum)
-            : Math.max(0, (compositeLum - paperLum) / (1 - paperLum));
+          let darkness =
+            paperLum > 0.5
+              ? Math.max(0, (paperLum - compositeLum) / paperLum)
+              : Math.max(0, (compositeLum - paperLum) / (1 - paperLum));
           if (paperLum <= 0.5 && sourceLum < 0.2) darkness = Math.max(darkness, 0.72 * alpha);
           const index = row * cols + col;
           densities[index] = Math.min(1, darkness * 1.38);
@@ -211,7 +208,7 @@ export default function VisionAsciiPortrait() {
       }
 
       output.clearRect(0, 0, outputWidth, outputHeight);
-      output.font = `${fontSize}px "DM Mono", monospace`;
+      output.font = `${fontSize}px ${MONO_FONT}`;
       output.textBaseline = 'top';
       for (let row = 0; row < rows; row += 1) {
         for (let col = 0; col < cols; col += 1) {
@@ -245,7 +242,7 @@ export default function VisionAsciiPortrait() {
 
       output.globalAlpha = 1;
       output.save();
-      output.font = `bold ${fontSize * 1.6}px "DM Mono", monospace`;
+      output.font = `bold ${fontSize * 1.6}px ${MONO_FONT}`;
       output.textBaseline = 'middle';
       const eyeBlue = paperLum > 0.5 ? 'rgb(42, 83, 142)' : 'rgb(136, 181, 241)';
       [
@@ -281,14 +278,17 @@ export default function VisionAsciiPortrait() {
       else draw(startTime + 50);
     };
 
-    const observer = new IntersectionObserver(([entry]) => {
-      inView = entry.isIntersecting;
-      if (inView && !frame && !reducedMotion.matches) frame = requestAnimationFrame(draw);
-      if (!inView && frame) {
-        cancelAnimationFrame(frame);
-        frame = 0;
-      }
-    }, { threshold: 0.01 });
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        inView = entry.isIntersecting;
+        if (inView && !frame && !reducedMotion.matches) frame = requestAnimationFrame(draw);
+        if (!inView && frame) {
+          cancelAnimationFrame(frame);
+          frame = 0;
+        }
+      },
+      { threshold: 0.01 },
+    );
     observer.observe(host);
 
     let observedWidth = 0;
@@ -317,7 +317,9 @@ export default function VisionAsciiPortrait() {
     reducedMotion.addEventListener('change', onMotionPreference);
 
     layout();
-    void Promise.all([document.fonts.ready, closedImage.decode(), openImage.decode()]).then(start).catch(() => undefined);
+    void Promise.all([document.fonts.ready, closedImage.decode(), openImage.decode()])
+      .then(start)
+      .catch(() => undefined);
 
     return () => {
       disposed = true;
@@ -330,7 +332,11 @@ export default function VisionAsciiPortrait() {
   }, []);
 
   return (
-    <div className="vision-portrait" role="img" aria-label="Retrato em ASCII da Sailor Moon; ela abre e pisca os olhos, dá uma piscadela, e as mechas do cabelo se movem.">
+    <div
+      className="vision-portrait"
+      role="img"
+      aria-label="Retrato em ASCII da Sailor Moon; ela abre e pisca os olhos, dá uma piscadela, e as mechas do cabelo se movem."
+    >
       <canvas aria-hidden="true" className="vision-portrait-canvas" ref={canvasRef} tabIndex={-1} />
     </div>
   );

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
+import { FACE_STYLE_NAMES } from '../miis/faceLabels';
 import { createMiiFaceTexture } from '../mii/faceRenderer';
 import {
   createMiiFacePatch,
@@ -22,6 +23,7 @@ import {
   type MiiFaceSpec,
 } from '../mii/miiSpec';
 import { disposeObjectTree } from '../games/core/GameLoop';
+import { createMiiStage } from '../miis/miiStage';
 
 type Tab = 'face' | 'hair' | 'eyes' | 'brows' | 'nose' | 'mouth' | 'glasses';
 
@@ -34,54 +36,6 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'mouth', label: 'Boca' },
   { id: 'glasses', label: 'Óculos' },
 ];
-const HEAD_NAMES = ['Redondo', 'Oval', 'Largo', 'Comprido', 'Cheio', 'Estreito', 'Baixo', 'Profundo'];
-const HAIR_NAMES = [
-  'Careca',
-  'Curto',
-  'Topete',
-  'Espetado',
-  'Chanel',
-  'Rabo',
-  'Moicano',
-  'Cachos',
-  'Raspado',
-  'Longo',
-  'Franja',
-  'Afro',
-];
-const EYE_NAMES = [
-  'Oval',
-  'Redondo',
-  'Amêndoa',
-  'Feliz',
-  'Sonolento',
-  'Ponto',
-  'Angular',
-  'Cílios',
-  'Aberto',
-  'Calmo',
-  'Apertado',
-  'Firme',
-];
-const BROW_NAMES = ['Sem', 'Reta', 'Inclinada', 'Curva', 'Cheia', 'Fina', 'Preocupada', 'Curta'];
-const NOSE_NAMES = ['Pequeno', 'Redondo', 'Pontudo', 'Largo', 'Comprido', 'Empinado', 'Achatado', 'Forte'];
-const MOUTH_NAMES = [
-  'Sorriso',
-  'Neutra',
-  'Aberto',
-  'Triste',
-  'Lábios',
-  'Dentes',
-  'Onda',
-  'Redonda',
-  'Grande',
-  'Canto',
-  'Dupla',
-  'Linha',
-];
-const GLASSES_NAMES = ['Sem', 'Redondos', 'Quadrados', 'Esportivos', 'Finos', 'Grossos'];
-const BEARD_NAMES = ['Sem', 'Por fazer', 'Cavanhaque', 'Bigode', 'Cheia', 'Contorno'];
-
 interface PreviewModel {
   group: THREE.Group;
   mount: MiiFaceMount;
@@ -119,124 +73,50 @@ function disposePreviewModel(model: PreviewModel): void {
 }
 
 function MiiPreview({ spec }: { spec: MiiFaceSpec }) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const hostRef = useRef<HTMLDivElement>(null);
   const [webglError, setWebglError] = useState(false);
-  const rigRef = useRef<
-    | {
-        root: THREE.Group;
-        model?: PreviewModel;
-      }
-    | undefined
-  >(undefined);
+  const specRef = useRef<(next: MiiFaceSpec) => void>(() => {});
+  const latestRef = useRef(spec);
+  latestRef.current = spec;
 
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    let renderer: THREE.WebGLRenderer | undefined;
-    let observer: ResizeObserver | undefined;
-    let frame = 0;
-    let dragging = false;
-    let lastX = 0;
-    let lastY = 0;
-    const scene = new THREE.Scene();
-    const root = new THREE.Group();
-    const rig = { root, model: undefined as PreviewModel | undefined };
-
-    const down = (event: PointerEvent) => {
-      dragging = true;
-      lastX = event.clientX;
-      lastY = event.clientY;
-      canvas.setPointerCapture(event.pointerId);
-    };
-    const move = (event: PointerEvent) => {
-      if (!dragging) return;
-      root.rotation.y += (event.clientX - lastX) * 0.012;
-      root.rotation.x = THREE.MathUtils.clamp(root.rotation.x + (event.clientY - lastY) * 0.008, -0.45, 0.45);
-      lastX = event.clientX;
-      lastY = event.clientY;
-    };
-    const up = () => {
-      dragging = false;
-    };
-
-    const cleanup = () => {
-      window.cancelAnimationFrame(frame);
-      observer?.disconnect();
-      canvas.removeEventListener('pointerdown', down);
-      canvas.removeEventListener('pointermove', move);
-      canvas.removeEventListener('pointerup', up);
-      canvas.removeEventListener('pointercancel', up);
-      if (rig.model) {
-        const model = rig.model;
-        root.remove(model.group);
-        rig.model = undefined;
-        disposePreviewModel(model);
-      }
-      disposeObjectTree(scene);
-      renderer?.dispose();
-      rigRef.current = undefined;
-    };
-
-    try {
-      renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-      const camera = new THREE.PerspectiveCamera(34, 1, 0.05, 10);
-      camera.position.set(0, 0.03, -1.55);
-      camera.lookAt(0, 0, 0);
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x91a7bb, 2.3));
-      const key = new THREE.DirectionalLight(0xffffff, 1.5);
-      key.position.set(-1.5, 2, -2.5);
-      scene.add(key);
-      root.rotation.y = 0.08;
-      scene.add(root);
-      rigRef.current = rig;
-
-      const resize = () => {
-        const width = Math.max(1, canvas.clientWidth);
-        const height = Math.max(1, canvas.clientHeight);
-        renderer?.setSize(width, height, false);
-        camera.aspect = width / height;
-        camera.updateProjectionMatrix();
-      };
-      observer = new ResizeObserver(resize);
-      observer.observe(canvas);
-      resize();
-
-      canvas.addEventListener('pointerdown', down);
-      canvas.addEventListener('pointermove', move);
-      canvas.addEventListener('pointerup', up);
-      canvas.addEventListener('pointercancel', up);
-
-      const render = () => {
-        renderer?.render(scene, camera);
-        frame = window.requestAnimationFrame(render);
-      };
-      render();
-    } catch {
-      cleanup();
+    const host = hostRef.current;
+    if (!host) return;
+    const stage = createMiiStage(host, { drag: true, animate: false, camera: { position: [0, 1.5, 5.2], lookAt: [0, 1.02, 0], fov: 30 } });
+    if (!stage) {
       setWebglError(true);
       return;
     }
-
-    return cleanup;
+    let model: PreviewModel | undefined;
+    const show = (next: MiiFaceSpec) => {
+      if (model) {
+        stage.content.remove(model.group);
+        disposePreviewModel(model);
+      }
+      model = buildPreviewModel(next);
+      stage.content.add(model.group);
+      stage.render();
+    };
+    show(latestRef.current);
+    specRef.current = show;
+    return () => {
+      specRef.current = () => {};
+      if (model) {
+        stage.content.remove(model.group);
+        disposePreviewModel(model);
+      }
+      stage.dispose();
+    };
   }, []);
 
+  // A new draft rebuilds only the head; the stage, lights and renderer stay.
   useEffect(() => {
-    const rig = rigRef.current;
-    if (!rig) return;
-    const model = buildPreviewModel(spec);
-    if (rig.model) {
-      rig.root.remove(rig.model.group);
-      disposePreviewModel(rig.model);
-    }
-    rig.root.add(model.group);
-    rig.model = model;
+    specRef.current(spec);
   }, [spec]);
 
   return (
     <>
-      <canvas ref={canvasRef} className="mii-preview" aria-label="Prévia 3D do Mii" hidden={webglError} />
+      <div ref={hostRef} className="mii-preview" role="img" aria-label="Prévia 3D do Mii" hidden={webglError} />
       {webglError && (
         <p role="alert" style={{ maxWidth: 320, padding: '0 16px', textAlign: 'center' }}>
           Prévia 3D indisponível: o navegador não conseguiu iniciar o WebGL. Você ainda pode editar e salvar o Mii
@@ -373,8 +253,8 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
             {tab === 'face' && (
               <>
                 <Swatches label="Pele" palette={SKIN_PALETTE} value={spec.skin} onPick={(skin) => update({ skin })} />
-                <Styles label="Rosto" names={HEAD_NAMES} value={spec.head} onPick={(head) => update({ head })} />
-                <Styles label="Barba" names={BEARD_NAMES} value={spec.beard} onPick={(beard) => update({ beard })} />
+                <Styles label="Rosto" names={FACE_STYLE_NAMES.head} value={spec.head} onPick={(head) => update({ head })} />
+                <Styles label="Barba" names={FACE_STYLE_NAMES.beard} value={spec.beard} onPick={(beard) => update({ beard })} />
               </>
             )}
             {tab === 'hair' && (
@@ -385,7 +265,7 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
                   value={spec.hairColor}
                   onPick={(hairColor) => update({ hairColor })}
                 />
-                <Styles label="Cabelo" names={HAIR_NAMES} value={spec.hair} onPick={(hair) => update({ hair })} />
+                <Styles label="Cabelo" names={FACE_STYLE_NAMES.hair} value={spec.hair} onPick={(hair) => update({ hair })} />
               </>
             )}
             {tab === 'eyes' && (
@@ -396,7 +276,7 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
                   value={spec.eyeColor}
                   onPick={(eyeColor) => update({ eyeColor })}
                 />
-                <Styles label="Olhos" names={EYE_NAMES} value={spec.eyes} onPick={(eyes) => update({ eyes })} />
+                <Styles label="Olhos" names={FACE_STYLE_NAMES.eyes} value={spec.eyes} onPick={(eyes) => update({ eyes })} />
                 <Slider label="Altura" min={42} max={62} value={spec.eyeY} onChange={(eyeY) => update({ eyeY })} />
                 <Slider
                   label="Espaçamento"
@@ -423,12 +303,7 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
             )}
             {tab === 'brows' && (
               <>
-                <Styles
-                  label="Sobrancelhas"
-                  names={BROW_NAMES}
-                  value={spec.brows}
-                  onPick={(brows) => update({ brows })}
-                />
+                <Styles label="Sobrancelhas" names={FACE_STYLE_NAMES.brows} value={spec.brows} onPick={(brows) => update({ brows })} />
                 <Slider label="Altura" min={54} max={78} value={spec.browY} onChange={(browY) => update({ browY })} />
                 <Slider
                   label="Inclinação"
@@ -441,7 +316,7 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
             )}
             {tab === 'nose' && (
               <>
-                <Styles label="Nariz" names={NOSE_NAMES} value={spec.nose} onPick={(nose) => update({ nose })} />
+                <Styles label="Nariz" names={FACE_STYLE_NAMES.nose} value={spec.nose} onPick={(nose) => update({ nose })} />
                 <Slider label="Altura" min={30} max={50} value={spec.noseY} onChange={(noseY) => update({ noseY })} />
               </>
             )}
@@ -453,7 +328,7 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
                   value={spec.lipColor}
                   onPick={(lipColor) => update({ lipColor })}
                 />
-                <Styles label="Boca" names={MOUTH_NAMES} value={spec.mouth} onPick={(mouth) => update({ mouth })} />
+                <Styles label="Boca" names={FACE_STYLE_NAMES.mouth} value={spec.mouth} onPick={(mouth) => update({ mouth })} />
                 <Slider
                   label="Altura"
                   min={18}
@@ -487,7 +362,7 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
                 />
                 <Styles
                   label="Óculos"
-                  names={GLASSES_NAMES}
+                  names={FACE_STYLE_NAMES.glasses}
                   value={spec.glasses}
                   onPick={(glasses) => update({ glasses })}
                 />
