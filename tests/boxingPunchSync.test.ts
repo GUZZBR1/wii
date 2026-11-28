@@ -11,7 +11,11 @@ function travel(punchSpeed: number): number[] {
   let time = 0;
   boxer.animate(time);
   boxer.setState('ready');
-  for (let i = 0; i < 40; i += 1) boxer.animate((time += STEP_S));
+  const tick = () => {
+    time += STEP_S;
+    boxer.animate(time);
+  };
+  for (let i = 0; i < 40; i += 1) tick();
   const elbow = boxer.root.getObjectByName('mii-boxer-right-elbow')!;
   const z = () => {
     boxer.root.updateMatrixWorld(true);
@@ -20,7 +24,7 @@ function travel(punchSpeed: number): number[] {
   const rest = z();
   boxer.setState('punch');
   return Array.from({ length: 24 }, () => {
-    boxer.animate((time += STEP_S));
+    tick();
     return rest - z();
   });
 }
