@@ -20,23 +20,27 @@
   .nevergear-half .brand-logo { width: min(80vw, 760px); }
   .channel .logo { display: grid; line-height: 1.05; text-align: center; }
 
-
+  .menu.channels { background: repeating-linear-gradient(#0000 0 3px, #ffffff80 3px 4px), linear-gradient(to top, #ffffff, #cfe8f7); }
   .channel-ring { position: relative; flex: 1; min-height: 260px; margin-top: 24px; overflow: hidden; }
   .channel { position: absolute; width: min(250px, 21vw); aspect-ratio: 16/10; display: grid; place-items: center; border: 3px solid var(--line); border-radius: 18px; box-shadow: var(--shadow); transition: left .9s cubic-bezier(.3, .8, .2, 1), top .9s cubic-bezier(.3, .8, .2, 1), transform .9s cubic-bezier(.3, .8, .2, 1), opacity .9s, box-shadow .2s; }
   /* Frutiger Aero: a glass reflection over each channel. */
   .channel::after { content: ''; position: absolute; inset: 3px 3px 52%; border-radius: 13px 13px 50% 50% / 13px 13px 18% 18%; background: linear-gradient(#ffffffd9, #ffffff33); pointer-events: none; }
-  .channel.sports { padding: 0; border-color: var(--blue); background: linear-gradient(#ffffff, #e9f7fe 55%, #bfe9fb); font-size: clamp(16px, 2.4vw, 34px); box-shadow: 0 10px 26px rgba(26, 110, 168, .4), 0 0 0 4px #34beed44, inset 0 -10px 18px #34beed44; }
-  .channel.sports:hover { box-shadow: 0 12px 30px rgba(26, 110, 168, .5), 0 0 0 7px #34beed66, inset 0 -10px 18px #34beed55; }
-  .channel.sport-channel { overflow: hidden; padding: 0; display: flex; flex-direction: column; background: #fff; border-color: #fff; color: var(--ink); }
+  .channel.sports { padding: 0; border: 0; background: none; box-shadow: none; font-size: clamp(16px, 2.4vw, 34px); filter: drop-shadow(0 8px 14px #0b5c8f59); }
+  .channel.sports::after { content: none; }
+  .channel.sports:hover { filter: drop-shadow(0 0 14px #fff) drop-shadow(0 8px 18px #0b5c8f80); }
+  .channel.sports .logo i { color: #0879b0; text-shadow: 0 2px 0 #fff, 0 0 10px #fff; }
+  .channel.sport-channel { width: min(300px, 25vw); overflow: hidden; padding: 0; display: flex; flex-direction: column; background: #fff; border-color: #fff; color: #0d3550; box-shadow: 0 0 0 2px #1a8fc4, 0 8px 18px #0b4a7366; }
+  .channel.sport-channel::after { background: linear-gradient(#ffffff73, #ffffff0d); }
   .sport-channel:hover, .sport-channel:focus-visible { box-shadow: 0 0 0 5px #34beed88, var(--shadow); }
-  .channel-scene { flex: 1; width: 100%; min-height: 0; background: center / cover no-repeat; }
+  .channel-scene { flex: 1; width: 100%; min-height: 0; background: center / cover no-repeat; filter: saturate(1.35) contrast(1.15); }
   .sport-channel.athletics .channel-scene { background-image: url(/images/menu/athletics.jpg); }
   .sport-channel.tennis .channel-scene { background-image: url(/images/menu/tennis.jpg); }
   .sport-channel.boxing .channel-scene { background-image: url(/images/menu/boxing.jpg); }
   .channel-name { width: 100%; padding: 5px; background: var(--gloss); font-size: clamp(14px, 1.8vw, 24px); font-weight: 800; }
   .ring-arrow { position: absolute; z-index: 25; top: 50%; width: 52px; height: 52px; translate: 0 -50%; border: 3px solid var(--blue); border-radius: 50%; color: var(--blue-deep); background: linear-gradient(#fff 0 46%, #d9f2fd 54%, #ade4f8); box-shadow: 0 5px 14px rgba(26, 110, 168, .35), inset 0 1px #fff; }
-  .ring-arrow.left { left: 3%; }
-  .ring-arrow.right { right: 3%; }
+  .ring-arrow.left { left: 1%; }
+  .ring-arrow.right { right: 1%; }
+  @media (max-width: 640px) { .ring-arrow { top: 58%; } }
   .ring-arrow:hover { box-shadow: 0 0 0 5px #34beed55, 0 5px 14px rgba(26, 110, 168, .35); }
   .channel-ring.is-gesture-controlled .channel { transition: none; }
 

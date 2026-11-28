@@ -62,9 +62,9 @@ function placement(index: number, turn: number, ring: boolean): CSSProperties {
   const depth = (Math.cos(angle) + 1) / 2; // 1 = front
   return {
     left: `${50 + Math.sin(angle) * 37}%`,
-    top: `${24 + depth * 34}%`,
+    top: `${27 + depth * 34}%`,
     transform: `translate(-50%, -50%) scale(${(.6 + .2 * depth ** 2 + .8 * depth ** 24).toFixed(3)})`,
-    opacity: .45 + .55 * depth,
+    opacity: .6 + .4 * depth,
     zIndex: Math.round(depth * 20),
   };
 }

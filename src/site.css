@@ -478,22 +478,6 @@ a:focus-visible, button:focus-visible { outline: 2px solid #1a8fc4; outline-offs
 .status-arrow { @apply ml-0.5 text-[14px] text-muted transition-transform duration-300; }
 .product-status:hover .status-arrow { transform: translate(2px,-2px); }
 .construction-art { @apply relative mb-0 mt-1 w-full max-w-[780px]; }
-.construction-art::before {
-  position: absolute;
-  z-index: -1;
-  inset: 14% 13% 10%;
-  border-radius: 50%;
-  background: radial-gradient(ellipse, color-mix(in srgb, var(--accent) 28%, transparent), transparent 70%);
-  content: '';
-  filter: blur(18px);
-}
-/* Light theme: a very light gray background behind the artwork, still distinct from white. */
-:root body .construction-art::before {
-  inset: 6% 6% 2%;
-  border-radius: 40px;
-  background: radial-gradient(ellipse, rgba(26, 110, 168, .09), rgba(26, 110, 168, .06) 62%, transparent 82%);
-  filter: blur(12px);
-}
 .construction-ascii { @apply relative z-0 mx-auto w-full select-none; }
 .construction-ascii-canvas { display: block; width: 100%; height: auto; aspect-ratio: 3 / 2; }
 .hand-stage { @apply relative w-full; }
