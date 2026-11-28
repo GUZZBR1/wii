@@ -80,7 +80,9 @@ it('switches the camera back to hand tracking when play exits to the channel men
     expect(captures.handBegins).toBe(1);
 
     await click('Tênis'); // brings the card to the front
-    await click('Tênis');
+    await click('Tênis'); // opens the game's entry screen
+    expect(captures.gameProps).toBeUndefined();
+    await click('Jogar');
     await act(flush);
     expect(captures.gameProps).toBeDefined();
     expect(captures.poseBegins).toBe(1);
@@ -124,7 +126,10 @@ it('runs the three Iron Man stages in order, shows the summary, and discards a c
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
-  const start = async () => act(async () => { container.querySelector<HTMLButtonElement>('.channel.sports')!.click(); });
+  const start = async () => {
+    await act(async () => { container.querySelector<HTMLButtonElement>('.channel.sports')!.click(); });
+    await act(async () => { container.querySelector<HTMLButtonElement>('.lobby-play')!.click(); });
+  };
   const finish = async (sport: 'athletics' | 'tennis' | 'boxing', detail: string) => act(async () => {
     captures.gameProps!.ironMan!.onComplete({ sport, detail });
   });

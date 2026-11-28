@@ -5,7 +5,8 @@ import type { Goal } from '../games/athletics/race';
 import type { ProceduralAudio } from '../games/audio';
 import type { BoxingScoreboard } from '../games/boxing/BoxingGame';
 import { BOXING_MODES, type BoxingMode } from '../games/boxing/boxingModes';
-import { DEFAULT_OPPONENT_PROFILE_ID, OPPONENT_PROFILES, type OpponentProfileId } from '../games/boxing/opponentProfiles';
+import { type BoxingSetup, DEFAULT_BOXING_SETUP } from '../games/boxing/boxingSetup';
+import { OPPONENT_PROFILES, type OpponentProfileId } from '../games/boxing/opponentProfiles';
 import type { ArmMotion } from '../kinematics/armMotion';
 import type { SwingTracking } from '../kinematics/actionPipeline';
 import { type GestureSample, RestartGesture } from '../games/core/restartGesture';
@@ -21,19 +22,10 @@ type GameHudState = Omit<TrackHudState, 'feedback'> & {
   runners?: AthleticsHudState['runners'];
   boxing?: BoxingScoreboard;
 };
+import { BOXING_TRAINING_CONTROLS, HUD_TEXT } from './hudText';
 import { forwardKeyDown } from './keys';
 
 export type Sport = 'track' | 'athletics' | 'tennis' | 'boxing';
-const HUD_TEXT: Record<Sport, { score: string; speed: string; controls: string }> = {
-  track: { score: 'SCORE', speed: 'RITMO', controls: '← → trocar raia  ·  ↑ / espaço saltar  ·  ↓ andar / correr / parar' },
-  athletics: { score: 'TEMPO', speed: 'INTENSIDADE', controls: 'corra no lugar, mexendo os braços' },
-  tennis: { score: 'PONTOS', speed: 'MIRA', controls: 'raquetada no tempo da bola: cedo cruza, tarde vai reto' },
-  boxing: { score: 'HP', speed: 'RITMO', controls: 'W A S D mover  ·  E socar  ·  segure Q para defender  ·  ← → esquivar' },
-};
-const BOXING_TRAINING_CONTROLS = {
-  bag: 'E ou socos no ritmo  ·  W A S D mover',
-  dodge: '← → esquivar  ·  A / D circular para sair da linha  ·  W / S ajustar distância',
-} as const;
 export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setPoseTracking?(tracking: string, atMs: number): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setSwingTracking?(tracking: SwingTracking): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; setDodgeZone?(zone: -1 | 0 | 1 | undefined, atMs?: number | null): void; setGuard?(guard: boolean | undefined, atMs?: number | null): void; setDuck?(ducked: boolean | undefined, atMs?: number | null): void; setDepthMove?(move: -1 | 0 | 1 | undefined, atMs?: number | null): void; setDepthSpeed?(speed: number | undefined, atMs?: number | null): void; setLateralDash?(dash: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
 
 export interface IronManResult {
@@ -42,6 +34,9 @@ export interface IronManResult {
 }
 
 interface Props {
+  /** Boxing choice made before the match; the in-game selector reports its changes back. */
+  boxingSetup?: BoxingSetup;
+  onBoxingSetup?: (setup: BoxingSetup) => void;
   sport: Sport;
   ironMan?: { onComplete: (result: IronManResult) => void };
   onEngine: (engine: GameEngineHandle | null) => void;
@@ -64,16 +59,17 @@ export function GameCanvas(props: Props) {
   const [run, setRun] = useState(0);
   const racketHandRef = useRef<Hand>('right');
   const rememberRacketHand = useCallback((hand: Hand) => { racketHandRef.current = hand; }, []);
-  const [boxingMode, setBoxingMode] = useState<BoxingMode>('fight');
-  const [boxingOpponent, setBoxingOpponent] = useState<OpponentProfileId>(DEFAULT_OPPONENT_PROFILE_ID);
+  const [boxing, setBoxing] = useState(props.boxingSetup ?? DEFAULT_BOXING_SETUP);
+  const { mode: boxingMode, opponent: boxingOpponent } = boxing;
+  const changeBoxing = (next: BoxingSetup) => { setBoxing(next); props.onBoxingSetup?.(next); };
   // The warm-up opens the first match only; playing again goes straight to the court.
   return <GameRun
     key={`${run}-${boxingMode}-${boxingOpponent}`}
     {...props}
     boxingMode={boxingMode}
-    onBoxingMode={setBoxingMode}
+    onBoxingMode={(mode) => changeBoxing({ ...boxing, mode })}
     boxingOpponent={boxingOpponent}
-    onBoxingOpponent={setBoxingOpponent}
+    onBoxingOpponent={(opponent) => changeBoxing({ ...boxing, opponent })}
     tutorial={run === 0}
     initialRacketHand={racketHandRef.current}
     onRacketHand={rememberRacketHand}
