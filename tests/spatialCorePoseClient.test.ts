@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PoseClient } from '@wii/spatial-core';
-import type { WorkerReply, WorkerRequest } from '@wii/spatial-core';
+import { PoseClient } from '@nevergear/spatial-core';
+import type { WorkerReply, WorkerRequest } from '@nevergear/spatial-core';
 
 class InitFailureWorker {
   static instance: InitFailureWorker | undefined;

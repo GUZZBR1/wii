@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import type { HandSnapshot } from '@wii/spatial-core';
+import type { HandSnapshot } from '@nevergear/spatial-core';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';

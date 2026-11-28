@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { HandClient } from '@wii/spatial-core';
-import type { HandWorkerReply, HandWorkerRequest } from '@wii/spatial-core';
+import { HandClient } from '@nevergear/spatial-core';
+import type { HandWorkerReply, HandWorkerRequest } from '@nevergear/spatial-core';
 import { handSnapshot } from './fixtures/syntheticHand';
 
 class FakeWorker {

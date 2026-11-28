@@ -1,5 +1,5 @@
-import type { Hand, PoseSnapshot } from '@wii/spatial-core';
-import { OneEuroFilter } from '@wii/spatial-core';
+import type { Hand, PoseSnapshot } from '@nevergear/spatial-core';
+import { OneEuroFilter } from '@nevergear/spatial-core';
 import { ShoulderUnit } from './postureSignals';
 
 /** An onset that never confirms stops counting as a punch after this long. */

@@ -3,7 +3,7 @@
  * registered; per second of other activity, how often did one appear unasked; and the same after
  * the player is displaced, farther away or sampled at half the rate. Skipped without recordings.
  */
-import { parsePoseRecording } from '@wii/spatial-core';
+import { parsePoseRecording } from '@nevergear/spatial-core';
 import { describe, it } from 'vitest';
 import { AdaptiveCalibrator } from '../src/cv/adaptiveCalibrator';
 import { BOXING_RECORDING_SCRIPT, segmentAt } from '../src/cv/diagnostics/recordingScript';

@@ -25,7 +25,7 @@ import { BASELINE_Z, COURT_HALF_WIDTH, groundImpact, legalLanding, NET_HEIGHT, s
 import { awardPoint, createScore, pointLabels, type PlayerSide, type TennisScoreState } from './tennisScore';
 
 /**
- * Wii-Sports-style tennis: a game of WHEN, not WHERE. The player never aims with the arm —
+ * Nevergear-Sports-style tennis: a game of WHEN, not WHERE. The player never aims with the arm —
  * direction comes from swing timing relative to the ball's arrival, adjudicated retroactively
  * against the ball state rewound to the swing's physical peak (docs/design-tenis.md §3).
  * Movement is automatic; the only skills are timing and reading the ball.

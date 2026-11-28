@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { OneEuroFilter } from '@wii/spatial-core';
+import { OneEuroFilter } from '@nevergear/spatial-core';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
 import { landmarkConfidence } from '../src/kinematics/math';
 import { calibration, pose, poseWithHipBounce } from './fixtures/syntheticPose';

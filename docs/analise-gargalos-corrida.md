@@ -1,4 +1,4 @@
-# Análise de gargalos do jogo da corrida — Wii Web Sports Arena
+# Análise de gargalos do jogo da corrida — Nevergear Web Sports Arena
 
 Data: 25 de novembro de 2026 · Commit analisado: `17b6fed` ("resolve merge: main worker protocol + kinematics profile shape") — **merge de rascunho** no branch local `analysis/merged-prs`, representando `main` como se três mudanças já estivessem mergeadas: PR #5 `cv/kinematics-engine`, `feat/camera-auto-calibration` (`eedb6c0`) e PR #6 `feat/running-pace` (`266e042`). Conflitos resolvidos em direção ao formato do PR #5.
 
@@ -200,7 +200,7 @@ Os timestamps internos (`snapshot.timestampMs` = `now` do rVFC, `poseClient.ts:7
 
 **Código (citações `path:line` nesta árvore mergeada):** `src/App.tsx`, `src/cv/{poseClient,pose.worker,protocol,calibrator,autoCalibrator,oneEuroFilter,mediapipeAssets}.ts`, `src/kinematics/{actionPipeline,cadenceTracker,jumpDetector,postureSignals,trackingGate,schmittTrigger,bodyFrame,swingDetector,math}.ts`, `src/games/{core/GameLoop,track/{TrackGame,gait,trackScore},audio}.ts`, `src/ui/{GameCanvas,CameraPip,PoseOverlay}.{tsx,ts}`, `tests/{pace,trackScore,kinematics,poseClient}.test.ts`, `tests/fixtures/syntheticPose.ts`, `vercel.json`. Histórico de merge: `git show 266e042` (PR #6), `git show eedb6c0` (auto-calibração pré-merge, formato duplo de punho), `git show 17b6fed` (resolução). Corpos dos PRs #5 e #6 no GitHub (`gh pr view`) — incluindo o "Known limit" do autor sobre 15 fps e a nota "controls sem consumidor" do PR #5.
 
-**Documentos internos lidos:** `docs/analise-de-gargalos.md` (auditoria do pipeline; itens #1–#6 resolvidos neste merge, #7 citado como teto), `docs/pesquisa-pipeline-cv.md` (§7.5 benchmark medido: CPU ~16–21 ms ≈ 48–62 poses/s, GL-software ~96–243 ms ≈ 5–10 fps sem fallback; §2.2 VideoFrame; §6 metadata), `reports/Correções da cinemática de pose.md` (deriva de baseline do salto; inversão histórica de lado de raia), `research_notes/Modularização do Wii Web Sports Arena/{pose_pipeline,game_architecture}.md`.
+**Documentos internos lidos:** `docs/analise-de-gargalos.md` (auditoria do pipeline; itens #1–#6 resolvidos neste merge, #7 citado como teto), `docs/pesquisa-pipeline-cv.md` (§7.5 benchmark medido: CPU ~16–21 ms ≈ 48–62 poses/s, GL-software ~96–243 ms ≈ 5–10 fps sem fallback; §2.2 VideoFrame; §6 metadata), `reports/Correções da cinemática de pose.md` (deriva de baseline do salto; inversão histórica de lado de raia), `research_notes/Modularização do Nevergear Web Sports Arena/{pose_pipeline,game_architecture}.md`.
 
 **Fontes primárias externas:**
 - https://ai.google.dev/mediapipe/solutions/vision/pose_landmarker — modo VIDEO síncrono, timestamps monotônicos, padrão livestream "latest frame" (o adotado aqui).

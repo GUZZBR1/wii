@@ -5,7 +5,7 @@
 // invalidates pending work. releaseCamera() is the only teardown path; a getUserMedia that resolves under a
 // stale epoch stops its own tracks. Frames are published on the capture callback to the cursor input state
 // and to subscribers, which must not keep the snapshot's arrays past the call if they mutate them.
-import type { HandSnapshot } from '@wii/spatial-core';
+import type { HandSnapshot } from '@nevergear/spatial-core';
 import { createContext, type ReactNode, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { HandClient } from '../cv/handClient';
 import { HandCursorDetector } from '../kinematics/handCursor';

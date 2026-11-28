@@ -1,4 +1,4 @@
-import type { Delegate, WorkerReply, WorkerRequest } from '@wii/spatial-core';
+import type { Delegate, WorkerReply, WorkerRequest } from '@nevergear/spatial-core';
 
 type PoseReply = Extract<WorkerReply, { type: 'POSE' }>;
 

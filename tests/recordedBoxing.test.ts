@@ -1,4 +1,4 @@
-import { parsePoseRecording } from '@wii/spatial-core';
+import { parsePoseRecording } from '@nevergear/spatial-core';
 import { describe, expect, it } from 'vitest';
 import { AdaptiveCalibrator } from '../src/cv/adaptiveCalibrator';
 import type { CalibrationProfile, PoseSnapshot, PunchKind, PunchTargetZone } from '../src/cv/protocol';

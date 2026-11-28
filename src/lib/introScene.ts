@@ -69,7 +69,7 @@ void main() {
   float mask = mix(1., (1. - smoothstep(.55, 1.08, edge)) * inside, feather);
   vec3 bloom = halo / float(TAPS) * .7 * mask;
   float a = sum.a * mask * alpha;
-  // obras em tom azulado; a marca (sem bordas dissolvidas) no cinza do Wii
+  // obras em tom azulado; a marca (sem bordas dissolvidas) no cinza do Nevergear
   vec3 color = mix(vec3(.5, .55, .6), mix(vec3(.04, .15, .25), vec3(.98, .995, 1.), clamp(lum, 0., 1.)), step(.5, feather));
   gl_FragColor = vec4(color * a + bloom * alpha, a); // alfa pré-multiplicado
 }`;

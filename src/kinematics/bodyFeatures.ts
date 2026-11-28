@@ -1,6 +1,6 @@
-import type { CalibrationProfile, Point3, PoseSnapshot } from '@wii/spatial-core';
+import type { CalibrationProfile, Point3, PoseSnapshot } from '@nevergear/spatial-core';
 import { type BodyBasis, bodyBasis } from './bodyFrame';
-import { OneEuroFilter } from '@wii/spatial-core';
+import { OneEuroFilter } from '@nevergear/spatial-core';
 import { distance3, landmarkConfidence, midpoint } from './math';
 
 export interface Vec3 {

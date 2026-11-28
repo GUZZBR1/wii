@@ -1,4 +1,4 @@
-import type { PunchKind, PunchMeasurement, PunchTargetZone } from '@wii/spatial-core';
+import type { PunchKind, PunchMeasurement, PunchTargetZone } from '@nevergear/spatial-core';
 import { clamp } from './math';
 
 export interface PunchClassification {

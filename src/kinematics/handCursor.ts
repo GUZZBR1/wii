@@ -10,7 +10,7 @@ import {
   type RotationalFlickRejection,
   type RotationalFlickState,
   type RotationalHandShape,
-} from '@wii/spatial-core';
+} from '@nevergear/spatial-core';
 import { HandSwipeDetector } from './handSwipe';
 import { clamp } from './math';
 
