@@ -774,6 +774,7 @@ export class TennisGame {
 
   private startPoint(now: number): void {
     this.servingFlight = false;
+    this.fastServe = false;
     this.playedEvents.clear();
     this.lastPlayerHitMs = Number.NEGATIVE_INFINITY;
     this.playerX = this.score.server === 'player' ? this.serveX : 0;

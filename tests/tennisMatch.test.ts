@@ -454,3 +454,15 @@ it('uses the net impact instant as the cutoff, rather than the end of its tick',
     expect(state.score.points.player).toBe(1);
   } finally { game.dispose(); }
 });
+
+it('does not carry the fast-serve trail into the next point', () => {
+  const { game, state } = match();
+  try {
+    const serve = state as unknown as { fastServe: boolean };
+    serve.fastServe = true;
+    state.startPoint(1000);
+    expect(serve.fastServe).toBe(false);
+  } finally {
+    game.dispose();
+  }
+});
