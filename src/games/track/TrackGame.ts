@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { SportActionEvent } from '../../cv/protocol';
+import { FaceCache } from '../../mii/faceCache';
+import { FaceVisibilityController } from '../../mii/faceVisibility';
+import { loadPlayerMii } from '../../mii/miiSpec';
 import { createMiiRunner } from '../athletics/miiRunner';
 import { addRoomEnvironment } from '../core/environment';
 import { GameLoop } from '../core/GameLoop';
@@ -53,8 +56,10 @@ function surfaceTexture(anisotropy: number): THREE.CanvasTexture {
 export class TrackGame {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(54, 1, 0.1, 120);
+  private readonly faceCache = new FaceCache();
+  private readonly faceVisibility: FaceVisibilityController;
   private readonly runner = new THREE.Group();
-  private readonly mii = createMiiRunner();
+  private readonly mii = createMiiRunner(0xffffff, loadPlayerMii());
   private readonly sun = new THREE.DirectionalLight(0xffffff, 2.2);
   private readonly trackMaterial = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 });
   private removeEnvironment?: () => void;
@@ -102,6 +107,8 @@ export class TrackGame {
     this.setupScene();
     this.applyBiome();
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) => this.update(dt, wallTimeMs));
+    this.faceVisibility = new FaceVisibilityController({ cache: this.faceCache, renderer: this.loop.renderer });
+    this.faceVisibility.register(this.mii.facePatch);
     const { renderer } = this.loop;
     // Tests swap the loop for one without a renderer; the scene itself does not need it.
     if (renderer) {
@@ -233,6 +240,7 @@ export class TrackGame {
   }
 
   private update(dt: number, wallTimeMs: number): void {
+    this.faceVisibility.update(this.camera, wallTimeMs);
     // Everything below is frozen until the gate opens: no travel, score, jump or judging.
     if (this.result) return;
     this.gate.advance(dt);
@@ -357,6 +365,8 @@ export class TrackGame {
 
   dispose(): void {
     window.clearInterval(this.hudTimer);
+    this.faceVisibility.dispose();
+    this.faceCache.disposeAll();
     // Pooled objects leave the scene first so their resources are freed once, by their owner.
     for (const item of this.items) this.scene.remove(item.group);
     this.items.length = 0;

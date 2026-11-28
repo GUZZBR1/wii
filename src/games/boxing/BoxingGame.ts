@@ -1,5 +1,8 @@
 import * as THREE from 'three';
 import type { Hand, SportActionEvent } from '../../cv/protocol';
+import { FaceCache } from '../../mii/faceCache';
+import { FaceVisibilityController } from '../../mii/faceVisibility';
+import { generateMiiFromSeed } from '../../mii/miiSpec';
 import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
 import type { GameHudState, HudFeedback } from '../core/hud';
@@ -161,6 +164,8 @@ export type BoxingHudState = GameHudState & { banner?: { title: string; detail?:
 export class BoxingGame {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(55, 1, 0.1, 80);
+  private readonly faceCache = new FaceCache();
+  private readonly faceVisibility: FaceVisibilityController;
   private readonly opponentBoxer: MiiBoxer | undefined;
   private readonly gloves: FirstPersonGloves;
   private readonly bag: PunchingBag | undefined;
@@ -249,6 +254,7 @@ export class BoxingGame {
         trimColor: this.profile.trimColor,
         shortsColor: this.profile.shortsColor,
         gloveColor: this.profile.gloveColor,
+        face: generateMiiFromSeed(this.profile.miiSeed),
       });
       this.scene.add(this.opponentBoxer.root);
     }
@@ -270,7 +276,9 @@ export class BoxingGame {
     this.camera.add(this.gloves.root);
     this.scene.add(this.camera);
     this.scene.add(this.sparks.root);
-    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt));
+    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) => this.update(dt, wallTimeMs));
+    this.faceVisibility = new FaceVisibilityController({ cache: this.faceCache, renderer: this.loop.renderer });
+    if (this.opponentBoxer) this.faceVisibility.register(this.opponentBoxer.facePatch);
     if (this.loop.renderer) {
       this.ring = buildBoxingRing(this.scene, this.loop.renderer);
     } else {
@@ -498,7 +506,7 @@ export class BoxingGame {
     this.lastPhase = phase;
   }
 
-  private update(dt: number): void {
+  private update(dt: number, wallTimeMs = performance.now()): void {
     this.gate.advance(dt);
     this.syncPhase();
     if (this.gate.phase === 'running') this.step(dt * 1000);
@@ -513,6 +521,7 @@ export class BoxingGame {
       this.sparks.update(animDt);
     }
     this.poseScene(dt);
+    this.faceVisibility.update(this.camera, wallTimeMs);
   }
 
   /** Exact critically damped spring step: no overshoot from rest, stable for any `dt`. */
@@ -1044,6 +1053,8 @@ export class BoxingGame {
 
   dispose(): void {
     window.clearInterval(this.hudTimer);
+    this.faceVisibility.dispose();
+    this.faceCache.disposeAll();
     this.ring?.dispose();
     this.loop.dispose();
   }
