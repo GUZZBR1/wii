@@ -4,6 +4,7 @@ import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
 import type { GameHudState, HudFeedback } from '../core/hud';
 import { RunGate, type RunPhase } from '../track/runGate';
+import { PUNCH_THRESHOLDS } from '../../kinematics/punchDetector';
 import { applyLatePunch, applyOpponentPunch, applyPlayerPunch, createBoxing, MAX_HP, ROUND_COUNT, tickRound, type BoxingState } from './boxingRules';
 import type { BoxingMode } from './boxingModes';
 import { LEARNING_PUNCH_TRAVEL, BoxingTutorial } from './boxingTutorial';
@@ -57,8 +58,6 @@ import {
 
 const ROUND_BREAK_MS = 3000;
 const MATCH_PAUSE_MS = 5000;
-/** The untuned confirmation floor the pipeline starts with; kept in sync with punchDetector. */
-const PUNCH_TRAVEL_DEFAULT = 0.25;
 const KEY_PUNCH_POWER01 = 0.65;
 /** Matches the camera detector's per-hand refractory; key auto-repeat must not outpunch an arm. */
 const KEY_PUNCH_COOLDOWN_MS = 250;
@@ -602,7 +601,7 @@ export class BoxingGame {
     if (tutorial.done) {
       if (!this.travelAdapted) {
         this.travelAdapted = true;
-        this.options.onPunchTravel?.(tutorial.punchTravel ?? PUNCH_TRAVEL_DEFAULT);
+        this.options.onPunchTravel?.(tutorial.punchTravel ?? PUNCH_THRESHOLDS.confirmForwardTravel);
       }
       this.restartMsLeft = MATCH_PAUSE_MS;
       this.audio?.bell('ko');

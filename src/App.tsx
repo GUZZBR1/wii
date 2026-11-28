@@ -8,6 +8,7 @@ import { PhotoTrail } from './cv/diagnostics/photoTrail';
 import { BOXING_RECORDING_SCRIPT, TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
 import { downloadRecording, noteArrival, PoseRecorder, rememberFrame } from './cv/diagnostics/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
+import { PUNCH_THRESHOLDS } from './kinematics/punchDetector';
 import { framingAdvice, handsHidden, armsCrossed, handsRaised, raisedTossHand, HeadWarning } from './kinematics/framing';
 import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
 import { HandCursorDetector } from './kinematics/handCursor';
@@ -504,7 +505,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     void audioRef.current.unlock();
     // The warm-up tutorials set their own stroke length; every game starts from the default.
     pipelineRef.current.setStrokeTravel(1.9);
-    pipelineRef.current.setPunchTravel(0.25);
+    pipelineRef.current.setPunchTravel(PUNCH_THRESHOLDS.confirmForwardTravel);
     pipelineRef.current.resetSwings();
     setSport(next);
     sportRef.current = next;

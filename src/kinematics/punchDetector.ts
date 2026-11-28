@@ -112,7 +112,8 @@ function measurePunch(pending: PendingPunch): PunchMeasurement {
     verticalRise: Math.max(...samples.map((sample) => sample.vertical)) - origin.vertical,
     pathLength,
     netDisplacement: distance(origin, contact),
-    maxElbowCosine: Math.max(...samples.map((sample) => sample.elbowCosine)),
+    // Same evidence the confirmation chain trusts: the raw cosine counts, because the filtered one lags brief extensions below their peak.
+    maxElbowCosine: Math.max(...samples.map((sample) => Math.max(sample.elbowCosine, sample.rawElbowCosine ?? sample.elbowCosine))),
   };
 }
 
