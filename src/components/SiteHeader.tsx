@@ -13,6 +13,7 @@ import {
 import { flushSync } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { useLang } from '../i18n';
+import { readStored, writeStored } from '../lib/storage';
 
 const MORPH_DISTANCE = 130;
 const HEADER_REVEAL = 36;
@@ -48,13 +49,8 @@ function compactFontSize() {
   return window.matchMedia('(max-width: 640px)').matches ? 22 : 26;
 }
 
-function readSavedTheme(): boolean {
-  try {
-    return localStorage.getItem('wii-theme') === 'dark';
-  } catch {
-    return false;
-  }
-}
+const THEME_STORAGE_KEY = 'wii-theme';
+const readSavedTheme = () => readStored(THEME_STORAGE_KEY) === 'dark';
 
 interface SiteHeaderProps {
   onRepeatProduct: () => void;
@@ -276,11 +272,8 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
       'content',
       dark ? '#1b1c19' : '#f4f8fa',
     );
-    try {
-      localStorage.setItem('wii-theme', dark ? 'dark' : 'light');
-    } catch {
-      // The visual toggle still works when browser storage is unavailable.
-    }
+    // The visual toggle still works when browser storage is unavailable.
+    writeStored(THEME_STORAGE_KEY, dark ? 'dark' : 'light');
   }, [dark]);
 
   useEffect(() => () => {

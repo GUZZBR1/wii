@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { readStored, writeStored } from './lib/storage';
 
 export type Lang = 'pt' | 'en';
 
@@ -6,12 +7,8 @@ const STORAGE_KEY = 'wii-lang';
 
 /** Idioma salvo; sem preferência salva, segue o idioma do navegador (português ou inglês). */
 function initialLang(): Lang {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved === 'pt' || saved === 'en') return saved;
-  } catch {
-    /* sem armazenamento: cai no idioma do navegador */
-  }
+  const saved = readStored(STORAGE_KEY);
+  if (saved === 'pt' || saved === 'en') return saved;
   if (typeof navigator === 'undefined') return 'en';
   // Ordem de preferência do navegador: o primeiro idioma conhecido decide.
   const preferred = navigator.languages?.length ? navigator.languages : [navigator.language];
@@ -35,11 +32,7 @@ export function LangProvider({ children }: { children: ReactNode }) {
 
   const setLang = useCallback((next: Lang) => {
     setLangState(next);
-    try {
-      localStorage.setItem(STORAGE_KEY, next);
-    } catch {
-      /* sem armazenamento: vale só nesta visita */
-    }
+    writeStored(STORAGE_KEY, next);
   }, []);
 
   useEffect(() => {

@@ -1,4 +1,5 @@
 /** Qualidade adaptativa da abertura. Lógica pura: nada aqui sai do aparelho. */
+import { readStored, writeStored } from './storage.ts';
 
 export type Tier = 'lite' | 'medium' | 'ultra';
 export type Mode = 'auto' | Tier;
@@ -126,17 +127,10 @@ export function loadQuality(): Saved {
   // ?quality=auto|lite|medium|ultra força um modo; "auto" também mede de novo.
   const forced = new URLSearchParams(window.location.search).get('quality');
   if (isMode(forced)) return { mode: forced };
-  try {
-    return parseSaved(localStorage.getItem(KEY));
-  } catch {
-    return { mode: 'auto' };
-  }
+  return parseSaved(readStored(KEY));
 }
 
+/** Without storage the next visit simply measures again. */
 export function saveQuality(saved: Saved) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(saved));
-  } catch {
-    /* sem armazenamento: mede de novo na próxima visita */
-  }
+  writeStored(KEY, JSON.stringify(saved));
 }

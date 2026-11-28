@@ -3,6 +3,7 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import type { SportActionEvent } from '../../cv/protocol';
 import { FaceCache } from '../../mii/faceCache';
 import { FaceVisibilityController } from '../../mii/faceVisibility';
+import { readStored, writeStored } from '../../lib/storage';
 import { loadPlayerMii } from '../../mii/miiSpec';
 import { createMiiRunner } from '../athletics/miiRunner';
 import { addRoomEnvironment } from '../core/environment';
@@ -341,10 +342,8 @@ export class TrackGame {
 
   /** The ranking lives in this browser only; blocked storage just means it is not remembered. */
   private endRun(): void {
-    let previous: number[] = [];
-    try { previous = parseRanking(localStorage.getItem(RANKING_KEY)); } catch {}
-    this.result = rankRun(previous, this.score.peak);
-    try { localStorage.setItem(RANKING_KEY, JSON.stringify(this.result.ranking)); } catch {}
+    this.result = rankRun(parseRanking(readStored(RANKING_KEY)), this.score.peak);
+    writeStored(RANKING_KEY, JSON.stringify(this.result.ranking));
     this.publishHud();
   }
 

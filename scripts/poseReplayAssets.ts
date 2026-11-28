@@ -1,5 +1,5 @@
 import type { Delegate } from '@wii/spatial-core';
-import { POSE_FULL_MODEL_SHA8, POSE_MODEL_SHA8 } from '../src/cv/mediapipeAssets';
+import { POSE_FULL_MODEL_SHA8, POSE_MODEL_SHA8 } from '../src/lib/mediapipe';
 
 export type PoseReplayModelChoice = 'live' | 'lite' | 'full';
 

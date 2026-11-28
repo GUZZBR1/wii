@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { readStored, writeStored } from '../../lib/storage';
 import { FaceCache } from '../../mii/faceCache';
 import { FaceVisibilityController } from '../../mii/faceVisibility';
 import { generateMiiFromSeed, loadPlayerMii } from '../../mii/miiSpec';
@@ -205,10 +206,8 @@ export class AthleticsGame {
 
   /** The record lives in this browser only; blocked storage just means it is not remembered. */
   private saveRecord(): void {
-    let records = {};
-    try { records = parseRecords(localStorage.getItem(RECORDS_KEY)); } catch {}
-    const result = recordTime(records, this.race.goal, this.race.finishS!);
-    try { localStorage.setItem(RECORDS_KEY, JSON.stringify(result.records)); } catch {}
+    const result = recordTime(parseRecords(readStored(RECORDS_KEY)), this.race.goal, this.race.finishS!);
+    writeStored(RECORDS_KEY, JSON.stringify(result.records));
     this.record = { best: result.best, isNew: result.isNew };
   }
 
