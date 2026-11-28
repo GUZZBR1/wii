@@ -1,8 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { useLang } from '../i18n';
+import { useLang, type Bilingual } from '../i18n';
+import GameplayVideo from './GameplayVideo';
 
-const GAMES = [
+type ShowcaseGame = {
+  id: 'athletics' | 'tennis' | 'boxing';
+  name: Bilingual;
+  description: Bilingual;
+};
+
+const GAMES: ShowcaseGame[] = [
   {
     id: 'athletics',
     name: { pt: 'Atletismo', en: 'Athletics' },
@@ -55,13 +62,7 @@ export default function GamesShowcase() {
       <ul ref={listRef}>
         {GAMES.map((game) => (
           <li key={game.id}>
-            <img
-              src={`/images/games/${game.id}.jpg`}
-              alt={tr(`Cena do jogo: ${game.name.pt}`, `Game scene: ${game.name.en}`)}
-              width={1280}
-              height={800}
-              loading="lazy"
-            />
+            <GameplayVideo sport={game.id} name={game.name} />
             <div>
               <h3>{tr(game.name.pt, game.name.en)}</h3>
               <p>{tr(game.description.pt, game.description.en)}</p>
