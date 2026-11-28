@@ -1,15 +1,26 @@
 import * as THREE from 'three';
+import {
+  createMiiFacePatch,
+  createMiiHairGeometry,
+  createMiiHeadGeometry,
+  createMiiNoseGeometry,
+  miiHairColor,
+  miiHeadScale,
+  type MiiFaceMount,
+} from '../../mii/miiHead';
+import { DEFAULT_MII_FACE_SPEC, SKIN_PALETTE, type MiiFaceSpec } from '../../mii/miiSpec';
 import { merge, paint } from './geometry';
 
 export interface MiiRunner {
   /** Faces local -Z. The owner sets position and heading; the runner handles limbs, bob and lean. */
   root: THREE.Group;
+  facePatch: MiiFaceMount;
   animate(stridePhase: number, speed01: number, lean: number): void;
 }
 
-export function createMiiRunner(shirtColor = 0xffffff): MiiRunner {
+export function createMiiRunner(shirtColor = 0xffffff, face: MiiFaceSpec = DEFAULT_MII_FACE_SPEC): MiiRunner {
   const accent = 0x2f9be8;
-  const skin = 0xf2c29a;
+  const skin = SKIN_PALETTE[face.skin];
   const root = new THREE.Group();
   root.rotation.order = 'YXZ';
   const body = new THREE.Group();
@@ -45,9 +56,14 @@ export function createMiiRunner(shirtColor = 0xffffff): MiiRunner {
   ].map(([x, y]) => new THREE.Vector2(x, y));
   part(new THREE.LatheGeometry(profile, 20), shirtColor, 1.22, body);
   part(new THREE.CylinderGeometry(0.31, 0.288, 0.14, 20, 1, true), accent, 1.31, body);
-  part(new THREE.SphereGeometry(0.4, 24, 18), skin, 2.04, body);
-  part(new THREE.SphereGeometry(0.415, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.42), 0x4a2f1f, 2.06, body, 0.02);
-  part(new THREE.CylinderGeometry(0.41, 0.41, 0.11, 24, 1, true), accent, 2.2, body);
+  part(createMiiHeadGeometry(face), skin, 2.04, body);
+  const hair = createMiiHairGeometry(face);
+  if (hair) part(hair, miiHairColor(face), 2.04, body);
+  part(createMiiNoseGeometry(face), skin, 2.04, body);
+  // A faixa acompanha os formatos mais largos, senão a cabeça atravessa o boné.
+  const [headX, , headZ] = miiHeadScale(face);
+  const band = new THREE.CylinderGeometry(0.41, 0.41, 0.11, 24, 1, true).scale(Math.max(1, headX), 1, Math.max(1, headZ));
+  part(band, accent, 2.2, body);
   // Curved brim: a flat sector of a disc centred on the head, pointing forwards (-Z).
   part(new THREE.CylinderGeometry(0.62, 0.62, 0.035, 24, 1, false, Math.PI * 0.74, Math.PI * 0.52), accent, 2.16, body);
   const shoe = (width: number, height: number, length: number) =>
@@ -73,9 +89,12 @@ export function createMiiRunner(shirtColor = 0xffffff): MiiRunner {
     mesh.castShadow = true;
     parent.add(mesh);
   }
+  const facePatch = createMiiFacePatch(face);
+  body.add(facePatch.object);
 
   return {
     root,
+    facePatch,
     animate(stridePhase, speed01, lean) {
       const effort = Math.min(1, speed01 * 1.4);
       for (const { side, hip, knee, shoulder, elbow } of limbs) {

@@ -164,7 +164,33 @@ describe('banded DTW gesture recognition', () => {
     expect(recognizer.recognize(query)).toBeUndefined();
   });
 
-  it('bounds gesture recordings, clones recorded frames, and cancels inconsistent feature dimensions', () => {
+  it('never leaks a non-finite distance from measure(), whatever the configuration', () => {
+    // measure() is the live-inspection surface: a label whose templates match no candidate
+    // must be absent from the map, never present with an infinite distance — an Infinity
+    // entry would silently disable recognize()'s null-separation gate downstream.
+    const configurations = [
+      { targetFrames: 2, bandWidth: 1, minSegmentRatio: 0.05 },
+      { targetFrames: 3, bandWidth: 1, minSegmentRatio: 1 },
+      { targetFrames: 20, bandWidth: 1, minSegmentRatio: 0.05 },
+      { targetFrames: 20, bandWidth: 4, minSegmentRatio: 0.5 },
+      { targetFrames: 40, bandWidth: 2, minSegmentRatio: 0.1 },
+    ] as const;
+    for (const options of configurations) {
+      const recognizer = new DtwGestureRecognizer(options);
+      recognizer.addExample('ramp', rampSequence([0, 0.25, 0.5, 0.75, 1]));
+      recognizer.addNullExample(rampSequence([1, 0.75, 0.5, 0.25, 0]));
+      for (const queryLength of [2, 3, 5, 17, 64]) {
+        const query = rampSequence(Array.from({ length: queryLength }, (_, index) => (index % 7) / 6));
+        const distances = recognizer.measure(query);
+        if (!distances) continue;
+        for (const [label, distance] of distances) {
+          expect(Number.isFinite(distance), `${label} at query length ${queryLength}`).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('bounds gesture recordings, clones recorded frames, and survives inconsistent feature dimensions', () => {
     const recorder = new GestureRecorder({ minFrames: 2, maxFrames: 3 });
     recorder.start();
     const first = [1, 2];
@@ -183,6 +209,10 @@ describe('banded DTW gesture recognition', () => {
     recorder.start();
     recorder.addFrame([1]);
     expect(() => recorder.addFrame([1, 2])).toThrow(/dimension changed/);
-    expect(recorder.isRecording).toBe(false);
+    // The error is recoverable: the recording and the frames already in it survive.
+    expect(recorder.isRecording).toBe(true);
+    expect(recorder.frameCount).toBe(1);
+    recorder.addFrame([2]);
+    expect(recorder.finish()).toEqual([[1], [2]]);
   });
 });

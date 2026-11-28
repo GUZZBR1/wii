@@ -1,5 +1,4 @@
 import { type CSSProperties, type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
-import { GOALS, type Goal } from '../games/athletics/race';
 import type { Sport } from './GameCanvas';
 import { CarouselController, type CarouselStepResult } from './carouselController';
 import type { HandCursorInput } from './handCursorTypes';
@@ -21,12 +20,12 @@ let introduced = false; // só a primeira visita mostra a grade se desfazendo
 type SharedRef<T> = { current: T };
 
 interface HomeMenuProps {
-  onPick: (sport: Sport, goal?: Goal) => void;
+  onPick: (sport: Sport) => void;
   onIronMan: () => void;
+  onMii?: () => void;
   exit: ReactNode;
   handInputRef: SharedRef<HandCursorInput>;
   rotationGateRef: SharedRef<boolean>;
-  backRef?: SharedRef<(() => void) | undefined>;
   carouselDebugRef?: SharedRef<CarouselStepResult | undefined>;
 }
 
@@ -84,17 +83,11 @@ function Clock() {
   </div>;
 }
 
-export function HomeMenu({ onPick, onIronMan, exit, handInputRef, rotationGateRef, carouselDebugRef, backRef }: HomeMenuProps) {
+export function HomeMenu({ onPick, onIronMan, onMii, exit, handInputRef, rotationGateRef, carouselDebugRef }: HomeMenuProps) {
   const reducedMotion = usePrefersReducedMotion();
-  const [choosingGoal, setChoosingGoal] = useState(false);
   const [ring, setRing] = useState(() => introduced || reducedMotion);
   const [ringReady, setRingReady] = useState(() => introduced || reducedMotion);
   const [turn, setTurn] = useState(0); // não volta a zero: a roda gira sempre pelo caminho curto
-  useEffect(() => {
-    if (!backRef) return;
-    backRef.current = () => setChoosingGoal(false);
-    return () => { backRef.current = undefined; };
-  }, [backRef]);
   const ringRef = useRef<HTMLDivElement>(null);
   const channelRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const mouseControlUntilMsRef = useRef(0);
@@ -109,11 +102,11 @@ export function HomeMenu({ onPick, onIronMan, exit, handInputRef, rotationGateRe
   }, [controller, reducedMotion]);
 
   useEffect(() => {
-    rotationGateRef.current = ring && ringReady && !choosingGoal;
+    rotationGateRef.current = ring && ringReady;
     return () => {
       rotationGateRef.current = false;
     };
-  }, [ring, ringReady, choosingGoal, rotationGateRef]);
+  }, [ring, ringReady, rotationGateRef]);
 
   const paintTurn = useCallback((nextTurn: number) => {
     for (let index = 0; index < SLOTS.length; index += 1) {
@@ -129,7 +122,7 @@ export function HomeMenu({ onPick, onIronMan, exit, handInputRef, rotationGateRe
   }, []);
 
   useEffect(() => {
-    if (!ring || !ringReady || choosingGoal || !handRotationAvailable) return;
+    if (!ring || !ringReady || !handRotationAvailable) return;
     const ringElement = ringRef.current;
     if (!ringElement) return;
     let rafId: number | undefined;
@@ -164,13 +157,12 @@ export function HomeMenu({ onPick, onIronMan, exit, handInputRef, rotationGateRe
       ringElement.classList.remove('is-gesture-controlled');
       if (carouselDebugRef) carouselDebugRef.current = undefined;
     };
-  }, [ring, ringReady, choosingGoal, handRotationAvailable, controller, paintTurn, handInputRef, rotationGateRef, carouselDebugRef]);
+  }, [ring, ringReady, handRotationAvailable, controller, paintTurn, handInputRef, rotationGateRef, carouselDebugRef]);
 
   useEffect(() => {
-    if (choosingGoal) return;
     const timer = window.setTimeout(() => { introduced = true; setRing(true); }, ring ? 0 : GRID_MS);
     return () => window.clearTimeout(timer);
-  }, [ring, choosingGoal]);
+  }, [ring]);
 
   useEffect(() => {
     if (!ring) {
@@ -205,8 +197,7 @@ export function HomeMenu({ onPick, onIronMan, exit, handInputRef, rotationGateRe
     }
     const sport = channelSports[index];
     if (!sport) return;
-    if (sport.id === 'athletics') setChoosingGoal(true);
-    else onPick(sport.id);
+    onPick(sport.id);
   };
 
   const channelRef = (index: number) => (element: HTMLButtonElement | null) => {
@@ -214,7 +205,7 @@ export function HomeMenu({ onPick, onIronMan, exit, handInputRef, rotationGateRe
   };
 
   return <section className="menu channels" aria-label="Menu de canais">
-    <div ref={ringRef} className={ring ? 'channel-ring is-ring' : 'channel-ring'} inert={choosingGoal}>
+    <div ref={ringRef} className={ring ? 'channel-ring is-ring' : 'channel-ring'}>
       {SLOTS.map((slot, index) => {
         const sport = channelSports[index];
         return <button key={slot} ref={channelRef(index)} type="button"
@@ -228,22 +219,14 @@ export function HomeMenu({ onPick, onIronMan, exit, handInputRef, rotationGateRe
       <button type="button" className="ring-arrow left" onClick={() => rotateBy(-1)} aria-label="Girar para a esquerda">◀</button>
       <button type="button" className="ring-arrow right" onClick={() => rotateBy(1)} aria-label="Girar para a direita">▶</button>
     </div>
-    <footer className="wii-bar" inert={choosingGoal}>
+    <footer className="wii-bar">
       <svg viewBox="0 0 1000 200" preserveAspectRatio="none" aria-hidden="true">
         <path d="M0 20H150C250 20 270 120 380 120H620C730 120 750 20 850 20H1000V200H0Z" />
       </svg>
       <span className="wii-title">Wii Menu</span>
       <Clock />
+      {onMii && <button type="button" className="wii-btn wii-mii-button" onClick={onMii}>Mii</button>}
       {exit}
     </footer>
-    {choosingGoal && <div className="goal-overlay" role="dialog" aria-modal="true" aria-labelledby="goal-title">
-      <div className="goal-dialog">
-        <h2 id="goal-title">Escolha a distância</h2>
-        <div className="games-goals">
-          {GOALS.map((goal) => <button key={goal} type="button" className="wii-btn games-goal" onClick={() => onPick('athletics', goal)}>{goal} metros</button>)}
-        </div>
-        <button type="button" className="wii-btn goal-back" onClick={() => setChoosingGoal(false)}>Voltar</button>
-      </div>
-    </div>}
   </section>;
 }

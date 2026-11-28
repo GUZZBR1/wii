@@ -36,6 +36,11 @@ export class GameLoop {
   private readonly governor = new QualityGovernor();
   /** Opt-in: only a game that sets this gets adaptive resolution. */
   onQualityChange?: (tier: QualityTier) => void;
+  /**
+   * Runs exactly once per rendered frame, after the fixed steps have posed the scene and before
+   * the draw. Per-frame work belongs here rather than in `update`, which runs 0–5 times a frame.
+   */
+  onBeforeRender?: (wallTimeMs: number) => void;
   /** Preventing the default is what lets the browser hand the context back. */
   private readonly onContextLost = (event: Event) => event.preventDefault();
 
@@ -73,6 +78,7 @@ export class GameLoop {
       // simulation alone, and games can skip per-step presentation work when this is false.
       this.update(fixed, simulationTimeMs, time, index === schedule.timestampsMs.length - 1);
     }
+    this.onBeforeRender?.(time);
     this.renderer.render(this.scene, this.camera);
   }
 

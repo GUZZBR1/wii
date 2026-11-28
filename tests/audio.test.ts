@@ -104,7 +104,46 @@ function contextOf(audio: ProceduralAudio): FakeAudioContext {
   return (audio as unknown as { context: FakeAudioContext }).context;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+class RejectingResumeContext extends FakeAudioContext {
+  static instances: RejectingResumeContext[] = [];
+  // Suspended, so unlock() actually awaits resume() — a running context never resumes.
+  state = 'suspended';
+  close = vi.fn(async () => {});
+  resume = vi.fn(async () => {
+    throw new Error('resume denied');
+  });
+
+  constructor() {
+    super();
+    RejectingResumeContext.instances.push(this);
+  }
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  RejectingResumeContext.instances.length = 0;
+});
+
+describe('ProceduralAudio unlock', () => {
+  it('closes the context when resume rejects instead of leaking it', async () => {
+    vi.stubGlobal('AudioContext', RejectingResumeContext);
+    const audio = new ProceduralAudio();
+    await audio.unlock();
+
+    expect(RejectingResumeContext.instances).toHaveLength(1);
+    expect(RejectingResumeContext.instances[0]!.close).toHaveBeenCalledOnce();
+    expect((audio as unknown as { context?: RejectingResumeContext }).context).toBeUndefined();
+
+    // A later unlock starts from a fresh context instead of reusing the dead one.
+    vi.stubGlobal('AudioContext', FakeAudioContext);
+    await audio.unlock();
+    audio.bounce(0.4);
+    const context = audio as unknown as { context: FakeAudioContext };
+    expect(context.context).toBeInstanceOf(FakeAudioContext);
+    expect(context.context.oscillators).toHaveLength(1);
+    audio.dispose();
+  });
+});
 
 describe('ProceduralAudio tennis cues', () => {
   it('schedules bounce, success, failure and milestone cues through Web Audio', async () => {
@@ -126,6 +165,41 @@ describe('ProceduralAudio tennis cues', () => {
     audio.bounce();
     expect(context.context.oscillators).toHaveLength(8);
     audio.dispose();
+  });
+});
+
+describe('ProceduralAudio speech cancellation', () => {
+  it('setMuted(true) and dispose() cancel speech already in progress', async () => {
+    vi.stubGlobal('AudioContext', FakeAudioContext);
+    const cancel = vi.fn();
+    vi.stubGlobal('speechSynthesis', { cancel, speak: vi.fn() });
+    vi.stubGlobal('SpeechSynthesisUtterance', class { constructor(readonly text: string) {} });
+    const audio = new ProceduralAudio();
+    await audio.unlock();
+
+    audio.say('Quinze a zero');
+    cancel.mockClear(); // say() cancels before speaking; only the mute/dispose calls count below
+    audio.setMuted(false);
+    expect(cancel).not.toHaveBeenCalled();
+
+    audio.setMuted(true);
+    expect(cancel).toHaveBeenCalledTimes(1);
+
+    audio.setMuted(false);
+    audio.say('Trinta a zero');
+    cancel.mockClear();
+    audio.dispose();
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('mute and dispose stay silent when speechSynthesis is unavailable', async () => {
+    vi.stubGlobal('AudioContext', FakeAudioContext);
+    const audio = new ProceduralAudio();
+    await audio.unlock();
+    expect(() => {
+      audio.setMuted(true);
+      audio.dispose();
+    }).not.toThrow();
   });
 });
 

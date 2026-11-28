@@ -33,10 +33,6 @@
   .sport-channel.athletics .channel-scene { background: linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #4e9e52 42% 52%, #0000 52%), repeating-linear-gradient(#c8603f 0 13%, #fff 13% 14%); }
   .sport-channel.tennis .channel-scene { background: linear-gradient(90deg, #0000 49.6%, #fff 49.6% 50.4%, #0000 50.4%) 50% 100% / 100% 40% no-repeat, linear-gradient(#0000 68%, #fff 68% 70%, #0000 70%), linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #3f8f4b 42% 48%, #3f78b5 48%); }
   .sport-channel.boxing .channel-scene { background: radial-gradient(circle at 38% 58%, #d64545 0 9%, #0000 9.5%), radial-gradient(circle at 62% 58%, #2f6fd0 0 9%, #0000 9.5%), repeating-linear-gradient(#0000 0 8%, #fff 8% 9.5%, #0000 9.5% 14%) 50% 70% / 100% 40% no-repeat, linear-gradient(#26313b 0 52%, #d9c9a3 52%); }
-  .goal-overlay { position: absolute; inset: 0; z-index: 35; display: grid; place-items: center; padding: 20px; background: #32434da6; }
-  .goal-dialog { display: flex; flex-direction: column; align-items: center; gap: 22px; padding: 28px; border: 4px solid var(--blue); border-radius: 24px; background: var(--gloss); box-shadow: 0 10px 35px #24374377; }
-  .goal-dialog h2 { margin: 0; font-size: clamp(22px, 3vw, 32px); }
-  .goal-back { padding: 8px 24px; }
   .ring-arrow { position: absolute; z-index: 25; top: 50%; width: 52px; height: 52px; translate: 0 -50%; border: 3px solid var(--blue); border-radius: 50%; color: var(--blue-deep); background: linear-gradient(#fff 0 46%, #d9f2fd 54%, #ade4f8); box-shadow: 0 5px 14px rgba(26, 110, 168, .35), inset 0 1px #fff; }
   .ring-arrow.left { left: 3%; }
   .ring-arrow.right { right: 3%; }
@@ -51,8 +47,6 @@
   .wii-clock strong { font-size: clamp(22px, 4.5vh, 40px); }
   .wii-clock span { font-size: 14px; }
 
-  .games-goals { display: flex; flex-wrap: wrap; justify-content: center; gap: 14px; }
-  .games-goal { min-width: min(190px, 38vw); padding: 16px 24px; border-radius: 18px; font-size: clamp(20px, 2.6vw, 28px); }
 
   .iron-summary { justify-content: center; align-items: center; padding: 24px; }
   .iron-summary-card { width: min(560px, 100%); padding: clamp(24px, 5vw, 48px); border: 4px solid var(--blue); border-radius: 28px; background: var(--gloss); box-shadow: 0 12px 35px #4a606e55; text-align: center; }
@@ -62,6 +56,35 @@
   .iron-summary-card li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 20px; padding: 12px 16px; border-radius: 14px; background: #e0f3fb; }
   .iron-summary-card button { padding: 10px 26px; }
   .iron-progress { position: absolute; z-index: 6; top: 62px; left: 50%; translate: -50% 0; padding: 6px 14px; border-radius: 999px; background: #ffffffdf; color: #176b92; font-size: 12px; font-weight: 800; white-space: nowrap; }
+
+  /* entrada de cada jogo: o vidro branco do Wii sobre o cenário, com um toque da cor da modalidade */
+  .menu.game-lobby { overflow: hidden; animation: none; --accent: var(--blue); }
+  .menu.game-lobby.athletics, .menu.game-lobby.track { --accent: #ee8a63; }
+  .menu.game-lobby.tennis { --accent: #6cc47a; }
+  .menu.game-lobby.boxing { --accent: #ee6f73; }
+  .lobby-backdrop { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; filter: brightness(.75); animation: lobby-settle .9s ease-out both; }
+  .lobby-trio { display: flex; }
+  .lobby-trio img { flex: 1; min-width: 0; height: 100%; object-fit: cover; }
+  .lobby-info ol { margin: 12px 0 0; padding-left: 24px; font-weight: 800; }
+  .lobby-stage { position: relative; flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; justify-content: safe center; gap: 24px; padding: 64px 4vw 40px; background: repeating-linear-gradient(#0000 0 3px, #ffffff14 3px 4px), #17222e59; }
+  .lobby-title { padding: 12px 56px 16px; border: 4px solid #fff; border-radius: 999px; background: var(--gloss); box-shadow: var(--shadow); text-align: center; animation: lobby-rise .45s ease-out .05s both; }
+  .lobby-title h1 { margin: 0; font-size: clamp(38px, 6vw, 76px); font-weight: 800; line-height: 1.05; }
+  .lobby-title span { color: var(--muted); font-size: 14px; font-weight: 800; letter-spacing: 3px; text-transform: uppercase; }
+  .lobby-card { width: min(920px, 100%); border: 5px solid #fff; border-top: 12px solid var(--accent); border-radius: 28px; background: #fffffff2; box-shadow: 0 10px 30px #2a4a5c4d; animation: lobby-rise .45s ease-out .12s both; }
+  .lobby-info { padding: 20px 36px 24px; font-size: 20px; }
+  .lobby-info h2 { margin: 0; font-size: 26px; }
+  .lobby-keys { color: var(--muted); font-size: 15px; }
+  .lobby-options { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; padding: 0; border: 0; }
+  .lobby-options legend { margin-bottom: 8px; font-size: 15px; font-weight: 800; }
+  .lobby-options button[aria-pressed='true'] { background: linear-gradient(#c9f1fb, #8fdcef 52%, #b2e9f5); }
+  .lobby-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 20px; animation: lobby-rise .45s ease-out .19s both; }
+  .lobby-actions .wii-btn.pill { width: min(240px, 80vw); padding: 18px; font-size: 24px; }
+  .lobby-actions .wii-btn.pill.lobby-play { width: min(400px, 88vw); font-size: 34px; }
+
+  /* passagem entre telas */
+  .screen-fade { position: absolute; inset: 0; z-index: 30; background: #fff; }
+  .screen-fade.out { animation: screen-out .28s ease-in both; }
+  .screen-fade.in { pointer-events: none; animation: screen-in .45s ease-out both; }
 
   /* jogo em tela cheia */
   .game-viewport { position: absolute; inset: 0; }
@@ -219,10 +242,6 @@
   }
 
   .pip-toggle { position: absolute; z-index: 6; top: 6px; right: 6px; min-width: 28px; height: 24px; padding: 0 8px; }
-  @media (orientation: portrait) and (max-height: 700px) {
-    .games-goals { gap: 10px; }
-    .games-goals .games-goal { padding-block: 8px; }
-  }
   .cam-pip.minimized { width: auto; overflow: visible; border: 0; background: none; box-shadow: none; }
   .minimized .pip-toggle { position: static; height: 38px; padding: 0 18px; border-width: 3px; font-size: 11px; }
   /* o vídeo segue renderizado (1px, invisível) para a captura de pose não parar */
@@ -250,6 +269,52 @@
 
   /* acima da câmera em tela cheia, para sempre dar para pular */
   .wii-skip { position: absolute; z-index: 25; top: 28px; right: 28px; }
+
+
+  /* editor de Mii */
+  /* fora do PiP da câmera (230px de largura + 14px de margem + 14px de respiro), sem precisar subir o z-index */
+  .wii-mii-button { position: absolute; right: calc(230px + 28px); bottom: 18%; z-index: 2; padding: 7px 18px; font-size: 13px; }
+  /* no mobile o botão sobe para cima do "sair", na lateral oposta ao PiP — depois da regra base para vencer a cascata */
+  @media (max-width: 640px) {
+    .wii-mii-button { left: 4%; right: auto; bottom: calc(18% + 46px); }
+  }
+  .mii-editor { background: repeating-linear-gradient(#0000 0 3px, #ffffff80 3px 4px), #d5dbe0; }
+  .menu-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 16px 4vw 0; }
+  .menu-header h1 { margin: 0; color: var(--blue-deep); font-size: clamp(22px, 3vw, 34px); }
+  .logo-btn { padding: 7px 18px; border: 3px solid var(--line); border-radius: 999px; background: var(--gloss); box-shadow: var(--shadow); font-size: clamp(18px, 2.3vw, 28px); line-height: 1; transition: transform .18s cubic-bezier(.3,1.6,.5,1), box-shadow .18s; }
+  .logo-btn:hover, .logo-btn:focus-visible { border-color: var(--blue); transform: scale(1.04); box-shadow: 0 0 0 4px #34beed55, var(--shadow); }
+  .mii-workbench { flex: 1; display: grid; grid-template-columns: minmax(280px, 42%) 1fr; gap: 22px; min-height: 0; padding: 22px 4vw 28px; }
+  @media (min-width: 980px) {
+    .mii-workbench { padding-right: calc(230px + 42px); }
+  }
+  .mii-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 360px; border: 3px solid var(--blue); border-radius: 24px; background: radial-gradient(circle at 50% 34%, #fff 0 20%, #d9f2fd 58%, #8fd6f3); box-shadow: var(--shadow); }
+  .mii-stage p { margin: 4px 0 12px; color: var(--muted); font-size: 12px; font-weight: 700; }
+  .mii-preview { width: min(100%, 390px); aspect-ratio: 1; touch-action: none; cursor: grab; }
+  .mii-preview:active { cursor: grabbing; }
+  .mii-panel { display: flex; flex-direction: column; min-height: 0; border: 3px solid var(--line); border-radius: 22px; background: #fffffff0; box-shadow: var(--shadow); overflow: hidden; }
+  .mii-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 10px; border-bottom: 2px solid var(--line); }
+  .mii-tabs button { padding: 7px 11px; border: 2px solid transparent; border-radius: 999px; background: #e7edf1; color: var(--ink); font-size: 12px; font-weight: 800; }
+  .mii-tabs button[aria-selected="true"] { border-color: var(--blue); background: #c9f1fb; color: var(--blue-deep); }
+  .mii-options { flex: 1; min-height: 0; overflow: auto; padding: 14px; }
+  .mii-control { margin-bottom: 15px; }
+  .mii-control > span, .mii-slider > span { display: block; margin-bottom: 6px; color: var(--muted); font-size: 11px; font-weight: 800; letter-spacing: .7px; text-transform: uppercase; }
+  .mii-swatches, .mii-styles { display: flex; flex-wrap: wrap; gap: 7px; }
+  .mii-swatches button { width: 34px; height: 34px; border: 3px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px #8b949c88, inset 0 2px 4px #fff6; }
+  .mii-swatches button[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--blue), inset 0 2px 4px #fff6; }
+  .mii-styles button { padding: 7px 10px; border: 2px solid var(--line); border-radius: 999px; background: var(--gloss); color: var(--ink); font-size: 12px; font-weight: 700; }
+  .mii-styles button[aria-pressed="true"] { border-color: var(--blue); background: #c9f1fb; color: var(--blue-deep); }
+  .mii-slider { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 4px 10px; margin-bottom: 12px; }
+  .mii-slider input { grid-column: 1; width: 100%; height: 32px; accent-color: var(--blue-deep); cursor: pointer; }
+  .mii-slider b { grid-column: 2; grid-row: 1 / span 2; min-width: 28px; text-align: right; color: var(--blue-deep); }
+  .mii-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 9px; padding: 12px 14px; border-top: 2px solid var(--line); }
+  .mii-actions .wii-btn { padding: 8px 20px; }
+  .mii-actions .mii-save { border-color: var(--green); }
+  .mii-actions strong { color: var(--green); font-size: 13px; }
+  @media (max-width: 979.98px) {
+    .mii-workbench { grid-template-columns: 1fr; flex: none; overflow: visible; padding-bottom: 280px; }
+    .mii-stage { min-height: 300px; }
+    .mii-preview { width: min(100%, 290px); }
+  }
 
   /* abertura: o "Wii" vem do fundo e a tela se parte no meio */
   .wii-splash { position: fixed; inset: 0; z-index: 40; overflow: hidden; }
@@ -297,3 +362,10 @@
 
 @keyframes track-pop { 0% { opacity: 0; transform: translateY(12px) scale(.8); } 20% { opacity: 1; transform: none; } 70% { opacity: 1; } 100% { opacity: 0; transform: translateY(-18px); } }
 @keyframes track-flash { from { background: #fa626266; } to { background: transparent; } }
+
+@media (prefers-reduced-motion: reduce) { .arena .lobby-backdrop, .arena .lobby-title, .arena .lobby-card, .arena .lobby-actions { animation: none; } }
+
+@keyframes screen-out { from { opacity: 0; } }
+@keyframes screen-in { to { opacity: 0; } }
+@keyframes lobby-settle { from { transform: scale(1.08); } }
+@keyframes lobby-rise { from { opacity: 0; transform: translateY(18px); } }

@@ -1,13 +1,16 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
 import type { SportActionEvent } from '../../cv/protocol';
+import { FaceCache } from '../../mii/faceCache';
+import { FaceVisibilityController } from '../../mii/faceVisibility';
+import { loadPlayerMii } from '../../mii/miiSpec';
 import { createMiiRunner } from '../athletics/miiRunner';
 import { addRoomEnvironment } from '../core/environment';
 import { GameLoop } from '../core/GameLoop';
 import { createSkyDome } from '../core/scenery';
 import { type BiomeSpec, biomeAt } from './biomes';
 import { type Feedback, awardText, SHAKE_DURATION_S, shakeOffset } from './feedback';
-import { adjudicationDt, applySprint, applyStep, easeSpeed, type Gait, gaitFor, nextPace, type Pace, stumble } from './gait';
+import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, inputFreshness, nextPace, type Pace, stumble } from './gait';
 import { HurdleFlow, type ItemKind, RUNNER_Z } from './hurdleFlow';
 import { ItemAssets } from './itemAssets';
 import { JUMP_DURATION_S, jumpHeight } from './jump';
@@ -53,8 +56,10 @@ function surfaceTexture(anisotropy: number): THREE.CanvasTexture {
 export class TrackGame {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(54, 1, 0.1, 120);
+  private readonly faceCache = new FaceCache();
+  private readonly faceVisibility: FaceVisibilityController;
   private readonly runner = new THREE.Group();
-  private readonly mii = createMiiRunner();
+  private readonly mii = createMiiRunner(0xffffff, loadPlayerMii());
   private readonly sun = new THREE.DirectionalLight(0xffffff, 2.2);
   private readonly trackMaterial = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 });
   private removeEnvironment?: () => void;
@@ -72,7 +77,7 @@ export class TrackGame {
   private readonly itemAssets = new ItemAssets();
   private readonly loop: GameLoop;
   private readonly hudTimer: number;
-  private lane = 0;
+  private lane: Lane = 0;
   private cameraLaneZone: -1 | 0 | 1 | undefined;
   /** Speed asked for by the player and who set it; `shownSpeed` eases toward it. */
   private pace: Pace = { owner: 'camera', speed01: 0, cadenceSpm: 0 };
@@ -102,6 +107,10 @@ export class TrackGame {
     this.setupScene();
     this.applyBiome();
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) => this.update(dt, wallTimeMs));
+    this.faceVisibility = new FaceVisibilityController({ cache: this.faceCache, renderer: this.loop.renderer });
+    this.faceVisibility.register(this.mii.facePatch);
+    // Once per rendered frame, after the fixed steps have posed the runner and the camera.
+    this.loop.onBeforeRender = (wallTimeMs) => this.faceVisibility.update(this.camera, wallTimeMs);
     const { renderer } = this.loop;
     // Tests swap the loop for one without a renderer; the scene itself does not need it.
     if (renderer) {
@@ -218,8 +227,8 @@ export class TrackGame {
     if (!['arrowleft', 'arrowright', 'arrowup', 'arrowdown', ' ', 'a', 'd', 'w', 's'].includes(pressed)) return;
     if (this.result || this.gate.resumeByKey()) return;
     if (this.gate.phase !== 'running' && pressed !== 'arrowdown' && pressed !== 's') return;
-    if (key === 'ArrowLeft' || key.toLowerCase() === 'a') this.lane = Math.max(-1, this.lane - 1);
-    if (key === 'ArrowRight' || key.toLowerCase() === 'd') this.lane = Math.min(1, this.lane + 1);
+    if (key === 'ArrowLeft' || key.toLowerCase() === 'a') this.lane = Math.max(-1, this.lane - 1) as Lane;
+    if (key === 'ArrowRight' || key.toLowerCase() === 'd') this.lane = Math.min(1, this.lane + 1) as Lane;
     if (key === ' ' || key === 'ArrowUp' || key.toLowerCase() === 'w') { this.jumpTime = JUMP_DURATION_S; this.jumpSource = 'keyboard'; }
     if (key === 'ArrowDown' || key.toLowerCase() === 's') {
       // Keyboard cycles stopped → walking → running and keeps the pick until the player steps on camera.
@@ -246,15 +255,12 @@ export class TrackGame {
     this.gait = gait;
 
     const cameraInputAgeMs = this.lastSprintInputAtMs !== undefined ? Math.max(0, wallTimeMs - this.lastSprintInputAtMs) : 0;
-    const physicsDt = adjudicationDt(this.pace, dt, cameraInputAgeMs);
-    // Keep visual scroll alive while camera input is actively coasting ('degraded' within the
-    // stale budget) so transient single-frame occlusion bursts never freeze the track on screen,
-    // while hurdle collision adjudication still respects physicsDt.
-    const visualDt = physicsDt > 0
-      ? physicsDt
-      : this.pace.owner === 'camera' && this.pace.cameraTracking === 'degraded' && cameraInputAgeMs <= 400
-        ? dt
-        : 0;
+    // One freshness verdict drives both clocks: physics (score, hurdles, jump) runs only on
+    // fresh input, while the visual scroll also survives coasting — a transient single-frame
+    // occlusion burst never freezes the track on screen, but nothing is judged on stale input.
+    const freshness = inputFreshness(this.pace, cameraInputAgeMs);
+    const physicsDt = freshness === 'fresh' ? dt : 0;
+    const visualDt = freshness === 'stale' ? 0 : dt;
     this.score.advance(physicsDt, speed);
     this.runner.position.x += (this.lane * 1.5 - this.runner.position.x) * Math.min(1, dt * 10);
     // Lean into the lane change, upright again on arrival.
@@ -282,6 +288,10 @@ export class TrackGame {
     const advance = physicsDt * speed * 22 * boost;
     const visualAdvance = visualDt * speed * 22 * boost;
     const airborne = this.jumpTime > 0.15 || this.runner.position.y > 0.45;
+    // `travelled` (spawn distance and biome) advances on the visual clock, so it keeps moving
+    // while the input coasts even though hurdle adjudication is frozen. Preserved as-is:
+    // whether spawn/biome should freeze together with physics during a blackout is an open
+    // decision, deliberately not made here.
     this.travelled += visualAdvance;
     const { map } = this.trackMaterial;
     if (map) map.offset.y = (map.offset.y + visualAdvance / SURFACE_TILE) % 1;
@@ -357,6 +367,8 @@ export class TrackGame {
 
   dispose(): void {
     window.clearInterval(this.hudTimer);
+    this.faceVisibility.dispose();
+    this.faceCache.disposeAll();
     // Pooled objects leave the scene first so their resources are freed once, by their owner.
     for (const item of this.items) this.scene.remove(item.group);
     this.items.length = 0;
