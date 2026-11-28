@@ -98,32 +98,44 @@ export function createMiiHairGeometry(spec: MiiFaceSpec): THREE.BufferGeometry |
   return merged.scale(sx, sy, sz);
 }
 
-/** Nose primitive in head-local coordinates; its vertical position follows the same band as the texture. */
+/**
+ * How far the nose tip stands in front of the exact front head surface. Small enough that every
+ * style keeps most of its volume inside the head, large enough to read as a nose at arm's length.
+ */
+const NOSE_PROTRUSION = 0.02;
+
+/** Exact front (-Z) surface of the scaled head ellipsoid at head-local height y on the x = 0 plane. */
+function headFrontSurfaceZ(y: number, sy: number, sz: number): number {
+  return -MII_HEAD_RADIUS * sz * Math.sqrt(1 - Math.min(1, Math.abs(y) / (MII_HEAD_RADIUS * sy)) ** 2);
+}
+
+/**
+ * Nose primitive in head-local coordinates; its vertical position follows the same band as the texture.
+ * Every primitive is seated on the exact front ellipsoid surface at its own centre height — a fixed
+ * base depth buries flat noses in deep head shapes whenever the band approaches y = 0.
+ */
 export function createMiiNoseGeometry(spec: MiiFaceSpec): THREE.BufferGeometry {
-  const [, , sz] = miiHeadScale(spec);
+  const [, sy, sz] = miiHeadScale(spec);
   const y = ((spec.noseY - 50) / 100) * 0.8;
-  const z = -0.355 * sz;
-  let geometry: THREE.BufferGeometry;
-  if (spec.nose === 0) geometry = ball(0.038, 0, y, z - 0.025 * sz, 0.85, 1.05, 0.7);
-  else if (spec.nose === 1) geometry = ball(0.052, 0, y, z - 0.025 * sz, 1, 1.1, 0.82);
-  else if (spec.nose === 2) {
-    geometry = new THREE.ConeGeometry(0.045, 0.13, 10).rotateX(-Math.PI / 2).translate(0, y, z - 0.04 * sz);
-  } else if (spec.nose === 3) geometry = ball(0.055, 0, y - 0.005, z - 0.018 * sz, 1.45, 0.75, 0.6);
-  else if (spec.nose === 4) {
-    geometry = new THREE.CapsuleGeometry(0.036, 0.075, 4, 10).rotateX(Math.PI / 2).translate(0, y, z - 0.035 * sz);
-  } else if (spec.nose === 5) {
-    geometry = new THREE.ConeGeometry(0.04, 0.1, 10)
-      .rotateX(-Math.PI / 2)
-      .rotateZ(Math.PI)
-      .translate(0, y + 0.012, z - 0.025 * sz);
-  } else if (spec.nose === 6) geometry = ball(0.065, 0, y - 0.01, z - 0.008 * sz, 1.35, 0.55, 0.42);
-  else {
-    geometry = mergeRaw([
-      new THREE.CapsuleGeometry(0.032, 0.07, 4, 8).rotateX(Math.PI / 2).translate(0, y + 0.025, z - 0.025 * sz),
-      ball(0.045, 0, y - 0.018, z - 0.04 * sz, 1.05, 0.85, 0.8),
-    ]);
+  // Places a primitive built around the origin so its centre sits halfDepthZ inside the surface at
+  // centreY, minus the protrusion: the back half intersects the head, the tip stays visibly outside.
+  const seat = (part: THREE.BufferGeometry, centerY: number, halfDepthZ: number): THREE.BufferGeometry =>
+    part.translate(0, centerY, headFrontSurfaceZ(centerY, sy, sz) + halfDepthZ - NOSE_PROTRUSION);
+  if (spec.nose === 0) return seat(ball(0.038, 0, 0, 0, 0.85, 1.05, 0.7), y, 0.038 * 0.7);
+  if (spec.nose === 1) return seat(ball(0.052, 0, 0, 0, 1, 1.1, 0.82), y, 0.052 * 0.82);
+  if (spec.nose === 2) return seat(new THREE.ConeGeometry(0.045, 0.13, 10).rotateX(-Math.PI / 2), y, 0.13 / 2);
+  if (spec.nose === 3) return seat(ball(0.055, 0, 0, 0, 1.45, 0.75, 0.6), y - 0.005, 0.055 * 0.6);
+  if (spec.nose === 4) {
+    return seat(new THREE.CapsuleGeometry(0.036, 0.075, 4, 10).rotateX(Math.PI / 2), y, (0.075 + 2 * 0.036) / 2);
   }
-  return geometry;
+  if (spec.nose === 5) {
+    return seat(new THREE.ConeGeometry(0.04, 0.1, 10).rotateX(-Math.PI / 2).rotateZ(Math.PI), y + 0.012, 0.1 / 2);
+  }
+  if (spec.nose === 6) return seat(ball(0.065, 0, 0, 0, 1.35, 0.55, 0.42), y - 0.01, 0.065 * 0.42);
+  return mergeRaw([
+    seat(new THREE.CapsuleGeometry(0.032, 0.07, 4, 8).rotateX(Math.PI / 2), y + 0.025, (0.07 + 2 * 0.032) / 2),
+    seat(ball(0.045, 0, 0, 0, 1.05, 0.85, 0.8), y - 0.018, 0.045 * 0.8),
+  ]);
 }
 
 let sharedFacePatchGeometry: THREE.BufferGeometry | undefined;
