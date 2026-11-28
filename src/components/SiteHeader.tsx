@@ -123,8 +123,8 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
     return centered + (compact - centered) * amount;
   });
   const brandY = useTransform(() => brandBaseY.get() + homeLift.get());
-  const productOpacity = useTransform(progress, [0.62, 0.94], [0, 1]);
-  const productX = useTransform(progress, [0.62, 0.94], [-6, 0]);
+  const productOpacity = 1;
+  const productX = 0;
   const webcamOpacity = useTransform(scrollY, [0, 40], [1, 0]);
   // Quando a webcam (o pingo do último i na home) some, o pingo de verdade aparece no lugar.
   const dotOpacity = useTransform(webcamOpacity, (value) => 1 - value);

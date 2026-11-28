@@ -13,11 +13,19 @@ export class ProceduralAudio {
       if (!this.context) this.context = new AudioContext();
       if (this.context.state === 'suspended') await this.context.resume();
     } catch {
+      // A context whose resume() rejected is still alive (and still counts against the
+      // browser's AudioContext limit) — close it before dropping the reference, or it
+      // leaks with no handle left to dispose it.
+      void this.context?.close();
       this.context = undefined;
     }
   }
 
-  setMuted(muted: boolean): void { this.muted = muted; }
+  setMuted(muted: boolean): void {
+    this.muted = muted;
+    // Muting also stops a call already speaking — the muted flag alone only gates new ones.
+    if (muted && typeof speechSynthesis !== 'undefined') speechSynthesis.cancel();
+  }
 
   hit(power = 0.5): void {
     if (!this.context || this.muted) return;
@@ -263,5 +271,9 @@ export class ProceduralAudio {
     return buffer;
   }
 
-  dispose(): void { void this.context?.close(); this.context = undefined; }
+  dispose(): void {
+    if (typeof speechSynthesis !== 'undefined') speechSynthesis.cancel();
+    void this.context?.close();
+    this.context = undefined;
+  }
 }

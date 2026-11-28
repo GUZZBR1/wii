@@ -67,7 +67,7 @@ describe('HomeMenu rotational carousel integration', () => {
     document.body.innerHTML = '';
   });
 
-  it('selects games on the wheel and lets athletics choose a distance', () => {
+  it('selects games on the wheel and opens athletics without a distance dialog', () => {
     mockReducedMotion();
     const onPick = vi.fn();
     const { container, root } = renderHome(HAND_IDLE, onPick);
@@ -75,9 +75,7 @@ describe('HomeMenu rotational carousel integration', () => {
     act(() => athletics.click());
     expect(onPick).not.toHaveBeenCalled();
     act(() => athletics.click());
-    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Escolha a distância');
-    act(() => [...container.querySelectorAll('button')].find((button) => button.textContent === '200 metros')!.click());
-    expect(onPick).toHaveBeenCalledWith('athletics', 200);
+    expect(onPick).toHaveBeenCalledWith('athletics');
     act(() => root.unmount());
   });
 
