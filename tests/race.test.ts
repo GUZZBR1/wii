@@ -104,6 +104,19 @@ describe('athletics race', () => {
     expect([seen.phase, absent.phase]).toEqual(['warmup', 'framing']);
   });
 
+  it('does not carry framing patience across an absence', () => {
+    const race = new Race();
+    race.setFraming('Incline a câmera para cima');
+    run(race, FRAMING_PATIENCE_S - 1);
+    race.setFraming(NO_BODY_ADVICE);
+    run(race, FRAMING_PATIENCE_S * 2);
+    race.setFraming('Incline a câmera para cima');
+    run(race, FRAMING_PATIENCE_S - 0.5);
+    expect(race.phase).toBe('framing');
+    run(race, 1);
+    expect(race.phase).toBe('warmup');
+  });
+
   it('holds everyone on the blocks during the countdown', () => {
     const race = warmedUp(0.8);
     feed(race, 1);

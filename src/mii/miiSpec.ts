@@ -100,7 +100,8 @@ export const DEFAULT_MII_FACE_SPEC: MiiFaceSpec = Object.freeze({
   mouthCurve: 3,
 });
 
-const integerIn = (value: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(value)));
+const integerIn = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, Math.round(Number.isNaN(value) ? min : value)));
 const integerInLimits = (value: number, [min, max]: readonly [number, number]) => integerIn(value, min, max);
 
 /** Clamps and quantizes a face, then re-establishes the non-overlapping vertical bands bottom-up. */
@@ -220,36 +221,67 @@ export function deserializeMiiFaceSpec(encoded: string): MiiFaceSpec | undefined
 
 /** In-memory copy kept even when persistent storage fails, so the face survives within the session. */
 let sessionPlayerMii: MiiFaceSpec | undefined;
-/** True only for the newest save when persistence failed; stale readable storage must not shadow it. */
-let sessionPlayerMiiOverridesStorage = false;
+
+/**
+ * A save that could not be persisted. `encodedBeforeSave` is the exact storage payload immediately before
+ * the failed write (`null` when absent, `undefined` when unreadable), letting a later changed valid payload
+ * win as an external write while an unchanged stale payload cannot shadow the session save.
+ */
+let pendingSessionSave:
+  | {
+      spec: MiiFaceSpec;
+      encodedBeforeSave: string | null | undefined;
+    }
+  | undefined;
+
+/** Returns the raw storage payload, `null` when absent, or `undefined` when storage cannot be read. */
+function readEncodedPlayerMii(): string | null | undefined {
+  try {
+    const storage = globalThis.localStorage;
+    return storage ? storage.getItem(PLAYER_MII_STORAGE_KEY) : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export function loadPlayerMii(): MiiFaceSpec {
-  if (sessionPlayerMiiOverridesStorage && sessionPlayerMii) return { ...sessionPlayerMii };
-  try {
-    const encoded = globalThis.localStorage?.getItem(PLAYER_MII_STORAGE_KEY);
-    const stored = encoded ? deserializeMiiFaceSpec(encoded) : undefined;
-    if (stored) return { ...stored };
-  } catch {
-    // Storage can be unavailable or throw; the session copy below still applies.
+  const encoded = readEncodedPlayerMii();
+  const pending = pendingSessionSave;
+  if (pending && pending.encodedBeforeSave === undefined && encoded !== undefined) {
+    // If storage was unreadable during the failed save, conservatively treat the first readable payload as
+    // the pre-save baseline; subsequent changed valid payloads are then recognizable as external writes.
+    pending.encodedBeforeSave = encoded;
   }
-  return { ...(sessionPlayerMii ?? DEFAULT_MII_FACE_SPEC) };
+
+  const stored = typeof encoded === 'string' ? deserializeMiiFaceSpec(encoded) : undefined;
+  if (stored) {
+    if (!pending) return { ...stored };
+    if (encoded !== pending.encodedBeforeSave) {
+      pendingSessionSave = undefined;
+      return { ...stored };
+    }
+    return { ...pending.spec };
+  }
+  return { ...((pending?.spec ?? sessionPlayerMii) ?? DEFAULT_MII_FACE_SPEC) };
 }
 
 /** Returns true only when the face was actually persisted; it always lives on in session memory either way. */
 export function savePlayerMii(spec: MiiFaceSpec): boolean {
   const normalized = normalizeMiiFaceSpec(spec);
   sessionPlayerMii = normalized;
+  let encodedBeforeSave: string | null | undefined;
   try {
     const storage = globalThis.localStorage;
     if (!storage) {
-      sessionPlayerMiiOverridesStorage = true;
+      pendingSessionSave = { spec: normalized, encodedBeforeSave: undefined };
       return false;
     }
+    encodedBeforeSave = readEncodedPlayerMii();
     storage.setItem(PLAYER_MII_STORAGE_KEY, serializeMiiFaceSpec(normalized));
-    sessionPlayerMiiOverridesStorage = false;
+    pendingSessionSave = undefined;
     return true;
   } catch {
-    sessionPlayerMiiOverridesStorage = true;
+    pendingSessionSave = { spec: normalized, encodedBeforeSave };
     return false;
   }
 }

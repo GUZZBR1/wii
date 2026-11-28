@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { adjudicationDt, applySprint, applyStep, easeSpeed, gaitFor, type Gait, nextPace, type Pace, stumble } from '../src/games/track/gait';
+import { adjudicationDt, applySprint, applyStep, CAMERA_INPUT_STALE_MS, easeSpeed, gaitFor, type Gait, inputFreshness, KEYBOARD_RUN_SPEED, KEYBOARD_WALK_SPEED, nextPace, type Pace, stumble } from '../src/games/track/gait';
 import type { CadenceResult } from '../src/kinematics/cadenceTracker';
 import { poseWithHipBounce } from './fixtures/syntheticPose';
 import { cadenceHarness } from './fixtures/torsoHarness';
@@ -161,10 +161,17 @@ describe('pace from torso vertical oscillation', () => {
   });
 
   it('cycles stopped, walking and running on distinct key presses', () => {
-    expect(nextPace(0)).toBe(0.3);
-    expect(nextPace(0.3)).toBe(0.8);
-    expect(nextPace(0.8)).toBe(0);
+    expect(nextPace(0)).toBe(KEYBOARD_WALK_SPEED);
+    expect(nextPace(KEYBOARD_WALK_SPEED)).toBe(KEYBOARD_RUN_SPEED);
+    expect(nextPace(KEYBOARD_RUN_SPEED)).toBe(0);
     expect(nextPace(0.64)).toBe(0);
+  });
+
+  it('keeps the keyboard steps inside their gait bands', () => {
+    for (const previous of ['idle', 'walk', 'run'] as const) {
+      expect(gaitFor(KEYBOARD_WALK_SPEED, previous)).toBe('walk');
+      expect(gaitFor(KEYBOARD_RUN_SPEED, previous)).toBe('run');
+    }
   });
 });
 
@@ -231,6 +238,28 @@ describe('pace ownership between camera and keyboard', () => {
 
     const keyboard: Pace = { owner: 'keyboard', speed01: 0.8, cadenceSpm: 0, cameraTracking: 'degraded' };
     expect(adjudicationDt(keyboard, 1 / 60)).toBeCloseTo(1 / 60);
+  });
+
+  it('gives one freshness verdict per source combination', () => {
+    const camera = (cameraTracking?: Pace['cameraTracking']): Pace => ({ owner: 'camera', speed01: 0.8, cadenceSpm: 150, cameraTracking });
+    const within = CAMERA_INPUT_STALE_MS;
+    const beyond = CAMERA_INPUT_STALE_MS + 1;
+    // Measured input inside the budget is fresh, from either tracking source.
+    expect(inputFreshness(camera(undefined), 0)).toBe('fresh');
+    expect(inputFreshness(camera('tracked'), within)).toBe('fresh');
+    // Degraded input inside the budget coasts: scrolls, but is never judged.
+    expect(inputFreshness(camera('degraded'), 0)).toBe('coasting');
+    expect(inputFreshness(camera('degraded'), within)).toBe('coasting');
+    // Anything past the budget is stale, whatever the last state said.
+    expect(inputFreshness(camera('tracked'), beyond)).toBe('stale');
+    expect(inputFreshness(camera('degraded'), beyond)).toBe('stale');
+    expect(inputFreshness(camera(undefined), beyond)).toBe('stale');
+    // States that are neither measured nor coasting never move anything.
+    expect(inputFreshness(camera('lost'), 0)).toBe('stale');
+    expect(inputFreshness(camera('calibrating'), 0)).toBe('stale');
+    // Keyboard ownership never consults the camera.
+    const keyboard: Pace = { owner: 'keyboard', speed01: 0.8, cadenceSpm: 0, cameraTracking: 'lost' };
+    expect(inputFreshness(keyboard, beyond)).toBe('fresh');
   });
 });
 

@@ -228,7 +228,9 @@ export class Race {
       : this.effortAgeS + dt;
     if (this.phase === 'framing') {
       this.framedFor = this.advice === undefined ? this.framedFor + dt : 0;
-      if (this.advice !== null && this.advice !== NO_BODY_ADVICE) this.seenFor += dt;
+      // Patience counts a body in view: like framedFor, it restarts when the body leaves.
+      if (this.advice === NO_BODY_ADVICE) this.seenFor = 0;
+      else if (this.advice !== null) this.seenFor += dt;
       if (this.framedFor >= FRAMED_S || this.seenFor >= FRAMING_PATIENCE_S) this.phase = 'warmup';
       return;
     }
