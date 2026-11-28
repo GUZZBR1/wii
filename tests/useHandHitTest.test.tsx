@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, createElement } from 'react';
+import { act, createElement, useState, type ChangeEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { HAND_IDLE, type HandCursorInput } from '../src/ui/handCursorTypes';
@@ -78,6 +78,59 @@ describe('useHandHitTest rotational blocking', () => {
       root.render(createElement(Probe, { input: { ...input, rotationPhase: 'SNAP_TO_CARD' }, onBack }));
     });
     expect(onBack).not.toHaveBeenCalled();
+    act(() => {
+      root.unmount();
+    });
+  });
+});
+
+function ControlledSliderProbe({ input }: { input: HandCursorInput }) {
+  const [value, setValue] = useState(52);
+  useHandHitTest(input, true, () => undefined);
+  return createElement('input', {
+    type: 'range',
+    min: 42,
+    max: 62,
+    step: 1,
+    value,
+    onChange: (event: ChangeEvent<HTMLInputElement>) => setValue(Number(event.target.value)),
+  });
+}
+
+describe('useHandHitTest range sliders', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  it('sets a React range slider from the horizontal pinch position', () => {
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const idleInput: HandCursorInput = {
+      ...HAND_IDLE,
+      visible: true,
+      synced: true,
+      x: 150,
+      y: 20,
+      rotationPhase: 'IDLE',
+    };
+    act(() => {
+      root.render(createElement(ControlledSliderProbe, { input: idleInput }));
+    });
+    const slider = container.querySelector('input');
+    expect(slider).not.toBeNull();
+    if (!slider) return;
+    Object.defineProperty(slider, 'getBoundingClientRect', {
+      value: () => ({ left: 100, right: 300, width: 200, top: 0, bottom: 20, height: 20, x: 100, y: 0 }) as DOMRect,
+    });
+    document.elementsFromPoint = vi.fn(() => [slider] as unknown as Element[]);
+
+    act(() => {
+      root.render(createElement(ControlledSliderProbe, { input: { ...idleInput, pinchRelease: true } }));
+    });
+
+    expect(slider.value).toBe('47');
     act(() => {
       root.unmount();
     });
