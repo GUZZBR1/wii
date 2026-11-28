@@ -39,7 +39,10 @@ describe.skipIf(recordings.length === 0)('UTD-MHAD front boxing floor', () => {
       if (subject !== 5) expect(detected, `subject ${subject}`).toBeGreaterThanOrEqual(1);
     }
     expect(strong).toBeGreaterThanOrEqual(6);
-    expect(results.filter((result) => result.interiorConfirmed.length > 0).length).toBeGreaterThanOrEqual(23);
+    // 24 of 32 with the production-geometry extension bar: punching toward the camera is the
+    // worst case of monocular reconstruction and real full extensions measure 0.2-0.4 in the
+    // raw signal (see docs/plano-boxe.md), so the old 0.65 geometric bar rejected real punches.
+    expect(results.filter((result) => result.interiorConfirmed.length > 0).length).toBeGreaterThanOrEqual(24);
   });
 
   it('reports the confirmation-chain evidence for inspection', () => {

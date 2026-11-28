@@ -71,6 +71,20 @@ describe.skipIf(recordings.length === 0)('scoreboard for real boxing recordings'
       console.log(JSON.stringify(rows.map(({ kind, punches, slips, duckFrames, frames }) => ({ kind, punches, slips, duckFrames, frames })), null, 1));
       expect(punchSegments.length).toBeGreaterThan(0);
       for (const negative of negatives) expect(negative.punches, negative.kind).toEqual([]);
+      // Hard floors from the first real recording (11 fps, CPU delegate):
+      // - stillness and guard-holding never punch
+      for (const quiet of rows.filter((row) => row.kind === 'still' || row.kind === 'guard')) {
+        expect(quiet.punches, quiet.kind).toEqual([]);
+      }
+      // - the first jab window confirms a straight to the head, the classification anchor
+      const firstJab = rows.find((row) => row.kind === 'jab')!;
+      expect(firstJab.punches.some((punch) => punch.kind === 'straight' && punch.target === 'head')).toBe(true);
+      // - ducking must not manufacture uppercuts: the shoulder-drop veto covers most of it;
+      //   one residue per recording is the documented onset-race ceiling (docs/plano-boxe.md)
+      const duckPunches = rows.filter((row) => row.kind === 'duck').flatMap((row) => row.punches);
+      expect(duckPunches.length).toBeLessThanOrEqual(1);
+      // - punches do confirm across the punching windows at camera-realistic rates
+      expect(punchSegments.flatMap((row) => row.punches).length).toBeGreaterThanOrEqual(4);
     });
   }
 });

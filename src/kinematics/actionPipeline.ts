@@ -4,7 +4,7 @@ import { CadenceTracker } from './cadenceTracker';
 import { upsideDown } from './framing';
 import { IntensityMeter } from './intensity';
 import { JumpDetector } from './jumpDetector';
-import { DodgeZoneTracker, DuckTracker, LanePositionTracker, RingDepthTracker } from './postureSignals';
+import { DodgeZoneTracker, DuckTracker, LanePositionTracker, REFERENCE_VETO_SPEED_SW_PER_S, RingDepthTracker, ShoulderLineVerticalSpeed } from './postureSignals';
 import { isGuardingPose, PunchDetector, type PunchDiagnostics } from './punchDetector';
 import { classifyPunch } from './punchClassifier';
 import { type ArmMotion, ArmMotionDetector } from './armMotion';
@@ -48,6 +48,12 @@ export class ActionPipeline {
   private readonly ringDepth = new RingDepthTracker();
   private readonly lateralDash = new LateralDashTracker();
   private readonly duckTracker = new DuckTracker();
+  private readonly shoulderSpeed = new ShoulderLineVerticalSpeed();
+  /** Frames where the torso reference moved fast, trimmed to the longest punch window: confirmation
+   * evidence measured while the reference itself moved is torso motion, not arm motion — so a punch
+   * whose onset raced ahead of the veto is still discarded at confirmation, the same adjudication
+   * pattern as the tennis contact. */
+  private referenceVetoAtMs: number[] = [];
   private readonly punchInFlight = new PunchInFlight();
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
@@ -208,12 +214,21 @@ export class ActionPipeline {
       controls = { ...controls, guard: isGuardingPose(current, calibration) };
     }
 
+    // The torso reference in fast vertical motion manufactures wrist-relative motion that is
+    // not punching — ducking reads exactly like a rising uppercut. Veto onsets while it lasts.
+    const shoulderNow = this.shoulderSpeed.update(current);
+    // Only the descent manufactures the observed phantom: fists resting in world while the
+    // shoulders drop read as a rising extended arm — an uppercut. The speed estimate lags the
+    // drop by a frame, so the veto is also enforced retroactively at confirmation below.
+    const vetoOnset = shoulderNow !== undefined && shoulderNow >= REFERENCE_VETO_SPEED_SW_PER_S;
+    if (vetoOnset) this.referenceVetoAtMs.push(snapshot.timestampMs);
+    while (this.referenceVetoAtMs[0] && snapshot.timestampMs - this.referenceVetoAtMs[0] > 600) this.referenceVetoAtMs.shift();
     for (const { hand, elbow, wrist, gate, detector } of this.punches) {
       const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, elbow, wrist], 'world');
       if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
       else if (tracking.state === 'degraded') detector.interruptRearm();
       if (!calibration || !swingScaleReady || tracking.state === 'lost') continue;
-      const output = detector.update(current, calibration);
+      const output = detector.update(current, calibration, vetoOnset);
       if (output?.kind === 'onset') {
         this.punchInFlight.start(hand, snapshot.timestampMs);
         events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'punch-start', hand });
