@@ -3,6 +3,7 @@ import { motion } from 'motion/react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import DrawTip from '../components/DrawTip';
 import Intro from '../components/Intro';
+import LocalErrorBoundary from '../components/LocalErrorBoundary';
 import ScrollbarControl from '../components/ScrollbarControl';
 import SiteHeader from '../components/SiteHeader';
 import HomePage from '../pages/HomePage';
@@ -92,9 +93,11 @@ function SiteHandControls() {
   if (camera === 'off') return null;
   return (
     <>
-      <Suspense fallback={null}>
-        <SiteAsciiHand onProduct={onProduct} onBack={back} />
-      </Suspense>
+      <LocalErrorBoundary label="Failed to load the site hand" fallback={null}>
+        <Suspense fallback={null}>
+          <SiteAsciiHand onProduct={onProduct} onBack={back} />
+        </Suspense>
+      </LocalErrorBoundary>
       {/* /product has its own camera button under the stage. */}
       {!onProduct && (
         <button type="button" className="product-status site-camera-off" onClick={stopCamera}>
