@@ -67,7 +67,7 @@ export const PUNCH_THRESHOLDS = {
   restDwellMs: 250,
   refractoryMs: 250,
   /** A longer gap between samples restarts the detector. */
-  maxSampleGapMs: 200,
+  maxSampleGapMs: 350,
   /** The onset fires once the wrist is already fast, so the first part of the course happened
    * before it. The measurement walks back this far looking for where the forward motion started. */
   originWalkBackMs: 300,

@@ -1,9 +1,8 @@
 import { GOALS, type Goal } from '../games/athletics/race';
-import { BOXING_MODES } from '../games/boxing/boxingModes';
 import { OPPONENT_PROFILES } from '../games/boxing/opponentProfiles';
 import type { BoxingSetup } from '../games/boxing/boxingSetup';
 import type { Sport } from './GameCanvas';
-import { BOXING_TRAINING_CONTROLS, HUD_TEXT } from './hudText';
+import { HUD_TEXT } from './hudText';
 
 const GAMES: Record<Sport, { name: string; tagline: string; howTo: string }> = {
   track: { name: 'Corrida', tagline: 'Arena de corrida', howTo: 'Corra no lugar, pule e incline o corpo para trocar de raia' },
@@ -25,9 +24,7 @@ interface Props {
 /** Tela de entrada de cada jogo: a partida (e a câmera de pose) só começa no botão Jogar. */
 export function GameLobby({ sport, goal, onGoal, boxingSetup, onBoxingSetup, onPlay, onBack }: Props) {
   const { name, tagline, howTo } = GAMES[sport];
-  const controls = sport === 'boxing' && (boxingSetup.mode === 'bag' || boxingSetup.mode === 'dodge')
-    ? BOXING_TRAINING_CONTROLS[boxingSetup.mode]
-    : HUD_TEXT[sport].controls;
+  const controls = HUD_TEXT[sport].controls;
 
   const option = <T,>(label: string, choices: { value: T; text: string }[], selected: T, pick: (value: T) => void) =>
     <fieldset className="lobby-options">
@@ -48,8 +45,7 @@ export function GameLobby({ sport, goal, onGoal, boxingSetup, onBoxingSetup, onP
           <p>{howTo}.</p>
           <p className="lobby-keys">Controles: {controls}</p>
           {sport === 'athletics' && option('Distância', GOALS.map((m) => ({ value: m, text: `${m} m` })), goal, onGoal)}
-          {sport === 'boxing' && option('Modo', BOXING_MODES.map((m) => ({ value: m.id, text: m.label })), boxingSetup.mode, (mode) => onBoxingSetup({ ...boxingSetup, mode }))}
-          {sport === 'boxing' && boxingSetup.mode === 'fight' && option('Adversário', OPPONENT_PROFILES.map((p) => ({ value: p.id, text: p.label })), boxingSetup.opponent, (opponent) => onBoxingSetup({ ...boxingSetup, opponent }))}
+          {sport === 'boxing' && option('Adversário', OPPONENT_PROFILES.map((p) => ({ value: p.id, text: p.label })), boxingSetup.opponent, (opponent) => onBoxingSetup({ ...boxingSetup, opponent }))}
         </div>
       </div>
       <LobbyActions onPlay={onPlay} onBack={onBack} />

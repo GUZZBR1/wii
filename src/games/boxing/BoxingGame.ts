@@ -11,7 +11,6 @@ import { PUNCH_THRESHOLDS } from '../../kinematics/punchDetector';
 import { applyLatePunch, applyOpponentPunch, applyPlayerPunch, createBoxing, MAX_HP, ROUND_COUNT, tickRound, type BoxingState } from './boxingRules';
 import type { BoxingMode } from './boxingModes';
 import { type BoxingStepKind, BoxingTutorial, LEARNING_PUNCH_TRAVEL } from './boxingTutorial';
-import type { DodgeLabel } from '../../kinematics/personal/dodgeModel';
 import { RestartGesture } from '../core/restartGesture';
 import { HIT_FEEL, HitImpulse, type HitKind, playerHitKind } from './hitFeel';
 import { createImpactRing, createImpactSparkPool, type ImpactEffectKind, type ImpactSparkPool } from './impactEffects';
@@ -170,8 +169,6 @@ export interface BoxingGameOptions {
    * adapted to the measured player once the warm-up ends, exactly like the tennis one.
    */
   onPunchTravel?: (travel: number) => void;
-  /** Tells the pipeline what the camera frames are examples of. */
-  onTeach?: (command: DodgeLabel | 'start' | undefined) => void;
   /** The warm-up is over and the player has seen its closing message. */
   onTutorialDone?: () => void;
 }
@@ -245,8 +242,6 @@ export class BoxingGame {
   private tutorial: BoxingTutorial | undefined;
   /** Guards against re-applying the same tutorial's adapted travel every tick. */
   private travelAdapted = false;
-  private taught: DodgeLabel | undefined;
-  private teachReach = 0;
   private shownStep: BoxingStepKind | undefined;
   private readonly skipGesture = new RestartGesture();
   private fightMs = 0;
@@ -369,7 +364,6 @@ export class BoxingGame {
       this.tutorial = new BoxingTutorial();
       this.shownStep = this.tutorial.step;
       this.options.onPunchTravel?.(LEARNING_PUNCH_TRAVEL);
-      this.options.onTeach?.('start');
     }
 
     this.playerBoxer = createPlayerBoxer();
@@ -461,10 +455,6 @@ export class BoxingGame {
     this.cameraDuck = ducked === true;
   }
 
-  setTeachReach(reach: number): void {
-    this.teachReach = reach;
-  }
-
   /** Feeds the tutorial skip gesture; outside the tutorial the boxing game has no use for it. */
   setHandsRaised(raised: boolean, atMs: number | null): void {
     this.skipGesture.setHandsRaised(raised, atMs);
@@ -525,7 +515,7 @@ export class BoxingGame {
     if (this.mode === 'tutorial') {
       const tutorial = this.tutorial;
       if (!tutorial || tutorial.done || this.gate.phase !== 'running' || this.restartMsLeft > 0) return;
-      if (event.type === 'punch' && tutorial.punch(event.measurement?.forwardTravel)) {
+      if (event.type === 'punch' && tutorial.punch()) {
         this.setFeedback('ISSO!', 'good');
         this.audio?.punchImpact(0.3 + 0.4 * event.power01, false);
         this.opponentHitS = OPPONENT_HIT_S;
@@ -787,7 +777,6 @@ export class BoxingGame {
       guard: this.guarding(),
       zone: this.zone,
       ducked: this.cameraDuck,
-      reach: this.teachReach,
     });
     // Holding both hands up skips the rest of the warm-up, same gesture as the tennis one.
     this.skipGesture.step(dtMs / 1000, performance.now());
@@ -798,20 +787,15 @@ export class BoxingGame {
     if (tutorial.done) {
       if (!this.travelAdapted) {
         this.travelAdapted = true;
-        this.options.onPunchTravel?.(tutorial.punchTravel ?? PUNCH_THRESHOLDS.confirmForwardTravel);
+        this.options.onPunchTravel?.(PUNCH_THRESHOLDS.confirmForwardTravel);
       }
       this.restartMsLeft = MATCH_PAUSE_MS;
       this.audio?.bell('ko');
     }
   }
 
-  /** Relays what is being taught and celebrates each step the player completed. */
+  /** Celebrates each step the player completed. */
   private followTutorial(tutorial: BoxingTutorial): void {
-    if (tutorial.teaching !== this.taught) {
-      this.taught = tutorial.teaching;
-      this.teachReach = 0;
-      this.options.onTeach?.(this.taught);
-    }
     if (tutorial.step === this.shownStep) return;
     // Going back to repeat the dodges is not a success.
     if (tutorial.done || tutorial.stepIndex > 0 && this.shownStep !== 'proof') {
@@ -1138,7 +1122,6 @@ export class BoxingGame {
     if (this.mode === 'tutorial') {
       this.tutorial = new BoxingTutorial();
       this.shownStep = this.tutorial.step;
-      this.options.onTeach?.('start');
       this.travelAdapted = false;
       // The travel floor is not lowered again: the next completion re-adapts it, and in the
       // meantime the player keeps whatever the last warm-up measured instead of the floor.
@@ -1254,7 +1237,7 @@ export class BoxingGame {
     const attackIn = this.tutorial?.attackInS;
     if (attackIn !== undefined) return { state: attackIn <= 0.22 ? 'punch' : 'windup', side: 0, drop: 0, warning: true };
     return {
-      state: step === 'neutral' ? 'idle' : step === 'punch' && this.animTimeS % 0.8 < 0.34 ? 'punch' : 'guard',
+      state: step === 'punch' && this.animTimeS % 0.8 < 0.34 ? 'punch' : 'guard',
       side: showing && step === 'left' ? -1 : showing && step === 'right' ? 1 : 0,
       drop: showing && step === 'duck' ? 1 : 0,
       warning: false,
