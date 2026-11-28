@@ -89,6 +89,8 @@ export class AthleticsGame {
     this.faceVisibility = new FaceVisibilityController({ cache: this.faceCache, renderer: this.loop.renderer });
     this.faceVisibility.register(this.player.mii.facePatch);
     for (const rival of this.rivals) this.faceVisibility.register(rival.mii.facePatch);
+    // Once per rendered frame, after the fixed steps have posed the runners and the camera.
+    this.loop.onBeforeRender = (wallTimeMs) => this.faceVisibility.update(this.camera, wallTimeMs);
     // Points at the player's own runner.
     const marker = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.28, 4), new THREE.MeshBasicMaterial({ color: 0xff8a2a }));
     marker.rotation.x = Math.PI;
@@ -182,7 +184,6 @@ export class AthleticsGame {
     }
     this.camera.lookAt(this.lookTarget);
     this.stadium.follow(this.player.mii.root.position, this.camera.position);
-    this.faceVisibility.update(this.camera, wallTimeMs);
   }
 
   /** A beep per countdown number, then the start and a win. */

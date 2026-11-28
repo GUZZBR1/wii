@@ -105,4 +105,26 @@ describe('FaceVisibilityController', () => {
     expect(factory).toHaveBeenCalledTimes(2);
     expect(factory.mock.calls[1]![0]).toEqual(middle.target.spec);
   });
+
+  it('shares the build budget across repeated updates carrying the same frame timestamp', () => {
+    const { controller, factory } = setup({ enterDistance: 12, exitDistance: 14, buildsPerFrame: 1 });
+    const near = target(generateMiiFromSeed('near'), 0, 0, -3);
+    const middle = target(generateMiiFromSeed('middle'), 0, 0, -5);
+    controller.register(near.target);
+    controller.register(middle.target);
+
+    // Fixed-step sub-steps of one rendered frame carry the same wall timestamp; the budget is
+    // per frame, so the repeat must not unlock a second build.
+    controller.update(cameraAtOrigin(), 100);
+    controller.update(cameraAtOrigin(), 100);
+    expect(factory).toHaveBeenCalledTimes(1);
+    expect(factory.mock.calls[0]![0]).toEqual(near.target.spec);
+    expect(near.setTexture).toHaveBeenCalledTimes(1);
+    expect(middle.setTexture).not.toHaveBeenCalled();
+
+    // A differing timestamp is a new frame: the budget resets and the nearest remaining face builds.
+    controller.update(cameraAtOrigin(), 116);
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(factory.mock.calls[1]![0]).toEqual(middle.target.spec);
+  });
 });

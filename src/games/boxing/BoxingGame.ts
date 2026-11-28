@@ -319,9 +319,11 @@ export class BoxingGame {
     this.camera.add(this.gloves.root);
     this.scene.add(this.camera);
     this.scene.add(this.sparks.root);
-    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) => this.update(dt, wallTimeMs));
+    this.loop = new GameLoop(canvas, this.scene, this.camera, (dt) => this.update(dt));
     this.faceVisibility = new FaceVisibilityController({ cache: this.faceCache, renderer: this.loop.renderer });
     if (this.opponentBoxer) this.faceVisibility.register(this.opponentBoxer.facePatch);
+    // Once per rendered frame, after the fixed steps have posed the fighters and the camera.
+    this.loop.onBeforeRender = (wallTimeMs) => this.faceVisibility.update(this.camera, wallTimeMs);
     if (this.loop.renderer) {
       this.ring = buildBoxingRing(this.scene, this.loop.renderer);
     } else {
@@ -628,7 +630,7 @@ export class BoxingGame {
     this.lastPhase = phase;
   }
 
-  private update(dt: number, wallTimeMs = performance.now()): void {
+  private update(dt: number): void {
     this.gate.advance(dt);
     this.syncPhase();
     if (this.gate.phase === 'running') this.step(dt * 1000);
@@ -643,7 +645,6 @@ export class BoxingGame {
       this.sparks.update(animDt);
     }
     this.poseScene(dt);
-    this.faceVisibility.update(this.camera, wallTimeMs);
   }
 
   /** Exact critically damped spring step: no overshoot from rest, stable for any `dt`. */

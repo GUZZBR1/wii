@@ -109,6 +109,8 @@ export class TrackGame {
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) => this.update(dt, wallTimeMs));
     this.faceVisibility = new FaceVisibilityController({ cache: this.faceCache, renderer: this.loop.renderer });
     this.faceVisibility.register(this.mii.facePatch);
+    // Once per rendered frame, after the fixed steps have posed the runner and the camera.
+    this.loop.onBeforeRender = (wallTimeMs) => this.faceVisibility.update(this.camera, wallTimeMs);
     const { renderer } = this.loop;
     // Tests swap the loop for one without a renderer; the scene itself does not need it.
     if (renderer) {
@@ -240,7 +242,6 @@ export class TrackGame {
   }
 
   private update(dt: number, wallTimeMs: number): void {
-    this.faceVisibility.update(this.camera, wallTimeMs);
     // Everything below is frozen until the gate opens: no travel, score, jump or judging.
     if (this.result) return;
     this.gate.advance(dt);

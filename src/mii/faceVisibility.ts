@@ -48,6 +48,9 @@ export class FaceVisibilityController {
   private readonly buildsPerFrame: number;
   private readonly states: TargetState[] = [];
   private readonly candidates: TargetState[] = [];
+  /** Frame the build budget was last reset for; NaN never equals a timestamp, so the first update resets. */
+  private lastFrameMs = Number.NaN;
+  private frameBuilds = 0;
   private readonly frustum = new THREE.Frustum();
   private readonly projectionView = new THREE.Matrix4();
   private readonly sphere = new THREE.Sphere();
@@ -84,6 +87,12 @@ export class FaceVisibilityController {
   }
 
   update(camera: THREE.PerspectiveCamera, nowMs: number): void {
+    // The budget is per rendered frame, not per call: a caller running inside fixed-step
+    // sub-steps repeats the same wall timestamp, and those repeats share one budget.
+    if (nowMs !== this.lastFrameMs) {
+      this.lastFrameMs = nowMs;
+      this.frameBuilds = 0;
+    }
     camera.updateMatrixWorld();
     this.projectionView.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.projectionView);
@@ -115,13 +124,12 @@ export class FaceVisibilityController {
     this.candidates.length = candidateCount;
     this.candidates.sort(byDistance);
 
-    let builds = 0;
     for (const state of this.candidates) {
       const { lease } = state;
       if (!lease) continue;
       this.cache.touch(lease, nowMs);
-      if (!lease.texture && builds < this.buildsPerFrame) {
-        if (this.cache.build(lease, this.renderer, nowMs)) builds += 1;
+      if (!lease.texture && this.frameBuilds < this.buildsPerFrame) {
+        if (this.cache.build(lease, this.renderer, nowMs)) this.frameBuilds += 1;
       }
       const texture = lease.texture;
       if (texture !== state.texture) {
