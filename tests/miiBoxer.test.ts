@@ -399,14 +399,17 @@ describe('createMiiBoxer', () => {
 
     expect(Math.abs(travel[0]! - windupZ)).toBeLessThan(0.03);
 
-    // More negative is farther forward. The target extension peaks at 0.085 s and the spring
-    // follow-through crests the glove a few frames later; before the crest the glove moves
+    // More negative is farther forward. The target extension peaks at 0.16 s and spring
+    // follow-through crests the glove around 0.2 s — just before the nominal contact instant
+    // used by the game about 0.22 s after entering `punch`. Before the crest the glove moves
     // strictly forward, after it strictly back — a single continuous peak, never a flat hold.
     const crest = travel.indexOf(Math.min(...travel));
-    expect(crest).toBeGreaterThanOrEqual(5);
-    expect(crest).toBeLessThanOrEqual(8);
+    expect(crest).toBeGreaterThanOrEqual(10);
+    expect(crest).toBeLessThanOrEqual(12);
     for (let frame = 0; frame < crest; frame += 1) expect(travel[frame + 1]!).toBeLessThan(travel[frame]!);
     for (let frame = crest; frame < 18; frame += 1) expect(travel[frame + 1]!).toBeGreaterThan(travel[frame]!);
+    // Frame 13 is the nominal contact instant, about 0.22 s after the game enters `punch`.
+    expect(travel[12]! - travel[crest]!).toBeLessThan(0.02);
 
     // A hold plateau would park the glove for several frames; here only the crest straddle moves
     // less than a tenth of a millimetre, and the return is essentially at rest well before 0.5 s.
@@ -447,7 +450,7 @@ describe('createMiiBoxer', () => {
       const boxer = createMiiBoxer();
       boxer.animate(0);
       boxer.setState('punch', hand);
-      animateFrames(boxer, 0, 8); // the crest of the extension
+      animateFrames(boxer, 0, 12); // the crest of the extension
       return boxer;
     };
     const right = pose('right');

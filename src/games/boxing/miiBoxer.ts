@@ -462,8 +462,8 @@ function withFootwork(pose: BoxerPose, { speed01, forward, strafe, phase }: Stri
   });
 }
 
-/** The attack peaks here, fast; the return then glides back to an exact rest at `PUNCH_END_S`. */
-const PUNCH_ATTACK_S = 0.085;
+/** The attack peaks here: fast enough to snap, late enough that contact lands near full extension. */
+const PUNCH_ATTACK_S = 0.16;
 const PUNCH_END_S = 0.34;
 
 /**
