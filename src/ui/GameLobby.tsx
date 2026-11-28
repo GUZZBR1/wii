@@ -63,7 +63,7 @@ export function IronManLobby({ onPlay, onBack }: { onPlay: () => void; onBack: (
     </div>
     <div className="lobby-stage">
       <header className="lobby-title">
-        <span>NeverGear Sports</span>
+        <span>Nevergear Sports</span>
         <h1>Iron Man</h1>
       </header>
       <div className="lobby-card">

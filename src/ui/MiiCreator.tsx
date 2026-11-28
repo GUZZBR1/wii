@@ -346,7 +346,7 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
         <h1>Editor de Mii</h1>
         <button type="button" className="logo-btn" onClick={onClose} aria-label="Voltar ao menu de jogos">
           <span className="logo">
-            <img className="brand-logo" src="/images/nevergear-logo.png" alt="NeverGear" width={1200} height={234} /> <i>Sports</i>
+            <img className="brand-logo" src="/images/nevergear-logo.png" alt="Nevergear" width={1200} height={234} /> <i>Sports</i>
           </span>
         </button>
       </header>

@@ -1,12 +1,12 @@
-# NeverGear — Design System
+# Nevergear — Design System
 
 This file is the visual source of truth for the Nevergear website. Keep new pages and changes aligned with these decisions.
 
 ## Brand
 
-NeverGear (formerly shown as “Nevergear”) is a browser arcade arena where the body is the controller: running and tennis played by pose through the webcam. The site should feel thoughtful, precise, calm, and ambitious: editorial typography over a light interface that borrows the Nevergear’s white and blue (Frutiger Aero, Nevergear Sports: clean, light and tactile, on the site and in the arena alike).
+Nevergear (formerly shown as “Wii”) is a browser arcade arena where the body is the controller: running and tennis played by pose through the webcam. The site should feel thoughtful, precise, calm, and ambitious: editorial typography over a light interface that borrows the Nevergear’s white and blue (Frutiger Aero, Nevergear Sports: clean, light and tactile, on the site and in the arena alike).
 
-The wordmark is the NeverGear sticker logo (`public/images/nevergear-logo.png`): rounded grey “Never”, italic blue “Gear”, white outline. Use the image; do not retype the name in a font as a mark.
+The wordmark is the Nevergear sticker logo (`public/images/nevergear-logo.png`): rounded grey “Never”, italic blue “Gear”, white outline. Use the image; do not retype the name in a font as a mark.
 
 ## Color and surfaces
 
@@ -91,7 +91,7 @@ Use whitespace for hierarchy. Keep the pages minimal and avoid adding sections o
 
 - Opened by the Product “em construção” pill; source in `src/arena/`. Running and tennis played with body pose through the webcam, full screen, with no site header, scrubber or Nevergear speech bubble, under its own tab title.
 - Skin: light Nevergear-style Frutiger Aero using the palette above (white and light blue, glossy pill buttons with a blue edge, soft gradients and shadows). Arena styles stay nested under `.arena` so they never reach the site.
-- Order: white screen, a vivid blue “Nevergear” (Nevergear blue to deep blue) rushes forward and the screen splits open; body calibration (camera starts by itself, “Pular” skips it); channel screen: four channels only, with no empty placeholders (NeverGear Sports, Atletismo, Boxe, Tênis); on the first visit they show in a row for about 1 s, then fall into an elliptical ring with NeverGear Sports in front (like Papers, but it only turns on a click: the arrow buttons, or any channel, which then comes to the front); glass highlights on every channel; clicking the front “Nevergear Sports” grows it in three steps: the ring and footer fade (0.3 s), an empty glass pane grows from the tile to fill the screen (0.65 s), then the title screen content appears; title screen (“Menu” / “Start”); “Menu Principal” (Corrida, Tênis, with a preview); game (“‹ Jogos” returns).
+- Order: white screen, a vivid blue “Nevergear” (Nevergear blue to deep blue) rushes forward and the screen splits open; body calibration (camera starts by itself, “Pular” skips it); channel screen: four channels only, with no empty placeholders (Nevergear Sports, Atletismo, Boxe, Tênis); on the first visit they show in a row for about 1 s, then fall into an elliptical ring with Nevergear Sports in front (like Papers, but it only turns on a click: the arrow buttons, or any channel, which then comes to the front); glass highlights on every channel; clicking the front “Nevergear Sports” grows it in three steps: the ring and footer fade (0.3 s), an empty glass pane grows from the tile to fill the screen (0.65 s), then the title screen content appears; title screen (“Menu” / “Start”); “Menu Principal” (Corrida, Tênis, with a preview); game (“‹ Jogos” returns).
 - On “Menu Principal”, the Nevergear Sports wordmark returns to the channel grid.
 - The only site control is “sair”, shown just on the channel grid, in its footer at bottom left, below the blue curve.
 - “sair” uses the camera button’s font (the arena’s rounded sans, bold, uppercase); the minimized “Câmera” pill and “sair” share a Frutiger Aero glass finish (top highlight, light-blue body, blue edge and glow).

@@ -348,7 +348,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
           <Link
             className="wordmark relative z-[1] block font-sans font-extrabold leading-[.83] tracking-[-.035em] text-ink no-underline"
             to="/"
-            aria-label={tr('NeverGear, início', 'NeverGear, home')}
+            aria-label={tr('Nevergear, início', 'Nevergear, home')}
           >
             <span className="wordmark-letter" aria-hidden="true"><img className="brand-logo" src="/images/nevergear-logo.png" alt="" width={1200} height={234} /></span>
           </Link>
@@ -373,11 +373,11 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
                 <motion.button
                   className="webcam-trigger"
                   type="button"
-                  aria-label={tr('Sobre a webcam do NeverGear', 'About the NeverGear webcam')}
+                  aria-label={tr('Sobre a webcam do Nevergear', 'About the Nevergear webcam')}
                   aria-controls="webcam-info-card"
                   aria-expanded={showWebcamCard}
                   tabIndex={isScrolled ? -1 : 0}
-                  title={tr('Sobre a webcam do NeverGear', 'About the NeverGear webcam')}
+                  title={tr('Sobre a webcam do Nevergear', 'About the Nevergear webcam')}
                   onFocus={() => {
                     cancelHoverClose();
                     setBrandFocused(false);
@@ -407,7 +407,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
               <motion.aside
                 id="webcam-info-card"
                 className="webcam-card-anchor definition-card"
-                aria-label={tr('Sobre a webcam do NeverGear', 'About the NeverGear webcam')}
+                aria-label={tr('Sobre a webcam do Nevergear', 'About the Nevergear webcam')}
                 aria-hidden={!showWebcamCard}
                 initial={false}
                 animate={showWebcamCard ? 'visible' : 'hidden'}
@@ -431,7 +431,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
                 <p className="definition-phrase">
                   {tr('Acompanha o seu corpo e transforma cada movimento em comando, em tempo real. O vídeo é processado no seu dispositivo.', 'Follows your body and turns every movement into a command, in real time. Video is processed on your device.')}
                 </p>
-                <p className="definition-note">{tr('O controle do NeverGear.', 'The NeverGear controller.')}</p>
+                <p className="definition-note">{tr('O controle do Nevergear.', 'The Nevergear controller.')}</p>
               </motion.aside>
             </div>
           )}
@@ -469,7 +469,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
         <motion.div className="definition-card-anchor" style={{ x: '-50%', scale: inverseBrandScale }}>
           <motion.aside
             className="definition-card border border-white/70 bg-paper/65 p-5 text-ink shadow-[0_18px_54px_rgba(36,37,32,.1)] backdrop-blur-2xl"
-            aria-label={tr('Definição de NeverGear', 'Definition of NeverGear')}
+            aria-label={tr('Definição de Nevergear', 'Definition of Nevergear')}
             aria-hidden={!showDefinition}
             initial={false}
             animate={showDefinition ? 'visible' : 'hidden'}
@@ -484,7 +484,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
             }}
             transition={{ type: 'spring', stiffness: 320, damping: 28 }}
           >
-            <h1><img className="brand-logo" src="/images/nevergear-logo.png" alt="NeverGear" width={1200} height={234} /></h1>
+            <h1><img className="brand-logo" src="/images/nevergear-logo.png" alt="Nevergear" width={1200} height={234} /></h1>
             <p className="definition-kind"><em>{tr('arcade', 'arcade')}</em> · {tr('jogo no navegador', 'browser game')}</p>
             <p className="definition-phrase">
               {tr('Uma arena no navegador em que o corpo é o controle: corrida de obstáculos e tênis jogados por pose, só com a webcam.', 'A browser arena where the body is the controller: hurdle running and tennis played by pose, with just a webcam.')}

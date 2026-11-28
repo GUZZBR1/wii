@@ -69,7 +69,7 @@ function placement(index: number, turn: number, ring: boolean): CSSProperties {
 }
 
 function Logo() {
-  return <span className="logo"><img className="brand-logo" src="/images/nevergear-logo.png" alt="NeverGear" width={1200} height={234} /> <i>Sports</i></span>;
+  return <span className="logo"><img className="brand-logo" src="/images/nevergear-logo.png" alt="Nevergear" width={1200} height={234} /> <i>Sports</i></span>;
 }
 
 function Clock() {
@@ -228,7 +228,7 @@ export function HomeMenu({ onPick, onIronMan, onMii, exit, handStore, rotationGa
           className={`channel ${index === 0 ? 'sports' : `sport-channel ${sport?.id}`}`}
           style={placement(index, turn, ring)}
           onClick={() => selectChannel(index)}
-          aria-label={index === 0 ? 'NeverGear Sports: desafio Iron Man' : sport?.name}>
+          aria-label={index === 0 ? 'Nevergear Sports: desafio Iron Man' : sport?.name}>
           {index === 0 ? <Logo /> : <><span className="channel-scene" /><span className="channel-name">{sport?.name}</span></>}
         </button>;
       })}

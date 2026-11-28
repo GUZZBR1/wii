@@ -80,7 +80,7 @@ function cameraAt(t: number, calm: boolean) {
 export default function Intro({ onDone }: { onDone: () => void }) {
   const { tr } = useLang();
   const [calm] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  // -1: perguntas; 0..total-1: cada marco; total: marca NeverGear.
+  // -1: perguntas; 0..total-1: cada marco; total: marca Nevergear.
   const [step, setStep] = useState(-1);
   const [leaving, setLeaving] = useState(false);
   const [flat, setFlat] = useState(false); // sem WebGL: as obras entram como imagens
@@ -254,7 +254,7 @@ export default function Intro({ onDone }: { onDone: () => void }) {
     <div
       className={`intro${leaving ? ' is-leaving' : ''}${calm ? ' is-calm' : ''}${flat ? ' is-flat' : ''}`}
       role="dialog"
-      aria-label={tr('Abertura do NeverGear', 'NeverGear opening')}
+      aria-label={tr('Abertura do Nevergear', 'Nevergear opening')}
       data-quality={level === undefined ? undefined : `${shownTier}:${level}`}
       style={{ '--shot': `${SHOT}s`, '--lead': `${LEAD}s` } as CSSProperties}
     >

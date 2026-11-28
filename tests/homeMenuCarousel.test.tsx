@@ -80,7 +80,7 @@ describe('HomeMenu rotational carousel integration', () => {
     act(() => root.unmount());
   });
 
-  it('starts Iron Man from NeverGear Sports', () => {
+  it('starts Iron Man from Nevergear Sports', () => {
     mockReducedMotion();
     const onPick = vi.fn();
     const onIronMan = vi.fn();

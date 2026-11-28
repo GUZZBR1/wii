@@ -981,7 +981,7 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
   .article-download, .article-language button, .article-return, .article-retry, .gameplay-video-control, .games-showcase .vision-cta { transition: none; }
 }
 
-/* Marca NeverGear: sempre o logo (public/images/nevergear-logo.png), nunca o nome redesenhado em fonte. */
+/* Marca Nevergear: sempre o logo (public/images/nevergear-logo.png), nunca o nome redesenhado em fonte. */
 .brand-logo { display: block; width: 100%; height: auto; }
 .wordmark .brand-logo { width: 5.2em; max-width: none; }
 .definition-card h1 .brand-logo { width: 150px; }

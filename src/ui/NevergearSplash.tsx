@@ -2,7 +2,7 @@ import { useEffect } from 'react';
 
 const SPLASH_MS = 2400;
 
-/** Abertura: tela branca, o "NeverGear" vem do fundo e a tela se abre no meio. */
+/** Abertura: tela branca, o "Nevergear" vem do fundo e a tela se abre no meio. */
 export function NevergearSplash({ onDone }: { onDone: () => void }) {
   useEffect(() => {
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;

@@ -1,10 +1,10 @@
 <div align="center">
 
-<img src="assets/nevergear-cover.jpg" alt="NeverGear cover — camera-powered interaction without dedicated gear" width="920" />
+<img src="assets/nevergear-cover.jpg" alt="Nevergear cover — camera-powered interaction without dedicated gear" width="920" />
 
 # Nevergear Web Sports Arena
 
-**A NeverGear experiment: your body is the controller.**
+**A Nevergear experiment: your body is the controller.**
 
 Run, swing, punch, dodge, and play directly in the browser with nothing but a webcam. Nevergear Web Sports Arena turns real-time pose and hand tracking into arcade sports — no dedicated motion controller, no wearable, no backend, and no installation.
 

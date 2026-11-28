@@ -603,7 +603,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
     {screen === 'summary' && ironResults && <section className="menu iron-summary" aria-label="Resumo do Iron Man">
       <div className="iron-summary-card">
-        <span className="iron-eyebrow">NeverGear Sports</span>
+        <span className="iron-eyebrow">Nevergear Sports</span>
         <h1>Iron Man concluído!</h1>
         <p>Você completou as três modalidades.</p>
         <ol>{ironResults.map((result) => <li key={result.sport}>
