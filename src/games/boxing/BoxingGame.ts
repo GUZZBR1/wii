@@ -1234,7 +1234,8 @@ export class BoxingGame {
     const distance = Math.hypot(dx, dz) || 1;
     const point = { x: head.x + (dx / distance) * 0.3, y: head.y + 1.55, z: head.z + (dz / distance) * 0.3 };
     this.sparks.spawn(point.x, point.y, point.z, power01, kind);
-    this.impactRing.burst(point, power01, kind);
+    // Much nearer to the camera than the opponent: the same ring would fill the screen.
+    this.impactRing.burst(point, power01, kind, 0.4);
   }
 
   // ---------------------------------------------------------------- hud & lifecycle

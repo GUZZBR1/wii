@@ -143,10 +143,10 @@ export function createImpactRing() {
   let size = 1;
   return {
     root,
-    burst(point: { x: number; y: number; z: number }, power01: number, kind: ImpactEffectKind): void {
+    burst(point: { x: number; y: number; z: number }, power01: number, kind: ImpactEffectKind, scale = 1): void {
       root.position.set(point.x, point.y, point.z);
       material.color.setHex(kind === 'block' ? 0x7ec8ff : 0xfff6b0);
-      size = 0.6 + clamp01(power01);
+      size = (0.6 + clamp01(power01)) * scale;
       ageS = 0;
       root.scale.setScalar(size);
       material.opacity = 1;
