@@ -5,7 +5,7 @@ import { AdaptiveCalibrator } from './cv/adaptiveCalibrator';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { diagnosticsEnabled } from './cv/diagnostics/flags';
 import { PhotoTrail } from './cv/diagnostics/photoTrail';
-import { TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
+import { BOXING_RECORDING_SCRIPT, TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
 import { downloadRecording, noteArrival, PoseRecorder, rememberFrame } from './cv/diagnostics/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
 import { framingAdvice, handsHidden, armsCrossed, handsRaised, raisedTossHand, HeadWarning } from './kinematics/framing';
@@ -183,7 +183,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     setRecordingPrompt(undefined);
     const delegate = poseClientRef.current?.delegate;
     if (!recorder?.frameCount || !delegate) return;
-    void downloadRecording(recorder, delegate, sport === 'tennis' ? 'tenis' : 'corrida').catch((error: unknown) => {
+    void downloadRecording(recorder, delegate, sport === 'tennis' ? 'tenis' : sport === 'boxing' ? 'boxe' : 'corrida').catch((error: unknown) => {
       setCameraStatus(error instanceof Error ? error.message : 'Não foi possível salvar a gravação.');
     });
   }, [sport]);
@@ -206,7 +206,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       if (recorderRef.current) { finishRecording(); return; }
       for (const stop of pipelineRef.current.reset(performance.now())) dispatchEvent(stop);
       resetCalibration();
-      recorderRef.current = new PoseRecorder([], sport === 'tennis' ? TENNIS_RECORDING_SCRIPT : undefined);
+      recorderRef.current = new PoseRecorder([], sport === 'tennis' ? TENNIS_RECORDING_SCRIPT : sport === 'boxing' ? BOXING_RECORDING_SCRIPT : undefined);
       setRecordingPrompt('Gravando…');
     };
     window.addEventListener('keydown', toggle);
