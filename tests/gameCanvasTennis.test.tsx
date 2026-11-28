@@ -123,3 +123,54 @@ it('carries the racket hand learned in one tennis match into the rematch engine'
     container.remove();
   }
 });
+
+
+it('shows the Iron Man result for ten seconds and advances once even after a loss', async () => {
+  vi.useFakeTimers();
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const onComplete = vi.fn();
+  tennisInstances.length = 0;
+  try {
+    await act(async () => root.render(<GameCanvas sport="tennis" onEngine={() => {}} tracking="TRACKING" ironMan={{ onComplete }} />));
+    await act(async () => tennisInstances[0]!.updateHud({
+      score: 0, label: '', speed01: 0, status: 'Fim',
+      tennis: { points: { player: '0', opponent: '0' }, games: { player: 0, opponent: 2 }, server: 'player', winner: 'opponent', secondServe: false, restart01: 1 },
+    }));
+    expect(container.textContent).toContain('Próxima modalidade em 10 s');
+    expect(container.textContent).not.toContain('Jogar de novo');
+    act(() => vi.advanceTimersByTime(9999));
+    expect(onComplete).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(1));
+    expect(onComplete).toHaveBeenCalledExactlyOnceWith({ sport: 'tennis', detail: 'Derrota · 0 × 2 games' });
+    act(() => vi.advanceTimersByTime(5000));
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  } finally {
+    await act(async () => root.unmount());
+    vi.useRealTimers();
+    container.remove();
+  }
+});
+
+
+it('cancels the Iron Man transition when the game unmounts', async () => {
+  vi.useFakeTimers();
+  const container = document.createElement('div');
+  const root = createRoot(container);
+  const onComplete = vi.fn();
+  tennisInstances.length = 0;
+  try {
+    await act(async () => root.render(<GameCanvas sport="tennis" onEngine={() => {}} tracking="TRACKING" ironMan={{ onComplete }} />));
+    await act(async () => tennisInstances[0]!.updateHud({
+      score: 0, label: '', speed01: 0, status: 'Fim',
+      tennis: { points: { player: '0', opponent: '0' }, games: { player: 2, opponent: 0 }, server: 'player', winner: 'player', secondServe: false, restart01: 0 },
+    }));
+    act(() => vi.advanceTimersByTime(5000));
+    await act(async () => root.unmount());
+    act(() => vi.advanceTimersByTime(10000));
+    expect(onComplete).not.toHaveBeenCalled();
+  } finally {
+    vi.useRealTimers();
+  }
+});

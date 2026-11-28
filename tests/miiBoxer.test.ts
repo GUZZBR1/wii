@@ -74,11 +74,15 @@ describe('createMiiBoxer', () => {
   it('creates an articulated merged hierarchy with vertex colors and few meshes', () => {
     const boxer = createMiiBoxer();
     const meshes = meshesIn(boxer.root);
-    expect(meshes).toHaveLength(9);
-    expect(new Set(meshes.map((mesh) => mesh.material)).size).toBe(1);
+    expect(meshes).toHaveLength(10);
+    expect(new Set(meshes.map((mesh) => mesh.material)).size).toBe(2);
     for (const mesh of meshes) {
       expect(mesh).not.toBeInstanceOf(THREE.SkinnedMesh);
       expect(mesh).not.toBeInstanceOf(THREE.InstancedMesh);
+      if (mesh.name === 'mii-face-patch') {
+        expect(mesh.visible).toBe(false);
+        continue;
+      }
       expect(mesh.geometry.getAttribute('color')).toBeDefined();
       const material = mesh.material as THREE.MeshStandardMaterial;
       expect(material.vertexColors).toBe(true);

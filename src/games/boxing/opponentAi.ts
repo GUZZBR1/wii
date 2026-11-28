@@ -95,18 +95,36 @@ export function createOpponentAi(nowMs: number, rng: () => number, skill = DEFAU
  * `impactAtMs + IMPACT_GRACE_MS`; the caller collects the player's zones over
  * [impactAtMs, impactAtMs + IMPACT_GRACE_MS] and judges them with `isDodged`.
  */
-export function stepOpponent(state: OpponentAiState, nowMs: number, playerZone: Zone, rng: () => number): OpponentStep {
+export interface OpponentObservation {
+  readonly inRange: boolean;
+  readonly playerGuarding: boolean;
+  readonly style: 'rookie' | 'aggressive' | 'technical';
+  /** Confirmed outcomes only, bounded to recent attacks by the caller. */
+  readonly habits?: { readonly samples: number; readonly slips: number; readonly ducks: number };
+}
+
+export function stepOpponent(state: OpponentAiState, nowMs: number, playerZone: Zone, rng: () => number, observation?: OpponentObservation): OpponentStep {
   const { phase, skill } = state;
   switch (phase.kind) {
     case 'guard': {
-      if (nowMs < phase.untilMs) return { state };
+      if (nowMs < phase.untilMs || observation?.inRange === false) return { state };
       const hand: Hand = rng() < 0.5 ? 'left' : 'right';
       // Skill takes up to 200 ms off and jitter up to 100 ms, so the result stays in range.
       const durationMs =
         WINDUP_MAX_MS - skill * (WINDUP_MAX_MS - WINDUP_MIN_MS - WINDUP_JITTER_MS) - rng() * WINDUP_JITTER_MS;
       const kindRoll = rng();
-      const attackKind = kindRoll < 0.5 ? 'straight' : kindRoll < 0.8 ? 'hook' : 'uppercut';
-      const target = rng() < 0.7 ? 'head' : 'body';
+      // A pattern must be repeated before it influences the next legal action. Exploration
+      // remains possible: the smallest action share is 10%, even for a strong pattern.
+      const habits = observation?.habits;
+      const slip = habits && habits.samples >= 3 ? habits.slips / habits.samples : 0;
+      const duck = habits && habits.samples >= 3 ? habits.ducks / habits.samples : 0;
+      const baseStraight = observation?.style === 'technical' ? 0.65 : observation?.style === 'aggressive' ? 0.35 : 0.5;
+      const straightThreshold = Math.max(0.1, baseStraight - 0.2 * Math.max(slip, duck));
+      const hookShare = Math.min(0.8 - straightThreshold, 0.3 + 0.3 * slip);
+      const attackKind = kindRoll < straightThreshold ? 'straight' : kindRoll < straightThreshold + hookShare ? 'hook' : 'uppercut';
+      // The player's guard protects both heights equally; do not pretend body targets bypass it.
+      const headChance = observation?.style === 'aggressive' ? 0.8 : 0.7;
+      const target = rng() < headChance ? 'head' : 'body';
       return {
         state: enter(state, { kind: 'windup', hand, targetZone: playerZone, impactAtMs: nowMs + durationMs, attackKind, target }, nowMs),
       };

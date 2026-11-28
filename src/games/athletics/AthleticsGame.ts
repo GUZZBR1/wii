@@ -1,4 +1,7 @@
 import * as THREE from 'three';
+import { FaceCache } from '../../mii/faceCache';
+import { FaceVisibilityController } from '../../mii/faceVisibility';
+import { generateMiiFromSeed, loadPlayerMii } from '../../mii/miiSpec';
 import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
 import type { Feedback } from '../track/feedback';
@@ -14,7 +17,7 @@ export interface AthleticsHudState {
   status: string;
   banner?: { title: string; detail?: string };
   feedback?: Feedback;
-  finished?: { title: string; detail: string; standings: { name: string; time: string; you: boolean }[]; restart01: number };
+  finished?: { title: string; detail: string; standings: { name: string; time: string; you: boolean; status: 'confirmed' | 'estimated'; place: number }[]; standingsFinal: boolean; restart01: number };
   energy?: { value01: number; label: string; coaching?: string };
   /** Where everyone is in the race, 0–1. */
   runners?: { name: string; progress01: number; you: boolean }[];
@@ -47,7 +50,9 @@ const strideStep = (dt: number, speedMps: number) => (dt * Math.PI * (1.4 + spee
 export class AthleticsGame {
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(54, 1, 0.1, 350);
-  private readonly player: Athlete = { mii: createMiiRunner(0x2f9be8), lane: 0, stridePhase: 0, lean: 0 };
+  private readonly faceCache = new FaceCache();
+  private readonly faceVisibility: FaceVisibilityController;
+  private readonly player: Athlete = { mii: createMiiRunner(0x2f9be8, loadPlayerMii()), lane: 0, stridePhase: 0, lean: 0 };
   private readonly rivals: Athlete[];
   private readonly loop: GameLoop;
   private readonly stadium: Stadium;
@@ -70,12 +75,22 @@ export class AthleticsGame {
     private readonly audio?: ProceduralAudio,
     goal: Goal = 100,
   ) {
-    this.race = new Race(goal);
+    this.race = new Race(goal, Math.random);
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) => this.update(dt, wallTimeMs));
     this.stadium = buildStadium(this.scene, this.loop.renderer);
     this.loop.onQualityChange = (tier) => this.stadium.setShadows(tier === 0);
-    this.rivals = RIVAL_SHIRTS.map((shirt, i) => ({ mii: createMiiRunner(shirt), lane: i + 1, stridePhase: i, lean: 0 }));
+    this.rivals = RIVAL_SHIRTS.map((shirt, i) => ({
+      mii: createMiiRunner(shirt, generateMiiFromSeed(`athletics-rival-${i}`)),
+      lane: i + 1,
+      stridePhase: i,
+      lean: 0,
+    }));
     this.rivalSpeeds = this.rivals.map(() => 0);
+    this.faceVisibility = new FaceVisibilityController({ cache: this.faceCache, renderer: this.loop.renderer });
+    this.faceVisibility.register(this.player.mii.facePatch);
+    for (const rival of this.rivals) this.faceVisibility.register(rival.mii.facePatch);
+    // Once per rendered frame, after the fixed steps have posed the runners and the camera.
+    this.loop.onBeforeRender = (wallTimeMs) => this.faceVisibility.update(this.camera, wallTimeMs);
     // Points at the player's own runner.
     const marker = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.28, 4), new THREE.MeshBasicMaterial({ color: 0xff8a2a }));
     marker.rotation.x = Math.PI;
@@ -212,9 +227,10 @@ export class AthleticsGame {
     const record = this.record?.isNew ? 'Novo recorde pessoal!' : this.record ? `Recorde pessoal: ${formatTime(this.record.best)}` : '';
     const finished = race.finishS !== undefined
       ? {
-        title: race.place === 1 ? 'VOCÊ VENCEU!' : `${race.place}º lugar`,
+        title: !race.standingsFinal ? 'PROVA EM ANDAMENTO' : race.place === 1 ? 'VOCÊ VENCEU!' : `${race.place}º lugar`,
         detail: [`${formatTime(race.finishS)} nos ${race.goal} m`, record].filter(Boolean).join(' · '),
-        standings: race.standings.map((runner) => ({ name: runner.name, time: formatTime(runner.timeS), you: runner.you })),
+        standings: race.standings.map((runner) => ({ name: runner.name, time: formatTime(runner.timeS), you: runner.you, status: runner.status, place: runner.place })),
+        standingsFinal: race.standingsFinal,
         restart01: Math.floor(race.restart01 * 20) / 20,
       }
       : undefined;
@@ -242,6 +258,8 @@ export class AthleticsGame {
 
   dispose(): void {
     window.clearInterval(this.hudTimer);
+    this.faceVisibility.dispose();
+    this.faceCache.disposeAll();
     this.stadium.dispose();
     this.loop.dispose();
   }

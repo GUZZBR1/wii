@@ -40,7 +40,7 @@ function mockRaf() {
   };
 }
 
-function renderHome(input: HandCursorInput) {
+function renderHome(input: HandCursorInput, onPick = vi.fn(), onIronMan = vi.fn()) {
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -49,7 +49,8 @@ function renderHome(input: HandCursorInput) {
   const carouselDebugRef: { current: CarouselStepResult | undefined } = { current: undefined };
   act(() => {
     root.render(createElement(HomeMenu, {
-      onGames: vi.fn(),
+      onPick,
+      onIronMan,
       exit: null,
       handInputRef,
       rotationGateRef,
@@ -64,6 +65,29 @@ describe('HomeMenu rotational carousel integration', () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     document.body.innerHTML = '';
+  });
+
+  it('selects games on the wheel and opens athletics without a distance dialog', () => {
+    mockReducedMotion();
+    const onPick = vi.fn();
+    const { container, root } = renderHome(HAND_IDLE, onPick);
+    const athletics = container.querySelector<HTMLButtonElement>('[aria-label="Atletismo"]')!;
+    act(() => athletics.click());
+    expect(onPick).not.toHaveBeenCalled();
+    act(() => athletics.click());
+    expect(onPick).toHaveBeenCalledWith('athletics');
+    act(() => root.unmount());
+  });
+
+  it('starts Iron Man from Wii Sports', () => {
+    mockReducedMotion();
+    const onPick = vi.fn();
+    const onIronMan = vi.fn();
+    const { container, root } = renderHome(HAND_IDLE, onPick, onIronMan);
+    act(() => container.querySelector<HTMLButtonElement>('.channel.sports')!.click());
+    expect(onIronMan).toHaveBeenCalledOnce();
+    expect(onPick).not.toHaveBeenCalled();
+    act(() => root.unmount());
   });
 
   it('paints continuous fractional motion directly, exposes debug state, and cancels rAF on unmount', () => {
@@ -140,7 +164,8 @@ describe('HomeMenu rotational carousel integration', () => {
     rendered.handInputRef.current = HAND_IDLE;
     act(() => {
       rendered.root.render(createElement(HomeMenu, {
-        onGames: vi.fn(),
+        onPick: vi.fn(),
+        onIronMan: vi.fn(),
         exit: null,
         handInputRef: rendered.handInputRef,
         rotationGateRef: rendered.rotationGateRef,

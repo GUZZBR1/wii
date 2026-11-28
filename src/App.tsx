@@ -16,7 +16,10 @@ import { visibleImagePoint } from './kinematics/math';
 import type { GestureSample } from './games/core/restartGesture';
 import { ProceduralAudio } from './games/audio';
 import { CameraPip } from './ui/CameraPip';
-import { GameCanvas, type GameEngineHandle, type Sport } from './ui/GameCanvas';
+import { GameCanvas, type GameEngineHandle, type IronManResult, type Sport } from './ui/GameCanvas';
+import { DEFAULT_BOXING_SETUP } from './games/boxing/boxingSetup';
+import { GameLobby, IronManLobby } from './ui/GameLobby';
+import { useScreenFade } from './ui/useScreenFade';
 import type { Goal } from './games/athletics/race';
 import { HandCursor } from './ui/HandCursor';
 import { HandDebugOverlay } from './ui/HandDebugOverlay';
@@ -25,11 +28,12 @@ import { HAND_IDLE, type HandCursorInput } from './ui/handCursorTypes';
 import type { CarouselStepResult } from './ui/carouselController';
 import { drawPose } from './ui/PoseOverlay';
 import { EXIT_DODGE_SW } from './kinematics/postureSignals';
-import { GamesMenu, HomeMenu } from './ui/WiiMenu';
+import { HomeMenu } from './ui/WiiMenu';
+import { MiiCreator } from './ui/MiiCreator';
 import { WiiSplash } from './ui/WiiSplash';
 import './arena.css';
 
-type Screen = 'home' | 'games' | 'play';
+type Screen = 'home' | 'lobby' | 'ironman' | 'play' | 'summary' | 'mii';
 type VisionMode = 'hand' | 'pose';
 
 const ACTIVITY_LABEL: Record<ActivityKind, string> = {
@@ -40,7 +44,7 @@ const ACTIVITY_LABEL: Record<ActivityKind, string> = {
 };
 const MUTE_STORAGE_KEY = 'wii-web-sports.muted.v1';
 
-const inHandMenu = (screen: Screen) => screen === 'home' || screen === 'games';
+const inHandMenu = (screen: Screen) => screen !== 'play';
 const modeForScreen = (screen: Screen): VisionMode => (inHandMenu(screen) ? 'hand' : 'pose');
 
 function readMutedPreference(): boolean {
@@ -62,7 +66,9 @@ function writeMutedPreference(muted: boolean): void {
 export default function App({ exit }: { exit?: ReactNode }) {
   const [splash, setSplash] = useState(true);
   const [screen, setScreen] = useState<Screen>('home');
+  const [boxingSetup, setBoxingSetup] = useState(DEFAULT_BOXING_SETUP);
   const [sport, setSport] = useState<Sport>('athletics');
+  const [ironResults, setIronResults] = useState<IronManResult[] | null>(null);
   const [goal, setGoal] = useState<Goal>(100);
   const [cameraOn, setCameraOn] = useState(false);
   const [cameraStatus, setCameraStatus] = useState('Permissão da câmera ainda não solicitada');
@@ -163,15 +169,16 @@ export default function App({ exit }: { exit?: ReactNode }) {
     if (videoRef.current) videoRef.current.srcObject = null;
     setCameraOn(false);
     setTracking('SEM POSE');
+    engineRef.current?.setTracking?.('SEM POSE');
     setCameraStatus('Câmera desligada');
     publishHandInput(HAND_IDLE);
     handDetectorRef.current.reset();
     for (const event of pipelineRef.current.reset(performance.now())) dispatchEvent(event);
     engineRef.current?.resetLaneZone?.();
-    engineRef.current?.setGuard?.(undefined);
-    engineRef.current?.setDuck?.(undefined);
-    engineRef.current?.setDepthMove?.(undefined);
-    engineRef.current?.setDepthSpeed?.(undefined);
+    engineRef.current?.setGuard?.(undefined, null);
+    engineRef.current?.setDuck?.(undefined, null);
+    engineRef.current?.setDepthMove?.(undefined, null);
+    engineRef.current?.setDepthSpeed?.(undefined, null);
     engineRef.current?.setLateralDash?.(undefined);
     contextRef.current.reset();
     resetCalibration();
@@ -278,7 +285,9 @@ export default function App({ exit }: { exit?: ReactNode }) {
       const current = result.snapshot;
       const decision = contextRef.current.update(current, profileRef.current);
       const activity = decision.confidence01 > 0.4 ? ` · ${ACTIVITY_LABEL[decision.activity]}` : '';
-      setTracking(current.trackingState === 'tracked' ? `TRACKING${activity}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
+      const trackingLabel = current.trackingState === 'tracked' ? `TRACKING${activity}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO';
+      engineRef.current?.setPoseTracking?.(trackingLabel, raw.timestampMs);
+      setTracking(trackingLabel);
       drawPose(overlayRef.current, videoRef.current, current);
       engineRef.current?.setLaneZone?.(result.controls.laneZone);
       engineRef.current?.setEffort?.(result.rawEffort, result.effortSampleAtMs);
@@ -292,11 +301,11 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setTossHand?.(raisedTossHand(current), raw.timestampMs);
       engineRef.current?.setArmMotions?.(result.armMotions);
       engineRef.current?.setSwingTracking?.(result.swingTracking);
-      engineRef.current?.setDodgeZone?.(result.controls.dodgeZone);
-      engineRef.current?.setGuard?.(result.controls.guard);
-      engineRef.current?.setDuck?.(result.controls.duck);
-      engineRef.current?.setDepthMove?.(result.controls.ringDepthMove);
-      engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01);
+      engineRef.current?.setDodgeZone?.(result.controls.dodgeZone, raw.timestampMs);
+      engineRef.current?.setGuard?.(result.controls.guard, raw.timestampMs);
+      engineRef.current?.setDuck?.(result.controls.duck, raw.timestampMs);
+      engineRef.current?.setDepthMove?.(result.controls.ringDepthMove, raw.timestampMs);
+      engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01, raw.timestampMs);
       engineRef.current?.setLateralDash?.(result.controls.lateralDash);
       for (const event of result.events) dispatchEvent(event);
     },
@@ -500,7 +509,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const onStrokeTravel = useCallback((travel: number) => { pipelineRef.current.setStrokeTravel(travel); }, []);
   const onPunchTravel = useCallback((travel: number) => { pipelineRef.current.setPunchTravel(travel); }, []);
 
-  const play = (next: Sport, distance: Goal = 100) => {
+  const play = (next: Sport, distance: Goal = 100, show = true) => {
     setGoal(distance);
     void audioRef.current.unlock();
     // The warm-up tutorials set their own stroke length; every game starts from the default.
@@ -509,34 +518,82 @@ export default function App({ exit }: { exit?: ReactNode }) {
     pipelineRef.current.resetSwings();
     setSport(next);
     sportRef.current = next;
-    setScreen('play');
+    if (show) setScreen('play');
+  };
+
+  // The Iron Man run is only dropped once the menu is on screen, so the match behind the fade stays as it is.
+  const showScreen = useCallback((next: Screen) => {
+    if (next === 'home') setIronResults(null);
+    setScreen(next);
+  }, []);
+  const { go, veil } = useScreenFade(showScreen);
+  const exitGame = () => go('home');
+  const openGame = (next: Sport) => {
+    setIronResults(null);
+    setSport(next);
+    sportRef.current = next;
+    void audioRef.current.unlock();
+    go('lobby');
+  };
+  const startIronMan = () => {
+    setIronResults([]);
+    play('athletics', 100, false);
+    go('play');
+  };
+  const finishIronStage = (result: IronManResult) => {
+    if (!ironResults) return;
+    const results = [...ironResults, result];
+    setIronResults(results);
+    if (result.sport === 'athletics') play('tennis');
+    else if (result.sport === 'tennis') play('boxing');
+    else setScreen('summary');
   };
 
   const handBack = useCallback(() => {
-    if (screenRef.current === 'games') setScreen('home');
-  }, []);
+    if (screenRef.current === 'lobby' || screenRef.current === 'ironman') go('home');
+    else if (screenRef.current === 'mii') setScreen('home');
+  }, [go]);
 
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} crossedPose={crossedPoseRef} onExit={() => setScreen('games')} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} />}
+    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} boxingSetup={boxingSetup} onBoxingSetup={setBoxingSetup} crossedPose={crossedPoseRef} onExit={exitGame} ironMan={ironResults ? { onComplete: finishIronStage } : undefined} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} />}
     {screen === 'home' && (
       <HomeMenu
         exit={exit}
-        onGames={() => setScreen('games')}
+        onPick={openGame}
+        onIronMan={() => { void audioRef.current.unlock(); go('ironman'); }}
         handInputRef={handInputRef}
         rotationGateRef={homeRotationGateRef}
         carouselDebugRef={carouselDebugRef}
+        onMii={() => setScreen('mii')}
       />
     )}
-    {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} />}
 
+    {screen === 'mii' && <MiiCreator onClose={() => setScreen('home')} />}
+    {screen === 'lobby' && <GameLobby sport={sport} goal={goal} onGoal={setGoal} boxingSetup={boxingSetup} onBoxingSetup={setBoxingSetup} onPlay={() => { play(sport, goal, false); go('play'); }} onBack={() => go('home')} />}
+
+    {screen === 'ironman' && <IronManLobby onPlay={startIronMan} onBack={() => go('home')} />}
+
+    {screen === 'summary' && ironResults && <section className="menu iron-summary" aria-label="Resumo do Iron Man">
+      <div className="iron-summary-card">
+        <span className="iron-eyebrow">Wii Sports</span>
+        <h1>Iron Man concluído!</h1>
+        <p>Você completou as três modalidades.</p>
+        <ol>{ironResults.map((result) => <li key={result.sport}>
+          <strong>{result.sport === 'athletics' ? 'Atletismo · 100 m' : result.sport === 'tennis' ? 'Tênis' : 'Boxe'}</strong>
+          <span>{result.detail}</span>
+        </li>)}</ol>
+        <button type="button" className="wii-btn" onClick={exitGame}>Voltar ao menu</button>
+      </div>
+    </section>}
+    {screen === 'play' && ironResults && <div className="iron-progress">IRON MAN · ETAPA {ironResults.length + 1} DE 3</div>}
     {screen === 'play' && headCut && <div className="framing-hint" role="alert">Sua cabeça saiu do quadro · incline a câmera para cima ou afaste-se</div>}
     {screen === 'play' && keepPhotos && <div className="photo-notice">● guardando fotos dos últimos 20 s · E salva</div>}
     {recordingPrompt && <div className="recording-prompt" role="status">● {recordingPrompt}</div>}
 
     {screen === 'play' && <div className="hud-dock">
-      <button type="button" className="dock-btn" onClick={() => setScreen('games')}>‹ Jogos</button>
+      <button type="button" className="dock-btn" onClick={exitGame}>{ironResults ? '‹ Sair do Iron Man' : '‹ Menu'}</button>
       <button type="button" className="dock-btn round" onClick={toggleMute} title={muted ? 'Áudio desligado' : 'Áudio ligado'}>{muted ? '×' : '♫'}</button>
     </div>}
 
@@ -548,6 +605,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       onStart={() => void startCamera()} onStop={stopCamera}
     />
     {showPerf && <PerfMeter videoRef={videoRef} poseFrames={poseFramesRef} poseDelay={poseDelayRef} />}
+    {veil}
     {splash && <WiiSplash onDone={endSplash} />}
   </div>;
 }

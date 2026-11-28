@@ -113,6 +113,18 @@ describe('applyLatePunch', () => {
     expect(applyLatePunch(decided, 1, 'guard').state.winner).toBe('opponent');
   });
 
+  it('keeps the kind and target of a pre-bell punch confirmed after the bell', () => {
+    const preBell = { playerHp: 90, opponentHp: 100, round: 3, roundMsLeft: 1 } as const;
+    for (const [kind, target, opening] of [
+      ['hook', 'head', 'guard'], ['straight', 'body', 'guard'], ['uppercut', 'head', 'open'],
+    ] as const) {
+      const onTime = applyPlayerPunch(preBell, 1, opening, false, kind, target);
+      const late = applyLatePunch(decided, 1, opening, false, kind, target);
+      expect(late.damage).toBe(onTime.damage);
+      expect(late.state.opponentHp).toBe(onTime.state.opponentHp);
+    }
+  });
+
   it('never reopens a knockout, even one landed as the clock ran out', () => {
     const knockout = { ...decided, playerHp: 0 };
     expect(applyLatePunch(knockout, 1, 'open')).toMatchObject({ damage: 0, state: knockout });

@@ -16,6 +16,7 @@ import { useLang } from '../i18n';
 
 // Loaded only once the camera is asked for, so Three.js stays out of the initial bundle.
 const SiteAsciiHand = lazy(() => import('../components/SiteAsciiHand'));
+const SiteMiiPlaza = lazy(() => import('../components/SiteMiiPlaza'));
 
 export default function App() {
   const location = useLocation();
@@ -69,6 +70,11 @@ export default function App() {
         </Routes>
       </motion.div>
       {!inArena && <ScrollbarControl />}
+      {!inArena && !introOpen && (
+        <Suspense fallback={null}>
+          <SiteMiiPlaza />
+        </Suspense>
+      )}
       {!inArena && <SiteHandControls />}
     </SiteHandProvider>
   );

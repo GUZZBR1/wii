@@ -1,5 +1,14 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import {
+  createMiiFacePatch,
+  createMiiHairGeometry,
+  createMiiHeadGeometry,
+  createMiiNoseGeometry,
+  miiHairColor,
+  type MiiFaceMount,
+} from '../../mii/miiHead';
+import { DEFAULT_MII_FACE_SPEC, SKIN_PALETTE, type MiiFaceSpec } from '../../mii/miiSpec';
 
 /** Bakes a color into the vertices, so differently colored parts can share one draw call. Consumes `source`. */
 function paint(source: THREE.BufferGeometry, color: THREE.ColorRepresentation): THREE.BufferGeometry {
@@ -57,6 +66,7 @@ export interface MiiBoxerOptions {
   shortsColor?: THREE.ColorRepresentation;
   gloveColor?: THREE.ColorRepresentation;
   shoeColor?: THREE.ColorRepresentation;
+  face?: MiiFaceSpec;
 }
 
 export interface MiiBoxerFootwork {
@@ -74,6 +84,7 @@ export interface MiiBoxer {
    * body group, limbs, state blending and time-based motion.
    */
   root: THREE.Group;
+  facePatch: MiiFaceMount;
   /**
    * Selects the next animation state. The transition starts at the boxer's internal clock: the
    * latest time passed to `animate`, or zero for a newly created boxer. Re-selecting the current
@@ -506,18 +517,20 @@ function requireFiniteTime(timeSeconds: number): void {
 
 /**
  * Creates a procedural Mii-style boxer. All same-joint parts are baked with vertex colors and
- * merged, leaving nine normal meshes in the body hierarchy; there are no external assets,
+ * merged; the only extra mesh is the shared curved face patch. There are no external assets,
  * SkinnedMesh instances or InstancedMesh instances to dispose specially.
  */
 export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
   const {
     shirtColor = 0xffffff,
     trimColor = 0x2f9be8,
-    skinColor = 0xf2c29a,
+    skinColor: skinColorOption,
     shortsColor = 0x35516e,
     gloveColor = 0xd73731,
     shoeColor = 0xffffff,
+    face = DEFAULT_MII_FACE_SPEC,
   } = options;
+  const skinColor = skinColorOption ?? SKIN_PALETTE[face.skin];
   const root = new THREE.Group();
   root.name = 'mii-boxer';
   root.rotation.order = 'YXZ';
@@ -548,7 +561,7 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
     return group;
   };
 
-  // Broad-shouldered revolved torso, then the head, hair and face in the same static body mesh.
+  // Broad-shouldered revolved torso, then head shape, hair and nose in the same static body mesh.
   const profile = [
     [0, -0.52],
     [0.22, -0.49],
@@ -562,12 +575,10 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
   ].map(([x, y]) => new THREE.Vector2(x, y));
   part(new THREE.LatheGeometry(profile, 20), shirtColor, 1.22, body);
   part(new THREE.CylinderGeometry(0.34, 0.31, 0.14, 20, 1, true), trimColor, 1.31, body);
-  part(new THREE.SphereGeometry(0.4, 24, 18), skinColor, 2.04, body);
-  part(new THREE.SphereGeometry(0.415, 24, 12, 0, Math.PI * 2, 0, Math.PI * 0.42), 0x42291d, 2.06, body, 0.02);
-  for (const x of [-0.14, 0.14]) {
-    part(new THREE.SphereGeometry(0.038, 8, 6).scale(1, 1.25, 0.45).translate(x, 0, -0.36), 0x161616, 2.08, body);
-  }
-  part(new THREE.SphereGeometry(0.045, 8, 6).scale(0.9, 1.15, 0.65).translate(0, 0, -0.39), 0xdd9f78, 2.0, body);
+  part(createMiiHeadGeometry(face), skinColor, 2.04, body);
+  const hair = createMiiHairGeometry(face);
+  if (hair) part(hair, miiHairColor(face), 2.04, body);
+  part(createMiiNoseGeometry(face), skinColor, 2.04, body);
 
   const shoe = (width: number, height: number, length: number) =>
     new THREE.CapsuleGeometry(0.1, 0.2, 4, 12).rotateX(Math.PI / 2).scale(width, height, length);
@@ -605,6 +616,8 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
     mesh.receiveShadow = true;
     parent.add(mesh);
   }
+  const facePatch = createMiiFacePatch(face);
+  body.add(facePatch.object);
 
   const left = limbs[0]!;
   const right = limbs[1]!;
@@ -634,6 +647,7 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
 
   return {
     root,
+    facePatch,
     setState(nextState, hand = 'right') {
       if (nextState === state && hand === stateHand) return;
       stateHand = hand;
