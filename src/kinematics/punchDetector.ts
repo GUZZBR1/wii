@@ -45,8 +45,15 @@ export const PUNCH_THRESHOLDS = {
   /** Peak forward speed that reads as power 1. */
   fullPowerForwardSpeed: 6,
   /** Extension and travel a punch must reach. Travel sits below a 0.35-width short jab: at 15 fps
-   * the first moving sample is slower than the onset speed and falls outside the measure. */
-  confirmElbowCosine: 0.65,
+   * the first moving sample is slower than the onset speed and falls outside the measure.
+   * The cosine bar is what an extended arm MEASURES at production conditions, not what it
+   * geometrically is: punching toward the camera is the worst case of monocular reconstruction
+   * (the arm foreshortens along the optical axis and depth noise collapses the angle), so real
+   * full extensions peak at 0.2-0.4 in the raw signal of the 11 fps reference recording. The
+   * threshold sweep against the floors — user recording, UTD positives, UTD negatives — showed
+   * identical false-positive counts at 0.65, 0.2 and none at all, with recall doubling at 0.2:
+   * the speed onset, the travel bar and the retraction close are what guard precision. */
+  confirmElbowCosine: 0.2,
   confirmForwardTravel: 0.25,
   maxDurationMs: 350,
   /** The punch ends once speed falls to this share of its peak, or the wrist comes back this fast. */
