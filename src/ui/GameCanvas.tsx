@@ -4,10 +4,9 @@ import type { AthleticsHudState } from '../games/athletics/AthleticsGame';
 import type { Goal } from '../games/athletics/race';
 import type { ProceduralAudio } from '../games/audio';
 import type { BoxingScoreboard } from '../games/boxing/BoxingGame';
-import { BOXING_MODES, type BoxingMode } from '../games/boxing/boxingModes';
+import type { BoxingMode } from '../games/boxing/boxingModes';
 import { type BoxingSetup, DEFAULT_BOXING_SETUP } from '../games/boxing/boxingSetup';
 import { OPPONENT_PROFILES, type OpponentProfileId } from '../games/boxing/opponentProfiles';
-import type { DodgeLabel } from '../kinematics/personal/dodgeModel';
 import type { ArmMotion } from '../kinematics/armMotion';
 import type { SwingTracking } from '../kinematics/actionPipeline';
 import { type GestureSample, RestartGesture } from '../games/core/restartGesture';
@@ -28,7 +27,7 @@ import { BOXING_TRAINING_CONTROLS, HUD_TEXT } from './hudText';
 import { forwardKeyDown } from './keys';
 
 export type Sport = 'track' | 'athletics' | 'tennis' | 'boxing';
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setPoseTracking?(tracking: string, atMs: number): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setSwingTracking?(tracking: SwingTracking): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; setDodgeZone?(zone: -1 | 0 | 1 | undefined, atMs?: number | null): void; setGuard?(guard: boolean | undefined, atMs?: number | null): void; setDuck?(ducked: boolean | undefined, atMs?: number | null): void; setTeachReach?(reach: number): void; setDepthMove?(move: -1 | 0 | 1 | undefined, atMs?: number | null): void; setDepthSpeed?(speed: number | undefined, atMs?: number | null): void; setLateralDash?(dash: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setPoseTracking?(tracking: string, atMs: number): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setSwingTracking?(tracking: SwingTracking): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; setDodgeZone?(zone: -1 | 0 | 1 | undefined, atMs?: number | null): void; setGuard?(guard: boolean | undefined, atMs?: number | null): void; setDuck?(ducked: boolean | undefined, atMs?: number | null): void; setDepthMove?(move: -1 | 0 | 1 | undefined, atMs?: number | null): void; setDepthSpeed?(speed: number | undefined, atMs?: number | null): void; setLateralDash?(dash: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
 
 export interface IronManResult {
   sport: 'athletics' | 'tennis' | 'boxing';
@@ -52,8 +51,6 @@ interface Props {
   /** Receives the stroke length the tennis warm-up settles on. */
   onStrokeTravel?: (travel: number) => void;
   onPunchTravel?: (travel: number) => void;
-  /** What the boxing warm-up is taking examples of. */
-  onTeach?: (command: DodgeLabel | 'start' | undefined) => void;
   initialRacketHand?: Hand;
   onRacketHand?: (hand: Hand) => void;
 }
@@ -73,7 +70,7 @@ export function GameCanvas(props: Props) {
     onBoxingMode={(mode) => changeBoxing({ ...boxing, mode })}
     boxingMode={props.ironMan ? 'fight' : boxingMode}
     boxingOpponent={boxingOpponent}
-    onBoxingOpponent={(opponent) => changeBoxing({ ...boxing, opponent })}
+    onBoxingOpponent={(opponent) => changeBoxing({ mode: 'fight', opponent })}
     tutorial={run === 0}
     initialRacketHand={racketHandRef.current}
     onRacketHand={rememberRacketHand}
@@ -81,7 +78,7 @@ export function GameCanvas(props: Props) {
   />;
 }
 
-function GameRun({ onTeach, sport, ironMan, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, onPunchTravel, initialRacketHand, onRacketHand, tutorial, onRestart, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent }: Props & {
+function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, onPunchTravel, initialRacketHand, onRacketHand, tutorial, onRestart, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent }: Props & {
   onRestart: () => void;
   tutorial: boolean;
   boxingMode: BoxingMode;
@@ -115,8 +112,6 @@ function GameRun({ onTeach, sport, ironMan, onEngine, tracking, audio, goal = 10
   travelRef.current = onStrokeTravel;
   const punchTravelRef = useRef(onPunchTravel);
   punchTravelRef.current = onPunchTravel;
-  const teachRef = useRef(onTeach);
-  teachRef.current = onTeach;
   const boxingModeRef = useRef(onBoxingMode);
   boxingModeRef.current = onBoxingMode;
   const racketHandRef = useRef(initialRacketHand);
@@ -214,7 +209,6 @@ function GameRun({ onTeach, sport, ironMan, onEngine, tracking, audio, goal = 10
                 opponent: boxingOpponent,
                 motionRng: Math.random,
                 onPunchTravel: (travel) => punchTravelRef.current?.(travel),
-                onTeach: (command) => teachRef.current?.(command),
                 onTutorialDone: () => boxingModeRef.current('fight'),
               });
         if (disposed) { engine.dispose(); return; }
@@ -261,13 +255,9 @@ function GameRun({ onTeach, sport, ironMan, onEngine, tracking, audio, goal = 10
     </section>}
     {sport === 'boxing' && !ironMan && hud.boxing?.selectionOpen && <fieldset className="game-goals boxing-setup" aria-label="Configuração do boxe">
       <div className="boxing-select-row">
-        <span>MODO</span>
-        {BOXING_MODES.map((mode) => <button key={mode.id} type="button" className="dock-btn" aria-pressed={mode.id === boxingMode} onClick={() => onBoxingMode(mode.id)}>{mode.label}</button>)}
-      </div>
-      {boxingMode === 'fight' && <div className="boxing-select-row">
         <span>ADVERSÁRIO</span>
         {OPPONENT_PROFILES.map((profile) => <button key={profile.id} type="button" className="dock-btn" aria-pressed={profile.id === boxingOpponent} onClick={() => onBoxingOpponent(profile.id)}>{profile.label}</button>)}
-      </div>}
+      </div>
     </fieldset>}
     {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${('kind' in hud.feedback ? hud.feedback.kind : hud.feedback.tone)}`}>
       <span>{hud.feedback.text}</span>

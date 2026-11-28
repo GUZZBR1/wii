@@ -635,40 +635,27 @@ describe('BoxingGame review fixes', () => {
 describe('BoxingGame tutorial mode', () => {
   const warmup = () => {
     const travels: number[] = [];
-    const taught: (string | undefined)[] = [];
     let finished = 0;
     const fight = start({
       mode: 'tutorial',
       onPunchTravel: (travel) => travels.push(travel),
-      onTeach: (command) => taught.push(command),
       onTutorialDone: () => { finished += 1; },
     });
-    return { ...fight, travels, taught, finished: () => finished };
+    return { ...fight, travels, finished: () => finished };
   };
 
   it('never attacks the player and shows how far along each step is', () => {
-    const { run, read } = warmup();
-    run(2);
+    const { game, run, read } = warmup();
+    game.setGuard(true);
+    run(1.6);
     const hud = read();
     expect(hud.label).toBe('100 × 100');
-    expect(hud.banner?.title).toBe('Fique à vontade');
-    expect(hud.learn).toMatchObject({ step: 1, steps: 7 });
+    expect(hud.banner?.title).toBe('Defesa: punhos no rosto');
+    expect(hud.learn).toMatchObject({ step: 1, steps: 6 });
     expect(hud.learn!.progress01).toBeGreaterThan(0);
   });
 
-  it('asks for the examples in turn: the player is told apart from the previous one first', () => {
-    const { game, run, taught } = warmup();
-    run(4);
-    expect(taught).toEqual(['start', 'neutral', undefined]);
-    game.setGuard(true);
-    run(2.5);
-    for (let i = 0; i < 5; i += 1) game.onAction(punch(performance.now()));
-    game.setTeachReach(0);
-    run(1.5);
-    expect(taught.at(-1)).toBe('left');
-  });
-
-  it('hands over to the fight once, after skipping', () => {
+  it('hands over to the fight once, after skipping, with the untuned punch travel', () => {
     const { game, run, travels, finished } = warmup();
     expect(travels).toEqual([0.15]);
     for (let i = 0; i < 25; i += 1) {
@@ -680,7 +667,7 @@ describe('BoxingGame tutorial mode', () => {
       run(0.1);
     }
     run(5);
-    expect(travels).toHaveLength(2);
+    expect(travels).toEqual([0.15, 0.25]);
     expect(finished()).toBeGreaterThanOrEqual(1);
   });
 });

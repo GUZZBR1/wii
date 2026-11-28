@@ -3,6 +3,7 @@ import type { CalibrationProfile, PoseSnapshot, SportActionEvent } from './cv/pr
 import { HandClient } from './cv/handClient';
 import { AdaptiveCalibrator } from './cv/adaptiveCalibrator';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
+import { preferredDelegate } from './cv/delegate';
 import { diagnosticsEnabled } from './cv/diagnostics/flags';
 import { PhotoTrail } from './cv/diagnostics/photoTrail';
 import { BOXING_RECORDING_SCRIPT, TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
@@ -31,7 +32,6 @@ import { EXIT_DODGE_SW } from './kinematics/postureSignals';
 import { HomeMenu } from './ui/WiiMenu';
 import { MiiCreator } from './ui/MiiCreator';
 import { WiiSplash } from './ui/WiiSplash';
-import type { DodgeLabel } from './kinematics/personal/dodgeModel';
 import './arena.css';
 
 type Screen = 'home' | 'lobby' | 'ironman' | 'play' | 'summary' | 'mii';
@@ -97,6 +97,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const visionActivationRef = useRef(0);
   const captureStartedRef = useRef<{ cameraAttempt: number; visionActivation: number } | undefined>(undefined);
   const profileRef = useRef<CalibrationProfile | undefined>(undefined);
+  const poseTimesRef = useRef<number[]>([]);
   const audioRef = useRef(new ProceduralAudio());
   const cameraAttemptRef = useRef(0);
   const poseFramesRef = useRef(0);
@@ -286,7 +287,12 @@ export default function App({ exit }: { exit?: ReactNode }) {
       const current = result.snapshot;
       const decision = contextRef.current.update(current, profileRef.current);
       const activity = decision.confidence01 > 0.4 ? ` · ${ACTIVITY_LABEL[decision.activity]}` : '';
-      const trackingLabel = current.trackingState === 'tracked' ? `TRACKING${activity}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO';
+      // In development the label also says how many poses a second this machine delivers, and on what.
+      const poseTimes = poseTimesRef.current;
+      poseTimes.push(raw.timestampMs);
+      while (raw.timestampMs - poseTimes[0]! > 2000) poseTimes.shift();
+      const rate = diagnosticsEnabled() ? ` · ${Math.round(poseTimes.length / 2)} q/s ${preferredDelegate()}` : '';
+      const trackingLabel = current.trackingState === 'tracked' ? `TRACKING${activity}${rate}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO';
       engineRef.current?.setPoseTracking?.(trackingLabel, raw.timestampMs);
       setTracking(trackingLabel);
       drawPose(overlayRef.current, videoRef.current, current);
@@ -305,7 +311,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setDodgeZone?.(result.controls.dodgeZone, raw.timestampMs);
       engineRef.current?.setGuard?.(result.controls.guard, raw.timestampMs);
       engineRef.current?.setDuck?.(result.controls.duck, raw.timestampMs);
-      engineRef.current?.setTeachReach?.(result.teachReach);
       engineRef.current?.setDepthMove?.(result.controls.ringDepthMove, raw.timestampMs);
       engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01, raw.timestampMs);
       engineRef.current?.setLateralDash?.(result.controls.lateralDash);
@@ -510,7 +515,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
   const onStrokeTravel = useCallback((travel: number) => { pipelineRef.current.setStrokeTravel(travel); }, []);
   const onPunchTravel = useCallback((travel: number) => { pipelineRef.current.setPunchTravel(travel); }, []);
-  const onTeach = useCallback((command: DodgeLabel | 'start' | undefined) => { pipelineRef.current.teachDodge(command); }, []);
 
   const play = (next: Sport, distance: Goal = 100, show = true) => {
     setGoal(distance);
@@ -560,7 +564,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} boxingSetup={boxingSetup} onBoxingSetup={setBoxingSetup} crossedPose={crossedPoseRef} onExit={exitGame} ironMan={ironResults ? { onComplete: finishIronStage } : undefined} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} onTeach={onTeach} />}
+    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} boxingSetup={boxingSetup} onBoxingSetup={setBoxingSetup} crossedPose={crossedPoseRef} onExit={exitGame} ironMan={ironResults ? { onComplete: finishIronStage } : undefined} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} />}
     {screen === 'home' && (
       <HomeMenu
         exit={exit}
