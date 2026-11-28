@@ -13,8 +13,8 @@ const LOST_GRACE_S = 1;
 export type RunPhase = 'countdown' | 'running' | 'paused';
 
 /**
- * Decides whether the run may progress. Owned and written by TrackGame only: camera tracking and
- * key presses come in as calls, time comes in from the fixed-step loop.
+ * Decides whether a run may progress: countdown, tracking-loss pause, resume. The owning game
+ * writes it — camera tracking and key presses come in as calls, time comes in from the fixed-step loop.
  *
  * Losing the camera pauses only a player the camera has actually seen, so keyboard-only runs never
  * pause. Returning from a pause resumes the phase the run was in — never a fresh countdown.
