@@ -1,20 +1,15 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
-import type { CalibrationProfile, PoseSnapshot, SportActionEvent } from './cv/protocol';
+import type { PoseSnapshot, SportActionEvent } from './cv/protocol';
 import { HandClient } from './cv/handClient';
-import { AdaptiveCalibrator } from './cv/adaptiveCalibrator';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
-import { preferredDelegate } from './cv/delegate';
 import { diagnosticsEnabled } from './cv/diagnostics/flags';
 import { PhotoTrail } from './cv/diagnostics/photoTrail';
 import { BOXING_RECORDING_SCRIPT, TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
 import { downloadRecording, noteArrival, PoseRecorder, rememberFrame } from './cv/diagnostics/poseRecorder';
-import { ActionPipeline } from './kinematics/actionPipeline';
 import { PUNCH_THRESHOLDS } from './kinematics/punchDetector';
-import { framingAdvice, handsHidden, armsCrossed, handsRaised, raisedTossHand, HeadWarning } from './kinematics/framing';
-import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
 import { HandCursorDetector } from './kinematics/handCursor';
-import { visibleImagePoint } from './kinematics/math';
 import type { GestureSample } from './games/core/restartGesture';
+import { Perception, type PoseIntake } from './perception';
 import { ProceduralAudio } from './games/audio';
 import { CameraPip } from './ui/CameraPip';
 import { GameCanvas, type GameEngineHandle, type IronManResult, type Sport } from './ui/GameCanvas';
@@ -29,42 +24,22 @@ import { HAND_IDLE } from './ui/handCursorTypes';
 import { createHandInputStore } from './ui/handInputStore';
 import type { CarouselStepResult } from './ui/carouselController';
 import { drawPose } from './ui/PoseOverlay';
-import { EXIT_DODGE_SW } from './kinematics/postureSignals';
 import { HomeMenu } from './ui/WiiMenu';
 import { MiiCreator } from './ui/MiiCreator';
 import { WiiSplash } from './ui/WiiSplash';
-import { hipsHidden } from './kinematics/bodyDodge';
+import { readStored, writeStored } from './lib/storage';
 import './arena.css';
 
 type Screen = 'home' | 'lobby' | 'ironman' | 'play' | 'summary' | 'mii';
 type VisionMode = 'hand' | 'pose';
 
-const ACTIVITY_LABEL: Record<ActivityKind, string> = {
-  idle: 'PARADO',
-  running: 'CORRIDA',
-  swinging: 'RAQUETE',
-  striking: 'LUTA',
-};
 const MUTE_STORAGE_KEY = 'wii-web-sports.muted.v1';
 
 const inHandMenu = (screen: Screen) => screen !== 'play';
 const modeForScreen = (screen: Screen): VisionMode => (inHandMenu(screen) ? 'hand' : 'pose');
 
-function readMutedPreference(): boolean {
-  try {
-    return window.localStorage.getItem(MUTE_STORAGE_KEY) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function writeMutedPreference(muted: boolean): void {
-  try {
-    window.localStorage.setItem(MUTE_STORAGE_KEY, muted ? '1' : '0');
-  } catch {
-    void 0;
-  }
-}
+const readMutedPreference = () => readStored(MUTE_STORAGE_KEY) === '1';
+const writeMutedPreference = (muted: boolean) => void writeStored(MUTE_STORAGE_KEY, muted ? '1' : '0');
 
 export default function App({ exit }: { exit?: ReactNode }) {
   const [splash, setSplash] = useState(true);
@@ -87,9 +62,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const handClientRef = useRef<HandClient | undefined>(undefined);
   const streamRef = useRef<MediaStream | undefined>(undefined);
   const engineRef = useRef<GameEngineHandle | null>(null);
-  const pipelineRef = useRef(new ActionPipeline());
-  const contextRef = useRef(new ContextClassifier());
-  const calibratorRef = useRef(new AdaptiveCalibrator());
+  /** Owns calibration, detectors and the per-frame engine setters; `App` owns the camera and screens. */
+  const perceptionRef = useRef(new Perception());
   const handDetectorRef = useRef(new HandCursorDetector());
   const lastHandDeliveryAtRef = useRef<number | undefined>(undefined);
   const sportRef = useRef(sport);
@@ -99,8 +73,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const activeVisionModeRef = useRef<VisionMode>('pose');
   const visionActivationRef = useRef(0);
   const captureStartedRef = useRef<{ cameraAttempt: number; visionActivation: number } | undefined>(undefined);
-  const profileRef = useRef<CalibrationProfile | undefined>(undefined);
-  const poseTimesRef = useRef<number[]>([]);
   const audioRef = useRef(new ProceduralAudio());
   const cameraAttemptRef = useRef(0);
   const poseFramesRef = useRef(0);
@@ -111,7 +83,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const recentFramesRef = useRef<PoseSnapshot[]>([]);
   const photoTrailRef = useRef(new PhotoTrail());
   const [keepPhotos] = useState(() => new URLSearchParams(window.location.search).has('fotos'));
-  const headWarningRef = useRef(new HeadWarning());
   const [showPerf] = useState(() => new URLSearchParams(window.location.search).has('fps'));
   /** Diagnostic recording: owned here, fed by onPose, ended by the script, G or the camera stopping. */
   const recorderRef = useRef<PoseRecorder | undefined>(undefined);
@@ -140,6 +111,12 @@ export default function App({ exit }: { exit?: ReactNode }) {
   }, []);
 
   const onEngine = useCallback((engine: GameEngineHandle | null) => { engineRef.current = engine; }, []);
+  // The perception owns the frame; it only asks back for the engine it drives and the canvas it draws on.
+  const intakeRef = useRef<PoseIntake>({
+    engine: () => engineRef.current,
+    overlay: () => ({ canvas: overlayRef.current, video: videoRef.current }),
+  });
+  const perceive = useCallback((raw: PoseSnapshot) => perceptionRef.current.update(raw, sportRef.current, intakeRef.current), []);
   const dispatchEvent = useCallback((event: SportActionEvent) => {
     engineRef.current?.onAction(event);
     if (sportRef.current === 'track' || sportRef.current === 'athletics') {
@@ -148,11 +125,9 @@ export default function App({ exit }: { exit?: ReactNode }) {
       if (event.type === 'step') audioRef.current.step(event.side);
     }
   }, []);
-
-  const resetCalibration = useCallback(() => {
-    profileRef.current = undefined;
-    calibratorRef.current.reset();
-  }, []);
+  const resetPerception = useCallback(() => {
+    for (const event of perceptionRef.current.reset(intakeRef.current)) dispatchEvent(event);
+  }, [dispatchEvent]);
 
   const stopCamera = useCallback(() => {
     cameraAttemptRef.current += 1;
@@ -162,7 +137,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
     setHeadCut(false);
     crossedPoseRef.current = null;
     engineRef.current?.setHandsRaised?.(false, null);
-    headWarningRef.current.reset();
     recentFramesRef.current = [];
     photoTrailRef.current.clear();
     poseClientRef.current?.pauseCapture();
@@ -177,17 +151,14 @@ export default function App({ exit }: { exit?: ReactNode }) {
     handStore.publish(HAND_IDLE);
     handDetectorRef.current.reset();
     lastHandDeliveryAtRef.current = undefined;
-    for (const event of pipelineRef.current.reset(performance.now())) dispatchEvent(event);
+    resetPerception();
     engineRef.current?.resetLaneZone?.();
     engineRef.current?.setGuard?.(undefined, null);
     engineRef.current?.setDuck?.(undefined, null);
     engineRef.current?.setDepthMove?.(undefined, null);
     engineRef.current?.setDepthSpeed?.(undefined, null);
     engineRef.current?.setLateralDash?.(undefined);
-    contextRef.current.reset();
-    resetCalibration();
-    drawPose(overlayRef.current, videoRef.current);
-  }, [dispatchEvent, handStore, resetCalibration]);
+  }, [handStore, resetPerception]);
 
   const finishRecording = useCallback(() => {
     const recorder = recorderRef.current;
@@ -201,7 +172,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   }, [sport]);
 
   useEffect(() => {
-    if (screen === 'play') pipelineRef.current.recenterLane();
+    if (screen === 'play') perceptionRef.current.recenterLane();
   }, [screen]);
 
   // G starts/stops a recording during a camera run. Detectors and calibration restart with it,
@@ -216,8 +187,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       }
       if (event.key.toLowerCase() !== 'g' || event.repeat) return;
       if (recorderRef.current) { finishRecording(); return; }
-      for (const stop of pipelineRef.current.reset(performance.now())) dispatchEvent(stop);
-      resetCalibration();
+      resetPerception();
       recorderRef.current = new PoseRecorder([], sport === 'tennis' ? TENNIS_RECORDING_SCRIPT : sport === 'boxing' ? BOXING_RECORDING_SCRIPT : undefined);
       setRecordingPrompt('Gravando…');
     };
@@ -227,7 +197,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       recorderRef.current = undefined;
       setRecordingPrompt(undefined);
     };
-  }, [screen, sport, cameraOn, dispatchEvent, resetCalibration, finishRecording]);
+  }, [screen, sport, cameraOn, resetPerception, finishRecording]);
 
   const activateVisionMode = useCallback((next: VisionMode): VisionMode | undefined => {
     const previous = activeVisionModeRef.current;
@@ -279,46 +249,11 @@ export default function App({ exit }: { exit?: ReactNode }) {
         if (current) setRecordingPrompt(`${current.segment.prompt} · ${Math.ceil(current.remainingMs / 1000)}`);
         else finishRecording();
       }
-      setHeadCut(headWarningRef.current.update(raw));
-      // Implicit calibration: every observed frame is evidence. The current profile is a
-      // continuously improving estimate, never a mode the player has to enter or watch.
-      const calibrated = sportRef.current === 'boxing'
-        ? calibratorRef.current.update(raw, pipelineRef.current.dodgeZone, EXIT_DODGE_SW)
-        : calibratorRef.current.update(raw, pipelineRef.current.laneZone);
-      profileRef.current = calibrated ?? profileRef.current;
-      const result = pipelineRef.current.update(raw, profileRef.current);
-      const current = result.snapshot;
-      const decision = contextRef.current.update(current, profileRef.current);
-      const activity = decision.confidence01 > 0.4 ? ` · ${ACTIVITY_LABEL[decision.activity]}` : '';
-      // In development the label also says how many poses a second this machine delivers, and on what.
-      const poseTimes = poseTimesRef.current;
-      poseTimes.push(raw.timestampMs);
-      while (raw.timestampMs - poseTimes[0]! > 2000) poseTimes.shift();
-      const rate = diagnosticsEnabled() ? ` · ${Math.round(poseTimes.length / 2)} q/s ${preferredDelegate()}` : '';
-      const trackingLabel = current.trackingState === 'tracked' ? `TRACKING${activity}${rate}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO';
-      engineRef.current?.setPoseTracking?.(trackingLabel, raw.timestampMs);
-      setTracking(trackingLabel);
-      drawPose(overlayRef.current, videoRef.current, current);
-      engineRef.current?.setLaneZone?.(result.controls.laneZone);
-      engineRef.current?.setEffort?.(result.rawEffort, result.effortSampleAtMs);
-      engineRef.current?.setFraming?.(framingAdvice(raw), handsHidden(raw));
-      const gestureAtMs = current.trackingState === 'tracked'
-        && [11, 12].every((index) => visibleImagePoint(current.landmarks[index], 0.5))
-        ? raw.timestampMs : null;
-      const wristsVisible = [15, 16].every((index) => visibleImagePoint(current.landmarks[index], 0.5));
-      crossedPoseRef.current = gestureAtMs === null ? null : { active: wristsVisible && armsCrossed(current), atMs: gestureAtMs };
-      engineRef.current?.setHandsRaised?.(gestureAtMs !== null && wristsVisible && handsRaised(current), gestureAtMs);
-      engineRef.current?.setTossHand?.(raisedTossHand(current), raw.timestampMs);
-      engineRef.current?.setArmMotions?.(result.armMotions);
-      engineRef.current?.setSwingTracking?.(result.swingTracking);
-      engineRef.current?.setDodgeZone?.(result.controls.dodgeZone, raw.timestampMs);
-      engineRef.current?.setGuard?.(result.controls.guard, raw.timestampMs);
-      engineRef.current?.setDuck?.(result.controls.duck, raw.timestampMs);
-      engineRef.current?.setHipsHidden?.(hipsHidden(raw), raw.timestampMs);
-      engineRef.current?.setDepthMove?.(result.controls.ringDepthMove, raw.timestampMs);
-      engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01, raw.timestampMs);
-      engineRef.current?.setLateralDash?.(result.controls.lateralDash);
-      for (const event of result.events) dispatchEvent(event);
+      const frame = perceive(raw);
+      setHeadCut(frame.headCut);
+      setTracking(frame.trackingLabel);
+      crossedPoseRef.current = frame.crossedPose;
+      for (const event of frame.events) dispatchEvent(event);
     },
   };
 
@@ -532,16 +467,16 @@ export default function App({ exit }: { exit?: ReactNode }) {
     void startCamera();
   }, [startCamera]);
 
-  const onStrokeTravel = useCallback((travel: number) => { pipelineRef.current.setStrokeTravel(travel); }, []);
-  const onPunchTravel = useCallback((travel: number) => { pipelineRef.current.setPunchTravel(travel); }, []);
+  const onStrokeTravel = useCallback((travel: number) => { perceptionRef.current.setStrokeTravel(travel); }, []);
+  const onPunchTravel = useCallback((travel: number) => { perceptionRef.current.setPunchTravel(travel); }, []);
 
   const play = (next: Sport, distance: Goal = 100, show = true) => {
     setGoal(distance);
     void audioRef.current.unlock();
     // The warm-up tutorials set their own stroke length; every game starts from the default.
-    pipelineRef.current.setStrokeTravel(1.9);
-    pipelineRef.current.setPunchTravel(PUNCH_THRESHOLDS.confirmForwardTravel);
-    pipelineRef.current.resetSwings();
+    perceptionRef.current.setStrokeTravel(1.9);
+    perceptionRef.current.setPunchTravel(PUNCH_THRESHOLDS.confirmForwardTravel);
+    perceptionRef.current.resetSwings();
     setSport(next);
     sportRef.current = next;
     if (show) setScreen('play');
