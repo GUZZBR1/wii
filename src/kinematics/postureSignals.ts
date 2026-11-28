@@ -124,10 +124,16 @@ export class ShoulderUnit {
   reset(): void { this.reference = undefined; }
 }
 
-/** Into a dodge past this displacement, in shoulder widths — a deliberate but comfortable lean. */
-export const ENTER_DODGE_SW = 0.12;
-/** Back to center inside this displacement. */
-export const EXIT_DODGE_SW = 0.05;
+/** Into a dodge past this displacement, in shoulder widths. Sweep on the reference recording:
+ * 0.12 read punch rhythm as dodges (71-94% of punch windows) and even stillness (51%); 0.35 keeps
+ * 72% of genuine slip frames while every punch window and quiet control reads zero. Players dodge
+ *  with big weaves, not boxing-coach 5cm slips — the game threshold matches how people move. */
+const DODGE_BASELINE_WINDOW_MS = 6000;
+/** Stance drift absorbs into the base over ~1.2s; a slip is fast enough to beat it, drift is not. */
+const DODGE_BASELINE_TAU_MS = 1200;
+export const ENTER_DODGE_SW = 0.35;
+/** Back to center inside this displacement — the wide hysteresis gap keeps punch-rhythm oscillation from flapping zones. */
+export const EXIT_DODGE_SW = 0.15;
 
 /**
  * Boxing's dodge: far more sensitive than lane control and measured from the calibrated neutral,
@@ -137,20 +143,46 @@ export class DodgeZoneTracker {
   private readonly filter = new OneEuroFilter({ minCutoff: 1.2, beta: 0.4, derivativeCutoff: 1 });
   private zone: -1 | 0 | 1 = 0;
   private readonly unit = new ShoulderUnit();
+  private baseline?: number;
+  private readonly window: { t: number; cx: number }[] = [];
 
   /** The dodge zone the body currently occupies, or undefined when the shoulders are unreadable.
    *  While `punching` the zone holds: the torso rotation of your own punch genuinely displaces
    *  the shoulder center, but that displacement is committed attack motion, not defense — and a
-   *  slip already in progress when the punch starts keeps its credit through it (slip-counter). */
-  update(snapshot: PoseSnapshot, calibration: CalibrationProfile, punching = false): -1 | 0 | 1 | undefined {
+   *  slip already in progress when the punch starts keeps its credit through it (slip-counter).
+   *
+   *  The center is the player's own rolling base, not a fixed calibration: boxing stance drifts
+   *  constantly, and a fixed center latched the zone on for a whole recording whenever the player
+   *  stood slightly off it. The base adapts only while no dodge is active — a held lean never
+   *  absorbs itself, but slow stance drift quietly follows. */
+  update(snapshot: PoseSnapshot, _calibration: CalibrationProfile, punching = false): -1 | 0 | 1 | undefined {
     if (punching) return this.zone;
     const leftShoulder = snapshot.landmarks[11];
     const rightShoulder = snapshot.landmarks[12];
     const unit = this.unit.update(snapshot);
     if (!leftShoulder || !rightShoulder || unit === undefined) return undefined;
-    const centerX = (leftShoulder.x + rightShoulder.x) / 2;
-    const displacement = (calibration.image.shoulderCenterX0 - centerX) / unit;
-    const u = this.filter.filter(displacement, snapshot.timestampMs);
+    const cx = (leftShoulder.x + rightShoulder.x) / 2;
+    const t = snapshot.timestampMs;
+    // Evidence of where the base is only counts while no dodge is active: if zoned frames
+    // collected, a long held lean would dominate the window, and the moment the zone exited the
+    // baseline would jump to the held position — inverting the return-to-center into the opposite
+    // lane. While zoned the window freezes along with the baseline.
+    this.window.push({ t, cx });
+    while (this.window.length > 1 && t - this.window[0]!.t > DODGE_BASELINE_WINDOW_MS) this.window.shift();
+    if (this.window.length >= 10) {
+      const medianCx = median(this.window.map((sample) => sample.cx));
+      // Time-based adaptation: a per-frame rate would absorb slips 3x faster at 30fps than at 11.
+      // While zoned the base still follows, only five times slower: a slip is far too fast to
+      // absorb either way, but a stance genuinely changed mid-dodge must not latch the zone on
+      // forever — defense outranks circle-holding, which is outside the core loop.
+      const previousT = this.window.length >= 2 ? this.window[this.window.length - 2]!.t : t - 90;
+      const tau = this.zone === 0 ? DODGE_BASELINE_TAU_MS : DODGE_BASELINE_TAU_MS * 5;
+      const adapt = 1 - Math.exp(-(t - previousT) / tau);
+      this.baseline = this.baseline === undefined ? medianCx : this.baseline + (medianCx - this.baseline) * adapt;
+    }
+    if (this.baseline === undefined) return undefined;
+    const displacement = (this.baseline - cx) / unit;
+    const u = this.filter.filter(displacement, t);
     if (this.zone === 0) {
       if (u >= ENTER_DODGE_SW) this.zone = 1;
       else if (u <= -ENTER_DODGE_SW) this.zone = -1;
@@ -162,7 +194,7 @@ export class DodgeZoneTracker {
   /** The zone the state machine currently believes the body occupies — even while updates pause. */
   get currentZone(): -1 | 0 | 1 { return this.zone; }
 
-  reset(): void { this.filter.reset(); this.zone = 0; this.unit.reset(); }
+  reset(): void { this.filter.reset(); this.zone = 0; this.unit.reset(); this.baseline = undefined; this.window.length = 0; }
 }
 
 /** Step in past these width ratios to the calibrated one; return to neutral inside the inner pair. */

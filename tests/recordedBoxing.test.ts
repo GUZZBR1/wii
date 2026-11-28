@@ -100,6 +100,17 @@ describe.skipIf(recordings.length === 0)('scoreboard for real boxing recordings'
       for (const other of rows.filter((row) => row.kind !== 'duck')) {
         expect(other.duckFrames, `${other.kind} duck-free`).toBe(0);
       }
+      // - slipping exists and is not noise: genuine slip windows detect strongly, while punch
+      //   windows stay bounded — residual frames there are genuine body displacement in the
+      //   fighting rhythm, the documented cost of a position-channel dodge (docs/plano-boxe.md)
+      const slipTotal = rows.filter((row) => row.kind === 'slip').reduce((sum, row) => sum + row.slips, 0);
+      expect(slipTotal, 'slip recall').toBeGreaterThanOrEqual(30);
+      for (const punchRow of rows.filter((row) => ['jab', 'hook', 'uppercut'].includes(row.kind))) {
+        expect(punchRow.slips, `${punchRow.kind} slip noise`).toBeLessThanOrEqual(15);
+      }
+      for (const quietRow of rows.filter((row) => row.kind === 'still' || row.kind === 'guard')) {
+        expect(quietRow.slips, `${quietRow.kind} slip noise`).toBeLessThanOrEqual(11);
+      }
     });
   }
 });
