@@ -4,14 +4,17 @@ import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
 import type { GameHudState, HudFeedback } from '../core/hud';
 import { RunGate, type RunPhase } from '../track/runGate';
+import { PUNCH_THRESHOLDS } from '../../kinematics/punchDetector';
 import { applyLatePunch, applyOpponentPunch, applyPlayerPunch, createBoxing, MAX_HP, ROUND_COUNT, tickRound, type BoxingState } from './boxingRules';
 import type { BoxingMode } from './boxingModes';
+import { LEARNING_PUNCH_TRAVEL, BoxingTutorial } from './boxingTutorial';
+import { RestartGesture } from '../core/restartGesture';
 import { createImpactSparkPool, type ImpactEffectKind, type ImpactSparkPool } from './impactEffects';
 import { createFirstPersonGloves, createMiiBoxer, type FirstPersonGloves, type MiiBoxer, type MiiBoxerFootwork, type MiiBoxerState } from './miiBoxer';
 import {
   createOpponentAi,
   IMPACT_GRACE_MS,
-  isDodged,
+  isDodgedTyped,
   MAX_PUNCH_LOOKBACK_MS,
   type OpponentAiState,
   type OpponentAttack,
@@ -122,6 +125,11 @@ export interface BoxingGameOptions {
    * shift the attack sequence. Defaults to no random footwork (the opponent never dashes).
    */
   motionRng?: () => number;
+  /**
+   * Reports how much forward travel a punch needs to confirm — generous while teaching,
+   * adapted to the measured player once the warm-up ends, exactly like the tennis one.
+   */
+  onPunchTravel?: (travel: number) => void;
 }
 
 export interface BoxingScoreboard {
@@ -169,6 +177,10 @@ export class BoxingGame {
   private ai: OpponentAiState;
   private bagTrainer: PunchingBagTrainer | undefined;
   private dodgeChallenge: DodgeChallenge | undefined;
+  private tutorial: BoxingTutorial | undefined;
+  /** Guards against re-applying the same tutorial's adapted travel every tick. */
+  private travelAdapted = false;
+  private readonly skipGesture = new RestartGesture();
   private fightMs = 0;
   private animTimeS = 0;
   /** Wall time the fight last (re)started; punches peaking before it belong to a frozen fight. */
@@ -202,9 +214,10 @@ export class BoxingGame {
   /** The punch key alternates arms, so two taps are a one-two. */
   private nextKeyHand: Hand = 'right';
   private cameraGuard = false;
+  private cameraDuck = false;
   /** Fight-time bounds of the open counter window, if any. */
   private counter: { fromMs: number; untilMs: number } | undefined;
-  private zoneHistory: { atMs: number; zone: Zone; guarded: boolean; inRange: boolean }[] = [];
+  private zoneHistory: { atMs: number; zone: Zone; guarded: boolean; ducked: boolean; inRange: boolean }[] = [];
   private punchAnimS: Record<Hand, number> = { left: PUNCH_ANIM_S, right: PUNCH_ANIM_S };
   private opponentHitS = 0;
   private hitShakeS = 0;
@@ -217,7 +230,7 @@ export class BoxingGame {
     private readonly onHud: (state: BoxingHudState) => void,
     private readonly audio?: ProceduralAudio,
     private readonly rng: () => number = Math.random,
-    options: BoxingGameOptions = {},
+    private readonly options: BoxingGameOptions = {},
   ) {
     this.mode = options.mode ?? 'fight';
     this.motionRng = options.motionRng ?? (() => 0);
@@ -247,6 +260,10 @@ export class BoxingGame {
       this.bag = undefined;
     }
     if (this.mode === 'dodge') this.dodgeChallenge = new DodgeChallenge();
+    if (this.mode === 'tutorial') {
+      this.tutorial = new BoxingTutorial();
+      this.options.onPunchTravel?.(LEARNING_PUNCH_TRAVEL);
+    }
 
     this.placeFighters(1);
     this.gloves = createFirstPersonGloves();
@@ -289,6 +306,16 @@ export class BoxingGame {
     this.cameraGuard = guard === true;
   }
 
+  /** Like the guard, a duck never latches: a camera with no opinion is not ducking. */
+  setDuck(ducked: boolean | undefined): void {
+    this.cameraDuck = ducked === true;
+  }
+
+  /** Feeds the tutorial skip gesture; outside the tutorial the boxing game has no use for it. */
+  setHandsRaised(raised: boolean, atMs: number | null): void {
+    this.skipGesture.setHandsRaised(raised, atMs);
+  }
+
   /** Like the guard, footwork never latches: no opinion means standing still. */
   setDepthMove(move: -1 | 0 | 1 | undefined): void {
     this.cameraDepth = move ?? 0;
@@ -321,7 +348,7 @@ export class BoxingGame {
   onAction(event: SportActionEvent): void {
     if (event.type !== 'punch-start' && event.type !== 'punch') return;
     if (event.type === 'punch-start') {
-      if (this.punchingActive() || (this.mode === 'dodge' && this.trainingActive())) {
+      if (this.punchingActive() || (this.mode === 'dodge' && this.trainingActive()) || (this.mode === 'tutorial' && this.gate.phase === 'running')) {
         this.punchAnimS[event.hand] = 0;
         this.audio?.whoosh(0.55);
       }
@@ -334,11 +361,26 @@ export class BoxingGame {
       return;
     }
     if (this.mode === 'dodge') return;
+    if (this.mode === 'tutorial') {
+      const tutorial = this.tutorial;
+      if (!tutorial || tutorial.done || this.gate.phase !== 'running' || this.restartMsLeft > 0) return;
+      if (event.type === 'punch' && event.punchKind && event.punchKind !== 'unknown') {
+        const advanced = tutorial.punch({
+          hand: event.hand,
+          kind: event.punchKind,
+          target: event.punchTargetZone ?? 'unknown',
+          travelSw: event.measurement?.forwardTravel,
+        });
+        this.setFeedback(advanced ? 'ISSO!' : 'TENTE DE NOVO', advanced ? 'good' : 'neutral');
+        if (advanced) this.audio?.punchImpact(0.3 + 0.4 * event.power01, false);
+      }
+      return;
+    }
 
     if (event.peakTimestampMs < this.runningSinceWallMs) return;
     if (this.fighting()) {
       const ageMs = Math.min(MAX_PUNCH_LOOKBACK_MS, Math.max(0, performance.now() - event.peakTimestampMs));
-      this.landPunch(event.hand, event.power01, this.fightMs - ageMs);
+      this.landPunch(event.hand, event.power01, this.fightMs - ageMs, applyPlayerPunch, event.punchKind ?? 'unknown', event.punchTargetZone ?? 'unknown');
       return;
     }
     // Confirmation lags the peak: a punch that peaked before the bell still counts. The fight
@@ -346,7 +388,7 @@ export class BoxingGame {
     if (this.gate.phase !== 'running' || this.roundEndedWallMs === undefined) return;
     const beforeBellMs = this.roundEndedWallMs - event.peakTimestampMs;
     if (beforeBellMs < 0 || beforeBellMs > MAX_PUNCH_LOOKBACK_MS) return;
-    this.landPunch(event.hand, event.power01, this.fightMs - beforeBellMs, applyLatePunch);
+    this.landPunch(event.hand, event.power01, this.fightMs - beforeBellMs, applyLatePunch, event.punchKind ?? 'unknown', event.punchTargetZone ?? 'unknown');
   }
 
   onKey(key: string): void {
@@ -395,7 +437,7 @@ export class BoxingGame {
     return this.mode === 'fight' ? this.fighting() : this.mode === 'bag' && this.trainingActive();
   }
 
-  private landPunch(hand: Hand, power01: number, atMs: number, apply = applyPlayerPunch): void {
+  private landPunch(hand: Hand, power01: number, atMs: number, apply = applyPlayerPunch, kind: 'unknown' | 'straight' | 'hook' | 'uppercut' = 'unknown', target: 'unknown' | 'head' | 'body' = 'unknown'): void {
     const sample = [...this.zoneHistory].reverse().find((entry) => entry.atMs <= atMs);
     if (!(sample?.inRange ?? inPunchRange(this.playerPos, this.opponentPos))) {
       this.setFeedback('LONGE DEMAIS', 'neutral');
@@ -403,7 +445,7 @@ export class BoxingGame {
     }
     const decided = this.match.winner;
     const counter = this.counter !== undefined && atMs >= this.counter.fromMs && atMs <= this.counter.untilMs;
-    const result = apply(this.match, power01, openingAt(this.ai, atMs), counter);
+    const result = apply(this.match, power01, openingAt(this.ai, atMs), counter, kind, target);
     this.match = result.state;
     const blocked = result.damage === 0;
     this.spawnOpponentImpact(power01, blocked ? 'block' : 'hit');
@@ -495,6 +537,10 @@ export class BoxingGame {
       this.stepDodge(dtMs);
       return;
     }
+    if (this.mode === 'tutorial') {
+      this.stepTutorial(dtMs);
+      return;
+    }
     this.stepFight(dtMs);
   }
 
@@ -526,6 +572,42 @@ export class BoxingGame {
     this.applyDodgeEvents(challenge.advance(dtMs / 1000, this.trainingLaneZone()));
   }
 
+  /** The opponent holds its guard and never attacks: the tutorial is a warm-up, not a fight. */
+  private stepTutorial(dtMs: number): void {
+    const tutorial = this.tutorial;
+    if (!tutorial) return;
+    if (tutorial.done) {
+      this.restartMsLeft -= dtMs;
+      if (this.restartMsLeft <= 0) this.resetTraining();
+      return;
+    }
+    this.fightMs += dtMs;
+    this.movePlayer(dtMs);
+    tutorial.tick({
+      dtS: dtMs / 1000,
+      seen: true,
+      guard: this.guarding(),
+      zone: this.zone,
+      ducked: this.cameraDuck,
+    });
+    const { title, detail } = tutorial.text;
+    this.status = tutorial.done ? 'Tutorial completo!' : `${title} — ${detail}`;
+    // Holding both hands up skips the rest of the warm-up, same gesture as the tennis one.
+    this.skipGesture.step(dtMs / 1000, performance.now());
+    if (this.skipGesture.progress01 >= 1) {
+      tutorial.skip();
+      this.status = 'Tutorial completo!';
+    }
+    if (tutorial.done) {
+      if (!this.travelAdapted) {
+        this.travelAdapted = true;
+        this.options.onPunchTravel?.(tutorial.punchTravel ?? PUNCH_THRESHOLDS.confirmForwardTravel);
+      }
+      this.restartMsLeft = MATCH_PAUSE_MS;
+      this.audio?.bell('ko');
+    }
+  }
+
   private stepFight(dtMs: number): void {
     if (this.match.winner) {
       this.restartMsLeft -= dtMs;
@@ -545,7 +627,7 @@ export class BoxingGame {
     this.fightMs += dtMs;
     this.moveFighters(dtMs);
     const inRange = inPunchRange(this.playerPos, this.opponentPos);
-    this.zoneHistory.push({ atMs: this.fightMs, zone: this.zone, guarded: this.guarding(), inRange });
+    this.zoneHistory.push({ atMs: this.fightMs, zone: this.zone, guarded: this.guarding(), ducked: this.cameraDuck, inRange });
     while (this.zoneHistory[0] && this.zoneHistory[0].atMs < this.fightMs - ZONE_HISTORY_MS) this.zoneHistory.shift();
 
     const stepped = stepOpponent(this.ai, this.fightMs, this.zone, this.rng);
@@ -647,7 +729,7 @@ export class BoxingGame {
       this.audio?.whoosh(0.6);
       return;
     }
-    const dodged = isDodged(attack.targetZone, samples.map(({ zone }) => zone));
+    const dodged = isDodgedTyped(attack, samples.map(({ zone }) => zone), samples.map(({ ducked }) => ducked));
     // Same grace as the dodge: fists that come up within the pose-latency window count.
     const guarded = samples.some((sample) => sample.guarded);
     const result = applyOpponentPunch(this.match, { dodged, guarded });
@@ -751,6 +833,12 @@ export class BoxingGame {
       this.bag?.reset();
     }
     if (this.mode === 'dodge') this.dodgeChallenge = new DodgeChallenge();
+    if (this.mode === 'tutorial') {
+      this.tutorial = new BoxingTutorial();
+      this.travelAdapted = false;
+      // The travel floor is not lowered again: the next completion re-adapts it, and in the
+      // meantime the player keeps whatever the last warm-up measured instead of the floor.
+    }
     this.runningSinceWallMs = performance.now();
     this.status = this.initialStatus();
   }
@@ -766,12 +854,14 @@ export class BoxingGame {
   private initialStatus(): string {
     if (this.mode === 'bag') return 'Siga o ritmo do saco';
     if (this.mode === 'dodge') return 'Leia o golpe e ocupe a zona segura';
+    if (this.mode === 'tutorial') return 'Aprenda os golpes no seu ritmo';
     return 'Soque quando a guarda abrir';
   }
 
   private trainingFinished(): boolean {
     if (this.mode === 'bag') return this.bagTrainer?.snapshot.status === 'won';
     if (this.mode === 'dodge') return this.dodgeChallenge !== undefined && this.dodgeChallenge.snapshot.status !== 'active';
+    if (this.mode === 'tutorial') return this.tutorial?.done === true;
     return false;
   }
 
@@ -925,7 +1015,7 @@ export class BoxingGame {
   private publishHud(): void {
     const training = this.trainingScoreboard();
     const finished = this.mode === 'fight' ? this.match.winner !== undefined : this.trainingFinished();
-    const countdownDetail = this.mode === 'bag' ? 'Prepare o ritmo' : this.mode === 'dodge' ? 'Leia o golpe' : 'Guarda alta';
+    const countdownDetail = this.mode === 'bag' ? 'Prepare o ritmo' : this.mode === 'dodge' ? 'Leia o golpe' : this.mode === 'tutorial' ? 'Aprenda os golpes' : 'Guarda alta';
     const banner = this.gate.phase === 'countdown' ? { title: String(this.gate.count), detail: countdownDetail }
       : this.gate.phase === 'paused' ? { title: 'PAUSA', detail: 'Volte para a câmera ou aperte W A S D' }
       : finished ? { title: this.status }

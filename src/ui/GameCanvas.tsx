@@ -34,7 +34,7 @@ const BOXING_TRAINING_CONTROLS = {
   bag: 'E ou socos no ritmo  ·  W A S D mover',
   dodge: '← → esquivar  ·  A / D circular para sair da linha  ·  W / S ajustar distância',
 } as const;
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setSwingTracking?(tracking: SwingTracking): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; setDodgeZone?(zone: -1 | 0 | 1 | undefined): void; setGuard?(guard: boolean | undefined): void; setDepthMove?(move: -1 | 0 | 1 | undefined): void; setDepthSpeed?(speed: number | undefined): void; setLateralDash?(dash: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setSwingTracking?(tracking: SwingTracking): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; setDodgeZone?(zone: -1 | 0 | 1 | undefined): void; setGuard?(guard: boolean | undefined): void; setDuck?(ducked: boolean | undefined): void; setDepthMove?(move: -1 | 0 | 1 | undefined): void; setDepthSpeed?(speed: number | undefined): void; setLateralDash?(dash: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
 
 interface Props {
   sport: Sport;
@@ -48,6 +48,7 @@ interface Props {
   onExit?: () => void;
   /** Receives the stroke length the tennis warm-up settles on. */
   onStrokeTravel?: (travel: number) => void;
+  onPunchTravel?: (travel: number) => void;
   initialRacketHand?: Hand;
   onRacketHand?: (hand: Hand) => void;
 }
@@ -74,7 +75,7 @@ export function GameCanvas(props: Props) {
   />;
 }
 
-function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, initialRacketHand, onRacketHand, tutorial, onRestart, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent }: Props & {
+function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, onPunchTravel, initialRacketHand, onRacketHand, tutorial, onRestart, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent }: Props & {
   onRestart: () => void;
   tutorial: boolean;
   boxingMode: BoxingMode;
@@ -102,6 +103,8 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
   const over = Boolean(hud.finished || hud.tennis?.winner);
   const travelRef = useRef(onStrokeTravel);
   travelRef.current = onStrokeTravel;
+  const punchTravelRef = useRef(onPunchTravel);
+  punchTravelRef.current = onPunchTravel;
   const racketHandRef = useRef(initialRacketHand);
   racketHandRef.current = initialRacketHand;
   const racketHandCallbackRef = useRef(onRacketHand);
@@ -167,6 +170,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
                 mode: boxingMode,
                 opponent: boxingOpponent,
                 motionRng: Math.random,
+                onPunchTravel: (travel) => punchTravelRef.current?.(travel),
               });
         if (disposed) { engine.dispose(); return; }
         game = engine;

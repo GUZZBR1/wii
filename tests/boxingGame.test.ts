@@ -579,3 +579,103 @@ describe('BoxingGame review fixes', () => {
     expect((fight.game as unknown as { dash?: unknown }).dash).toBeUndefined();
   });
 });
+
+describe('BoxingGame tutorial mode', () => {
+  const tutorialPunch = (peakTimestampMs: number, kind: 'straight' | 'hook' | 'uppercut' = 'straight', target: 'head' | 'body' = 'head', hand: 'left' | 'right' = 'left'): SportActionEvent => ({
+    ...(punch(peakTimestampMs) as Extract<SportActionEvent, { type: 'punch' }>),
+    hand,
+    punchKind: kind,
+    punchTargetZone: target,
+    measurement: {
+      samples: [],
+      origin: { timestampMs: 0, lateral: 0, vertical: 0, forward: 0, elbowCosine: 0, confidence: 1 },
+      speedPeak: { timestampMs: 0, lateral: 0, vertical: 0, forward: 0.5, elbowCosine: 0.5, confidence: 1 },
+      contact: { timestampMs: 0, lateral: 0, vertical: 0, forward: 0.9, elbowCosine: 0.9, confidence: 1 },
+      end: { timestampMs: 0, lateral: 0, vertical: 0, forward: 0.8, elbowCosine: 0.8, confidence: 1 },
+      durationMs: 200,
+      forwardTravel: 0.9,
+      lateralExcursion: 0.05,
+      verticalRise: 0.02,
+      pathLength: 1,
+      netDisplacement: 0.9,
+      maxElbowCosine: 0.95,
+    },
+  });
+
+  it('never attacks the player and starts with the guard instruction', () => {
+    const { run, read } = start({ mode: 'tutorial' });
+    run(5);
+    const hud = read();
+    expect(hud.label).toBe('100 × 100');
+    expect(hud.status).toContain('guarda');
+  });
+
+  it('advances through the steps as the player performs them', () => {
+    const { game, run, read } = start({ mode: 'tutorial' });
+    game.setGuard(true);
+    run(1.2);
+    expect(read().status).toContain('jab');
+    game.setGuard(false);
+    const at = () => performance.now();
+    for (let i = 0; i < 3; i += 1) {
+      game.onAction(tutorialPunch(at(), 'straight', 'head', 'left'));
+      run(0.3);
+    }
+    expect(read().status).toContain('cruzado');
+    for (let i = 0; i < 3; i += 1) {
+      game.onAction(tutorialPunch(at(), 'straight', 'head', 'right'));
+      run(0.3);
+    }
+    expect(read().status).toContain('ganchos');
+  });
+
+  it('reports the learning floor on entry and the adapted travel once done', () => {
+    const travels: number[] = [];
+    const { game, run } = start({ mode: 'tutorial', onPunchTravel: (travel) => travels.push(travel) });
+    expect(travels).toEqual([0.15]);
+    game.setGuard(true);
+    run(1.2);
+    game.setGuard(false);
+    const at = () => performance.now();
+    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'left')); run(0.2); }
+    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'right')); run(0.2); }
+    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'hook', 'head')); run(0.2); }
+    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'uppercut', 'head')); run(0.2); }
+    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'body')); run(0.2); }
+    game.setDodgeZone(-1); run(0.3); game.setDodgeZone(0); run(0.3);
+    game.setDodgeZone(1); run(0.3); game.setDodgeZone(0); run(0.3);
+    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
+    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
+    expect(travels.at(-1)).toBeCloseTo(0.25);
+  });
+
+  it('unknown-type punches do not advance the tutorial', () => {
+    const { game, run, read } = start({ mode: 'tutorial' });
+    game.setGuard(true);
+    run(1.2);
+    game.setGuard(false);
+    game.onAction(punch(performance.now()));
+    run(0.3);
+    expect(read().status).toContain('jab');
+  });
+
+  it('finishes with a completion banner once every step is done', () => {
+    const { game, run, read } = start({ mode: 'tutorial' });
+    game.setGuard(true);
+    run(1.2);
+    game.setGuard(false);
+    const at = () => performance.now();
+    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'left')); run(0.2); }
+    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'right')); run(0.2); }
+    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'hook', 'head')); run(0.2); }
+    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'uppercut', 'head')); run(0.2); }
+    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'body')); run(0.2); }
+    game.setDodgeZone(-1); run(0.3); game.setDodgeZone(0); run(0.3);
+    game.setDodgeZone(1); run(0.3); game.setDodgeZone(0); run(0.3);
+    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
+    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
+    const hud = read();
+    expect(hud.status).toBe('Tutorial completo!');
+    expect(hud.banner?.title).toBe('Tutorial completo!');
+  });
+});
