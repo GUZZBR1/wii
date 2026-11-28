@@ -169,6 +169,85 @@ describe('player Mii storage', () => {
     }
   });
 
+  it('lets a valid external storage write win after a failed save', async () => {
+    const spec = await importFreshSpec();
+    const storedFace = spec.generateMiiFromSeed('preexisting-persisted-face');
+    const sessionFace = spec.generateMiiFromSeed('unpersisted-session-face');
+    const externalFace = spec.generateMiiFromSeed('external-post-failure-face');
+    const backing = createMemoryStorage();
+    backing.setItem(spec.PLAYER_MII_STORAGE_KEY, spec.serializeMiiFaceSpec(storedFace));
+    let acceptsWrites = false;
+    const intermittentlyWritable = {
+      getItem: backing.getItem,
+      setItem: (key: string, value: string) => {
+        if (!acceptsWrites) throw new Error('quota');
+        backing.setItem(key, value);
+      },
+    };
+    const restore = installLocalStorage(intermittentlyWritable);
+    try {
+      expect(spec.savePlayerMii(sessionFace)).toBe(false);
+      expect(spec.loadPlayerMii()).toEqual(sessionFace);
+      acceptsWrites = true;
+      intermittentlyWritable.setItem(spec.PLAYER_MII_STORAGE_KEY, spec.serializeMiiFaceSpec(externalFace));
+      expect(spec.loadPlayerMii()).toEqual(externalFace);
+    } finally {
+      restore();
+    }
+  });
+
+  it('detects an external write when storage becomes available after a session-only save', async () => {
+    const spec = await importFreshSpec();
+    const sessionFace = spec.generateMiiFromSeed('save-while-storage-unavailable');
+    const externalFace = spec.generateMiiFromSeed('write-after-storage-returns');
+    const restoreMissing = installLocalStorage(undefined);
+    try {
+      expect(spec.savePlayerMii(sessionFace)).toBe(false);
+    } finally {
+      restoreMissing();
+    }
+    const storage = createMemoryStorage();
+    const restoreStorage = installLocalStorage(storage);
+    try {
+      expect(spec.loadPlayerMii()).toEqual(sessionFace);
+      storage.setItem(spec.PLAYER_MII_STORAGE_KEY, spec.serializeMiiFaceSpec(externalFace));
+      expect(spec.loadPlayerMii()).toEqual(externalFace);
+    } finally {
+      restoreStorage();
+    }
+  });
+
+  it('treats the first readable payload as baseline when storage was unreadable during a failed save', async () => {
+    const spec = await importFreshSpec();
+    const sessionFace = spec.generateMiiFromSeed('save-while-storage-throws');
+    const storedFace = spec.generateMiiFromSeed('first-readable-stored-face');
+    const externalFace = spec.generateMiiFromSeed('later-external-stored-face');
+    const throwing = {
+      getItem: () => {
+        throw new Error('denied');
+      },
+      setItem: () => {
+        throw new Error('denied');
+      },
+    };
+    const restoreThrowing = installLocalStorage(throwing);
+    try {
+      expect(spec.savePlayerMii(sessionFace)).toBe(false);
+    } finally {
+      restoreThrowing();
+    }
+    const storage = createMemoryStorage();
+    storage.setItem(spec.PLAYER_MII_STORAGE_KEY, spec.serializeMiiFaceSpec(storedFace));
+    const restoreStorage = installLocalStorage(storage);
+    try {
+      expect(spec.loadPlayerMii()).toEqual(sessionFace);
+      storage.setItem(spec.PLAYER_MII_STORAGE_KEY, spec.serializeMiiFaceSpec(externalFace));
+      expect(spec.loadPlayerMii()).toEqual(externalFace);
+    } finally {
+      restoreStorage();
+    }
+  });
+
   it('returns valid localStorage data again after a later save succeeds', async () => {
     const spec = await importFreshSpec();
     const firstFace = spec.generateMiiFromSeed('first-failed-save');
