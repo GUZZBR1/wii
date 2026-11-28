@@ -27,6 +27,19 @@ const COAST_HALF_LIFE_MS = 150;
 /** Below this the carried speed is indistinguishable from stopped; the coast ends in a clean zero. */
 const COAST_MIN_SPEED01 = 0.02;
 
+/** MediaPipe extrapolates cropped hips, but their coordinates are only trustworthy enough to
+ * anchor the body frame when the tracker itself still believes them. */
+function worldHipsVisible(snapshot: PoseSnapshot): boolean {
+  return Boolean(
+    snapshot.worldLandmarks[23]
+    && snapshot.worldLandmarks[24]
+    && Math.min(
+      snapshot.worldLandmarks[23]!.visibility ?? snapshot.worldLandmarks[23]!.presence ?? 0,
+      snapshot.worldLandmarks[24]!.visibility ?? snapshot.worldLandmarks[24]!.presence ?? 0,
+    ) >= 0.35,
+  );
+}
+
 export interface SwingTracking {
   scaleReady: boolean;
   wrists: readonly { hand: Hand; tracked: boolean; pending: boolean; arbitrating: boolean }[];
@@ -159,15 +172,7 @@ export class ActionPipeline {
     const swingScaleReady = calibration !== undefined && (calibration.readiness?.scale01 ?? 1) >= 0.5;
     if (!swingScaleReady) this.heldSwing = undefined;
     const results = this.swings.map(({ wrist, gate, detector, hand }) => {
-      const worldHipsVisible = Boolean(
-        snapshot.worldLandmarks[23]
-        && snapshot.worldLandmarks[24]
-        && Math.min(
-          snapshot.worldLandmarks[23]!.visibility ?? snapshot.worldLandmarks[23]!.presence ?? 0,
-          snapshot.worldLandmarks[24]!.visibility ?? snapshot.worldLandmarks[24]!.presence ?? 0,
-        ) >= 0.35,
-      );
-      const swingLandmarks = worldHipsVisible ? [11, 12, 23, 24, wrist] : [11, 12, wrist];
+      const swingLandmarks = worldHipsVisible(snapshot) ? [11, 12, 23, 24, wrist] : [11, 12, wrist];
       const tracking = gate.evaluate(snapshot, swingLandmarks, 'world');
       if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
       // A degraded gate still feeds the detector, which skips weak frames itself: the gate stays degraded
@@ -211,7 +216,9 @@ export class ActionPipeline {
     }
 
     const footworkTracked = this.footworkGate.evaluate(snapshot).state === 'tracked';
-    if (calibration && swingScaleReady && footworkTracked) {
+    // Guard is upper-body only: fists, elbows, shoulders and nose. Cropped hips must not turn
+    // blocking off just because the footwork channel underneath it is unavailable.
+    if (calibration && swingScaleReady) {
       controls = { ...controls, guard: isGuardingPose(current, calibration) };
     }
 
@@ -225,7 +232,8 @@ export class ActionPipeline {
     if (vetoOnset) this.referenceVetoAtMs.push(snapshot.timestampMs);
     while (this.referenceVetoAtMs[0] && snapshot.timestampMs - this.referenceVetoAtMs[0] > 600) this.referenceVetoAtMs.shift();
     for (const { hand, elbow, wrist, gate, detector } of this.punches) {
-      const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, elbow, wrist], 'world');
+      const punchLandmarks = worldHipsVisible(snapshot) ? [11, 12, 23, 24, elbow, wrist] : [11, 12, elbow, wrist];
+      const tracking = gate.evaluate(snapshot, punchLandmarks, 'world');
       if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
       else if (tracking.state === 'degraded') detector.interruptRearm();
       if (!calibration || !swingScaleReady || tracking.state === 'lost') continue;
@@ -235,20 +243,25 @@ export class ActionPipeline {
         events.push({ ...this.eventBase(snapshot, tracking.confidence, tracking.state), id: this.nextId++, type: 'punch-start', hand });
       } else if (output?.kind === 'confirmed') {
         const { power01, confidence, peakTimestampMs, onsetTimestampMs, measurement } = output;
-        const classification = classifyPunch(measurement);
+        // The shoulder-speed estimate lags the drop by about a frame, so judge the onset race
+        // itself. A legitimate punch whose author ducks only later in the course is not a phantom.
+        const referenceMoved = this.referenceVetoAtMs.some((vetoAtMs) => vetoAtMs >= onsetTimestampMs - 100 && vetoAtMs <= onsetTimestampMs + 150);
         this.punchInFlight.end(hand);
-        events.push({
-          ...this.eventBase(snapshot, confidence, tracking.state),
-          id: this.nextId++,
-          type: 'punch',
-          hand,
-          power01,
-          peakTimestampMs,
-          onsetTimestampMs,
-          punchKind: classification.punchKind,
-          punchTargetZone: classification.targetZone,
-          measurement,
-        });
+        if (!referenceMoved) {
+          const classification = classifyPunch(measurement);
+          events.push({
+            ...this.eventBase(snapshot, confidence, tracking.state),
+            id: this.nextId++,
+            type: 'punch',
+            hand,
+            power01,
+            peakTimestampMs,
+            onsetTimestampMs,
+            punchKind: classification.punchKind,
+            punchTargetZone: classification.targetZone,
+            measurement,
+          });
+        }
       }
     }
 
@@ -272,7 +285,7 @@ export class ActionPipeline {
     // Outside the footwork gate: a deep duck takes the legs out of the frame, footwork tracking
     // drops, and a duck gate that depends on it closes exactly when the duck happens. The tracker
     // normalizes by its own torso length and needs no calibration either.
-    const duck = this.duckTracker.update(current);
+    const duck = this.duckTracker.update(current, punching);
     if (duck !== undefined) controls = { ...controls, duck };
 
     return { snapshot: current, events, controls, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked, pending }) => ({ hand, tracked, pending, arbitrating: this.heldSwing?.hand === hand })) } };
@@ -338,5 +351,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.dodge.reset(); this.footworkGate.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.duckTracker.reset(); this.punchInFlight.reset(); this.punches.forEach(({ detector }) => { detector.reset(); }); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.dodge.reset(); this.footworkGate.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.duckTracker.reset(); this.shoulderSpeed.reset(); this.referenceVetoAtMs = []; this.punchInFlight.reset(); this.punches.forEach(({ detector }) => { detector.reset(); }); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }

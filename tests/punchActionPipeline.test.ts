@@ -31,6 +31,17 @@ function rightArm(time: number, extension: number, hiddenLandmarks: readonly num
   return { ...snapshot, worldLandmarks: world };
 }
 
+/** Both fists in the real blocking guard, the left one mirrored from the right fixture. */
+function chinGuardPose(time: number): PoseSnapshot {
+  const snapshot = rightArm(time, 0, [], true);
+  const world = [...snapshot.worldLandmarks];
+  for (const [from, to] of [[14, 13], [16, 15]] as const) {
+    // Mirror across the midline: keep the inward/outward offset from the shoulder line.
+    world[to] = { ...world[from]!, x: world[11]!.x - (world[from]!.x - world[12]!.x) };
+  }
+  return { ...snapshot, worldLandmarks: world };
+}
+
 /** 300 ms in guard, a 150 ms extension, then held. */
 function jab(pipeline: ActionPipeline, profile = calibration(), hidden: readonly number[] = []): SportActionEvent[] {
   const events: SportActionEvent[] = [];
@@ -71,6 +82,41 @@ describe('punch wiring in ActionPipeline', () => {
     expect(jab(new ActionPipeline(), calibration(), [14])).toEqual([]);
   });
 
+  it('keeps punching and reading guard when the hips are cropped out of the webcam frame', () => {
+    const cropHips = (snapshot: PoseSnapshot): PoseSnapshot => ({
+      ...snapshot,
+      landmarks: snapshot.landmarks.map((point, index) => index === 23 || index === 24 ? { ...point, visibility: 0.1, presence: 0.1 } : point),
+      worldLandmarks: snapshot.worldLandmarks.map((point, index) => index === 23 || index === 24 ? { ...point, visibility: 0.1, presence: 0.1 } : point),
+    });
+    const pipeline = new ActionPipeline();
+    const events: SportActionEvent[] = [];
+    for (let time = 0; time <= 900; time += 33) {
+      const extension = Math.min(1, Math.max(0, (time - 300) / 150));
+      events.push(...pipeline.update(cropHips(rightArm(time, extension)), calibration()).events);
+    }
+    expect(events.filter((event) => event.type === 'punch-start' || event.type === 'punch').map((event) => event.type)).toEqual(['punch-start', 'punch']);
+
+    let guard: boolean | undefined;
+    for (let time = 933; time <= 1133; time += 33) guard = pipeline.update(cropHips(chinGuardPose(time)), calibration()).controls.guard;
+    expect(guard).toBe(true);
+  });
+
+  it('discards a punch whose measurement overlaps a fast shoulder drop', () => {
+    const pipeline = new ActionPipeline();
+    const events: SportActionEvent[] = [];
+    for (let time = 0; time <= 900; time += 33) {
+      const extension = Math.min(1, Math.max(0, (time - 300) / 150));
+      const snapshot = rightArm(time, extension);
+      // Start the duck after the onset race: the onset is already legitimate, but the
+      // shoulder reference drops while the punch is being confirmed.
+      const drop = 0.06 * Math.min(1, Math.max(0, (time - 400) / 150));
+      const landmarks = snapshot.landmarks.map((point, index) => [0, 11, 12, 23, 24].includes(index) ? { ...point, y: point.y + drop } : point);
+      events.push(...pipeline.update({ ...snapshot, landmarks }, calibration()).events);
+    }
+    expect(events.some((event) => event.type === 'punch-start')).toBe(true);
+    expect(events.some((event) => event.type === 'punch')).toBe(false);
+  });
+
   it('forgets the previous session on reset', () => {
     const pipeline = new ActionPipeline();
     jab(pipeline);
@@ -82,16 +128,7 @@ describe('punch wiring in ActionPipeline', () => {
     const guardAt = (extension: number, scale01: number) => {
       const pipeline = new ActionPipeline();
       const profile = { ...calibration(), readiness: { scale01, neutral01: 1 } };
-      // Both arms mirror the right one, so the left fist is in place too.
-      const both = (time: number) => {
-        const snapshot = rightArm(time, extension, [], true);
-        const world = [...snapshot.worldLandmarks];
-        for (const [from, to] of [[14, 13], [16, 15]] as const) {
-          // Mirror across the midline: keep the inward/outward offset from the shoulder line.
-          world[to] = { ...world[from]!, x: world[11]!.x - (world[from]!.x - world[12]!.x) };
-        }
-        return { ...snapshot, worldLandmarks: world };
-      };
+      const both = (time: number) => extension === 0 ? chinGuardPose(time) : rightArm(time, extension, [], true);
       let guard: boolean | undefined;
       for (let time = 0; time <= 200; time += 33) guard = pipeline.update(both(time), profile).controls.guard;
       return guard;
