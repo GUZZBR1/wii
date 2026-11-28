@@ -3,7 +3,7 @@
 // biome-ignore-all lint/a11y/noNoninteractiveTabindex: Article tables are focusable for keyboard scrolling when they overflow.
 import { Fragment, useState, type ReactNode } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
-import { papers, type Paper } from '../data/papers';
+import { drafts, type Draft } from '../data/papers';
 import { useLang } from '../i18n';
 import { buildPdf, markdownToPdfBlocks } from '../lib/pdf';
 
@@ -256,17 +256,17 @@ export default function ArticlePage() {
   showReturnButton = () => setCanReturn(true);
   const { n = '' } = useParams();
   const id = n.padStart(2, '0');
-  const idx = papers.findIndex((p) => p.n === id);
+  const idx = drafts.findIndex((p) => p.n === id);
   if (idx === -1) return <Navigate to="/papers" replace />;
 
   const english = englishArticles.get(id);
   const useEnglish = lang === 'en' && !!english;
   const md = useEnglish ? english : articles.get(id);
-  const prev = papers[idx - 1];
-  const next = papers[idx + 1];
-  const paper = papers[idx];
+  const prev = drafts[idx - 1];
+  const next = drafts[idx + 1];
+  const paper = drafts[idx];
   // Título e rótulo curto no idioma da tela (cada artigo tem as duas versões em papers.ts).
-  const copy = (p: Paper) => (lang === 'en' ? p.en : p);
+  const copy = (p: Draft) => (lang === 'en' ? p.en : p);
   const title = useEnglish ? (english.match(/^# (.+)$/m)?.[1] ?? copy(paper).title) : paper.title;
 
   return (

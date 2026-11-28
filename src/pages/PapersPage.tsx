@@ -1,4 +1,3 @@
-import { Link } from 'react-router-dom';
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import CrystalAsciiField from '../components/CrystalAsciiField';
 import { paperLines, papers, type Paper } from '../data/papers';
@@ -208,18 +207,12 @@ export default function PapersPage() {
             {shown && (
               <article className="papers-detail" aria-live="polite" aria-hidden={!open}>
                 <p className="papers-detail-kicker">
-                  {shown.externalUrl
-                    ? tr(`referência ${shown.n} de ${papers.length} · artigo externo`, `reference ${shown.n} of ${papers.length} · external paper`)
-                    : tr(`proposta ${shown.n} de ${papers.length} · ainda sem resultados`, `proposal ${shown.n} of ${papers.length} · no results yet`)}
+                  {tr(`referência ${shown.n} de ${papers.length} · artigo externo`, `reference ${shown.n} of ${papers.length} · external paper`)}
                 </p>
                 <h2 className="papers-detail-title">{copyOf(shown).title}</h2>
                 <p className="papers-detail-blurb">{copyOf(shown).blurb}</p>
                 <div className="papers-detail-actions">
-                  {shown.externalUrl ? (
-                    <a className="papers-open" href={shown.externalUrl} target="_blank" rel="noopener noreferrer">{tr('abrir artigo', 'open article')}</a>
-                  ) : (
-                    <Link className="papers-open" to={`/papers/${shown.n}`}>{tr('abrir artigo', 'open article')}</Link>
-                  )}
+                  <a className="papers-open" href={shown.externalUrl} target="_blank" rel="noopener noreferrer">{tr('abrir artigo', 'open article')}</a>
                   <button type="button" className="papers-close" onClick={() => setOpen(null)}>{tr('fechar', 'close')}</button>
                 </div>
               </article>
