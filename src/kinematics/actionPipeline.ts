@@ -124,7 +124,7 @@ export class ActionPipeline {
       const cadence = this.cadence.update(sample, snapshot.timestampMs, this.jump.suppressesCadence);
       rawEffort = this.intensity.update(snapshot.timestampMs, body && { ...body, shoulders: (body.left + body.right) / 2 }, cadence.running);
       controls = { sprintSpeed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm, trackingState: 'tracked' };
-      const base = this.eventBase(snapshot, Math.max(torsoTracking.confidence, 0.55));
+      const base = this.eventBase(snapshot, Math.max(torsoTracking.confidence, 0.55), torsoTracking.state);
       events.push({ ...base, id: this.nextId++, type: 'sprint', speed01: cadence.speed01, cadenceSpm: cadence.cadenceSpm });
       this.sprinting = cadence.speed01 > 0;
       this.coast = cadence.speed01 > 0
@@ -176,10 +176,10 @@ export class ActionPipeline {
       // The onset bypasses arbitration and the refractory on purpose: it is the real-time,
       // unconfirmed channel — the game's cue to start the stroke animation now, not proof of a hit.
       if (output?.kind === 'onset') {
-        events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'swing-start', hand, side: output.side });
+        events.push({ ...this.eventBase(snapshot, tracking.confidence, tracking.state), id: this.nextId++, type: 'swing-start', hand, side: output.side });
       }
       const swing = output?.kind === 'confirmed' ? output : undefined;
-      return { hand, tracked: tracking.state === 'tracked', pending: detector.hasPending(), swing };
+      return { hand, tracked: tracking.state === 'tracked', state: tracking.state, pending: detector.hasPending(), swing };
     });
     // A held swing whose own wrist is no longer tracked is stale: discard it rather than
     // release a "tracked" hit into a dead pose. Losing only the rival is different — it
@@ -205,7 +205,8 @@ export class ActionPipeline {
         this.lastSwingAt = snapshot.timestampMs;
         const { confidence, peakTimestampMs, ...action } = best.swing;
         delete (action as { kind?: unknown }).kind; // runtime-only detector discriminant, not protocol
-        events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'swing', hand: best.hand, ...action, peakTimestampMs });
+        const bestState = results.find((result) => result.hand === best.hand)?.state ?? 'tracked';
+        events.push({ ...this.eventBase(snapshot, confidence, bestState), id: this.nextId++, type: 'swing', hand: best.hand, ...action, peakTimestampMs });
       }
     }
 
@@ -231,13 +232,13 @@ export class ActionPipeline {
       const output = detector.update(current, calibration, vetoOnset);
       if (output?.kind === 'onset') {
         this.punchInFlight.start(hand, snapshot.timestampMs);
-        events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'punch-start', hand });
+        events.push({ ...this.eventBase(snapshot, tracking.confidence, tracking.state), id: this.nextId++, type: 'punch-start', hand });
       } else if (output?.kind === 'confirmed') {
         const { power01, confidence, peakTimestampMs, onsetTimestampMs, measurement } = output;
         const classification = classifyPunch(measurement);
         this.punchInFlight.end(hand);
         events.push({
-          ...this.eventBase(snapshot, confidence),
+          ...this.eventBase(snapshot, confidence, tracking.state),
           id: this.nextId++,
           type: 'punch',
           hand,
@@ -324,8 +325,8 @@ export class ActionPipeline {
     return [{ timestampMs, confidence, trackingState, source: 'cv', id: this.nextId++, type: 'sprint', speed01: 0, cadenceSpm: 0 }];
   }
 
-  private eventBase(snapshot: PoseSnapshot, confidence: number) {
-    return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
+  private eventBase(snapshot: PoseSnapshot, confidence: number, trackingState: TrackingState) {
+    return { timestampMs: snapshot.timestampMs, confidence, trackingState, source: 'cv' as const };
   }
 
   private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.dodge.reset(); this.footworkGate.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.duckTracker.reset(); this.punchInFlight.reset(); this.punches.forEach(({ detector }) => { detector.reset(); }); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
