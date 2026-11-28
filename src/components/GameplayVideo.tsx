@@ -84,10 +84,15 @@ export default function GameplayVideo({ sport, name }: GameplayVideoProps) {
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          if (entry.target === frame) setInView(entry.isIntersecting);
+          // isIntersecting vale ja no primeiro pixel — o threshold nao filtra.
+          // Entra aos 20% e sai so ao sumir por completo, como o reveal dos
+          // cartoes: entre os dois extremos mantem o estado, sem piscar na borda.
+          if (entry.target !== frame) continue;
+          if (entry.intersectionRatio >= 0.2) setInView(true);
+          else if (!entry.isIntersecting) setInView(false);
         }
       },
-      { threshold: 0.2 },
+      { threshold: [0, 0.2] },
     );
     observer.observe(frame);
     return () => observer.disconnect();

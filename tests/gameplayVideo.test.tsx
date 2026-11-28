@@ -31,8 +31,10 @@ class MockIntersectionObserver {
     this.targets.length = 0;
   }
 
-  trigger(isIntersecting: boolean) {
-    const entries = this.targets.map((target) => ({ target, isIntersecting }) as IntersectionObserverEntry);
+  trigger(isIntersecting: boolean, intersectionRatio: number) {
+    const entries = this.targets.map(
+      (target) => ({ target, isIntersecting, intersectionRatio }) as IntersectionObserverEntry,
+    );
     this.callback(entries, this as unknown as IntersectionObserver);
   }
 }
@@ -75,9 +77,9 @@ async function unmount(root: Root) {
   });
 }
 
-async function setVisible(isIntersecting: boolean) {
+async function setVisible(isIntersecting: boolean, ratio = isIntersecting ? 1 : 0) {
   await act(async () => {
-    for (const observer of observerInstances) observer.trigger(isIntersecting);
+    for (const observer of observerInstances) observer.trigger(isIntersecting, ratio);
   });
 }
 
@@ -143,6 +145,32 @@ describe('GameplayVideo', () => {
     await setVisible(false);
     expect(pauseMock).toHaveBeenCalled();
     expect(playMock).not.toHaveBeenCalled();
+
+    await unmount(root);
+  });
+
+  it('does not play when only a sliver of the frame is visible', async () => {
+    const { root } = await renderVideo();
+
+    await setVisible(true, 0.05);
+    expect(playMock).not.toHaveBeenCalled();
+
+    await unmount(root);
+  });
+
+  it('keeps playing through partial scrolls once fully visible (hysteresis)', async () => {
+    const { root } = await renderVideo();
+
+    await setVisible(true, 0.6);
+    expect(playMock).toHaveBeenCalledTimes(1);
+
+    pauseMock.mockClear();
+    // Saiu para 10% visivel: nem entra nem sai — mantem o estado anterior.
+    await setVisible(true, 0.1);
+    expect(pauseMock).not.toHaveBeenCalled();
+
+    await setVisible(false, 0);
+    expect(pauseMock).toHaveBeenCalled();
 
     await unmount(root);
   });
