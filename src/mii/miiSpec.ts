@@ -220,8 +220,11 @@ export function deserializeMiiFaceSpec(encoded: string): MiiFaceSpec | undefined
 
 /** In-memory copy kept even when persistent storage fails, so the face survives within the session. */
 let sessionPlayerMii: MiiFaceSpec | undefined;
+/** True only for the newest save when persistence failed; stale readable storage must not shadow it. */
+let sessionPlayerMiiOverridesStorage = false;
 
 export function loadPlayerMii(): MiiFaceSpec {
+  if (sessionPlayerMiiOverridesStorage && sessionPlayerMii) return { ...sessionPlayerMii };
   try {
     const encoded = globalThis.localStorage?.getItem(PLAYER_MII_STORAGE_KEY);
     const stored = encoded ? deserializeMiiFaceSpec(encoded) : undefined;
@@ -238,10 +241,15 @@ export function savePlayerMii(spec: MiiFaceSpec): boolean {
   sessionPlayerMii = normalized;
   try {
     const storage = globalThis.localStorage;
-    if (!storage) return false;
+    if (!storage) {
+      sessionPlayerMiiOverridesStorage = true;
+      return false;
+    }
     storage.setItem(PLAYER_MII_STORAGE_KEY, serializeMiiFaceSpec(normalized));
+    sessionPlayerMiiOverridesStorage = false;
     return true;
   } catch {
+    sessionPlayerMiiOverridesStorage = true;
     return false;
   }
 }

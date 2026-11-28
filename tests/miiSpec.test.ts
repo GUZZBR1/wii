@@ -149,6 +149,50 @@ describe('player Mii storage', () => {
     }
   });
 
+  it('does not let stale readable storage shadow a newer session-only save', async () => {
+    const spec = await importFreshSpec();
+    const storedFace = spec.generateMiiFromSeed('old-persisted-face');
+    const sessionFace = spec.generateMiiFromSeed('new-session-face');
+    const readableButUnwritable = {
+      getItem: () => spec.serializeMiiFaceSpec(storedFace),
+      setItem: () => {
+        throw new Error('quota');
+      },
+    };
+    const restore = installLocalStorage(readableButUnwritable);
+    try {
+      expect(spec.savePlayerMii(sessionFace)).toBe(false);
+      expect(spec.loadPlayerMii()).toEqual(sessionFace);
+      expect(spec.loadPlayerMii()).not.toEqual(storedFace);
+    } finally {
+      restore();
+    }
+  });
+
+  it('returns valid localStorage data again after a later save succeeds', async () => {
+    const spec = await importFreshSpec();
+    const firstFace = spec.generateMiiFromSeed('first-failed-save');
+    const secondFace = spec.generateMiiFromSeed('second-successful-save');
+    const restoreFirst = installLocalStorage(undefined);
+    try {
+      expect(spec.savePlayerMii(firstFace)).toBe(false);
+    } finally {
+      restoreFirst();
+    }
+    const storage = createMemoryStorage();
+    const restoreSecond = installLocalStorage(storage);
+    try {
+      expect(spec.savePlayerMii(secondFace)).toBe(true);
+      storage.setItem(
+        spec.PLAYER_MII_STORAGE_KEY,
+        spec.serializeMiiFaceSpec(spec.generateMiiFromSeed('external-update')),
+      );
+      expect(spec.loadPlayerMii()).toEqual(spec.generateMiiFromSeed('external-update'));
+    } finally {
+      restoreSecond();
+    }
+  });
+
   it('prefers valid localStorage data over the session fallback', async () => {
     const spec = await importFreshSpec();
     const storage = createMemoryStorage();
