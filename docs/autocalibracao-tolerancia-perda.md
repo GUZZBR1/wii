@@ -88,7 +88,7 @@ A assimetria da issue: durante `collecting`, um quadro `degraded` ou fora de enq
 
 ## 5. Fontes
 
-**Código do repo** (`path:line`, worktree `wii-autocal`, branch `fix/autocalibrator-lost-tolerance`):
+**Código do repo** (`path:line`, worktree `nevergear-autocal`, branch `fix/autocalibrator-lost-tolerance`):
 `src/cv/autoCalibrator.ts:5-12` (constantes), `:23-43` (ramos de reset/tolerância/coleta), `:48` (âncora de quietude), `:64-70` (`conclude`); `src/cv/calibrator.ts:13-26` (span/mínimo de amostras), `:58-60` (filtro por-amostra 0,55), `:69` (punhos no `valid`), `:76` (cobertura 65%), `:81` (stance 65%); `src/kinematics/trackingGate.ts:17-38` (3 bons → tracked, 4 ruins → lost, confiança = min(vis,presence) em [11,12,23,24]); `src/kinematics/math.ts:14-21` (`landmarkConfidence`); `src/cv/pose.worker.ts:16-30,81-86` (opções, `simplify` → `[]`); `src/cv/poseClient.ts:140-146` (snapshot por reply); `src/cv/protocol.ts:3-20`; `src/kinematics/actionPipeline.ts:29-30` (gate sobrescreve `trackingState`); `src/App.tsx:84-93` (calibrador só roda sem perfil); `tests/kinematics.test.ts` (casos novos do branch).
 
 **GitHub `google-ai-edge/mediapipe` (master)**:

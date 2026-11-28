@@ -71,7 +71,7 @@ const MIN_NOSE_GAP = 8;
 const MIN_EYE_GAP = 9;
 const MIN_BROW_GAP = 7;
 
-export const PLAYER_MII_STORAGE_KEY = 'wii-mii-face-v1';
+export const PLAYER_MII_STORAGE_KEY = 'nevergear-mii-face-v1';
 
 export const DEFAULT_MII_FACE_SPEC: MiiFaceSpec = Object.freeze({
   v: 1,

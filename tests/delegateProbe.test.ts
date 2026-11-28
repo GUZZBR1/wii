@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GPU_PROBE_BUDGET_MS, shouldFallbackForLatency } from '@wii/spatial-core';
+import { GPU_PROBE_BUDGET_MS, shouldFallbackForLatency } from '@nevergear/spatial-core';
 
 describe('shouldFallbackForLatency', () => {
   it('falls back when the warmed median exceeds the frame budget — the software-GL case', () => {

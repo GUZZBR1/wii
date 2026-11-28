@@ -1,10 +1,10 @@
 # NeverGear — Design System
 
-This file is the visual source of truth for the Wii website. Keep new pages and changes aligned with these decisions.
+This file is the visual source of truth for the Nevergear website. Keep new pages and changes aligned with these decisions.
 
 ## Brand
 
-NeverGear (formerly shown as “Wii”) is a browser arcade arena where the body is the controller: running and tennis played by pose through the webcam. The site should feel thoughtful, precise, calm, and ambitious: editorial typography over a light interface that borrows the Wii’s white and blue (Frutiger Aero, Wii Sports: clean, light and tactile, on the site and in the arena alike).
+NeverGear (formerly shown as “Nevergear”) is a browser arcade arena where the body is the controller: running and tennis played by pose through the webcam. The site should feel thoughtful, precise, calm, and ambitious: editorial typography over a light interface that borrows the Nevergear’s white and blue (Frutiger Aero, Nevergear Sports: clean, light and tactile, on the site and in the arena alike).
 
 The wordmark is the NeverGear sticker logo (`public/images/nevergear-logo.png`): rounded grey “Never”, italic blue “Gear”, white outline. Use the image; do not retype the name in a font as a mark.
 
@@ -18,19 +18,19 @@ The wordmark is the NeverGear sticker logo (`public/images/nevergear-logo.png`):
 | Ink | `#05090c` | `#f2f1ec` | `--ink` |
 | Muted text (high contrast, by request) | `#1f2a32` | `#a3a49b` | `--muted` |
 | Accent: highlights and interaction feedback, used sparingly | `#ade4f8` | `#8e916e` | `--accent` |
-| Wii blue: glass edges, button borders, speed lines | `#34beed` | — | literal |
+| Nevergear blue: glass edges, button borders, speed lines | `#34beed` | — | literal |
 | Deep blue: focus rings, headings in the arena | `#1a8fc4` | — | literal |
 | Blue text on light | `#0b6f9e` | — | literal |
-| Wii orange: small details only (title stripe, a few speed lines) | `#f59b3c` | — | literal |
+| Nevergear orange: small details only (title stripe, a few speed lines) | `#f59b3c` | — | literal |
 | Ready green: tracking and calibration states | `#4cbf6b` | — | literal |
-| Wii grey: wordmark in the arena and the opening | `#8b949c` | — | literal |
-| Wii Menu greys: background, empty channel, footer, channel edge and label | `#d5dbe0` `#bcc3ca` `#b4bdc5` `#8f9aa4` `#737e88` | — | literal |
+| Nevergear grey: wordmark in the arena and the opening | `#8b949c` | — | literal |
+| Nevergear Menu greys: background, empty channel, footer, channel edge and label | `#d5dbe0` `#bcc3ca` `#b4bdc5` `#8f9aa4` `#737e88` | — | literal |
 
 New work uses these colors; do not introduce others without adding them here.
 
 ### Surfaces
 
-- The site is light only (Frutiger Aero, Wii Sports): there is no dark mode. Faint TV scanlines and a soft light-blue fade at the bottom of the canvas; header, product pill and Mii controls are glass with a light-blue edge.
+- The site is light only (Frutiger Aero, Nevergear Sports): there is no dark mode. Faint TV scanlines and a soft light-blue fade at the bottom of the canvas; header, product pill and Mii controls are glass with a light-blue edge.
 - Every button is a glossy pill with a deep-blue edge (solid blue for the primary action); every panel is light glass with a light-blue edge. The shared tokens are `--aero-*` in `src/site.css`; reuse them.
 - Shadows are blue-tinted (`rgba(26, 110, 168, …)`), never neutral grey or olive-black.
 - Text selection is a translucent blue, so it never hides tightly spaced headline lines.
@@ -48,19 +48,19 @@ New work uses these colors; do not introduce others without adding them here.
 ## Header and motion
 
 - The compact header wordmark always shows the dot on the last “i”: as the home webcam fades out, the real dot fades in at its place.
-- Keep `Wii` centered in the header as the page scrolls. It begins as the large home-page wordmark and settles into the compact header position without jumping.
+- Keep `Nevergear` centered in the header as the page scrolls. It begins as the large home-page wordmark and settles into the compact header position without jumping.
 - The navigation becomes a narrow, light glass surface while scrolling: subtle blur, fine border, soft shadow, and a shorter height.
 - The header, centered wordmark, and definition card must remain legible and within the viewport at browser zoom and at 320 px CSS width.
 - Hover feedback should be small and clear: a fine underline, slight color change, or a one-pixel lift. Avoid jitter, looping motion, and pointer-driven movement of content. The one exception is the webcam's red recording dot, which blinks only while the pointer or keyboard focus is on the webcam and stops (steady red under reduced motion) when it leaves.
-- The definition opens from the Wii wordmark only. It stays open while the pointer moves from the wordmark onto the card and closes when moving to Product or another control.
+- The definition opens from the Nevergear wordmark only. It stays open while the pointer moves from the wordmark onto the card and closes when moving to Product or another control.
 - The custom page scrubber is a visible, compact glass capsule with a readable track and thumb. Keep pointer dragging and keyboard navigation; do not reduce it to a tiny line.
-- Home exceptions to the hover rule above: each Wii letter hops on hover (and the webcam, which is the dot of the final "i", follows it), and the gallery highlights one card at a time every 7 s with the same lift as hover. Both are disabled under reduced motion.
-- Papers exceptions: any `Wii` in running text (not the wordmark) shows a short speech bubble on hover. Under reduced motion the bubble animation is off.
+- Home exceptions to the hover rule above: each Nevergear letter hops on hover (and the webcam, which is the dot of the final "i", follows it), and the gallery highlights one card at a time every 7 s with the same lift as hover. Both are disabled under reduced motion.
+- Papers exceptions: any `Nevergear` in running text (not the wordmark) shows a short speech bubble on hover. Under reduced motion the bubble animation is off.
 - Respect reduced-motion preferences.
 
 ## Definition card
 
-- The Wii definition appears only when hovering or keyboard-focusing the Wii mark in the shared header, on every route.
+- The Nevergear definition appears only when hovering or keyboard-focusing the Nevergear mark in the shared header, on every route.
 - Keep the glass card centered beneath the mark, readable at compact and large viewport sizes, with no scaling tied to the wordmark size.
 - The card copy should describe the body-as-controller idea in plain language and retain enough detail to communicate the vision. The card does not belong in the Vision page body.
 
@@ -70,7 +70,7 @@ Use whitespace for hierarchy. Keep the pages minimal and avoid adding sections o
 
 ### Home
 
-- Home places a still archive of milestones of body and motion as input (from the Vitruvian Man to Kinect) around the centered Wii wordmark. Keep the artifacts static, make each one link to its primary or archival source, and preserve room around the wordmark. Add a small webcam SVG in place of the dot of the final “i” (rendered as a dotless “ı”); fade it as the wordmark settles into the compact header. Hovering or focusing the webcam opens a matching glass card that explains its role in live capture. Place that card to the wordmark’s right on desktop and below it on narrow screens, clear of the page scrubber. Keep the webcam card separate from the Wii definition card. On narrow screens, move the archive below the first-screen mark. On load, trace each archive frame as a stroke in staggered order, then let the frame's paper, artwork, and caption fade in from a blur. Let the Wii wordmark emerge from depth on first load: it starts small, blurred, and pushed back, then settles forward to full size and sharpness over about 1.3 s. On hover or focus, an archive frame grows about 4.5% and gains a soft shadow beneath it (no growth under reduced motion). Reduced-motion users see everything at once.
+- Home places a still archive of milestones of body and motion as input (from the Vitruvian Man to Kinect) around the centered Nevergear wordmark. Keep the artifacts static, make each one link to its primary or archival source, and preserve room around the wordmark. Add a small webcam SVG in place of the dot of the final “i” (rendered as a dotless “ı”); fade it as the wordmark settles into the compact header. Hovering or focusing the webcam opens a matching glass card that explains its role in live capture. Place that card to the wordmark’s right on desktop and below it on narrow screens, clear of the page scrubber. Keep the webcam card separate from the Nevergear definition card. On narrow screens, move the archive below the first-screen mark. On load, trace each archive frame as a stroke in staggered order, then let the frame's paper, artwork, and caption fade in from a blur. Let the Nevergear wordmark emerge from depth on first load: it starts small, blurred, and pushed back, then settles forward to full size and sharpness over about 1.3 s. On hover or focus, an archive frame grows about 4.5% and gains a soft shadow beneath it (no growth under reduced motion). Reduced-motion users see everything at once.
 - Below the home archive, a games showcase (one screenshot and short text per game, revealed on scroll, ending in “Jogar agora”), then the Mii creator: a draggable 3D preview beside the form (stacked on narrow screens), with photo/webcam suggestion as an option. The face is the same `MiiFaceSpec` the arena games and editor use. Its controls are Frutiger Aero glass: pill buttons with a top highlight, deep-blue edge and blue-tinted shadow; the single primary action (“Salvar”) is solid blue with white text; fields are glass pills and color swatches glass beads with a clear selected ring. Hover lifts and sweeps one highlight across (never looping), press sinks; reduced motion removes both.
 - Computer and player Miis wander every site page (not `/app`) behind the content, on a layer that never takes the pointer. They walk in one at a time from the sides, corners and bottom. Clicking one only makes it grumble (no name card); holding and dragging carries it elsewhere.
 
@@ -80,7 +80,7 @@ Use whitespace for hierarchy. Keep the pages minimal and avoid adding sections o
 
 ### Papers
 
-- Papers (`/papers`, the “papers” tab beside “vision” in the header) is a stage with no cards in the page body: a large centered Manrope “papers” headline, one short mono line under it that cycles every ~4.8 s (fades through a blur), and the five research-paper proposals from `docs/research` orbiting on a slow ellipse as small glass cards (number + short name; the ones passing in front are larger and sharper, the ones behind smaller and faint, and the title stays above those behind). The ring keeps turning under the pointer (cards are never stopped by hover, so none slips away from a click) and eases to a stop while a card has keyboard focus or its summary is open; clicking a card opens a glass panel under the headline with the title, one-sentence summary and “fechar” (Escape also closes), and the panel sits above every card. Article pages render the source Markdown with illustrations, captions, and an interactive matrix where available. Readers can download the article as a PDF. The copy must stay honest: the collection is proposals, not validated results (“ainda sem resultados”). Reduced-motion users get a static ring and a static line. The header's `vision`/`papers` links drop to 12 px under 640 px so they clear the centered Wii mark at 320 px.
+- Papers (`/papers`, the “papers” tab beside “vision” in the header) is a stage with no cards in the page body: a large centered Manrope “papers” headline, one short mono line under it that cycles every ~4.8 s (fades through a blur), and the five research-paper proposals from `docs/research` orbiting on a slow ellipse as small glass cards (number + short name; the ones passing in front are larger and sharper, the ones behind smaller and faint, and the title stays above those behind). The ring keeps turning under the pointer (cards are never stopped by hover, so none slips away from a click) and eases to a stop while a card has keyboard focus or its summary is open; clicking a card opens a glass panel under the headline with the title, one-sentence summary and “fechar” (Escape also closes), and the panel sits above every card. Article pages render the source Markdown with illustrations, captions, and an interactive matrix where available. Readers can download the article as a PDF. The copy must stay honest: the collection is proposals, not validated results (“ainda sem resultados”). Reduced-motion users get a static ring and a static line. The header's `vision`/`papers` links drop to 12 px under 640 px so they clear the centered Nevergear mark at 320 px.
 
 ### Product
 
@@ -89,10 +89,10 @@ Use whitespace for hierarchy. Keep the pages minimal and avoid adding sections o
 
 ## Arena (`/app`)
 
-- Opened by the Product “em construção” pill; source in `src/arena/`. Running and tennis played with body pose through the webcam, full screen, with no site header, scrubber or Wii speech bubble, under its own tab title.
-- Skin: light Wii-style Frutiger Aero using the palette above (white and light blue, glossy pill buttons with a blue edge, soft gradients and shadows). Arena styles stay nested under `.arena` so they never reach the site.
-- Order: white screen, a vivid blue “Wii” (Wii blue to deep blue) rushes forward and the screen splits open; body calibration (camera starts by itself, “Pular” skips it); channel screen: four channels only, with no empty placeholders (NeverGear Sports, Atletismo, Boxe, Tênis); on the first visit they show in a row for about 1 s, then fall into an elliptical ring with NeverGear Sports in front (like Papers, but it only turns on a click: the arrow buttons, or any channel, which then comes to the front); glass highlights on every channel; clicking the front “Wii Sports” grows it in three steps: the ring and footer fade (0.3 s), an empty glass pane grows from the tile to fill the screen (0.65 s), then the title screen content appears; title screen (“Menu” / “Start”); “Menu Principal” (Corrida, Tênis, with a preview); game (“‹ Jogos” returns).
-- On “Menu Principal”, the Wii Sports wordmark returns to the channel grid.
+- Opened by the Product “em construção” pill; source in `src/arena/`. Running and tennis played with body pose through the webcam, full screen, with no site header, scrubber or Nevergear speech bubble, under its own tab title.
+- Skin: light Nevergear-style Frutiger Aero using the palette above (white and light blue, glossy pill buttons with a blue edge, soft gradients and shadows). Arena styles stay nested under `.arena` so they never reach the site.
+- Order: white screen, a vivid blue “Nevergear” (Nevergear blue to deep blue) rushes forward and the screen splits open; body calibration (camera starts by itself, “Pular” skips it); channel screen: four channels only, with no empty placeholders (NeverGear Sports, Atletismo, Boxe, Tênis); on the first visit they show in a row for about 1 s, then fall into an elliptical ring with NeverGear Sports in front (like Papers, but it only turns on a click: the arrow buttons, or any channel, which then comes to the front); glass highlights on every channel; clicking the front “Nevergear Sports” grows it in three steps: the ring and footer fade (0.3 s), an empty glass pane grows from the tile to fill the screen (0.65 s), then the title screen content appears; title screen (“Menu” / “Start”); “Menu Principal” (Corrida, Tênis, with a preview); game (“‹ Jogos” returns).
+- On “Menu Principal”, the Nevergear Sports wordmark returns to the channel grid.
 - The only site control is “sair”, shown just on the channel grid, in its footer at bottom left, below the blue curve.
 - “sair” uses the camera button’s font (the arena’s rounded sans, bold, uppercase); the minimized “Câmera” pill and “sair” share a Frutiger Aero glass finish (top highlight, light-blue body, blue edge and glow).
 - The corner camera panel has a minimize button that shrinks it to a “Câmera” pill; calibration still opens it full screen.
@@ -114,9 +114,9 @@ Use whitespace for hierarchy. Keep the pages minimal and avoid adding sections o
 
 ## Opening sequence
 
-- Plays on each page load (not in `/app`) and is always light, in the site’s Wii white and blue (artwork in a blue duotone, grey “Wii”): a documentary title sequence, not a web page. No cards, bubbles, containers, hard-edged light circles, neon or cyberpunk styling.
-- One continuous timeline (about 46 s, skippable with “pular” or Escape): the two questions over a faint “Wii”, then the camera travels through the eight milestones in depth, then “Wii” alone and a fade to the site.
+- Plays on each page load (not in `/app`) and is always light, in the site’s Nevergear white and blue (artwork in a blue duotone, grey “Nevergear”): a documentary title sequence, not a web page. No cards, bubbles, containers, hard-edged light circles, neon or cyberpunk styling.
+- One continuous timeline (about 46 s, skippable with “pular” or Escape): the two questions over a faint “Nevergear”, then the camera travels through the eight milestones in depth, then “Nevergear” alone and a fade to the site.
 - The picture is raw WebGL (`src/lib/introScene.ts`): noise-shaped diffuse light, dust, artwork with dissolved edges, depth of field, restrained bloom, vignette and film grain. Text is bare light typography set directly over the picture.
 - Camera drift is autonomous, never pointer-driven. Reduced motion holds the camera and grain still and only crossfades. Without WebGL the artwork shows as plain images.
-- Adaptive quality (`src/lib/quality.ts`): Lite, Medium and Ultra change only internal resolution, shader cost, particles, light warp and bloom; layout, timing, vignette and grain stay. A short non-blocking benchmark of the real shaders picks the start level, then frame times adjust it with hysteresis. The profile is stored in `localStorage` (`wii-quality`), measured again after 7 days or a GPU/screen change; the quiet top-right control (or `?quality=`) overrides it. Nothing is sent anywhere.
+- Adaptive quality (`src/lib/quality.ts`): Lite, Medium and Ultra change only internal resolution, shader cost, particles, light warp and bloom; layout, timing, vignette and grain stay. A short non-blocking benchmark of the real shaders picks the start level, then frame times adjust it with hysteresis. The profile is stored in `localStorage` (`nevergear-quality`), measured again after 7 days or a GPU/screen change; the quiet top-right control (or `?quality=`) overrides it. Nothing is sent anywhere.
 - Leaving (end or skip) is ordered: the current frame and text freeze and fade (about 0.5 s), the veil dissolves (1 s), and the page entrance, held until then, builds up piece by piece: header, wordmark, then each archive frame’s traced line, paper, artwork and caption in sequence. The automatic card highlight starts only afterwards.

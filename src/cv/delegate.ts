@@ -1,4 +1,4 @@
-import type { Delegate } from '@wii/spatial-core';
+import type { Delegate } from '@nevergear/spatial-core';
 
 /**
  * Vision runs on the CPU by default: on an integrated GPU it competes with the 3D game and the

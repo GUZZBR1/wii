@@ -1,6 +1,6 @@
 // Pure 3D hand rig math for the /product stage: no DOM, no Three.js.
 // Space: +x right on screen (mirrored, selfie view), +y up, +z toward the viewer. Palm length = 1.
-import { type HandObservation, OneEuroFilter, type PalmBasis, palmBasis } from '@wii/spatial-core';
+import { type HandObservation, OneEuroFilter, type PalmBasis, palmBasis } from '@nevergear/spatial-core';
 
 export type Vec3 = { x: number; y: number; z: number };
 

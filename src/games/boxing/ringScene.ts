@@ -28,7 +28,7 @@ const CORNER = 3.22;
 const ROPE_SPAN = 6.18;
 const RED = 0xf04d45;
 const WHITE = 0xf7f5f0;
-const WII_BLUE = 0x00b4e5;
+const NEVERGEAR_BLUE = 0x00b4e5;
 const ROPE_BLUE = 0x2477d2;
 const NAVY = 0x173250;
 const NAVY_MID = 0x214565;
@@ -88,7 +88,7 @@ function roundedBox(
 function ringParts(): THREE.BufferGeometry[] {
   const parts: THREE.BufferGeometry[] = [
     roundedBox(7.8, 0.82, 7.8, 0, 0.41, 0, NAVY_DARK, 0.16),
-    roundedBox(7.25, 0.14, 7.25, 0, 0.89, 0, WII_BLUE, 0.07),
+    roundedBox(7.25, 0.14, 7.25, 0, 0.89, 0, NEVERGEAR_BLUE, 0.07),
     roundedBox(6.62, 0.12, 6.62, 0, 0.99, 0, CANVAS, 0.06),
   ];
 
@@ -96,12 +96,12 @@ function ringParts(): THREE.BufferGeometry[] {
     const stripe = new RoundedBoxGeometry(5.8, 0.16, 0.08, 2, 0.03)
       .translate(0, 0.62, 3.93)
       .rotateY((side * Math.PI) / 2);
-    parts.push(paint(stripe, side % 2 === 0 ? WII_BLUE : WHITE));
+    parts.push(paint(stripe, side % 2 === 0 ? NEVERGEAR_BLUE : WHITE));
   }
 
   parts.push(
     paint(new THREE.RingGeometry(0.78, 0.9, 48).rotateX(-Math.PI / 2).translate(0, 1.056, 0), WHITE),
-    paint(new THREE.RingGeometry(0.15, 0.23, 32).rotateX(-Math.PI / 2).translate(0, 1.057, 0), WII_BLUE),
+    paint(new THREE.RingGeometry(0.15, 0.23, 32).rotateX(-Math.PI / 2).translate(0, 1.057, 0), NEVERGEAR_BLUE),
   );
 
   const corners = [
@@ -167,7 +167,7 @@ function standParts(): THREE.BufferGeometry[] {
       .rotateZ(Math.PI / 2)
       .translate(0, 0.92, 6.48)
       .rotateY(angle);
-    parts.push(paint(rail, WII_BLUE));
+    parts.push(paint(rail, NEVERGEAR_BLUE));
     for (const x of [-6.8, 0, 6.8]) {
       const support = new THREE.CylinderGeometry(0.045, 0.045, 0.9, 8).translate(x, 0.45, 6.48).rotateY(angle);
       parts.push(paint(support, STEEL));

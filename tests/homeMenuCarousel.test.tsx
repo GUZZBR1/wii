@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CarouselStepResult } from '../src/ui/carouselController';
 import { HAND_IDLE, type HandCursorInput } from '../src/ui/handCursorTypes';
 import { createHandInputStore } from '../src/ui/handInputStore';
-import { HomeMenu } from '../src/ui/WiiMenu';
+import { HomeMenu } from '../src/ui/NevergearMenu';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 

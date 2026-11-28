@@ -1,4 +1,4 @@
-import type { Hand, PoseSnapshot } from '@wii/spatial-core';
+import type { Hand, PoseSnapshot } from '@nevergear/spatial-core';
 import { clamp, landmarkConfidence } from './math';
 
 export interface SwingSignal {

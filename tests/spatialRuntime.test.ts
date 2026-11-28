@@ -7,9 +7,9 @@ import type {
   PoseSnapshot,
   WorkerReply,
   WorkerRequest,
-} from '@wii/spatial-core';
-import { SpatialRuntime } from '@wii/spatial-core';
-import type { HandProviderClient, PoseProviderClient, SpatialObservation } from '@wii/spatial-core';
+} from '@nevergear/spatial-core';
+import { SpatialRuntime } from '@nevergear/spatial-core';
+import type { HandProviderClient, PoseProviderClient, SpatialObservation } from '@nevergear/spatial-core';
 import { pose } from './fixtures/syntheticPose';
 import { handSnapshot } from './fixtures/syntheticHand';
 

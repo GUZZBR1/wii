@@ -30,9 +30,9 @@ import { createHandInputStore } from './ui/handInputStore';
 import type { CarouselStepResult } from './ui/carouselController';
 import { drawPose } from './ui/PoseOverlay';
 import { EXIT_DODGE_SW } from './kinematics/postureSignals';
-import { HomeMenu } from './ui/WiiMenu';
+import { HomeMenu } from './ui/NevergearMenu';
 import { MiiCreator } from './ui/MiiCreator';
-import { WiiSplash } from './ui/WiiSplash';
+import { NevergearSplash } from './ui/NevergearSplash';
 import { hipsHidden } from './kinematics/bodyDodge';
 import './arena.css';
 
@@ -45,7 +45,7 @@ const ACTIVITY_LABEL: Record<ActivityKind, string> = {
   swinging: 'RAQUETE',
   striking: 'LUTA',
 };
-const MUTE_STORAGE_KEY = 'wii-web-sports.muted.v1';
+const MUTE_STORAGE_KEY = 'nevergear-web-sports.muted.v1';
 
 const inHandMenu = (screen: Screen) => screen !== 'play';
 const modeForScreen = (screen: Screen): VisionMode => (inHandMenu(screen) ? 'hand' : 'pose');
@@ -610,7 +610,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
           <strong>{result.sport === 'athletics' ? 'Atletismo · 100 m' : result.sport === 'tennis' ? 'Tênis' : 'Boxe'}</strong>
           <span>{result.detail}</span>
         </li>)}</ol>
-        <button type="button" className="wii-btn" onClick={exitGame}>Voltar ao menu</button>
+        <button type="button" className="nevergear-btn" onClick={exitGame}>Voltar ao menu</button>
       </div>
     </section>}
     {screen === 'play' && ironResults && <div className="iron-progress">IRON MAN · ETAPA {ironResults.length + 1} DE 3</div>}
@@ -632,6 +632,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
     />
     {showPerf && <PerfMeter videoRef={videoRef} poseFrames={poseFramesRef} poseDelay={poseDelayRef} />}
     {veil}
-    {splash && <WiiSplash onDone={endSplash} />}
+    {splash && <NevergearSplash onDone={endSplash} />}
   </div>;
 }

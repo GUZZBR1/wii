@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { HandWorkerReply, HandWorkerRequest } from '@wii/spatial-core';
+import type { HandWorkerReply, HandWorkerRequest } from '@nevergear/spatial-core';
 import { HandClient } from '../src/cv/handClient';
 import { handSnapshot } from './fixtures/syntheticHand';
 

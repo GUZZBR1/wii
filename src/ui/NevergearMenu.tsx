@@ -78,7 +78,7 @@ function Clock() {
     const timer = window.setInterval(() => setNow(new Date()), 10_000);
     return () => window.clearInterval(timer);
   }, []);
-  return <div className="wii-clock">
+  return <div className="nevergear-clock">
     <strong>{now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</strong>
     <span>{now.toLocaleDateString('pt-BR', { weekday: 'short', day: 'numeric', month: 'numeric' })}</span>
   </div>;
@@ -235,13 +235,13 @@ export function HomeMenu({ onPick, onIronMan, onMii, exit, handStore, rotationGa
       <button type="button" className="ring-arrow left" onClick={() => rotateBy(-1)} aria-label="Girar para a esquerda">◀</button>
       <button type="button" className="ring-arrow right" onClick={() => rotateBy(1)} aria-label="Girar para a direita">▶</button>
     </div>
-    <footer className="wii-bar">
+    <footer className="nevergear-bar">
       <svg viewBox="0 0 1000 200" preserveAspectRatio="none" aria-hidden="true">
         <path d="M0 20H150C250 20 270 120 380 120H620C730 120 750 20 850 20H1000V200H0Z" />
       </svg>
-      <span className="wii-title">Menu</span>
+      <span className="nevergear-title">Menu</span>
       <Clock />
-      {onMii && <button type="button" className="wii-btn wii-mii-button" onClick={onMii}>Mii</button>}
+      {onMii && <button type="button" className="nevergear-btn nevergear-mii-button" onClick={onMii}>Mii</button>}
       {exit}
     </footer>
   </section>;

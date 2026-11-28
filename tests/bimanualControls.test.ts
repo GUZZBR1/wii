@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { BimanualSeparationTracker, MagneticSnapFilter, bimanualSeparationRatio } from '@wii/spatial-core';
+import { BimanualSeparationTracker, MagneticSnapFilter, bimanualSeparationRatio } from '@nevergear/spatial-core';
 import { syntheticHand } from './fixtures/syntheticHand';
 
 function pair(scale = 1, separationPx = 0.4) {

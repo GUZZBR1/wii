@@ -80,7 +80,7 @@ export function IronManLobby({ onPlay, onBack }: { onPlay: () => void; onBack: (
 
 function LobbyActions({ onPlay, onBack }: { onPlay: () => void; onBack: () => void }) {
   return <div className="lobby-actions">
-    <button type="button" className="wii-btn pill lobby-back" onClick={onBack}>Voltar</button>
-    <button type="button" className="wii-btn pill lobby-play" onClick={onPlay}>Jogar</button>
+    <button type="button" className="nevergear-btn pill lobby-back" onClick={onBack}>Voltar</button>
+    <button type="button" className="nevergear-btn pill lobby-play" onClick={onPlay}>Jogar</button>
   </div>;
 }

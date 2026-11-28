@@ -810,7 +810,7 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
 }
 @keyframes intro-still { 0%, 100% { opacity: 0; } 15%, 90% { opacity: 1; } }
 
-/* Tema claro com um toque do Wii: branco azulado, linhas finas de TV e vidro com borda azul. O escuro não muda. */
+/* Tema claro com um toque do Nevergear: branco azulado, linhas finas de TV e vidro com borda azul. O escuro não muda. */
 :root body { background: repeating-linear-gradient(#0000 0 3px, #ffffff8c 3px 4px) fixed, linear-gradient(#ffffff, var(--paper) 45%, #e3f3fb) fixed, var(--paper); }
 :root body .nav-shell { border-color: #34beed80; box-shadow: 0 6px 20px rgba(26, 143, 196, .14), inset 0 1px #fff; }
 :root body .nav-link::after { background: #34beed; }
@@ -947,7 +947,7 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
 
 .mii-creator .mii-fine summary { margin-bottom: 8px; cursor: pointer; font: 400 12px var(--mono); color: var(--muted); }
 
-/* Frutiger Aero / Wii Sports: um só acabamento para botões e painéis do site (docs/website-design.md). */
+/* Frutiger Aero / Nevergear Sports: um só acabamento para botões e painéis do site (docs/website-design.md). */
 :root {
   --aero-edge: rgba(52, 190, 237, .55);
   --aero-glass: linear-gradient(180deg, #fff 0%, #f8fcfe 48%, #e6f4fb 100%);

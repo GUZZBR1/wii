@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { HandFeatureExtractor, MockReplayProvider, PinchClutch, pinchDistanceRatio } from '@wii/spatial-core';
-import type { HandObservation } from '@wii/spatial-core';
+import { HandFeatureExtractor, MockReplayProvider, PinchClutch, pinchDistanceRatio } from '@nevergear/spatial-core';
+import type { HandObservation } from '@nevergear/spatial-core';
 import { handSnapshot, syntheticHand } from './fixtures/syntheticHand';
 
 describe('hand feature canonicalization', () => {

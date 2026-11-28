@@ -1,12 +1,12 @@
-# Design do tênis estilo Wii Sports — Baseline Rally
+# Design do tênis estilo Nevergear Sports — Baseline Rally
 
 Data: 25 de novembro de 2026 · Documento de design para reescrita do `TennisGame`. Deriva da análise de gargalos feita em sessão (ver `analise-gargalos-corrida.md` para o pipeline genérico) e das pesquisas de CV em `docs/`. Separa claramente o que é **fato verificado no código**, o que é **conhecimento do domínio** e o que é **decisão de design**.
 
 ---
 
-## 1. O que é o Wii Sports Tennis, mecanicamente
+## 1. O que é o Nevergear Sports Tennis, mecanicamente
 
-Conhecimento de domínio sobre o original (Wii, 2006):
+Conhecimento de domínio sobre o original (Nevergear, 2006):
 
 1. **O jogador não controla movimentação** — o Mii corre sozinho até a bola. A única habilidade é o swing.
 2. **Direção = timing**: o mesmo swing natural manda a bola cruzada (contato cedo, à frente do corpo) ou paralela (contato tarde, atrás). Não existe "mira com o braço".
@@ -21,14 +21,14 @@ Fatos verificados no código e nas medições de `pesquisa-pipeline-cv.md` §7.5
 
 | Capacidade | Estado | Consequência para o design |
 |---|---|---|
-| Instante do pico do swing (`peakTimestampMs`) | **Bom** — quantização de ±16-33 ms a 30 fps, timestamps monotônicos | A mecânica central (timing) vive no nosso melhor canal — mesmo acaso feliz do Wii |
+| Instante do pico do swing (`peakTimestampMs`) | **Bom** — quantização de ±16-33 ms a 30 fps, timestamps monotônicos | A mecânica central (timing) vive no nosso melhor canal — mesmo acaso feliz do Nevergear |
 | Lado do swing (forehand/backhand) | **Bom** — sinal lateral forte | Autenticidade barata: direção espelha no backhand como no tênis real |
 | Velocidade de pico | **Grosseiro mas utilizável** — diferenças finitas de posição filtrada | Potência em 3-4 níveis, não contínua fina |
 | Altura do contato (y do punho no pico) | **Utilizável** — landmark estável | Smash/voleio emergem de graça |
 | vy no pico (subindo/descendo) | **Utilizável como proxy** | Topspin/slice cosmético-físico no bounce |
 | Posição lateral precisa do punho | **Ruidoso** — e a mira atual usa isso | **Abolir mira por posição; adotar mira por timing** |
 | Profundidade (z) | **O mais ruidoso** — monocular | Não usar z para nada crítico |
-| Orientação do punho/spin por torção | **Impossível** | Não faz parte do core loop nem no Wii original — ignorar |
+| Orientação do punho/spin por torção | **Impossível** | Não faz parte do core loop nem no Nevergear original — ignorar |
 | Latência fóton→evento confirmado | **~100-500 ms** — pipeline + confirmação + arbitragem | Exige adjudicação retroativa (§4) — o coração deste design |
 | Latência até *onset* do swing | **~50-100 ms** — um frame após cruzar o limiar | Canal precoce para animação (`swing-start`) |
 
@@ -51,7 +51,7 @@ x ∈ [-3,5, +3,5]  singles (laterais)
 - **Plano de contato** z_contact = +7,2 (à frente do jogador); o oponente tem o seu em -7,2.
 - Alcance lateral do avatar: raio de alcance ~1,15 u a partir do centro do corpo.
 
-### 3.2 Movimentação automática (como no Wii)
+### 3.2 Movimentação automática (como no Nevergear)
 
 O avatar corre sozinho: intercepta lateralmente a projeção da bola com velocidade máxima ~5,5 u/s. O jogador real **não precisa se mexer** — e o design não usa lane-lean no tênis. A largura do placement do oponente pressiona indiretamente: se o avatar ainda está se deslocando quando a bola chega, a qualidade máxima do retorno cai (cap de potência) — é assim que bolas abertas ficam difíceis sem nunca serem impossíveis.
 
@@ -144,7 +144,7 @@ Espaço dispara um swing sintético com `peakTimestampMs = agora` — ou seja, *
 
 ### Mudanças no pipeline de sensing
 
-> Nota de arquitetura (25/nov): a pipeline CV foi extraída para o pacote `@wii/spatial-core` (`packages/core`) — protocolo em `packages/core/src/providers/poseProtocol.ts`, worker em `packages/core/src/providers/pose.worker.ts`. O pacote também já traz infraestrutura de **hand tracking** (`HandClient`, modelo hospedado) e replay gravado, hoje fora do caminho do app. Fusão pose+mão fica como trabalho futuro: o HandLandmarker foi desenhado para mãos em close, e a mão ocupa poucos pixels num enquadramento de corpo inteiro a ~2 m — ganho incerto, custo certo de inferência. O tênis desta iteração sai inteiro da pose, que é o caminho medido e conhecido.
+> Nota de arquitetura (25/nov): a pipeline CV foi extraída para o pacote `@nevergear/spatial-core` (`packages/core`) — protocolo em `packages/core/src/providers/poseProtocol.ts`, worker em `packages/core/src/providers/pose.worker.ts`. O pacote também já traz infraestrutura de **hand tracking** (`HandClient`, modelo hospedado) e replay gravado, hoje fora do caminho do app. Fusão pose+mão fica como trabalho futuro: o HandLandmarker foi desenhado para mãos em close, e a mão ocupa poucos pixels num enquadramento de corpo inteiro a ~2 m — ganho incerto, custo certo de inferência. O tênis desta iteração sai inteiro da pose, que é o caminho medido e conhecido.
 
 1. **Evento `swing-start`** — novo tipo em `SportActionEvent`; `SwingDetector` emite no frame do onset.
 2. **Enriquecimento do `swing` confirmado**: `contactY` (altura do punho no pico, larguras de ombro relativas ao ombro), `verticalSpeed` (vy no pico — proxy de spin), `onsetTimestampMs`.
@@ -166,12 +166,12 @@ Espaço dispara um swing sintético com `peakTimestampMs = agora` — ou seja, *
 - Multiplayer / duplas.
 - Dificuldade adaptativa além da rampa linear.
 
-## Como o Wii Sports faz, e o que adotamos
+## Como o Nevergear Sports faz, e o que adotamos
 
 Consultado em [MiiWiki](https://miiwiki.org/wiki/Tennis) e
 [Wikibooks](https://en.wikibooks.org/wiki/Wii_Sports/Tennis). São fontes de fãs.
 
-| Wii Sports, segundo as fontes | Aqui |
+| Nevergear Sports, segundo as fontes | Aqui |
 | --- | --- |
 | Movimento automático; o jogador só rebate | Igual |
 | Tempo e altura da raquetada definem a direção | O tempo define o lado; onde o golpe termina define o arco |

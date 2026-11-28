@@ -1,4 +1,4 @@
-import type { Point3, PoseSnapshot } from '@wii/spatial-core';
+import type { Point3, PoseSnapshot } from '@nevergear/spatial-core';
 import { landmarkConfidence, visibleImagePoint } from './math';
 
 /** One frame of the upper body, in image units scaled so x and y share the shoulder width's units. */

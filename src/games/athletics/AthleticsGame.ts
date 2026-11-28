@@ -27,7 +27,7 @@ export interface AthleticsHudState {
 
 const INTRO_S = 2.2;
 const CHASE_RATE = 6;
-const RECORDS_KEY = 'wii-athletics-records';
+const RECORDS_KEY = 'nevergear-athletics-records';
 /** The player runs in lane 1; the rivals, in this order, in lanes 2 to 4. */
 const RIVAL_SHIRTS = [0xe8604c, 0x4fbf58, 0xf5b52e];
 /** Arms and legs keep moving during the warm-up, so the player sees the Mii copy them on the spot. */
