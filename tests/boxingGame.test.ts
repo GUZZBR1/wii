@@ -60,6 +60,16 @@ function punch(peakTimestampMs: number): SportActionEvent {
 }
 
 describe('BoxingGame', () => {
+  it('publishes and holds the final fight result for Iron Man', () => {
+    const { game, run, read, setMatch } = start({ holdResult: true });
+    expect(read().boxing.winner).toBeUndefined();
+    setMatch({ winner: 'draw' });
+    expect(read().boxing.winner).toBe('draw');
+    run(12);
+    expect(read().boxing.winner).toBe('draw');
+    game.dispose();
+  });
+
   it('hits a player who stays in the targeted zone', () => {
     const { run, read } = start();
     run(1.8);

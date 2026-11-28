@@ -7,7 +7,7 @@ import App from '../src/App';
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const captures = vi.hoisted(() => ({
-  gameProps: undefined as { onExit?: () => void } | undefined,
+  gameProps: undefined as { onExit?: () => void; sport: string; goal?: number; ironMan?: { onComplete: (result: { sport: 'athletics' | 'tennis' | 'boxing'; detail: string }) => void } } | undefined,
   handBegins: 0,
   handPauses: 0,
   poseBegins: 0,
@@ -19,7 +19,7 @@ vi.mock('../src/ui/WiiSplash', () => ({ WiiSplash: () => null }));
 vi.mock('../src/ui/GameCanvas', async () => {
   const React = await import('react');
   return {
-    GameCanvas: (props: { onExit?: () => void }) => {
+    GameCanvas: (props: typeof captures.gameProps) => {
       captures.gameProps = props;
       return React.createElement('div');
     },
@@ -49,7 +49,7 @@ vi.mock('../src/cv/handClient', () => ({
   },
 }));
 
-it('switches the camera back to hand tracking when play exits to the games menu', async () => {
+it('switches the camera back to hand tracking when play exits to the channel menu', async () => {
   const stream = new MediaStream();
   Object.assign(stream, { getTracks: () => [] });
   const getUserMedia = vi.fn(async () => stream);
@@ -75,7 +75,6 @@ it('switches the camera back to hand tracking when play exits to the games menu'
     await act(flush);
     expect(captures.handBegins).toBe(1);
 
-    await act(async () => { container.querySelector<HTMLButtonElement>('.channel.sports')!.click(); });
     await click('Tênis'); // brings the card to the front
     await click('Tênis');
     await act(flush);
@@ -89,6 +88,42 @@ it('switches the camera back to hand tracking when play exits to the games menu'
     expect(captures.handBegins).toBe(2);
   } finally {
     await act(async () => { root.unmount(); });
+    container.remove();
+  }
+});
+
+
+it('runs the three Iron Man stages in order, shows the summary, and discards a cancelled challenge', async () => {
+  window.matchMedia = (query: string) => ({ matches: true, media: query, addEventListener: () => {}, removeEventListener: () => {} }) as unknown as MediaQueryList;
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  const start = async () => act(async () => { container.querySelector<HTMLButtonElement>('.channel.sports')!.click(); });
+  const finish = async (sport: 'athletics' | 'tennis' | 'boxing', detail: string) => act(async () => {
+    captures.gameProps!.ironMan!.onComplete({ sport, detail });
+  });
+  try {
+    await act(async () => root.render(<App />));
+    await start();
+    expect(captures.gameProps).toMatchObject({ sport: 'athletics', goal: 100 });
+    await finish('athletics', '15 segundos · 2º lugar');
+    expect(captures.gameProps?.sport).toBe('tennis');
+    await finish('tennis', 'Derrota · 0 × 2 games');
+    expect(captures.gameProps?.sport).toBe('boxing');
+    await finish('boxing', 'Empate');
+    expect(container.textContent).toContain('Iron Man concluído!');
+    expect(container.textContent).toContain('15 segundos · 2º lugar');
+    expect(container.textContent).toContain('Derrota · 0 × 2 games');
+    expect(container.textContent).toContain('Empate');
+    await act(async () => [...container.querySelectorAll('button')].find((button) => button.textContent === 'Voltar ao menu')!.click());
+    await start();
+    await finish('athletics', 'Outro resultado');
+    await act(async () => captures.gameProps!.onExit!());
+    await start();
+    expect(captures.gameProps).toMatchObject({ sport: 'athletics', goal: 100 });
+    expect(container.textContent).toContain('ETAPA 1 DE 3');
+  } finally {
+    await act(async () => root.unmount());
     container.remove();
   }
 });

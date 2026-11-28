@@ -116,6 +116,7 @@ const HANDS = ['left', 'right'] as const;
 
 export interface BoxingGameOptions {
   mode?: BoxingMode;
+  holdResult?: boolean;
   opponent?: OpponentProfileId;
   /**
    * Randomness for the opponent's footwork, kept apart from the AI's `rng` so player punches never
@@ -133,6 +134,7 @@ export interface BoxingScoreboard {
   secondsLeft: number;
   /** Present before the first bell and after a terminal fight/training result. */
   selectionOpen?: boolean;
+  winner?: 'player' | 'opponent' | 'draw';
   training?: BoxingTrainingScoreboard;
 }
 
@@ -162,6 +164,7 @@ export class BoxingGame {
   private readonly hudTimer: number;
   private readonly gate = new RunGate();
   private readonly mode: BoxingMode;
+  private readonly holdResult: boolean;
   private readonly motionRng: () => number;
   private readonly profile: OpponentProfile;
 
@@ -220,6 +223,7 @@ export class BoxingGame {
     options: BoxingGameOptions = {},
   ) {
     this.mode = options.mode ?? 'fight';
+    this.holdResult = options.holdResult ?? false;
     this.motionRng = options.motionRng ?? (() => 0);
     this.profile = opponentProfile(options.opponent);
     this.status = this.initialStatus();
@@ -528,6 +532,7 @@ export class BoxingGame {
 
   private stepFight(dtMs: number): void {
     if (this.match.winner) {
+      if (this.holdResult) return;
       this.restartMsLeft -= dtMs;
       if (this.restartMsLeft <= 0) {
         this.match = createBoxing();
@@ -947,6 +952,7 @@ export class BoxingGame {
         rounds: ROUND_COUNT,
         secondsLeft: Math.ceil(this.match.roundMsLeft / 1000),
         ...(selectionOpen ? { selectionOpen: true } : {}),
+        ...(this.mode === 'fight' && this.match.winner ? { winner: this.match.winner } : {}),
         ...(training ? { training } : {}),
       },
     });

@@ -36,8 +36,14 @@ const BOXING_TRAINING_CONTROLS = {
 } as const;
 export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setSwingTracking?(tracking: SwingTracking): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; setDodgeZone?(zone: -1 | 0 | 1 | undefined): void; setGuard?(guard: boolean | undefined): void; setDepthMove?(move: -1 | 0 | 1 | undefined): void; setDepthSpeed?(speed: number | undefined): void; setLateralDash?(dash: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
 
+export interface IronManResult {
+  sport: 'athletics' | 'tennis' | 'boxing';
+  detail: string;
+}
+
 interface Props {
   sport: Sport;
+  ironMan?: { onComplete: (result: IronManResult) => void };
   onEngine: (engine: GameEngineHandle | null) => void;
   tracking: string;
   audio?: ProceduralAudio;
@@ -74,7 +80,7 @@ export function GameCanvas(props: Props) {
   />;
 }
 
-function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, initialRacketHand, onRacketHand, tutorial, onRestart, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent }: Props & {
+function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, initialRacketHand, onRacketHand, tutorial, onRestart, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent }: Props & {
   onRestart: () => void;
   tutorial: boolean;
   boxingMode: BoxingMode;
@@ -82,6 +88,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
   boxingOpponent: OpponentProfileId;
   onBoxingOpponent: (opponent: OpponentProfileId) => void;
 }) {
+  const ironActive = Boolean(ironMan);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [hud, setHud] = useState<GameHudState>({ score: 0, label: '00000', speed01: 0, status: 'Pronto para jogar' });
   const hudRef = useRef(setHud);
@@ -96,7 +103,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
   const restartByBody = Math.max(hud.finished?.restart01 ?? 0, hud.tennis?.winner ? hud.tennis.restart01 : 0) >= 1;
   const restartRef = useRef(onRestart);
   restartRef.current = onRestart;
-  useEffect(() => { if (restartByBody) restartRef.current(); }, [restartByBody]);
+  useEffect(() => { if (restartByBody && !ironMan) restartRef.current(); }, [restartByBody, ironMan]);
 
   // Same rules as playing again: only after the result has been seen, and from arms that were down.
   const over = Boolean(hud.finished || hud.tennis?.winner);
@@ -111,7 +118,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
   exitRef.current = onExit;
   const [leave01, setLeave01] = useState(0);
   useEffect(() => {
-    if (!over) { setLeave01(0); return; }
+    if (!over || ironMan) { setLeave01(0); return; }
     const gesture = new RestartGesture();
     let last = performance.now();
     const timer = window.setInterval(() => {
@@ -127,7 +134,35 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
       }
     }, 100);
     return () => window.clearInterval(timer);
-  }, [over, crossedPose]);
+  }, [over, crossedPose, ironMan]);
+  const [countdown, setCountdown] = useState(10);
+  const completedRef = useRef(ironMan?.onComplete);
+  completedRef.current = ironMan?.onComplete;
+  const ironResult: IronManResult | undefined = !ironMan ? undefined
+    : sport === 'athletics' && hud.finished ? {
+      sport: 'athletics',
+      detail: `${hud.finished.detail} · ${hud.finished.standings.findIndex((runner) => runner.you) + 1}º lugar`,
+    } : sport === 'tennis' && hud.tennis?.winner ? {
+      sport: 'tennis',
+      detail: `${hud.tennis.winner === 'player' ? 'Vitória' : 'Derrota'} · ${hud.tennis.games.player} × ${hud.tennis.games.opponent} games`,
+    } : sport === 'boxing' && hud.boxing?.winner ? {
+      sport: 'boxing',
+      detail: hud.boxing.winner === 'player' ? 'Vitória' : hud.boxing.winner === 'draw' ? 'Empate' : 'Derrota',
+    } : undefined;
+  // Capture the first terminal result, then clean up both timers if the player exits.
+  const resultRef = useRef<IronManResult | undefined>(undefined);
+  if (ironResult && !resultRef.current) resultRef.current = ironResult;
+  const displayedResult = resultRef.current;
+  const hasIronResult = Boolean(displayedResult);
+  useEffect(() => {
+    if (!hasIronResult) return;
+    setCountdown(10);
+    const interval = window.setInterval(() => setCountdown((seconds) => Math.max(0, seconds - 1)), 1000);
+    const timeout = window.setTimeout(() => {
+      if (resultRef.current) completedRef.current?.(resultRef.current);
+    }, 10_000);
+    return () => { window.clearInterval(interval); window.clearTimeout(timeout); };
+  }, [hasIronResult]);
   const leaveBar = <div className="restart-gesture"><b style={{ width: `${leave01 * 100}%` }} /><span>Cruze os braços em X para voltar ao menu</span></div>;
 
   useEffect(() => {
@@ -165,6 +200,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
               })
               : new (await import('../games/boxing/BoxingGame')).BoxingGame(canvas, updateHud, audio, undefined, {
                 mode: boxingMode,
+                holdResult: ironActive,
                 opponent: boxingOpponent,
                 motionRng: Math.random,
               });
@@ -187,7 +223,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
       engineRef.current = null;
       onEngine(null);
     };
-  }, [sport, onEngine, audio, goal, boxingMode, boxingOpponent]);
+  }, [sport, onEngine, audio, goal, boxingMode, boxingOpponent, ironActive]);
 
   const boxingControls = hud.boxing?.training ? BOXING_TRAINING_CONTROLS[hud.boxing.training.kind] : HUD_TEXT.boxing.controls;
 
@@ -203,14 +239,14 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
         </tr>
       ))}</tbody>
     </table> : sport === 'boxing' ? hud.boxing && <BoxingHud {...hud.boxing} /> : sport !== 'tennis' && <div className="game-hud"><div><span>{HUD_TEXT[sport].score}</span><strong>{hud.label}</strong>{(hud.combo ?? 0) > 1 && <em>COMBO {hud.combo}</em>}</div><div className="game-speed"><span>{HUD_TEXT[sport].speed}</span><strong>{Math.round(hud.speed01 * 100)}%</strong></div></div>}
-    {hud.tennis?.winner && <section className="game-over tennis-result" aria-label="Resultado da partida">
+    {hud.tennis?.winner && !ironMan && <section className="game-over tennis-result" aria-label="Resultado da partida">
       <h2>{hud.tennis.winner === 'player' ? 'Você venceu!' : 'Adversário venceu'}</h2>
       <p>{hud.tennis.games.player} × {hud.tennis.games.opponent} games</p>
       <div className="restart-gesture"><b style={{ width: `${hud.tennis.restart01 * 100}%` }} /><span>Levante as duas mãos para jogar de novo</span></div>
       {leaveBar}
       <button type="button" onClick={onRestart}>Jogar de novo</button>
     </section>}
-    {sport === 'boxing' && hud.boxing?.selectionOpen && <fieldset className="game-goals boxing-setup" aria-label="Configuração do boxe">
+    {sport === 'boxing' && !ironMan && hud.boxing?.selectionOpen && <fieldset className="game-goals boxing-setup" aria-label="Configuração do boxe">
       <div className="boxing-select-row">
         <span>MODO</span>
         {BOXING_MODES.map((mode) => <button key={mode.id} type="button" className="dock-btn" aria-pressed={mode.id === boxingMode} onClick={() => onBoxingMode(mode.id)}>{mode.label}</button>)}
@@ -232,7 +268,7 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
       <span>{hud.energy.label}</span>
       <i><b style={{ width: `${hud.energy.value01 * 100}%` }} /></i>
     </div>}
-    {hud.finished && <div className="game-over" role="dialog" aria-label="Fim da prova">
+    {hud.finished && !ironMan && <div className="game-over" role="dialog" aria-label="Fim da prova">
       <h2>{hud.finished.title}</h2>
       <p><strong>{hud.finished.detail}</strong></p>
       <ol>{hud.finished.standings.map((runner, index) => (
@@ -242,6 +278,11 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
       {leaveBar}
       <button type="button" onClick={onRestart}>Correr de novo</button>
     </div>}
+    {displayedResult && <section className="game-over iron-result" role="status">
+      <h2>Etapa concluída!</h2>
+      <p>{displayedResult.detail}</p>
+      <p>{sport === 'boxing' ? 'Resumo' : 'Próxima modalidade'} em {countdown} s</p>
+    </section>}
     {hud.result && <div className="game-over" role="dialog" aria-label="Fim de corrida">
       <h2>Você perdeu!</h2>
       <p>Sua melhor marca nesta corrida: <strong>{hud.result.points}</strong> pontos</p>
