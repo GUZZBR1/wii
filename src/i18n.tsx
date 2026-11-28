@@ -3,7 +3,7 @@ import { readStored, writeStored } from './lib/storage';
 
 export type Lang = 'pt' | 'en';
 
-const STORAGE_KEY = 'wii-lang';
+const STORAGE_KEY = 'nevergear-lang';
 
 /** Idioma salvo; sem preferência salva, segue o idioma do navegador (português ou inglês). */
 function initialLang(): Lang {

@@ -1,5 +1,5 @@
 /**
- * Everything the browser persists locally: language, theme, mute, quality, records and the player's
+ * Everything the browser persists locally: language, mute, quality, records and the player's
  * Mii. Storage is optional — private mode, blocked cookies and sandboxed frames all throw — so every
  * access is guarded here once instead of at each call site. A read that fails is "nothing saved";
  * a write that fails means the value lives for this visit only.

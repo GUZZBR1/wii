@@ -1,8 +1,8 @@
-# Plano de integração: website GUZZBR1 + Wii do Santleme
+# Plano de integração: website GUZZBR1 + Nevergear do Santleme
 
 ## Escopo confirmado
 
-Manter o website neste repositório e usar o Wii atual de `santleme/wii` na área `/app`. Preservar as páginas e o conteúdo do site. A arena usa `src/App.tsx`, `src/games`, `src/cv` e `packages/core`; não haverá uma segunda engine dentro de `site/`.
+Manter o website neste repositório e usar o Nevergear atual de `santleme/wii` na área `/app`. Preservar as páginas e o conteúdo do site. A arena usa `src/App.tsx`, `src/games`, `src/cv` e `packages/core`; não haverá uma segunda engine dentro de `site/`.
 
 ## Execução
 

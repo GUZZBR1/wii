@@ -301,12 +301,6 @@ export default function VisionAsciiPortrait() {
     });
     resizeObserver.observe(host);
 
-    const themeObserver = new MutationObserver(() => {
-      updatePalette();
-      if (reducedMotion.matches) draw(performance.now());
-    });
-    themeObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
-
     const onMotionPreference = () => {
       cancelAnimationFrame(frame);
       frame = 0;
@@ -326,7 +320,6 @@ export default function VisionAsciiPortrait() {
       cancelAnimationFrame(frame);
       observer.disconnect();
       resizeObserver.disconnect();
-      themeObserver.disconnect();
       reducedMotion.removeEventListener('change', onMotionPreference);
     };
   }, []);

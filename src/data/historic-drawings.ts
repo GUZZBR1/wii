@@ -88,10 +88,10 @@ export const historicDrawings: HistoricDrawing[] = [
     artist: { pt: 'Nintendo', en: 'Nintendo' },
     year: '2006',
     title: { pt: 'Wii Remote', en: 'Wii Remote' },
-    image: '/images/archive/wii-remote.jpg',
+    image: '/images/archive/nevergear-remote.jpg',
     alt: {
-      pt: 'Controle Wii Remote branco com o Nunchuk ligado por cabo.',
-      en: 'White Wii Remote with the Nunchuk attached by cable.',
+      pt: 'Controle Nevergear Remote branco com o Nunchuk ligado por cabo.',
+      en: 'White Nevergear Remote with the Nunchuk attached by cable.',
     },
     source: 'https://commons.wikimedia.org/wiki/File:Nintendo-Wii-Remote-wNunchuk.jpg',
     thought: { pt: 'Balance o braço e o jogo entende. Qualquer um sabe jogar.', en: 'Swing your arm and the game understands. Anyone knows how to play.' },

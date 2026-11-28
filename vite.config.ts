@@ -13,7 +13,7 @@ export default defineConfig(({ mode }) => ({
     alias:
       mode === 'test'
         ? []
-        : [{ find: /^@wii\/spatial-core$/, replacement: resolve(projectRoot, 'packages/core/src/index.ts') }],
+        : [{ find: /^@nevergear\/spatial-core$/, replacement: resolve(projectRoot, 'packages/core/src/index.ts') }],
   },
   test: {
     environment: 'node',

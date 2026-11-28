@@ -1,4 +1,4 @@
-import { HandFeatureExtractor, handGestureVector } from '@wii/spatial-core';
+import { HandFeatureExtractor, handGestureVector } from '@nevergear/spatial-core';
 import { handSnapshot } from './syntheticHand';
 
 export type SyntheticGesture = 'pinch-right' | 'pinch-left' | 'open-right' | 'near-miss' | 'rest' | 'random';

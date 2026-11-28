@@ -80,7 +80,7 @@ function cameraAt(t: number, calm: boolean) {
 export default function Intro({ onDone }: { onDone: () => void }) {
   const { tr } = useLang();
   const [calm] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches);
-  // -1: perguntas; 0..total-1: cada marco; total: marca Wii.
+  // -1: perguntas; 0..total-1: cada marco; total: marca Nevergear.
   const [step, setStep] = useState(-1);
   const [leaving, setLeaving] = useState(false);
   const [flat, setFlat] = useState(false); // sem WebGL: as obras entram como imagens
@@ -109,7 +109,7 @@ export default function Intro({ onDone }: { onDone: () => void }) {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const scene = createIntroScene(canvas, historicDrawings.map((item) => item.image), 'Wii');
+    const scene = createIntroScene(canvas, historicDrawings.map((item) => item.image), '/images/nevergear-logo.png');
     if (!scene) setFlat(true);
     const lost = () => setFlat(true);
     canvas.addEventListener('webglcontextlost', lost);
@@ -254,12 +254,12 @@ export default function Intro({ onDone }: { onDone: () => void }) {
     <div
       className={`intro${leaving ? ' is-leaving' : ''}${calm ? ' is-calm' : ''}${flat ? ' is-flat' : ''}`}
       role="dialog"
-      aria-label={tr('Abertura do Wii', 'Wii opening')}
+      aria-label={tr('Abertura do Nevergear', 'Nevergear opening')}
       data-quality={level === undefined ? undefined : `${shownTier}:${level}`}
       style={{ '--shot': `${SHOT}s`, '--lead': `${LEAD}s` } as CSSProperties}
     >
       <canvas className="intro-canvas" ref={canvasRef} aria-hidden="true" tabIndex={-1} />
-      {flat && (step === -1 || step === total) && <div className="intro-flat-mark" aria-hidden="true">Wii</div>}
+      {flat && (step === -1 || step === total) && <div className="intro-flat-mark" aria-hidden="true"><img className="brand-logo" src="/images/nevergear-logo.png" alt="" width={1200} height={234} /></div>}
 
       {step === -1 && OPENING.map((line, index) => (
         <p className="intro-line" key={line.pt} style={{ '--n': index } as CSSProperties}>{tr(line.pt, line.en)}</p>

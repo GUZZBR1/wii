@@ -20,7 +20,7 @@ flowchart LR
   Site --> ArenaShell[src/components/ArenaShell.tsx]
   ArenaShell --> Arena[src/App.tsx: camera and game orchestration]
   Arena --> AppAdapters[src/cv: local assets and browser adapters]
-  AppAdapters --> Core[@wii/spatial-core]
+  AppAdapters --> Core[@nevergear/spatial-core]
   Core --> Workers[Pose and hand module Workers]
   Workers --> MediaPipe[Local MediaPipe WASM and task models]
   Core --> Snapshots[PoseSnapshot / HandSnapshot]
@@ -43,18 +43,18 @@ flowchart LR
 | Hand worker, capture and in-flight frame | `packages/core/src/providers/handClient.ts` | Owns the hand Worker, worker request correlation, resizing and live capture. `processFrame` closes rejected bitmaps and transfers accepted ones; the shared pump owns scheduling and single-flight. |
 | App hand adapter | `src/cv/handClient.ts` | Supplies versioned local asset URLs and asset warming. It no longer implements a second capture scheduler. |
 | Alternate provider switching | `packages/core/src/runtime/spatialRuntime.ts` | Owns a provider generation. It delegates live capture to providers that support it; each processFrame-only hand activation owns a separate pump. It is exported and tested, but no production caller was found. |
-| Calibration and action history | `src/App.tsx`, `src/cv/adaptiveCalibrator.ts`, `src/kinematics/*` | The coordinator owns long-lived instances; pure detectors own their local filters and timing windows. `adaptiveCalibrator.ts` consumes kinematics helpers; the reverse type dependency was removed in round 2 by importing contracts from `@wii/spatial-core`. |
+| Calibration and action history | `src/App.tsx`, `src/cv/adaptiveCalibrator.ts`, `src/kinematics/*` | The coordinator owns long-lived instances; pure detectors own their local filters and timing windows. `adaptiveCalibrator.ts` consumes kinematics helpers; the reverse type dependency was removed in round 2 by importing contracts from `@nevergear/spatial-core`. |
 | Three.js renderer, fixed-step clock and shared scenery | `src/games/core/GameLoop.ts`, `src/games/core/scenery.ts` | Game instances own their scene objects; shared game primitives live under `games/core` rather than a single sport. |
 | Rules and match state | `src/games/track/*`, `src/games/athletics/*`, `src/games/tennis/*`, `src/games/boxing/*` | Pure rules have direct deterministic tests; rendering is owned by each game class. Cross-game imports remain in the backlog for a dedicated ownership pass. |
 | Website and menu state | React modules under `src/app`, `src/components`, `src/pages`, `src/ui` | Local UI state stays in React. The language provider owns selected language. |
-| Browser persistence | `src/lib/quality.ts`, `src/App.tsx`, `src/i18n.tsx`, `src/components/SiteHeader.tsx`, legacy `TrackGame.ts` | Local storage holds quality preference, mute, language, theme and obstacle-course records. There is no server-side user store. |
+| Browser persistence | `src/lib/quality.ts`, `src/App.tsx`, `src/i18n.tsx`, legacy `TrackGame.ts` | Local storage holds quality preference, mute, language and obstacle-course records. There is no server-side user store. |
 
 ### Contracts, infrastructure, and production constraints
 
 - There is no backend API, authentication service, or remote application data store. The product deploys as static Vite assets; browser permission controls camera access.
 - Worker messages and `PoseSnapshot`/`HandSnapshot` types live in `packages/core/src/providers/` and `packages/core/src/types.ts`. `src/cv/protocol.ts` is a one-line re-export used by many app modules; it does not define a competing protocol.
 - `src/cv/mediapipeAssets.ts` pins local model hashes and the WASM version. App adapters construct versioned local URLs and warm assets. The workers fetch the local model files; video frames stay on-device.
-- `vite.config.ts` maps `@wii/spatial-core` to source in app/dev mode. Tests resolve the built workspace package; `pretest` builds it first. This is intentional and verified by the workspace/package setup.
+- `vite.config.ts` maps `@nevergear/spatial-core` to source in app/dev mode. Tests resolve the built workspace package; `pretest` builds it first. This is intentional and verified by the workspace/package setup.
 - The browser-facing errors include camera acquisition, worker initialization (30-second timeout), worker errors and GPU-to-CPU fallback. Site article failures are logged at the app error boundary. Developer CV recordings/replays live under `src/cv/diagnostics` and `scripts/`.
 - CI (`.github/workflows/ci.yml`) runs `npm ci`, tests, Biome lint, production build and article validation. A scoped Biome override now enforces the purity/import direction of `src/kinematics`; other ownership and dependency rules remain in the backlog.
 - There is no shared theme package: site and arena styling have separate CSS entry points. The design system and accessibility contracts remain to be audited before any visual consolidation.
@@ -97,7 +97,7 @@ flowchart LR
 
 ### Mudança
 
-- Os módulos de `src/kinematics` importam contratos de pose/calibração diretamente de `@wii/spatial-core`, removendo a dependência de tipos no re-export da camada `src/cv/protocol.ts` e, com ela, o ciclo de fonte com `src/cv/adaptiveCalibrator.ts`.
+- Os módulos de `src/kinematics` importam contratos de pose/calibração diretamente de `@nevergear/spatial-core`, removendo a dependência de tipos no re-export da camada `src/cv/protocol.ts` e, com ela, o ciclo de fonte com `src/cv/adaptiveCalibrator.ts`.
 - Um override Biome aplicado somente a `src/kinematics/**` rejeita imports de CV/adapters, UI, jogos, páginas, React, Three.js e MediaPipe. Ele também bloqueia globais de DOM, vídeo, canvas, worker e animação.
 - Imports do core são limitados a contratos de dados, `OneEuroFilter` e detectores puros já canônicos no pacote (como `RotationalFlickDetector`); o barrel misto não fica aberto para providers e runtime de browser.
 - Imports internos proibidos usam padrões que cobrem profundidades diferentes. A regra também bloqueia leitura do relógio global: `kinematicsMs` não tinha consumidores e foi removido; `ActionPipeline.reset(timestampMs)` agora recebe o instante do coordenador.
@@ -201,7 +201,7 @@ flowchart LR
 ### Mudanças
 
 - Callbacks de rVFC e rAF verificam a geração antes de limpar o handle ou atualizar `lastVideoTime`. O teste de captura inclui restart durante a entrega em lote de callbacks e exige que `stop()` cancele o handle novo.
-- A regra `noRestrictedImports` agora bloqueia tanto subpaths privados do pacote quanto imports relativos para `packages/core/**` em kinematics. O barrel `@wii/spatial-core` continua permitindo somente os contratos listados.
+- A regra `noRestrictedImports` agora bloqueia tanto subpaths privados do pacote quanto imports relativos para `packages/core/**` em kinematics. O barrel `@nevergear/spatial-core` continua permitindo somente os contratos listados.
 - Probe com arquivo temporário confirmou que o import relativo privado falha e o import público de `PoseSnapshot` passa; o fixture temporário foi removido.
 
 ### Verificação e limite

@@ -14,6 +14,7 @@ import {
   raisedTossHand,
 } from './kinematics/framing';
 import { visibleImagePoint } from './kinematics/math';
+import { EXIT_DODGE_SW } from './kinematics/postureSignals';
 import type { GestureSample } from './games/core/restartGesture';
 import type { GameEngineHandle, Sport } from './ui/GameCanvas';
 import { drawPose } from './ui/PoseOverlay';
@@ -45,7 +46,6 @@ export class Perception {
   private readonly calibrator = new AdaptiveCalibrator();
   private readonly headWarning = new HeadWarning();
   private poseTimes: number[] = [];
-  private lastSnapshot: PoseSnapshot | undefined;
   /** The profile the action pipeline last ran with; it already owns the adaptive calibration. */
   private profile: ReturnType<AdaptiveCalibrator['update']> = undefined;
 
@@ -68,6 +68,7 @@ export class Perception {
    */
   reset(intake: PoseIntake): SportActionEvent[] {
     this.calibrator.reset();
+    this.profile = undefined;
     this.context.reset();
     this.headWarning.reset();
     const released = this.actions.reset(performance.now());
@@ -77,12 +78,13 @@ export class Perception {
 
   update(raw: PoseSnapshot, sport: Sport, intake: PoseIntake): PerceptionFrame {
     const atMs = raw.timestampMs;
-    this.lastSnapshot = raw;
     this.trackRate(atMs);
     // Implicit calibration: every observed frame is evidence. The profile is a continuously
     // improving estimate, never a mode the player has to enter or watch.
-    this.profile =
-      this.calibrator.update(raw, sport === 'boxing' ? this.actions.dodgeZone : this.actions.laneZone) ?? this.profile;
+    const calibrated = sport === 'boxing'
+      ? this.calibrator.update(raw, this.actions.dodgeZone, EXIT_DODGE_SW)
+      : this.calibrator.update(raw, this.actions.laneZone);
+    this.profile = calibrated ?? this.profile;
     const result = this.actions.update(raw, this.profile);
     const snapshot = result.snapshot;
     const decision = this.context.update(snapshot, this.profile);
@@ -129,11 +131,6 @@ export class Perception {
       crossedPose: gestureAtMs === null ? null : { active: wristsVisible && armsCrossed(snapshot), atMs: gestureAtMs },
       events: result.events,
     };
-  }
-
-  /** Kept for the skeleton the camera shows while the menu is up. */
-  drawLast(intake: PoseIntake): void {
-    drawPose(intake.overlay().canvas, intake.overlay().video, this.lastSnapshot);
   }
 
   private trackRate(atMs: number): void {

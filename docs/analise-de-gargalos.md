@@ -1,4 +1,4 @@
-# Análise de gargalos — Wii Web Sports Arena
+# Análise de gargalos — Nevergear Web Sports Arena
 
 Data: 25 de novembro de 2026 · Commit analisado: `d455ebc` ("Make the game the whole site")
 
@@ -6,7 +6,7 @@ Data: 25 de novembro de 2026 · Commit analisado: `d455ebc` ("Make the game the 
 
 ## O que é este projeto
 
-**Wii Web Sports Arena** é um arcade de navegador ("seu corpo é o controle") com dois mini-jogos — **Hurdle Rush** (corrida com obstáculos, 3 raias) e **Baseline Rally** (tênis arcade) — controlados pela pose do corpo capturada via webcam, sem envio de vídeo ao servidor. Stack: Vite 8 + React 19 + TypeScript estrito + Three.js 0.187 + `@mediapipe/tasks-vision` 1.2.3 (`package.json`), deploy estático na Vercel (`vercel.json`).
+**Nevergear Web Sports Arena** é um arcade de navegador ("seu corpo é o controle") com dois mini-jogos — **Hurdle Rush** (corrida com obstáculos, 3 raias) e **Baseline Rally** (tênis arcade) — controlados pela pose do corpo capturada via webcam, sem envio de vídeo ao servidor. Stack: Vite 8 + React 19 + TypeScript estrito + Three.js 0.187 + `@mediapipe/tasks-vision` 1.2.3 (`package.json`), deploy estático na Vercel (`vercel.json`).
 
 A pipeline de ponta a ponta, conforme o código:
 

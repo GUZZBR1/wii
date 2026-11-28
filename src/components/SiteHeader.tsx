@@ -10,47 +10,27 @@ import {
   useScroll,
   useTransform,
 } from 'motion/react';
-import { flushSync } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
 import { useLang } from '../i18n';
-import { readStored, writeStored } from '../lib/storage';
 
 const MORPH_DISTANCE = 130;
 const HEADER_REVEAL = 36;
 const LIFT_RANGE = 60;
 const HOME_LIFT = 32;
-const TEAR_STEPS = 24;
-const TEAR_DURATION = 1100;
-
-function tearPolygon(stage: 'start' | 'line' | 'full') {
-  const jitter = (index: number, salt: number) => Math.sin(index * 12.9898 + salt * 78.233) * 0.5;
-  const side = (direction: 1 | -1, salt: number) => Array.from({ length: TEAR_STEPS + 1 }, (_, index) => {
-    const progress = index / TEAR_STEPS;
-    const t = stage === 'start' ? 0 : stage === 'line' ? progress : -0.2 + progress * 1.4;
-    const offset = stage === 'full' ? 110 : stage === 'start' ? 0 : 0.5 + jitter(index, salt) * 0.8;
-    const wobble = direction * offset;
-    return `${100 * t + wobble}% ${100 * t - wobble}%`;
-  });
-  return `polygon(${[...side(1, 1), ...side(-1, 2).reverse()].join(', ')})`;
-}
-
 function scrollProgress(value: number) {
   return Math.min(1, Math.max(0, value / MORPH_DISTANCE));
 }
 
 function startFontSize() {
   if (window.matchMedia('(max-width: 640px)').matches) {
-    return Math.max(92, Math.min(window.innerWidth * 0.24, 148));
+    return Math.max(34, Math.min(window.innerWidth * 0.12, 64));
   }
-  return Math.max(112, Math.min(window.innerWidth * 0.19, 224));
+  return Math.max(48, Math.min(window.innerWidth * 0.09, 128));
 }
 
 function compactFontSize() {
-  return window.matchMedia('(max-width: 640px)').matches ? 22 : 26;
+  return window.matchMedia('(max-width: 640px)').matches ? 16 : 26;
 }
-
-const THEME_STORAGE_KEY = 'wii-theme';
-const readSavedTheme = () => readStored(THEME_STORAGE_KEY) === 'dark';
 
 interface SiteHeaderProps {
   onRepeatProduct: () => void;
@@ -74,7 +54,6 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
   const [webcamFocused, setWebcamFocused] = useState(false);
   const [webcamPinned, setWebcamPinned] = useState(false);
   const [webcamDismissed, setWebcamDismissed] = useState(false);
-  const [dark, setDark] = useState(readSavedTheme);
   const [, setViewportRevision] = useState(0);
   const hoverCloseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const webcamAnchorRef = useRef<HTMLDivElement>(null);
@@ -123,7 +102,6 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
   const productX = 0;
   const webcamOpacity = useTransform(scrollY, [0, 40], [1, 0]);
   // Quando a webcam (o pingo do último i na home) some, o pingo de verdade aparece no lugar.
-  const dotOpacity = useTransform(webcamOpacity, (value) => 1 - value);
   const inverseBrandScale = useTransform(() => 1 / brandScale.get());
   const glassAmount = useTransform(progress, [0, 0.22], [0, 44]);
   const borderAmount = useTransform(progress, [0, 0.18], [0, 11]);
@@ -140,11 +118,6 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
     const initial = mobile ? 52 : 64;
     const compact = mobile ? 46 : 52;
     return initial + (compact - initial) * amount;
-  });
-  const themeButtonScale = useTransform(progress, (amount) => {
-    const mobile = window.matchMedia('(max-width: 640px)').matches;
-    const compact = mobile ? 30 / 34 : 34 / 42;
-    return 1 + (compact - 1) * amount;
   });
   const navPadding = useTransform(progress, (amount) => {
     const mobile = window.matchMedia('(max-width: 640px)').matches;
@@ -266,16 +239,6 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
     return () => window.removeEventListener('resize', updateViewport);
   }, []);
 
-  useEffect(() => {
-    document.body.classList.toggle('dark', dark);
-    document.querySelector('meta[name="theme-color"]')?.setAttribute(
-      'content',
-      dark ? '#1b1c19' : '#f4f8fa',
-    );
-    // The visual toggle still works when browser storage is unavailable.
-    writeStored(THEME_STORAGE_KEY, dark ? 'dark' : 'light');
-  }, [dark]);
-
   useEffect(() => () => {
     if (hoverCloseTimer.current) clearTimeout(hoverCloseTimer.current);
     hoverCloseTimer.current = null;
@@ -352,43 +315,11 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
               <span className="location-main">São Paulo, Brazil</span>
               <span className="location-more">São José dos Campos</span>
             </span>
-            <span className="lang-anchor">
-            <motion.button
-              className="theme-toggle min-h-[34px] min-w-[56px] px-3 font-mono text-[10px] text-ink transition duration-300 hover:opacity-70 active:translate-y-0 active:scale-[.97] sm:min-h-[42px] sm:min-w-[78px] sm:px-4 sm:text-[13px]"
-              style={{ scaleY: themeButtonScale, transformOrigin: 'center' }}
-              type="button"
-              aria-label={dark ? tr('Ativar tema claro', 'Switch to light theme') : tr('Ativar tema escuro', 'Switch to dark theme')}
-              onClick={() => {
-                const root = document.documentElement;
-                if (reduceMotion || !document.startViewTransition) {
-                  setDark((current) => !current);
-                  return;
-                }
-                root.classList.add('theme-tearing');
-                const transition = document.startViewTransition(() => {
-                  flushSync(() => setDark((current) => !current));
-                });
-                transition.ready.then(() => {
-                  root.animate(
-                    {
-                      clipPath: [tearPolygon('start'), tearPolygon('line'), tearPolygon('full')],
-                      offset: [0, 0.42, 1],
-                      easing: ['cubic-bezier(.45,.05,.3,1)', 'cubic-bezier(.65,0,.2,1)'],
-                    },
-                    { duration: TEAR_DURATION, fill: 'forwards', pseudoElement: '::view-transition-new(root)' },
-                  );
-                });
-                transition.finished.catch(() => undefined).finally(() => root.classList.remove('theme-tearing'));
-              }}
-            >
-              {dark ? 'light' : 'dark'}
-            </motion.button>
             {/* biome-ignore lint/a11y/useSemanticElements: These are independent language choices, not form fields. */}
             <span className="lang-menu" role="group" aria-label={tr('Idioma', 'Language')}>
               <button type="button" aria-pressed={lang === 'pt'} onClick={() => setLang('pt')}>PT</button>
               <button type="button" aria-pressed={lang === 'en'} onClick={() => setLang('en')}>EN</button>
             </span>
-          </span>
           </div>
         </motion.nav>
       </motion.header>
@@ -417,16 +348,9 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
           <Link
             className="wordmark relative z-[1] block font-sans font-extrabold leading-[.83] tracking-[-.035em] text-ink no-underline"
             to="/"
-            aria-label={tr('Wii, início', 'Wii, home')}
+            aria-label={tr('Nevergear, início', 'Nevergear, home')}
           >
-            {Array.from('Wiı').map((letter) => (
-              <span className="wordmark-letter" aria-hidden="true" key={letter}>
-                {letter}
-                {letter === 'ı' && (
-                  <motion.span className="wordmark-dot" style={{ opacity: !isHome ? 1 : reduceMotion ? (isScrolled ? 1 : 0) : dotOpacity }}>i</motion.span>
-                )}
-              </span>
-            ))}
+            <span className="wordmark-letter" aria-hidden="true"><img className="brand-logo" src="/images/nevergear-logo.png" alt="" width={1200} height={234} /></span>
           </Link>
           {isHome && (
             <div className="webcam-interaction" ref={webcamAnchorRef}>
@@ -449,11 +373,11 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
                 <motion.button
                   className="webcam-trigger"
                   type="button"
-                  aria-label={tr('Sobre a webcam do Wii', 'About the Wii webcam')}
+                  aria-label={tr('Sobre a webcam do Nevergear', 'About the Nevergear webcam')}
                   aria-controls="webcam-info-card"
                   aria-expanded={showWebcamCard}
                   tabIndex={isScrolled ? -1 : 0}
-                  title={tr('Sobre a webcam do Wii', 'About the Wii webcam')}
+                  title={tr('Sobre a webcam do Nevergear', 'About the Nevergear webcam')}
                   onFocus={() => {
                     cancelHoverClose();
                     setBrandFocused(false);
@@ -483,7 +407,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
               <motion.aside
                 id="webcam-info-card"
                 className="webcam-card-anchor definition-card"
-                aria-label={tr('Sobre a webcam do Wii', 'About the Wii webcam')}
+                aria-label={tr('Sobre a webcam do Nevergear', 'About the Nevergear webcam')}
                 aria-hidden={!showWebcamCard}
                 initial={false}
                 animate={showWebcamCard ? 'visible' : 'hidden'}
@@ -507,7 +431,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
                 <p className="definition-phrase">
                   {tr('Acompanha o seu corpo e transforma cada movimento em comando, em tempo real. O vídeo é processado no seu dispositivo.', 'Follows your body and turns every movement into a command, in real time. Video is processed on your device.')}
                 </p>
-                <p className="definition-note">{tr('O controle do Wii.', 'The Wii controller.')}</p>
+                <p className="definition-note">{tr('O controle do Nevergear.', 'The Nevergear controller.')}</p>
               </motion.aside>
             </div>
           )}
@@ -545,7 +469,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
         <motion.div className="definition-card-anchor" style={{ x: '-50%', scale: inverseBrandScale }}>
           <motion.aside
             className="definition-card border border-white/70 bg-paper/65 p-5 text-ink shadow-[0_18px_54px_rgba(36,37,32,.1)] backdrop-blur-2xl"
-            aria-label={tr('Definição de Wii', 'Definition of Wii')}
+            aria-label={tr('Definição de Nevergear', 'Definition of Nevergear')}
             aria-hidden={!showDefinition}
             initial={false}
             animate={showDefinition ? 'visible' : 'hidden'}
@@ -560,7 +484,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
             }}
             transition={{ type: 'spring', stiffness: 320, damping: 28 }}
           >
-            <h1>wii</h1>
+            <h1><img className="brand-logo" src="/images/nevergear-logo.png" alt="Nevergear" width={1200} height={234} /></h1>
             <p className="definition-kind"><em>{tr('arcade', 'arcade')}</em> · {tr('jogo no navegador', 'browser game')}</p>
             <p className="definition-phrase">
               {tr('Uma arena no navegador em que o corpo é o controle: corrida de obstáculos e tênis jogados por pose, só com a webcam.', 'A browser arena where the body is the controller: hurdle running and tennis played by pose, with just a webcam.')}

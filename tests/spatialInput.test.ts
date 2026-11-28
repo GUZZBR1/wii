@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { HandIntentEngine, SpatialInputBus } from '@wii/spatial-core';
+import { HandIntentEngine, SpatialInputBus } from '@nevergear/spatial-core';
 import { handSnapshot } from './fixtures/syntheticHand';
 
 describe('spatial input bus', () => {

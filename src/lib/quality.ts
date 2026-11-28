@@ -103,7 +103,7 @@ export interface Saved {
   at?: number;
 }
 
-const KEY = 'wii-quality';
+const KEY = 'nevergear-quality';
 const MAX_AGE = 7 * 24 * 3600 * 1000;
 const isMode = (value: unknown): value is Mode => value === 'auto' || value === 'lite' || value === 'medium' || value === 'ultra';
 

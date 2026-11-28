@@ -1,4 +1,4 @@
-import type { Point3 } from '@wii/spatial-core';
+import type { Point3 } from '@nevergear/spatial-core';
 
 export const clamp = (value: number, min = 0, max = 1): number => Math.min(max, Math.max(min, value));
 export const midpoint = (a: Point3, b: Point3): Point3 => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 });

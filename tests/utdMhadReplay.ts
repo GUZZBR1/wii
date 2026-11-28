@@ -1,4 +1,4 @@
-import { parsePoseRecording } from '@wii/spatial-core';
+import { parsePoseRecording } from '@nevergear/spatial-core';
 import { AdaptiveCalibrator } from '../src/cv/adaptiveCalibrator';
 import type { CalibrationProfile, PoseSnapshot, SportActionEvent } from '../src/cv/protocol';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';

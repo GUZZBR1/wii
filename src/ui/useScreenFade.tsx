@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 
-/** Passagem entre telas, como no Wii: clareia até o branco, troca, e o branco se dissolve. */
+/** Passagem entre telas, como no Nevergear: clareia até o branco, troca, e o branco se dissolve. */
 export function useScreenFade<S>(show: (screen: S) => void) {
   const [fade, setFade] = useState<{ phase: 'out'; to: S } | { phase: 'in' }>();
 

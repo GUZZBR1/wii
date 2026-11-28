@@ -1,4 +1,4 @@
-import { parsePoseRecording } from '@wii/spatial-core';
+import { parsePoseRecording } from '@nevergear/spatial-core';
 import { describe, expect, it } from 'vitest';
 import { PhotoTrail } from '../src/cv/diagnostics/photoTrail';
 import { PoseRecorder } from '../src/cv/diagnostics/poseRecorder';

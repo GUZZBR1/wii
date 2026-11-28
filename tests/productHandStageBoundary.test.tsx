@@ -26,7 +26,7 @@ let container: HTMLDivElement;
 
 beforeEach(() => {
   harness.stageRenders = 0;
-  localStorage.setItem('wii-lang', 'pt');
+  localStorage.setItem('nevergear-lang', 'pt');
   vi.spyOn(console, 'error').mockImplementation(() => undefined);
   container = document.createElement('div');
   document.body.appendChild(container);

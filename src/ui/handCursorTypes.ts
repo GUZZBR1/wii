@@ -3,7 +3,7 @@ import type {
   RotationalFlickPhase,
   RotationalFlickRejection,
   RotationalHandShape,
-} from '@wii/spatial-core';
+} from '@nevergear/spatial-core';
 
 export { rotationBlocksHandInput } from '../kinematics/handCursor';
 

@@ -26,7 +26,7 @@ import { isPerfectJump, TrackScore } from './trackScore';
 export interface GameHudState { score: number; label: string; speed01: number; status: string; feedback?: HudFeedback; combo?: number; banner?: { title: string; detail?: string }; result?: RunResult }
 type Item = { group: THREE.Group; kind: ItemKind; lane: number; z: number; passed: boolean };
 type BiomeColor = Exclude<keyof BiomeSpec, 'id' | 'endDistance' | 'props'>;
-const RANKING_KEY = 'wii-track-ranking';
+const RANKING_KEY = 'nevergear-track-ranking';
 const GAIT_STATUS: Record<Gait, string> = { idle: 'Parado', walk: 'Andando', run: 'Correndo' };
 /** Metres of track one repeat of the surface texture covers. */
 const SURFACE_TILE = 4;

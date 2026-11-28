@@ -96,7 +96,7 @@ const matte = (color: THREE.ColorRepresentation) =>
 const vertexMatte = () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.85, metalness: 0 });
 
 const WHITE = '#F7F5F0';
-const WII_BLUE = '#00B4E5';
+const NEVERGEAR_BLUE = '#00B4E5';
 /** Distance from the centre line to the first grandstand row. */
 const STAND_Z = R_RUN + OUTER + 4;
 const TIERS = 4;
@@ -128,7 +128,7 @@ function grandstand(): THREE.BufferGeometry[] {
   parts.push(paint(canopy.rotateY(-Math.PI / 2).translate(length / 2, 0, 0), WHITE));
   const stripe = (radius: number, y: number, z: number) => {
     const rail = new THREE.CapsuleGeometry(radius, length, 3, 10).rotateZ(Math.PI / 2);
-    parts.push(paint(rail.translate(0, y, z), WII_BLUE));
+    parts.push(paint(rail.translate(0, y, z), NEVERGEAR_BLUE));
   };
   stripe(0.3, 8.85, near);
   stripe(0.14, 0.75, STAND_Z - 1.1);
@@ -150,7 +150,7 @@ function architecture(): THREE.Mesh {
       color,
     );
   const finishX = STRAIGHT / 2;
-  const parts = [...grandstand(), ...far, arch(6, 0.45, finishX, WHITE), arch(6, 0.16, finishX - 0.48, WII_BLUE)];
+  const parts = [...grandstand(), ...far, arch(6, 0.45, finishX, WHITE), arch(6, 0.16, finishX - 0.48, NEVERGEAR_BLUE)];
   const mesh = new THREE.Mesh(merge(parts), vertexMatte());
   mesh.castShadow = true;
   mesh.receiveShadow = true;

@@ -1,8 +1,8 @@
-import { type Delegate, HandClient as CoreHandClient, type HandClientAssets, type HandClientCallbacks } from '@wii/spatial-core';
+import { type Delegate, HandClient as CoreHandClient, type HandClientAssets, type HandClientCallbacks } from '@nevergear/spatial-core';
 import { preferredDelegate } from './delegate';
 import { handModelUrl, visionWasmUrl, warmVisionAssets } from './mediapipeAssets';
 
-export type { HandClientCallbacks } from '@wii/spatial-core';
+export type { HandClientCallbacks } from '@nevergear/spatial-core';
 
 const handAssets = (): HandClientAssets => ({ wasmBaseUrl: visionWasmUrl(), modelUrl: handModelUrl() });
 

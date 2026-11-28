@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-/** A Wii-style player: big head, tapered shirt, short legs, floating hands, racket in the right one. */
+/** A Nevergear-style player: big head, tapered shirt, short legs, floating hands, racket in the right one. */
 export function createAthlete(shirt: number, facing: number) {
   const root = new THREE.Group();
   root.rotation.y = facing;

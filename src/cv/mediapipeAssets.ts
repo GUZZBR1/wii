@@ -1,4 +1,4 @@
-import type { PoseClientAssets } from '@wii/spatial-core';
+import type { PoseClientAssets } from '@nevergear/spatial-core';
 import { FACE_MODEL_SHA8, HAND_MODEL_SHA8, MEDIAPIPE_WASM_VERSION, POSE_FULL_MODEL_SHA8, POSE_MODEL_SHA8 } from '../lib/mediapipe';
 import { preferredDelegate } from './delegate';
 

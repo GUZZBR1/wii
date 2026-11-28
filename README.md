@@ -1,14 +1,14 @@
 <div align="center">
 
-<img src="assets/nevergear-cover.jpg" alt="NeverGear cover — camera-powered interaction without dedicated gear" width="920" />
+<img src="assets/nevergear-cover.jpg" alt="Nevergear cover — camera-powered interaction without dedicated gear" width="920" />
 
-# Wii Web Sports Arena
+# Nevergear Web Sports Arena
 
-**A NeverGear experiment: your body is the controller.**
+**A Nevergear experiment: your body is the controller.**
 
-Run, swing, punch, dodge, and play directly in the browser with nothing but a webcam. Wii Web Sports Arena turns real-time pose and hand tracking into arcade sports — no dedicated motion controller, no wearable, no backend, and no installation.
+Run, swing, punch, dodge, and play directly in the browser with nothing but a webcam. Nevergear Web Sports Arena turns real-time pose and hand tracking into arcade sports — no dedicated motion controller, no wearable, no backend, and no installation.
 
-<img src="assets/caution-tape.svg" alt="Wii Web Sports Arena under active construction" width="680" />
+<img src="assets/caution-tape.svg" alt="Nevergear Web Sports Arena under active construction" width="680" />
 
 **Actively being built. Ambitious in scope, honest about what is measured.**
 
@@ -16,7 +16,7 @@ Run, swing, punch, dodge, and play directly in the browser with nothing but a we
 
 ## What it is
 
-Wii Web Sports Arena is a body-controlled web arcade that explores how close a normal browser camera can get to the immediacy of motion-controlled console sports. The current build includes stadium athletics over 100, 200, and 400 meters, timing-based tennis, camera-driven boxing, a three-sport Iron Man challenge, and a Mii creator whose avatar is stored locally in the browser.
+Nevergear Web Sports Arena is a body-controlled web arcade that explores how close a normal browser camera can get to the immediacy of motion-controlled console sports. The current build includes stadium athletics over 100, 200, and 400 meters, timing-based tennis, camera-driven boxing, a three-sport Iron Man challenge, and a Mii creator whose avatar is stored locally in the browser.
 
 The project is part game, part computer-vision research platform, and part love letter to playful interaction. Video is processed locally in the browser, movement becomes game intent through calibrated pose and hand tracking, and the sports scenes are rendered in Three.js.
 

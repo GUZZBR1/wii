@@ -1,9 +1,9 @@
-import { PoseClient as CorePoseClient } from '@wii/spatial-core';
-import type { Delegate, PoseClientAssets, PoseClientCallbacks as CoreCallbacks } from '@wii/spatial-core';
+import { PoseClient as CorePoseClient } from '@nevergear/spatial-core';
+import type { Delegate, PoseClientAssets, PoseClientCallbacks as CoreCallbacks } from '@nevergear/spatial-core';
 import { preferredDelegate } from './delegate';
 import { poseAssets, warmVisionAssets } from './mediapipeAssets';
 
-export type { PoseClientCallbacks } from '@wii/spatial-core';
+export type { PoseClientCallbacks } from '@nevergear/spatial-core';
 
 export class PoseClient extends CorePoseClient {
   constructor(assets: PoseClientAssets = poseAssets()) {

@@ -1,4 +1,4 @@
-import type { RotationalFlickPhase } from '@wii/spatial-core';
+import type { RotationalFlickPhase } from '@nevergear/spatial-core';
 
 export type CarouselControlMode = 'idle' | 'driving' | 'momentum' | 'braking' | 'snapping';
 

@@ -226,7 +226,7 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
         <h1>Editor de Mii</h1>
         <button type="button" className="logo-btn" onClick={onClose} aria-label="Voltar ao menu de jogos">
           <span className="logo">
-            <b>Wii</b> <i>Sports</i>
+            <img className="brand-logo" src="/images/nevergear-logo.png" alt="Nevergear" width={1200} height={234} /> <i>Sports</i>
           </span>
         </button>
       </header>
@@ -372,7 +372,7 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
           <div className="mii-actions">
             <button
               type="button"
-              className="wii-btn"
+              className="nevergear-btn"
               onClick={() => {
                 setSaveStatus('idle');
                 setSpec(generateMiiFromSeed(`${Date.now()}-${Math.random()}`));
@@ -382,14 +382,14 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
             </button>
             <button
               type="button"
-              className="wii-btn mii-save"
+              className="nevergear-btn mii-save"
               onClick={() => {
                 setSaveStatus(savePlayerMii(spec) ? 'saved' : 'session');
               }}
             >
               Salvar
             </button>
-            <button type="button" className="wii-btn" onClick={onClose}>
+            <button type="button" className="nevergear-btn" onClick={onClose}>
               Voltar
             </button>
             {saveStatus === 'saved' && <strong role="status">Salvo!</strong>}

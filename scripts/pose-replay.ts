@@ -1,5 +1,5 @@
-import { createPoseRecording, parsePoseRecording } from '@wii/spatial-core';
-import type { Point3, PoseRecording, PoseSnapshot, WorkerReply } from '@wii/spatial-core';
+import { createPoseRecording, parsePoseRecording } from '@nevergear/spatial-core';
+import type { Point3, PoseRecording, PoseSnapshot, WorkerReply } from '@nevergear/spatial-core';
 import { MEDIAPIPE_WASM_VERSION } from '../src/lib/mediapipe';
 import { type PoseReplayModelChoice, poseReplayModelFiles } from './poseReplayAssets';
 import { delegateContext, incompatibleReasons } from './poseReplayCompare';
