@@ -54,8 +54,8 @@ export const DEFAULT_SKILL = 0.5;
 export const IMPACT_GRACE_MS = 150;
 /** Oldest punch time, relative to now, that `openingAt` is guaranteed to answer correctly. */
 export const MAX_PUNCH_LOOKBACK_MS = 450;
-export const WINDUP_MIN_MS = 600;
-export const WINDUP_MAX_MS = 900;
+export const WINDUP_MIN_MS = 750;
+export const WINDUP_MAX_MS = 1050;
 const WINDUP_JITTER_MS = 100;
 /** Shortest guard at skill 0 / skill 1, before jitter. */
 const GUARD_SLOW_MS = 900;
@@ -156,28 +156,11 @@ export function isDodged(targetZone: Zone, zonesDuringImpact: readonly Zone[]): 
   return zonesDuringImpact.some((zone) => zone !== targetZone);
 }
 
-/**
- * The defense matrix, kept deliberately small and memorable:
- * - straight to the head: slip or duck;
- * - straight to the body: neither slip nor duck — step back out of range or guard;
- * - hook: duck (a slip does not move the head out of the arc);
- * - uppercut: slip — ducking into it never helps;
- * - anything else must be guarded or stepped out of range.
- */
+/** Any dodge beats any punch: leaning aside or ducking while it arrives. */
 export function isDodgedTyped(
-  attack: Pick<OpponentAttack, 'attackKind' | 'target' | 'targetZone'>,
+  attack: Pick<OpponentAttack, 'targetZone'>,
   zonesDuringImpact: readonly Zone[],
   duckedDuringImpact: readonly boolean[],
 ): boolean {
-  const slipped = isDodged(attack.targetZone, zonesDuringImpact);
-  const ducked = duckedDuringImpact.some(Boolean);
-  switch (attack.attackKind) {
-    case 'straight':
-      if (attack.target === 'body') return false;
-      return slipped || ducked;
-    case 'hook':
-      return ducked;
-    case 'uppercut':
-      return slipped;
-  }
+  return isDodged(attack.targetZone, zonesDuringImpact) || duckedDuringImpact.some(Boolean);
 }

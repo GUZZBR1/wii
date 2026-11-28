@@ -117,6 +117,20 @@ const PLANTED: Readonly<Required<MiiBoxerFootwork>> = Object.freeze({ speed01: 0
 
 const HANDS = ['left', 'right'] as const;
 
+function createGloveGlow(boxer: MiiBoxer, hand: Hand): THREE.Mesh | undefined {
+  const elbow = boxer.root.getObjectByName(`mii-boxer-${hand}-elbow`);
+  if (!elbow) return undefined;
+  const glow = new THREE.Mesh(
+    new THREE.SphereGeometry(0.27, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.55, depthWrite: false, blending: THREE.AdditiveBlending }),
+  );
+  glow.name = `glove-glow-${hand}`;
+  glow.position.set(0, -0.34, -0.02);
+  glow.visible = false;
+  elbow.add(glow);
+  return glow;
+}
+
 /** The player's own Mii, see-through so it never hides the opponent's punches. */
 function createPlayerBoxer(): MiiBoxer {
   const boxer = createMiiBoxer({ face: loadPlayerMii(), shirtColor: 0x2477d2, trimColor: 0xffffff, shortsColor: 0x17345c, gloveColor: 0x2f9be8 });
@@ -147,6 +161,8 @@ export interface BoxingGameOptions {
 }
 
 export interface BoxingScoreboard {
+  /** Clean punches landed in a row; a block or a punch taken ends the run. */
+  streak?: number;
   playerHp: number;
   opponentHp: number;
   maxHp: number;
@@ -277,6 +293,9 @@ export class BoxingGame {
   private readonly seenPunchStartIds = new Set<number>();
   private punchAnimS: Record<Hand, number> = { left: PUNCH_ANIM_S, right: PUNCH_ANIM_S };
   private opponentHitS = 0;
+  private streak = 0;
+  /** Lit on the glove that is about to strike. */
+  private readonly gloveGlows: Partial<Record<Hand, THREE.Mesh>> = {};
   private hitShakeS = 0;
   private readonly impulse = new HitImpulse(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false);
   private readonly impactRing = createImpactRing();
@@ -312,6 +331,7 @@ export class BoxingGame {
         face: generateMiiFromSeed(this.profile.miiSeed),
       });
       this.scene.add(this.opponentBoxer.root);
+      for (const hand of HANDS) this.gloveGlows[hand] = createGloveGlow(this.opponentBoxer, hand);
     }
 
     if (this.mode === 'bag') {
@@ -590,12 +610,14 @@ export class BoxingGame {
     if (result.damage > 0) {
       if (counter) this.counter = undefined; // one counter per dodge
       this.opponentHitS = OPPONENT_HIT_S;
+      this.streak += 1;
       this.feelImpact(contact, 'opponent', hand);
       this.setFeedback(result.ko ? 'NOCAUTE!' : counter ? 'CONTRA-ATAQUE!' : contact === 'heavy' ? 'EM CHEIO!' : 'ACERTOU!', 'good');
       this.audio?.punchImpact(0.4 + 0.6 * power01, false);
       if (contact === 'heavy') this.audio?.thud();
       if (counter || result.ko) this.audio?.crowdReact(result.ko ? 1 : 0.7);
     } else {
+      this.streak = 0;
       this.feelImpact(contact, 'opponent', hand);
       this.setFeedback('BLOQUEADO', 'neutral');
       this.audio?.punchImpact(0.3 + 0.4 * power01, true);
@@ -966,7 +988,7 @@ export class BoxingGame {
     this.match = result.state;
     if (dodged) {
       this.counter = { fromMs: attack.impactAtMs, untilMs: attack.impactAtMs + COUNTER_WINDOW_MS };
-      this.setFeedback('ESQUIVOU!', 'good');
+      this.setFeedback('ESQUIVOU! AGORA!', 'good');
       this.audio?.success(1);
     } else if (guarded && !result.ko) {
       this.spawnPlayerImpact(0.45, 'block');
@@ -976,6 +998,7 @@ export class BoxingGame {
     } else {
       this.spawnPlayerImpact(0.85, 'hit');
       this.hitShakeS = 0.3;
+      this.streak = 0;
       this.feelImpact(result.ko ? 'ko' : 'taken', 'player');
       this.setFeedback(result.ko ? 'NOCAUTE…' : 'LEVOU UM SOCO', 'bad');
       this.audio?.punchImpact(0.85, false);
@@ -1043,6 +1066,7 @@ export class BoxingGame {
     this.pendingImpact = undefined;
     this.roundEndedWallMs = undefined;
     this.counter = undefined;
+    this.streak = 0;
     this.seenPunchStartIds.clear();
     this.zoneHistory = [];
     this.playerPos = PLAYER_START;
@@ -1199,6 +1223,12 @@ export class BoxingGame {
       const { phase } = this.ai;
       const attacking = (state === 'windup' || state === 'punch') && phase.kind === 'windup';
       this.opponentBoxer.setState(state, attacking ? phase.hand : undefined);
+      for (const hand of HANDS) {
+        const glow = this.gloveGlows[hand];
+        if (!glow) continue;
+        glow.visible = attacking && phase.hand === hand;
+        glow.scale.setScalar(1 + 0.18 * Math.sin(this.animTimeS * 18));
+      }
       this.opponentBoxer.animate(this.animTimeS, this.opponentFootwork());
     }
   }
@@ -1281,7 +1311,7 @@ export class BoxingGame {
       : finished ? { title: this.status }
       : this.mode === 'fight' && this.breakMsLeft > 0 ? { title: `ROUND ${this.match.round}`, detail: 'Intervalo' }
       : this.mode === 'fight' && !this.pendingBell && this.ai.phase.kind === 'windup'
-        ? { title: `${{ straight: 'RETO', hook: 'GANCHO', uppercut: 'UPPERCUT' }[this.ai.phase.attackKind]} · ${this.ai.phase.target === 'head' ? 'CABEÇA' : 'CORPO'}` }
+        ? { title: 'ESQUIVE!' }
         : undefined;
     const selectionOpen = this.gate.phase === 'countdown' || finished;
     this.onHud({
@@ -1292,6 +1322,7 @@ export class BoxingGame {
       feedback: this.feedback,
       banner,
       boxing: {
+        streak: this.streak,
         playerHp: this.match.playerHp,
         opponentHp: this.match.opponentHp,
         maxHp: MAX_HP,

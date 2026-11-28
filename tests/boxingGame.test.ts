@@ -72,7 +72,7 @@ describe('BoxingGame', () => {
 
   it('hits a player who stays in the targeted zone', () => {
     const { run, read } = start();
-    run(1.8);
+    run(1.95);
     expect(read().label).toBe('90 × 100');
   });
 
@@ -80,9 +80,9 @@ describe('BoxingGame', () => {
     const { game, run, read } = start();
     run(1); // the windup has aimed at the center
     game.setDodgeZone(1);
-    run(0.8);
+    run(0.95);
     expect(read().label).toBe('100 × 100');
-    expect(read().feedback?.text).toBe('ESQUIVOU!');
+    expect(read().feedback?.text).toBe('ESQUIVOU! AGORA!');
   });
 
   it('blocks a punch into the guard and lands one during the windup', () => {
@@ -189,15 +189,15 @@ describe('BoxingGame', () => {
 
     it('lands an opponent punch whose impact preceded the bell', () => {
       const { run, read, setMatch } = start();
-      setMatch({ round: 3, roundMsLeft: 1583 }); // impact ~1500 ms, resolution ~1650 ms
-      run(2.1); // wait for both defense grace and the late-confirmation watermark
+      setMatch({ round: 3, roundMsLeft: 1733 }); // impact ~1500 ms, resolution ~1650 ms
+      run(2.25); // wait for both defense grace and the late-confirmation watermark
       expect(read()).toMatchObject({ label: '90 × 100', banner: { title: 'Adversário venceu' } });
     });
 
     it('waits for the complete defense window when impact precedes the bell', () => {
       const { game, run, read, setMatch } = start();
-      setMatch({ round: 3, roundMsLeft: 1583 });
-      run(1.59);
+      setMatch({ round: 3, roundMsLeft: 1733 });
+      run(1.74);
       expect(read().label).toBe('100 × 100');
       game.setGuard(true);
       run(0.5);
@@ -207,10 +207,10 @@ describe('BoxingGame', () => {
       expect(read().label).toBe('99 × 100');
     });
 
-    it('shows the attack type and target throughout its preparation', () => {
+    it('warns to dodge throughout the preparation', () => {
       const { run, read } = start();
       run(1);
-      expect(read().banner).toMatchObject({ title: 'RETO · CABEÇA' });
+      expect(read().banner).toMatchObject({ title: 'ESQUIVE!' });
     });
 
     it('saves the player when the bell precedes the impact', () => {
@@ -222,12 +222,12 @@ describe('BoxingGame', () => {
   });
 });
 
-/** Dodges the first punch (impact ~1500 ms, resolved ~1650 ms) and leaves the fight just after it. */
+/** Dodges the first punch (impact ~1650 ms, resolved ~1800 ms) and leaves the fight just after it. */
 function dodgeFirst() {
   const fight = start();
   fight.run(1);
   fight.game.setDodgeZone(1);
-  fight.run(0.7);
+  fight.run(0.85);
   return fight;
 }
 
@@ -258,35 +258,35 @@ describe('BoxingGame guard', () => {
     const { game, run, read } = start();
     run(1);
     game.onKey(key);
-    run(0.8);
+    run(0.95);
     expect(read()).toMatchObject({ label: '99 × 100', feedback: { text: 'DEFENDEU' } });
     game.onKeyUp(key);
-    run(2.3);
+    run(2.45);
     expect(read().label).toBe('89 × 100');
   });
 
   it('takes the camera guard and forgets it when the camera has no opinion', () => {
     const { game, run, read } = start();
     game.setGuard(true);
-    run(1.8);
+    run(1.95);
     expect(read().label).toBe('99 × 100');
     game.setGuard(undefined);
-    run(2.3);
+    run(2.45);
     expect(read().label).toBe('89 × 100');
   });
 
   it('opens no counter window for a guarded punch', () => {
     const { game, run, read } = start();
     game.setGuard(true);
-    run(2.5); // blocked, then the opponent is back in guard
+    run(2.65); // blocked, then the opponent is back in guard
     game.onAction(punch(wallMs));
     expect(read().label).toBe('99 × 100');
   });
 
   it('publishes the scoreboard', () => {
     const { run, read } = start();
-    run(1.8);
-    expect(read().boxing).toEqual({ playerHp: 90, opponentHp: 100, maxHp: 100, round: 1, rounds: 3, secondsLeft: 59 });
+    run(1.95);
+    expect(read().boxing).toEqual({ streak: 0, playerHp: 90, opponentHp: 100, maxHp: 100, round: 1, rounds: 3, secondsLeft: 59 });
   });
 });
 
