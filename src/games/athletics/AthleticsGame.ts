@@ -1,10 +1,11 @@
 import * as THREE from 'three';
+import { readStored, writeStored } from '../../lib/storage';
 import { FaceCache } from '../../mii/faceCache';
 import { FaceVisibilityController } from '../../mii/faceVisibility';
 import { generateMiiFromSeed, loadPlayerMii } from '../../mii/miiSpec';
 import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
-import type { Feedback } from '../track/feedback';
+import type { HudFeedback } from '../core/hud';
 import { createMiiRunner, type MiiRunner } from './miiRunner';
 import { formatTime, type Goal, NO_BODY_ADVICE, parseRecords, Race, recordTime, type Split, TOP_SPEED } from './race';
 import { buildStadium, type Stadium } from './stadiumScene';
@@ -16,7 +17,7 @@ export interface AthleticsHudState {
   speed01: number;
   status: string;
   banner?: { title: string; detail?: string };
-  feedback?: Feedback;
+  feedback?: HudFeedback;
   finished?: { title: string; detail: string; standings: { name: string; time: string; you: boolean; status: 'confirmed' | 'estimated'; place: number }[]; standingsFinal: boolean; restart01: number };
   energy?: { value01: number; label: string; coaching?: string };
   /** Where everyone is in the race, 0–1. */
@@ -65,7 +66,7 @@ export class AthleticsGame {
   private introTime = 0;
   private rivalSpeeds: number[];
   private record?: { best: number; isNew: boolean };
-  private feedback?: Feedback;
+  private feedback?: HudFeedback;
   private cue = '';
   private lastHud = '';
 
@@ -205,10 +206,8 @@ export class AthleticsGame {
 
   /** The record lives in this browser only; blocked storage just means it is not remembered. */
   private saveRecord(): void {
-    let records = {};
-    try { records = parseRecords(localStorage.getItem(RECORDS_KEY)); } catch {}
-    const result = recordTime(records, this.race.goal, this.race.finishS!);
-    try { localStorage.setItem(RECORDS_KEY, JSON.stringify(result.records)); } catch {}
+    const result = recordTime(parseRecords(readStored(RECORDS_KEY)), this.race.goal, this.race.finishS!);
+    writeStored(RECORDS_KEY, JSON.stringify(result.records));
     this.record = { best: result.best, isNew: result.isNew };
   }
 

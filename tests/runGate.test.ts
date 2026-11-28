@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RunGate } from '../src/games/track/runGate';
+import { RunGate } from '../src/games/core/runGate';
 
 const run = (gate: RunGate, seconds: number) => {
   for (let i = 0; i < Math.round(seconds * 60); i += 1) gate.advance(1 / 60);

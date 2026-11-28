@@ -1,6 +1,6 @@
 import type { FaceLandmarker, FaceLandmarkerResult } from '@mediapipe/tasks-vision';
 import { preferredDelegate } from '../cv/delegate';
-import { FACE_MODEL_SHA8, MEDIAPIPE_WASM_VERSION } from '../cv/mediapipeAssets';
+import { faceModelUrl, visionWasmUrl } from '../cv/mediapipeAssets';
 import type { FaceWorkerDelegate, FaceWorkerErrorCode, FaceWorkerReply, FaceWorkerRequest } from './face.worker';
 import { DEFAULT_PLAYER_MII, sanitizeMiiProfile } from './miiCatalog';
 import type { MiiProfile } from './miiTypes';
@@ -34,13 +34,12 @@ interface FaceAssets {
   readonly modelUrl: string;
 }
 
+/**
+ * Off the page there is no `location.origin`; the worker then resolves the paths itself. The worker
+ * receives the same pinned pair any other task uses, so no caller builds MediaPipe URLs by hand.
+ */
 function defaultFaceAssets(): FaceAssets {
-  const base = `${import.meta.env.BASE_URL}mediapipe`;
-  const origin = globalThis.location?.origin ?? 'http://localhost';
-  return {
-    wasmBaseUrl: new URL(`${base}/wasm-${MEDIAPIPE_WASM_VERSION}`, origin).href,
-    modelUrl: new URL(`${base}/models/face_landmarker.${FACE_MODEL_SHA8}.task`, origin).href,
-  };
+  return { wasmBaseUrl: visionWasmUrl(), modelUrl: faceModelUrl() };
 }
 
 /**

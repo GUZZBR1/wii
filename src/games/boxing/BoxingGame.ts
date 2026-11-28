@@ -3,15 +3,15 @@ import type { Hand, SportActionEvent } from '../../cv/protocol';
 import { FaceCache } from '../../mii/faceCache';
 import { FaceVisibilityController } from '../../mii/faceVisibility';
 import { generateMiiFromSeed, loadPlayerMii } from '../../mii/miiSpec';
+import { PUNCH_THRESHOLDS } from '../../kinematics/punchDetector';
 import type { ProceduralAudio } from '../audio';
 import { GameLoop } from '../core/GameLoop';
 import type { GameHudState, HudFeedback } from '../core/hud';
-import { RunGate, type RunPhase } from '../track/runGate';
-import { PUNCH_THRESHOLDS } from '../../kinematics/punchDetector';
+import { RestartGesture } from '../core/restartGesture';
+import { RunGate, type RunPhase } from '../core/runGate';
 import { applyLatePunch, applyOpponentPunch, applyPlayerPunch, createBoxing, MAX_HP, ROUND_COUNT, tickRound, type BoxingState } from './boxingRules';
 import type { BoxingMode } from './boxingModes';
 import { type BoxingStepKind, BoxingTutorial, LEARNING_PUNCH_TRAVEL } from './boxingTutorial';
-import { RestartGesture } from '../core/restartGesture';
 import { HIT_FEEL, HitImpulse, type HitKind, playerHitKind } from './hitFeel';
 import { createImpactRing, createImpactSparkPool, type ImpactEffectKind, type ImpactSparkPool } from './impactEffects';
 import { createMiiBoxer, type MiiBoxer, type MiiBoxerFootwork, type MiiBoxerState } from './miiBoxer';
@@ -1342,8 +1342,8 @@ export class BoxingGame {
 
   // ---------------------------------------------------------------- hud & lifecycle
 
-  private setFeedback(text: string, tone: HudFeedback['tone']): void {
-    this.feedback = { id: (this.feedback?.id ?? 0) + 1, text, tone };
+  private setFeedback(text: string, kind: HudFeedback['kind']): void {
+    this.feedback = { id: (this.feedback?.id ?? 0) + 1, text, kind };
   }
 
   private trainingScoreboard(): BoxingTrainingScoreboard | undefined {

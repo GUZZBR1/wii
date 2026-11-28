@@ -3,25 +3,27 @@ import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeom
 import type { SportActionEvent } from '../../cv/protocol';
 import { FaceCache } from '../../mii/faceCache';
 import { FaceVisibilityController } from '../../mii/faceVisibility';
+import { readStored, writeStored } from '../../lib/storage';
 import { loadPlayerMii } from '../../mii/miiSpec';
 import { createMiiRunner } from '../athletics/miiRunner';
 import { addRoomEnvironment } from '../core/environment';
 import { GameLoop } from '../core/GameLoop';
 import { createSkyDome } from '../core/scenery';
 import { type BiomeSpec, biomeAt } from './biomes';
-import { type Feedback, awardText, SHAKE_DURATION_S, shakeOffset } from './feedback';
+import type { HudFeedback } from '../core/hud';
+import { awardText, SHAKE_DURATION_S, shakeOffset } from './feedback';
 import { applySprint, applyStep, easeSpeed, type Gait, gaitFor, inputFreshness, nextPace, type Pace, stumble } from './gait';
 import { HurdleFlow, type ItemKind, RUNNER_Z } from './hurdleFlow';
 import { ItemAssets } from './itemAssets';
 import { JUMP_DURATION_S, jumpHeight } from './jump';
 import { parseRanking, type RunResult, rankRun } from './ranking';
-import { RunGate } from './runGate';
+import { RunGate } from '../core/runGate';
 import { DustPool, SCENERY_MAX_Z, SCENERY_MIN_Z, SceneryPool } from './scenery';
 import { scrollZ, timeBoost } from './scroll';
 import { type Lane, nextKind, nextLane } from './spawn';
 import { isPerfectJump, TrackScore } from './trackScore';
 
-export interface GameHudState { score: number; label: string; speed01: number; status: string; feedback?: Feedback; combo?: number; banner?: { title: string; detail?: string }; result?: RunResult }
+export interface GameHudState { score: number; label: string; speed01: number; status: string; feedback?: HudFeedback; combo?: number; banner?: { title: string; detail?: string }; result?: RunResult }
 type Item = { group: THREE.Group; kind: ItemKind; lane: number; z: number; passed: boolean };
 type BiomeColor = Exclude<keyof BiomeSpec, 'id' | 'endDistance' | 'props'>;
 const RANKING_KEY = 'nevergear-track-ranking';
@@ -94,7 +96,7 @@ export class TrackGame {
   private lastSprintInputAtMs?: number;
   private readonly laneHistory: Lane[] = [];
   private lastHud = '';
-  private feedback?: Feedback;
+  private feedback?: HudFeedback;
   private shakeTime = 0;
   private readonly gate = new RunGate();
   private result?: RunResult;
@@ -236,7 +238,7 @@ export class TrackGame {
     }
   }
 
-  private showFeedback(kind: Feedback['kind'], text: string): void {
+  private showFeedback(kind: HudFeedback['kind'], text: string): void {
     this.feedback = { id: (this.feedback?.id ?? 0) + 1, kind, text };
     this.publishHud();
   }
@@ -340,10 +342,8 @@ export class TrackGame {
 
   /** The ranking lives in this browser only; blocked storage just means it is not remembered. */
   private endRun(): void {
-    let previous: number[] = [];
-    try { previous = parseRanking(localStorage.getItem(RANKING_KEY)); } catch {}
-    this.result = rankRun(previous, this.score.peak);
-    try { localStorage.setItem(RANKING_KEY, JSON.stringify(this.result.ranking)); } catch {}
+    this.result = rankRun(parseRanking(readStored(RANKING_KEY)), this.score.peak);
+    writeStored(RANKING_KEY, JSON.stringify(this.result.ranking));
     this.publishHud();
   }
 

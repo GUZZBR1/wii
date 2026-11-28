@@ -259,7 +259,7 @@ function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crosse
         {OPPONENT_PROFILES.map((profile) => <button key={profile.id} type="button" className="dock-btn" aria-pressed={profile.id === boxingOpponent} onClick={() => onBoxingOpponent(profile.id)}>{profile.label}</button>)}
       </div>
     </fieldset>}
-    {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${('kind' in hud.feedback ? hud.feedback.kind : hud.feedback.tone)}`}>
+    {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${hud.feedback.kind}`}>
       <span>{hud.feedback.text}</span>
     </div>}
     {hud.banner && <div className="game-banner" role="status"><strong>{hud.banner.title}</strong>{hud.banner.detail && <span>{hud.banner.detail}</span>}</div>}

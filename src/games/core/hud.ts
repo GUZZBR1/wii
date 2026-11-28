@@ -1,7 +1,11 @@
+/**
+ * One short message over the field. Every game numbers its own messages, so the UI can re-key the
+ * element and restart the animation; the tone is either a judgement or what the message rewards.
+ */
 export interface HudFeedback {
   id: number;
   text: string;
-  tone: 'good' | 'bad' | 'neutral';
+  kind: 'hit' | 'clear' | 'coin' | 'good' | 'bad' | 'neutral';
 }
 
 export interface GameHudState {

@@ -1,7 +1,5 @@
 import type { Award } from './trackScore';
 
-export interface Feedback { id: number; kind: 'hit' | 'clear' | 'coin'; text: string }
-
 export const SHAKE_DURATION_S = 0.3;
 const SHAKE_AMPLITUDE = 0.18;
 
