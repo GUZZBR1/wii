@@ -93,6 +93,15 @@ const CAMERA_BACK_M = 1.85;
 /** The view follows only part of a dodge, so the boxer visibly moves within the frame. */
 const CAMERA_DODGE_FOLLOW = 0.35;
 const PLAYER_OPACITY = 0.46;
+/** The player's punch must be extended when its impact shows, `PUNCH_OUT_S` in; the camera already lags. */
+export const PLAYER_PUNCH_SPEED = 2.2;
+/** Smoothing rates (1/s) of the visual-only rig, from GUZZBR1's camera work in #92. */
+const EYE_RATE = 8;
+const DODGE_RATE = 13;
+const ROLL_RATE = 12;
+const LOOK_RATE = 7.5;
+const TELEGRAPH_RATE = 12;
+const DEMO_RATE = 7;
 const DUCK_DROP_M = 0.42;
 const DUCK_BOW_RAD = 0.35;
 const LEAN_ROLL_RAD = 0.22;
@@ -134,7 +143,7 @@ function createGloveGlow(boxer: MiiBoxer, hand: Hand): THREE.Mesh | undefined {
 
 /** The player's own Mii, see-through so it never hides the opponent's punches. */
 function createPlayerBoxer(): MiiBoxer {
-  const boxer = createMiiBoxer({ face: loadPlayerMii(), shirtColor: 0x2477d2, trimColor: 0xffffff, shortsColor: 0x17345c, gloveColor: 0x2f9be8 });
+  const boxer = createMiiBoxer({ face: loadPlayerMii(), shirtColor: 0x2477d2, trimColor: 0xffffff, shortsColor: 0x17345c, gloveColor: 0x2f9be8, punchSpeed: PLAYER_PUNCH_SPEED });
   boxer.root.name = 'player-boxer';
   boxer.root.traverse((object) => {
     const material = (object as THREE.Mesh).material as THREE.Material | undefined;
@@ -269,6 +278,9 @@ export class BoxingGame {
   /** The camera's damped copy of `playerPos`. */
   private eye: RingPosition = PLAYER_START;
   private cameraRoll = 0;
+  /** The camera's damped aim at `opponentPos`; only `lookAt` reads it. */
+  private lookTarget: RingPosition = OPPONENT_START;
+  private telegraphOffset = 0;
   private hitstop = { delayS: 0, leftS: 0 };
   private keyGuard = false;
   /** The punch key alternates arms, so two taps are a one-two. */
@@ -360,7 +372,7 @@ export class BoxingGame {
 
     this.playerBoxer = createPlayerBoxer();
     this.scene.add(this.playerBoxer.root);
-    this.placeFighters(1);
+    this.placeFighters(0, true);
     this.scene.add(this.camera);
     this.scene.add(this.sparks.root);
     this.scene.add(this.impactRing.root);
@@ -696,8 +708,9 @@ export class BoxingGame {
     this.gate.advance(dt);
     this.syncPhase();
     if (this.gate.phase === 'running') this.step(dt * 1000);
+    let animDt = 0;
     if (this.gate.phase !== 'paused') {
-      const animDt = this.animationStep(dt);
+      animDt = this.animationStep(dt);
       this.animTimeS += animDt;
       for (const hand of HANDS) this.punchAnimS[hand] = Math.min(PUNCH_ANIM_S, this.punchAnimS[hand] + animDt);
       this.opponentHitS = Math.max(0, this.opponentHitS - animDt);
@@ -706,7 +719,7 @@ export class BoxingGame {
       this.sparks.update(animDt);
       this.impactRing.update(animDt, this.camera);
     }
-    this.poseScene(dt);
+    this.poseScene(dt, animDt);
   }
 
   private step(dtMs: number): void {
@@ -1156,23 +1169,29 @@ export class BoxingGame {
 
   // ---------------------------------------------------------------- scene
 
-  private poseScene(dt: number): void {
-    this.placeFighters(1 - Math.exp(-14 * dt));
+  private poseScene(dt: number, opponentDt: number): void {
+    this.placeFighters(dt, false, opponentDt);
     this.poseBoxers();
   }
 
   /** The dodge moves the player's boxer aside; the view trails it, still facing the opponent. */
-  private placeFighters(blend: number): void {
+  private placeFighters(dtS: number, snap = false, opponentDtS = dtS): void {
     const { playerPos, opponentPos } = this;
-    this.dodgeOffset += (this.zone * ZONE_WIDTH - this.dodgeOffset) * blend;
+    // Each channel settles at its own rate, independent of the frame rate; `snap` places it at once.
+    const blend = (rate: number, stepS = dtS) => (snap ? 1 : 1 - Math.exp(-rate * stepS));
+    this.dodgeOffset += (this.zone * ZONE_WIDTH - this.dodgeOffset) * blend(DODGE_RATE);
     this.eye = {
-      x: this.eye.x + (playerPos.x - this.eye.x) * blend,
-      z: this.eye.z + (playerPos.z - this.eye.z) * blend,
+      x: this.eye.x + (playerPos.x - this.eye.x) * blend(EYE_RATE),
+      z: this.eye.z + (playerPos.z - this.eye.z) * blend(EYE_RATE),
     };
     // Tilting into the move: negative roll leans the view to the right.
     const roll = -(this.zone * DODGE_ROLL + (this.dash?.direction ?? 0) * DASH_ROLL);
-    this.cameraRoll += (roll - this.cameraRoll) * blend;
-    this.duck01 += ((this.cameraDuck ? 1 : 0) - this.duck01) * blend;
+    this.cameraRoll += (roll - this.cameraRoll) * blend(ROLL_RATE);
+    this.lookTarget = {
+      x: this.lookTarget.x + (opponentPos.x - this.lookTarget.x) * blend(LOOK_RATE),
+      z: this.lookTarget.z + (opponentPos.z - this.lookTarget.z) * blend(LOOK_RATE),
+    };
+    this.duck01 += ((this.cameraDuck ? 1 : 0) - this.duck01) * blend(DODGE_RATE);
     const right = rightOf(playerPos, opponentPos);
     const dx = opponentPos.x - this.eye.x;
     const dz = opponentPos.z - this.eye.z;
@@ -1198,25 +1217,27 @@ export class BoxingGame {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
-    this.camera.lookAt(opponentPos.x, RING_CANVAS_Y + 0.95, opponentPos.z);
+    this.camera.lookAt(this.lookTarget.x, RING_CANVAS_Y + 0.95, this.lookTarget.z);
     this.camera.rotateZ(this.cameraRoll);
     this.bag?.root.position.set(opponentPos.x, RING_CANVAS_Y, opponentPos.z);
     if (this.opponentBoxer) {
-      let telegraphOffset = 0;
+      let telegraphTarget = 0;
       const dodge = this.dodgeChallenge?.snapshot;
       if (this.mode === 'dodge' && dodge?.currentAttack && (dodge.phase === 'telegraph' || dodge.phase === 'active')) {
-        telegraphOffset = dodge.currentAttack.attackLane * 0.14;
+        telegraphTarget = dodge.currentAttack.attackLane * 0.14;
       }
+      // On the opponent's clock, so a pause or hitstop freezes the lean with the attack.
+      this.telegraphOffset += (telegraphTarget - this.telegraphOffset) * blend(TELEGRAPH_RATE, opponentDtS);
       const opponentRecoil = this.impulse.struck === 'opponent' ? recoil : 0;
       // The instructor leans toward the side of the screen the player is asked to lean to.
       const demo = this.tutorial && !this.tutorial.done ? this.demonstration() : undefined;
-      this.demoSide += ((demo?.side ?? 0) - this.demoSide) * blend * 0.5;
-      this.demoDrop += ((demo?.drop ?? 0) - this.demoDrop) * blend * 0.5;
-      telegraphOffset += this.demoSide * 0.55;
+      this.demoSide += ((demo?.side ?? 0) - this.demoSide) * blend(DEMO_RATE, opponentDtS);
+      this.demoDrop += ((demo?.drop ?? 0) - this.demoDrop) * blend(DEMO_RATE, opponentDtS);
+      const sideways = this.telegraphOffset + this.demoSide * 0.55;
       this.opponentBoxer.root.position.set(
-        opponentPos.x + right.x * telegraphOffset + (dx / distance) * opponentRecoil,
+        opponentPos.x + right.x * sideways + (dx / distance) * opponentRecoil,
         RING_CANVAS_Y - this.demoDrop * DUCK_DROP_M,
-        opponentPos.z + right.z * telegraphOffset + (dz / distance) * opponentRecoil,
+        opponentPos.z + right.z * sideways + (dz / distance) * opponentRecoil,
       );
       this.opponentBoxer.root.rotation.y = Math.atan2(playerPos.x - opponentPos.x, playerPos.z - opponentPos.z) + Math.PI;
       this.opponentBoxer.root.rotation.z = this.demoSide * LEAN_ROLL_RAD;
