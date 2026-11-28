@@ -71,7 +71,8 @@
                   {
                     "group": [
                       "@mediapipe/tasks-vision/**",
-                      "@wii/spatial-core/*",
+                      "@wii/spatial-core/**",
+                      "**/packages/core/**",
                       "react/**",
                       "react-dom/**",
                       "three/**",
@@ -88,7 +89,7 @@
                       "../pages/**",
                       "../ui/**"
                     ],
-                    "message": "Kinematics cannot depend on app, UI, game, renderer, or browser inference modules."
+                    "message": "Kinematics cannot bypass spatial-core's public API or depend on app, UI, game, renderer, or browser inference modules."
                   }
                 ]
               }

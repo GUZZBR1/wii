@@ -140,4 +140,68 @@ describe('VideoFramePump', () => {
 
     expect(onFrame).not.toHaveBeenCalled();
   });
+
+  it('keeps the restarted callback handle when an older dispatched callback runs', () => {
+    const pump = new VideoFramePump();
+    const pending = new Map<number, (now: number, metadata: VideoFrameCallbackMetadata) => void>();
+    const canceled: number[] = [];
+    let nextId = 0;
+    const video = {
+      readyState: 2,
+      requestVideoFrameCallback: (callback: (now: number, metadata: VideoFrameCallbackMetadata) => void) => {
+        const id = ++nextId;
+        pending.set(id, callback);
+        return id;
+      },
+      cancelVideoFrameCallback: (id: number) => {
+        canceled.push(id);
+        pending.delete(id);
+      },
+    } as unknown as HTMLVideoElement;
+    const frameCallbacks = { onFrame: vi.fn(async () => {}), onError: vi.fn() };
+
+    // rVFC dispatch captures the current batch before invoking callbacks. An earlier callback can
+    // restart the pump after this snapshot, leaving the old pump callback in the dispatch batch.
+    video.requestVideoFrameCallback(() => pump.start(video, frameCallbacks));
+    pump.start(video, frameCallbacks);
+    const dispatchBatch = [...pending.entries()];
+    pending.clear();
+
+    dispatchBatch[0]?.[1](10, {} as VideoFrameCallbackMetadata);
+    dispatchBatch[1]?.[1](10, {} as VideoFrameCallbackMetadata);
+    pump.stop();
+
+    expect(canceled).toEqual([2, 3]);
+    expect(frameCallbacks.onFrame).not.toHaveBeenCalled();
+  });
+
+  it('ignores a stale rAF callback before it touches the current handle or video time', () => {
+    const pump = new VideoFramePump();
+    const pending = new Map<number, FrameRequestCallback>();
+    const canceled: number[] = [];
+    let nextId = 0;
+    vi.stubGlobal('performance', { now: () => 10 });
+    vi.stubGlobal('window', {
+      requestAnimationFrame: (callback: FrameRequestCallback) => {
+        const id = ++nextId;
+        pending.set(id, callback);
+        return id;
+      },
+      cancelAnimationFrame: (id: number) => {
+        canceled.push(id);
+        pending.delete(id);
+      },
+    });
+    const video = { readyState: 2, currentTime: 1 } as FrameVideo;
+    const frameCallbacks = { onFrame: vi.fn(async () => {}), onError: vi.fn() };
+
+    pump.start(video, frameCallbacks);
+    const staleCallback = pending.get(1);
+    pump.start(video, frameCallbacks);
+    staleCallback?.(10);
+    pump.stop();
+
+    expect(canceled).toEqual([1, 2]);
+    expect(frameCallbacks.onFrame).not.toHaveBeenCalled();
+  });
 });

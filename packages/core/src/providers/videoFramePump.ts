@@ -47,6 +47,7 @@ export class VideoFramePump {
 
     if (typeof video.requestVideoFrameCallback === 'function') {
       this.callbackId = video.requestVideoFrameCallback((now) => {
+        if (generation !== this.generation) return;
         this.callbackId = undefined;
         this.schedule(generation);
         this.processFrame(generation, now);
@@ -55,6 +56,7 @@ export class VideoFramePump {
     }
 
     this.rafId = window.requestAnimationFrame(() => {
+      if (generation !== this.generation) return;
       this.rafId = undefined;
       this.schedule(generation);
       if (video.currentTime === this.lastVideoTime) return;

@@ -196,6 +196,20 @@ flowchart LR
 - `npm run build`, `npm run check:articles`, lint focado dos arquivos alterados e `git diff --check` passaram. `npm run lint` passou com 35 avisos CSS em arquivos sem alteração; o build mantém o aviso de chunks acima de 500 kB.
 - Duas revisões independentes do diff completo não encontraram achados concretos; verificaram lifecycle de câmera, captura por geração e a extração do helper de cena.
 
+## Rodada 7 — fechar brechas apontadas na revisão do PR #49
+
+### Mudanças
+
+- Callbacks de rVFC e rAF verificam a geração antes de limpar o handle ou atualizar `lastVideoTime`. O teste de captura inclui restart durante a entrega em lote de callbacks e exige que `stop()` cancele o handle novo.
+- A regra `noRestrictedImports` agora bloqueia tanto subpaths privados do pacote quanto imports relativos para `packages/core/**` em kinematics. O barrel `@wii/spatial-core` continua permitindo somente os contratos listados.
+- Probe com arquivo temporário confirmou que o import relativo privado falha e o import público de `PoseSnapshot` passa; o fixture temporário foi removido.
+
+### Verificação e limite
+
+- O teste de scheduler foi vermelho antes da correção e verde depois. `npm test` passou com 97 arquivos Vitest, 928 testes e cinco testes Node, usando somente as gravações locais existentes por symlink temporário removido ao final.
+- `npm run build`, `npm run lint`, `npm run check:articles`, lint focado e `git diff --check` passaram. O lint global mantém 35 avisos CSS em arquivos não alterados; o build mantém avisos de chunks acima de 500 kB.
+- A checagem manual real da webcam exigida no `AGENTS.md` ainda não foi feita: este ambiente não tem browser instalado nem `/dev/video*`. O PR declara essa pendência; precisa ser verificada numa máquina com webcam.
+
 ## Ciclo de melhoria
 
 Cada lote termina com código migrado, teste na interface apropriada, exclusão segura da implementação substituída, restrição contra regressão quando aplicável e commit próprio. A lista ordenada e as decisões pendentes ficam em [architecture-backlog.md](architecture-backlog.md); decisões que passem o critério ADR ficam em `docs/adr/`.
