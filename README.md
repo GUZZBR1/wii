@@ -52,28 +52,6 @@ npx vercel --prod
 
 The resulting HTTPS URL enables browser camera access without a native install. `vercel.json` preserves direct links to the site's routes and marks versioned MediaPipe and asset files as immutable cache content.
 
-## The human side of the machine
-
-<table>
-  <tr>
-    <td align="center" width="33%">
-      <img src="assets/gustavo.png" alt="Pixel-art portrait of Gustavo Moreira" width="150" /><br />
-      <strong>Gustavo Moreira</strong><br />
-      Design, motion, and play feel
-    </td>
-    <td align="center" width="33%">
-      <img src="assets/lucas.png" alt="Pixel-art portrait of Lucas Coimbra" width="150" /><br />
-      <strong>Lucas Coimbra</strong><br />
-      Design, engineering, and systems
-    </td>
-    <td align="center" width="33%">
-      <img src="assets/wii-remote.png" alt="Pixel-art motion controller" width="92" /><br />
-      <strong>The little controller</strong><br />
-      Kept as a reminder of the magic we are trying to remove
-    </td>
-  </tr>
-</table>
-
 <div align="center">
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/credits-dark.png?v=2" />
