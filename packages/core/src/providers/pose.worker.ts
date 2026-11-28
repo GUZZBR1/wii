@@ -6,6 +6,7 @@ import type { Delegate, Point3, WorkerReply, WorkerRequest } from './poseProtoco
 let landmarker: PoseLandmarker | undefined;
 let wasmBaseUrl = '';
 let modelUrl = '';
+let cpuModelUrl = '';
 let delegate: Delegate = 'GPU';
 let attemptedFallback = false;
 let wasmLoaderInstance = 0;
@@ -28,7 +29,8 @@ async function createTask(nextDelegate: Delegate): Promise<void> {
     vision.wasmLoaderPath = loaderUrl.href;
   }
   wasmLoaderInstance += 1;
-  const response = await fetch(modelUrl);
+  const activeModelUrl = nextDelegate === 'CPU' && cpuModelUrl ? cpuModelUrl : modelUrl;
+  const response = await fetch(activeModelUrl);
   if (!response.ok) throw new Error(`Pose model request failed (${response.status})`);
   const modelBytes = new Uint8Array(await response.arrayBuffer());
   landmarker = await PoseLandmarker.createFromOptions(vision, {
@@ -37,8 +39,8 @@ async function createTask(nextDelegate: Delegate): Promise<void> {
     numPoses: 1,
     outputSegmentationMasks: false,
     minPoseDetectionConfidence: 0.5,
-    minPosePresenceConfidence: 0.5,
-    minTrackingConfidence: 0.5,
+    minPosePresenceConfidence: 0.38,
+    minTrackingConfidence: 0.38,
   });
   delegate = nextDelegate;
 }
@@ -70,6 +72,7 @@ self.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
   if (data.type === 'INIT') {
     wasmBaseUrl = data.wasmBaseUrl;
     modelUrl = data.modelUrl;
+    cpuModelUrl = data.cpuModelUrl ?? data.modelUrl;
     try {
       try {
         await createTask(data.delegate);
@@ -107,15 +110,12 @@ self.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
     const inferenceStart = performance.now();
     const result = landmarker.detectForVideo(bitmap, timestampMs);
     const inferenceMs = performance.now() - inferenceStart;
-    self.postMessage({
-      type: 'POSE', requestId, captureEpoch, timestampMs,
-      landmarks: simplify(result.landmarks[0]),
-      worldLandmarks: simplify(result.worldLandmarks[0]),
-      frameWidth: bitmap.width,
-      frameHeight: bitmap.height,
-    } satisfies WorkerReply);
     // Latency verdict on real frames: the GPU delegate over software GL costs ~96-243 ms/frame
-    // without ever throwing, so only timing evidence can catch it. Decided once, early.
+    // without ever throwing, so only timing evidence can catch it. Decided once, early — and
+    // BEFORE the POSE reply: one terminal reply per frame. The client releases its in-flight
+    // slot on POSE, so a fatal ERROR posted after it is dropped as stale and the failure is
+    // swallowed (it would only surface, misattributed, on the next frame).
+    let fallbackFailed: string | undefined;
     if (delegate === 'GPU' && !latencyVerdictDone) {
       gpuInferenceTimes.push(inferenceMs);
       if (gpuInferenceTimes.length >= LATENCY_PROBE_FRAMES) {
@@ -124,11 +124,20 @@ self.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
           const sorted = [...gpuInferenceTimes.slice(1)].sort((a, b) => a - b);
           const median = Math.round(sorted[Math.floor(sorted.length / 2)]!);
           const outcome = await fallback(`GPU lento (mediana ${median} ms/frame — provável GL de software)`);
-          if (!outcome.ok) {
-            self.postMessage({ type: 'ERROR', stage: 'detect', fatal: true, requestId, captureEpoch, message: outcome.message } satisfies WorkerReply);
-          }
+          if (!outcome.ok) fallbackFailed = outcome.message;
         }
       }
+    }
+    if (fallbackFailed !== undefined) {
+      self.postMessage({ type: 'ERROR', stage: 'detect', fatal: true, requestId, captureEpoch, message: fallbackFailed } satisfies WorkerReply);
+    } else {
+      self.postMessage({
+        type: 'POSE', requestId, captureEpoch, timestampMs,
+        landmarks: simplify(result.landmarks[0]),
+        worldLandmarks: simplify(result.worldLandmarks[0]),
+        frameWidth: bitmap.width,
+        frameHeight: bitmap.height,
+      } satisfies WorkerReply);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
