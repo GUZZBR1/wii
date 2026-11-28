@@ -20,11 +20,10 @@ import { GameCanvas, type GameEngineHandle, type Sport } from './ui/GameCanvas';
 import type { Goal } from './games/athletics/race';
 import { HandCursor } from './ui/HandCursor';
 import { HandDebugOverlay } from './ui/HandDebugOverlay';
-import { HandPanel } from './ui/HandPanel';
 import { PerfMeter } from './ui/PerfMeter';
 import { HAND_IDLE, type HandCursorInput } from './ui/handCursorTypes';
 import type { CarouselStepResult } from './ui/carouselController';
-import { drawHand, drawPose } from './ui/PoseOverlay';
+import { drawPose } from './ui/PoseOverlay';
 import { EXIT_DODGE_SW } from './kinematics/postureSignals';
 import { GamesMenu, HomeMenu } from './ui/WiiMenu';
 import { WiiSplash } from './ui/WiiSplash';
@@ -69,14 +68,12 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const [cameraStatus, setCameraStatus] = useState('Permissão da câmera ainda não solicitada');
   const [tracking, setTracking] = useState('SEM POSE');
   const [muted, setMuted] = useState(readMutedPreference);
-  const [handPanelOpen, setHandPanelOpen] = useState(false);
   const [handInput, setHandInput] = useState(HAND_IDLE);
   const handInputRef = useRef<HandCursorInput>(HAND_IDLE);
   const homeRotationGateRef = useRef(false);
   const carouselDebugRef = useRef<CarouselStepResult | undefined>(undefined);
   const videoRef = useRef<HTMLVideoElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
-  const handOverlayRef = useRef<HTMLCanvasElement>(null);
   const poseClientRef = useRef<PoseClient | undefined>(undefined);
   const handClientRef = useRef<HandClient | undefined>(undefined);
   const streamRef = useRef<MediaStream | undefined>(undefined);
@@ -174,7 +171,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
     contextRef.current.reset();
     resetCalibration();
     drawPose(overlayRef.current, videoRef.current);
-    drawHand(handOverlayRef.current, videoRef.current);
   }, [dispatchEvent, publishHandInput, resetCalibration]);
 
   const finishRecording = useCallback(() => {
@@ -290,7 +286,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
     handClient.beginCapture(video, (snapshot, aspectY) => {
       if (stale()) return;
       const primary = snapshot.hands[0];
-      drawHand(handOverlayRef.current, video, primary?.landmarks);
       const state = handDetectorRef.current.update({
         timestampMs: snapshot.timestampMs,
         landmarks: primary?.landmarks ?? [],
@@ -475,19 +470,12 @@ export default function App({ exit }: { exit?: ReactNode }) {
     pipelineRef.current.resetSwings();
     setSport(next);
     sportRef.current = next;
-    setHandPanelOpen(false);
     setScreen('play');
   };
 
-  const closeHandPanel = useCallback(() => {
-    stopCamera();
-    setHandPanelOpen(false);
-  }, [stopCamera]);
-
   const handBack = useCallback(() => {
     if (screenRef.current === 'games') setScreen('home');
-    else if (handPanelOpen) closeHandPanel();
-  }, [closeHandPanel, handPanelOpen]);
+  }, []);
 
   const menu = inHandMenu(screen);
 
@@ -513,15 +501,10 @@ export default function App({ exit }: { exit?: ReactNode }) {
       <button type="button" className="dock-btn round" onClick={toggleMute} title={muted ? 'Áudio desligado' : 'Áudio ligado'}>{muted ? '×' : '♫'}</button>
     </div>}
 
-    {menu && handPanelOpen && <HandPanel
-      sourceRef={videoRef} canvasRef={handOverlayRef} cameraOn={cameraOn} status={cameraStatus} synced={handInput.synced}
-      onStart={() => void startCamera()} onClose={closeHandPanel}
-    />}
     <HandCursor input={handInput} active={menu && cameraOn} onBack={handBack} />
     {menu && cameraOn && <HandDebugOverlay input={handInput} carouselRef={carouselDebugRef} />}
 
     <CameraPip
-      hidden={menu && handPanelOpen}
       videoRef={videoRef} canvasRef={overlayRef} cameraOn={cameraOn} status={cameraStatus} tracking={tracking}
       onStart={() => void startCamera()} onStop={stopCamera}
     />

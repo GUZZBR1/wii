@@ -186,17 +186,6 @@
   .dock-btn.round { width: 38px; padding: 0; }
 
   /* controle por mão: painel */
-  .hand-panel { position: absolute; right: 14px; bottom: 14px; width: 250px; max-height: calc(100% - 70px); overflow: auto; display: flex; flex-direction: column; gap: 8px; padding: 10px; z-index: 11; border: 3px solid var(--blue); border-radius: 18px; background: var(--gloss); box-shadow: var(--shadow); text-align: center; }
-  .hand-preview { position: relative; flex: none; aspect-ratio: 4/3; display: grid; place-items: center; overflow: hidden; border-radius: 12px; background: #cfd8de; font-size: 13px; letter-spacing: 1px; }
-  .hand-status { display: flex; align-items: center; justify-content: center; gap: 7px; padding: 5px 10px; border: 2px solid var(--line); border-radius: 999px; background: #fff; font-size: 12px; font-weight: 700; }
-  .hand-status i { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
-  .hand-status[data-state="searching"] { border-color: var(--orange); }
-  .hand-status[data-state="searching"] i { background: var(--orange); animation: hand-blink 1.2s ease-in-out infinite; }
-  .hand-status[data-state="synced"] { border-color: var(--green); background: #e3f6e8; }
-  .hand-status[data-state="synced"] i { background: var(--green); }
-  .hand-legend { margin: 0; padding: 0; list-style: none; color: #6d777f; font-size: 11px; line-height: 1.6; }
-  .hand-actions { display: flex; gap: 8px; justify-content: center; }
-  .hand-actions .wii-btn { padding: 7px 14px; font-size: 12px; }
 
   /* controle por mão: cursor (a ponta do indicador é a origem) */
   .hand-layer { position: fixed; inset: 0; z-index: 120; overflow: hidden; pointer-events: none; }
@@ -230,10 +219,9 @@
 
   /* pip da câmera */
   .cam-pip { position: absolute; right: 14px; bottom: 14px; width: 230px; z-index: 10; overflow: hidden; border: 3px solid var(--blue); border-radius: 18px; background: var(--gloss); box-shadow: 0 10px 28px #2a4a5c66; }
-  .cam-pip.is-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; border: 0; opacity: 0; pointer-events: none; }
   .cam-feed { position: relative; aspect-ratio: 4/3; background: #cfd8de; }
-  .cam-feed video, .cam-feed canvas, .hand-preview video, .hand-preview canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
-  .cam-feed canvas, .hand-preview canvas { z-index: 2; }
+  .cam-feed video, .cam-feed canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; transform: scaleX(-1); }
+  .cam-feed canvas { z-index: 2; }
   .cam-empty { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; color: #5c6770; text-align: center; }
   .cam-empty strong { font-size: 13px; letter-spacing: 1px; }
   .cam-empty small { font-size: 10px; }
@@ -246,7 +234,7 @@
   .cam-status { padding: 0 10px 8px; color: #6d777f; font-size: 9px; line-height: 1.4; min-height: 16px; text-align: center; }
 
   @media (max-width: 640px) {
-    .cam-pip:not(.expanded):not(.is-hidden) { width: 160px; }
+    .cam-pip:not(.expanded) { width: 160px; }
     .game-hud div { min-width: 0; padding: 4px 10px; }
     .game-hud strong { font-size: 20px; }
     .game-controls { display: none; }
@@ -255,11 +243,11 @@
   .pip-toggle { position: absolute; z-index: 6; top: 6px; right: 6px; min-width: 28px; height: 24px; padding: 0 8px; }
   /* Telas pequenas: a seleção de jogos reserva a faixa do preview, para nenhum botão ficar embaixo dele. */
   @media (orientation: landscape) and (max-height: 700px), (orientation: landscape) and (max-width: 1100px) {
-    .stage:has(.sports-menu) .cam-pip:not(.expanded):not(.is-hidden) { width: 140px; }
+    .stage:has(.sports-menu) .cam-pip:not(.expanded) { width: 140px; }
     .games-body { padding-right: 160px; }
   }
   @media (orientation: portrait) and (max-height: 700px) {
-    .stage:has(.sports-menu) .cam-pip:not(.expanded):not(.is-hidden) { width: 140px; }
+    .stage:has(.sports-menu) .cam-pip:not(.expanded) { width: 140px; }
     .games-body { padding-bottom: 190px; }
     .games-goal-panel { justify-content: flex-start; gap: 12px; padding: 10px; }
     .games-goals { gap: 10px; }
@@ -299,10 +287,9 @@
   .wii-half.left { clip-path: inset(0 50% 0 0); --open: -50%; }
   .wii-half.right { clip-path: inset(0 0 0 50%); --open: 50%; }
   .wii-half span { color: transparent; background: linear-gradient(#34beed 25%, #1a8fc4 75%); -webkit-background-clip: text; background-clip: text; font: 700 clamp(90px, 22vw, 260px)/1 Arial, sans-serif; letter-spacing: -.04em; animation: wii-come .6s cubic-bezier(.2, .9, .3, 1.15) .5s backwards, wii-near .6s ease-in 1.5s forwards; }
-  @media (prefers-reduced-motion: reduce) { .menu { animation: none; } .wii-btn, .channel { transition: none; } .hand-body { transition: none; } .hand-status[data-state="searching"] i, .hand-cursor.searching .track, .hand-cursor.syncing .track, .hand-pulse, .hand-cursor.rotating .hand-ring .fill, .hand-cursor.braking .hand-ring .fill { animation: none; } .hand-flash { animation-name: hand-flash-still; } }
+  @media (prefers-reduced-motion: reduce) { .menu { animation: none; } .wii-btn, .channel { transition: none; } .hand-body { transition: none; } .hand-cursor.searching .track, .hand-cursor.syncing .track, .hand-pulse, .hand-cursor.rotating .hand-ring .fill, .hand-cursor.braking .hand-ring .fill { animation: none; } .hand-flash { animation-name: hand-flash-still; } }
 }
 @keyframes menu-in { from { opacity: 0; transform: scale(.97); } }
-@keyframes hand-blink { 50% { opacity: .3; transform: scale(.7); } }
 @keyframes hand-blink-ring { 50% { opacity: .3; } }
 @keyframes hand-orbit { to { stroke-dashoffset: -22; } }
 @keyframes hand-pulse { from { opacity: .9; transform: scale(.5); } to { opacity: 0; transform: scale(1.25); } }
