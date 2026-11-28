@@ -28,11 +28,11 @@
   .channel.empty:hover, .channel.empty:focus-visible { box-shadow: 0 0 0 5px #34beed66, var(--shadow); }
   .channel.sport-channel { overflow: hidden; padding: 0; display: flex; flex-direction: column; background: #fff; border-color: #fff; color: var(--ink); }
   .sport-channel:hover, .sport-channel:focus-visible { box-shadow: 0 0 0 5px #34beed88, var(--shadow); }
-  .channel-scene { flex: 1; width: 100%; }
+  .channel-scene { flex: 1; width: 100%; min-height: 0; background: center / cover no-repeat; }
+  .sport-channel.athletics .channel-scene { background-image: url(/images/menu/athletics.jpg); }
+  .sport-channel.tennis .channel-scene { background-image: url(/images/menu/tennis.jpg); }
+  .sport-channel.boxing .channel-scene { background-image: url(/images/menu/boxing.jpg); }
   .channel-name { width: 100%; padding: 5px; background: var(--gloss); font-size: clamp(14px, 1.8vw, 24px); font-weight: 800; }
-  .sport-channel.athletics .channel-scene { background: linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #4e9e52 42% 52%, #0000 52%), repeating-linear-gradient(#c8603f 0 13%, #fff 13% 14%); }
-  .sport-channel.tennis .channel-scene { background: linear-gradient(90deg, #0000 49.6%, #fff 49.6% 50.4%, #0000 50.4%) 50% 100% / 100% 40% no-repeat, linear-gradient(#0000 68%, #fff 68% 70%, #0000 70%), linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #3f8f4b 42% 48%, #3f78b5 48%); }
-  .sport-channel.boxing .channel-scene { background: radial-gradient(circle at 38% 58%, #d64545 0 9%, #0000 9.5%), radial-gradient(circle at 62% 58%, #2f6fd0 0 9%, #0000 9.5%), repeating-linear-gradient(#0000 0 8%, #fff 8% 9.5%, #0000 9.5% 14%) 50% 70% / 100% 40% no-repeat, linear-gradient(#26313b 0 52%, #d9c9a3 52%); }
   .ring-arrow { position: absolute; z-index: 25; top: 50%; width: 52px; height: 52px; translate: 0 -50%; border: 3px solid var(--blue); border-radius: 50%; color: var(--blue-deep); background: linear-gradient(#fff 0 46%, #d9f2fd 54%, #ade4f8); box-shadow: 0 5px 14px rgba(26, 110, 168, .35), inset 0 1px #fff; }
   .ring-arrow.left { left: 3%; }
   .ring-arrow.right { right: 3%; }
@@ -120,6 +120,10 @@
   .game-banner { position: absolute; left: 0; right: 0; top: 22%; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 0 16px; color: #fff; text-align: center; text-shadow: 0 3px 10px #000c; pointer-events: none; z-index: 4; }
   .game-banner strong { font-size: 68px; font-weight: 800; }
   .game-banner span { font-size: 14px; font-weight: 700; }
+  /* Boxing: the opponent stands in the middle of the screen, so instructions stay above them. */
+  .game-viewport.boxing .game-banner { top: 13%; gap: 4px; }
+  .game-viewport.boxing .game-banner strong { font-size: clamp(22px, 3.4vw, 40px); }
+  .game-viewport.boxing .game-banner span { padding: 4px 14px; border-radius: 999px; background: #000a; font-size: 17px; text-shadow: none; }
   .game-viewport.tennis .game-banner { top: 12%; }
   .game-viewport.tennis .game-banner strong { font-size: 40px; }
   .game-viewport.tennis .game-banner span { font-size: 20px; }
@@ -152,6 +156,9 @@
   .game-feedback.hit span, .game-feedback.bad span { color: #ff6b6b; }
   .game-feedback.neutral span { color: var(--muted); }
 
+  .boxing-streak { position: absolute; top: 100%; right: 0; margin-top: 8px; color: #ffe066; font-size: 28px; text-shadow: 0 2px 8px #000a; }
+  .learn-ring { position: absolute; left: 24px; bottom: 70px; display: grid; place-items: center; width: 110px; height: 110px; border-radius: 50%; z-index: 3; box-shadow: 0 4px 14px #0006; }
+  .learn-ring span { display: grid; place-items: center; width: 80px; height: 80px; border-radius: 50%; background: #102d40; color: white; font-size: 24px; font-weight: 800; }
   .game-over { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(320px, 90vw); max-height: 90%; overflow: auto; padding: 20px; border: 3px solid var(--blue); border-radius: 24px; background: #fffffff5; box-shadow: var(--shadow); text-align: center; z-index: 9; }
   .game-over h2 { margin: 0 0 8px; font-size: 30px; color: #d64545; }
   .game-viewport.tennis .game-ready { top: auto; bottom: 35px; max-width: 94%; white-space: normal; text-align: center; }
@@ -190,8 +197,8 @@
 
   /* controle por mão: cursor (a ponta do indicador é a origem) */
   .hand-layer { position: fixed; inset: 0; z-index: 120; overflow: hidden; pointer-events: none; }
-  .hand-cursor { position: absolute; top: 0; left: 0; width: 0; height: 0; }
-  .hand-body { position: absolute; transform-origin: 0 0; transition: opacity .35s ease, scale .35s ease, visibility .35s; }
+  .hand-cursor { position: absolute; top: 0; left: 0; width: 0; height: 0; will-change: transform; }
+  .hand-body { position: absolute; transform-origin: 0 0; transition: opacity .12s ease, scale .12s ease, visibility .12s; }
   .hand-cursor.pinching .hand-body { scale: .88; transition-duration: .12s; }
   .hand-cursor.off .hand-body { opacity: 0; scale: .97; visibility: hidden; transition-duration: .35s; }
   .hand-ring { position: absolute; left: -40px; top: -22px; width: 80px; height: 80px; rotate: -90deg; fill: none; stroke-width: 6; stroke-linecap: round; }

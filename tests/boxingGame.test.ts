@@ -72,7 +72,7 @@ describe('BoxingGame', () => {
 
   it('hits a player who stays in the targeted zone', () => {
     const { run, read } = start();
-    run(1.8);
+    run(1.95);
     expect(read().label).toBe('90 × 100');
   });
 
@@ -80,9 +80,9 @@ describe('BoxingGame', () => {
     const { game, run, read } = start();
     run(1); // the windup has aimed at the center
     game.setDodgeZone(1);
-    run(0.8);
+    run(0.95);
     expect(read().label).toBe('100 × 100');
-    expect(read().feedback?.text).toBe('ESQUIVOU!');
+    expect(read().feedback?.text).toBe('ESQUIVOU! AGORA!');
   });
 
   it('blocks a punch into the guard and lands one during the windup', () => {
@@ -189,15 +189,15 @@ describe('BoxingGame', () => {
 
     it('lands an opponent punch whose impact preceded the bell', () => {
       const { run, read, setMatch } = start();
-      setMatch({ round: 3, roundMsLeft: 1583 }); // impact ~1500 ms, resolution ~1650 ms
-      run(2.1); // wait for both defense grace and the late-confirmation watermark
+      setMatch({ round: 3, roundMsLeft: 1733 }); // impact ~1500 ms, resolution ~1650 ms
+      run(2.25); // wait for both defense grace and the late-confirmation watermark
       expect(read()).toMatchObject({ label: '90 × 100', banner: { title: 'Adversário venceu' } });
     });
 
     it('waits for the complete defense window when impact precedes the bell', () => {
       const { game, run, read, setMatch } = start();
-      setMatch({ round: 3, roundMsLeft: 1583 });
-      run(1.59);
+      setMatch({ round: 3, roundMsLeft: 1733 });
+      run(1.74);
       expect(read().label).toBe('100 × 100');
       game.setGuard(true);
       run(0.5);
@@ -207,10 +207,10 @@ describe('BoxingGame', () => {
       expect(read().label).toBe('99 × 100');
     });
 
-    it('shows the attack type and target throughout its preparation', () => {
+    it('warns to dodge throughout the preparation', () => {
       const { run, read } = start();
       run(1);
-      expect(read().banner).toMatchObject({ title: 'RETO · CABEÇA' });
+      expect(read().banner).toMatchObject({ title: 'ESQUIVE!' });
     });
 
     it('saves the player when the bell precedes the impact', () => {
@@ -222,12 +222,12 @@ describe('BoxingGame', () => {
   });
 });
 
-/** Dodges the first punch (impact ~1500 ms, resolved ~1650 ms) and leaves the fight just after it. */
+/** Dodges the first punch (impact ~1650 ms, resolved ~1800 ms) and leaves the fight just after it. */
 function dodgeFirst() {
   const fight = start();
   fight.run(1);
   fight.game.setDodgeZone(1);
-  fight.run(0.7);
+  fight.run(0.85);
   return fight;
 }
 
@@ -237,7 +237,7 @@ describe('BoxingGame counter window', () => {
     game.onAction(punch(wallMs));
     expect(read()).toMatchObject({ label: '100 × 82', feedback: { text: 'CONTRA-ATAQUE!' } });
     game.onAction(punch(wallMs));
-    expect(read()).toMatchObject({ label: '100 × 70', feedback: { text: 'ACERTOU!' } });
+    expect(read()).toMatchObject({ label: '100 × 70', feedback: { text: 'EM CHEIO!' } });
   });
 
   it('goes through the guard while the window lasts, and not after it', () => {
@@ -258,35 +258,35 @@ describe('BoxingGame guard', () => {
     const { game, run, read } = start();
     run(1);
     game.onKey(key);
-    run(0.8);
+    run(0.95);
     expect(read()).toMatchObject({ label: '99 × 100', feedback: { text: 'DEFENDEU' } });
     game.onKeyUp(key);
-    run(2.3);
+    run(2.45);
     expect(read().label).toBe('89 × 100');
   });
 
   it('takes the camera guard and forgets it when the camera has no opinion', () => {
     const { game, run, read } = start();
     game.setGuard(true);
-    run(1.8);
+    run(1.95);
     expect(read().label).toBe('99 × 100');
     game.setGuard(undefined);
-    run(2.3);
+    run(2.45);
     expect(read().label).toBe('89 × 100');
   });
 
   it('opens no counter window for a guarded punch', () => {
     const { game, run, read } = start();
     game.setGuard(true);
-    run(2.5); // blocked, then the opponent is back in guard
+    run(2.65); // blocked, then the opponent is back in guard
     game.onAction(punch(wallMs));
     expect(read().label).toBe('99 × 100');
   });
 
   it('publishes the scoreboard', () => {
     const { run, read } = start();
-    run(1.8);
-    expect(read().boxing).toEqual({ playerHp: 90, opponentHp: 100, maxHp: 100, round: 1, rounds: 3, secondsLeft: 59 });
+    run(1.95);
+    expect(read().boxing).toEqual({ streak: 0, playerHp: 90, opponentHp: 100, maxHp: 100, round: 1, rounds: 3, secondsLeft: 59 });
   });
 });
 
@@ -486,9 +486,31 @@ describe('BoxingGame body controls and animation', () => {
     internals(game).playerPos = { x: 0, z: 2.4 };
     run(STEP_S);
     expect(internals(game).camera.position.z).toBeGreaterThan(before);
-    expect(internals(game).camera.position.z).toBeLessThan(2.4);
+    expect(internals(game).camera.position.z).toBeLessThan(4.25);
     run(1);
-    expect(internals(game).camera.position.z).toBeCloseTo(2.4, 3);
+    // 1.85 m behind the player.
+    expect(internals(game).camera.position.z).toBeCloseTo(4.25, 3);
+  });
+
+  it('shows the player boxer between a higher camera and the opponent, and moves it with the dodge', () => {
+    const { game, run } = start();
+    const view = game as unknown as {
+      playerBoxer: { root: { position: { x: number; y: number; z: number } } };
+      camera: { position: { x: number; y: number; z: number } };
+      opponentMotion: { position: { z: number } };
+    };
+    run(1);
+    const body = view.playerBoxer.root.position;
+    const standing = { x: body.x, y: body.y };
+    expect(view.camera.position.z).toBeGreaterThan(body.z + 1);
+    expect(body.z).toBeGreaterThan(view.opponentMotion.position.z);
+    expect(view.camera.position.y - body.y).toBeGreaterThan(2);
+    game.setDodgeZone(1);
+    game.setDuck(true);
+    run(0.5);
+    expect(Math.abs(body.x - standing.x)).toBeGreaterThan(0.4);
+    expect(body.y).toBeLessThan(standing.y - 0.3);
+    expect(Math.abs(view.camera.position.x - body.x)).toBeGreaterThan(0.2);
   });
 
   it('freezes the glove at impact without freezing the fight clock', () => {
@@ -499,7 +521,7 @@ describe('BoxingGame body controls and animation', () => {
     game.onKey('e'); // lands during the windup
     run(0.2);
     expect(state.fightMs - fightMs).toBeCloseTo(200, 5);
-    expect(state.animTimeS - animTimeS).toBeCloseTo(0.2 - 0.045, 5);
+    expect(state.animTimeS - animTimeS).toBeCloseTo(0.2 - 0.06, 5);
   });
 });
 
@@ -611,102 +633,42 @@ describe('BoxingGame review fixes', () => {
 });
 
 describe('BoxingGame tutorial mode', () => {
-  const tutorialPunch = (peakTimestampMs: number, kind: 'straight' | 'hook' | 'uppercut' = 'straight', target: 'head' | 'body' = 'head', hand: 'left' | 'right' = 'left'): SportActionEvent => ({
-    ...(punch(peakTimestampMs) as Extract<SportActionEvent, { type: 'punch' }>),
-    hand,
-    punchKind: kind,
-    punchTargetZone: target,
-    measurement: {
-      samples: [],
-      origin: { timestampMs: 0, lateral: 0, vertical: 0, forward: 0, elbowCosine: 0, confidence: 1 },
-      speedPeak: { timestampMs: 0, lateral: 0, vertical: 0, forward: 0.5, elbowCosine: 0.5, confidence: 1 },
-      contact: { timestampMs: 0, lateral: 0, vertical: 0, forward: 0.9, elbowCosine: 0.9, confidence: 1 },
-      end: { timestampMs: 0, lateral: 0, vertical: 0, forward: 0.8, elbowCosine: 0.8, confidence: 1 },
-      durationMs: 200,
-      forwardTravel: 0.9,
-      lateralExcursion: 0.05,
-      verticalRise: 0.02,
-      pathLength: 1,
-      netDisplacement: 0.9,
-      maxElbowCosine: 0.95,
-    },
-  });
+  const warmup = () => {
+    const travels: number[] = [];
+    let finished = 0;
+    const fight = start({
+      mode: 'tutorial',
+      onPunchTravel: (travel) => travels.push(travel),
+      onTutorialDone: () => { finished += 1; },
+    });
+    return { ...fight, travels, finished: () => finished };
+  };
 
-  it('never attacks the player and starts with the guard instruction', () => {
-    const { run, read } = start({ mode: 'tutorial' });
-    run(5);
+  it('never attacks the player and shows how far along each step is', () => {
+    const { game, run, read } = warmup();
+    game.setGuard(true);
+    run(1.6);
     const hud = read();
     expect(hud.label).toBe('100 × 100');
-    expect(hud.status).toContain('guarda');
+    expect(hud.banner?.title).toBe('Defesa: punhos no rosto');
+    expect(hud.learn).toMatchObject({ step: 1, steps: 6 });
+    expect(hud.learn!.progress01).toBeGreaterThan(0);
   });
 
-  it('advances through the steps as the player performs them', () => {
-    const { game, run, read } = start({ mode: 'tutorial' });
-    game.setGuard(true);
-    run(1.2);
-    expect(read().status).toContain('jab');
-    game.setGuard(false);
-    const at = () => performance.now();
-    for (let i = 0; i < 3; i += 1) {
-      game.onAction(tutorialPunch(at(), 'straight', 'head', 'left'));
-      run(0.3);
-    }
-    expect(read().status).toContain('cruzado');
-    for (let i = 0; i < 3; i += 1) {
-      game.onAction(tutorialPunch(at(), 'straight', 'head', 'right'));
-      run(0.3);
-    }
-    expect(read().status).toContain('ganchos');
-  });
-
-  it('reports the learning floor on entry and the adapted travel once done', () => {
-    const travels: number[] = [];
-    const { game, run } = start({ mode: 'tutorial', onPunchTravel: (travel) => travels.push(travel) });
+  it('hands over to the fight once, after skipping, with the untuned punch travel', () => {
+    const { game, run, travels, finished } = warmup();
     expect(travels).toEqual([0.15]);
-    game.setGuard(true);
-    run(1.2);
-    game.setGuard(false);
-    const at = () => performance.now();
-    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'left')); run(0.2); }
-    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'right')); run(0.2); }
-    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'hook', 'head')); run(0.2); }
-    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'uppercut', 'head')); run(0.2); }
-    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'body')); run(0.2); }
-    game.setDodgeZone(-1); run(0.3); game.setDodgeZone(0); run(0.3);
-    game.setDodgeZone(1); run(0.3); game.setDodgeZone(0); run(0.3);
-    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
-    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
-    expect(travels.at(-1)).toBeCloseTo(0.25);
-  });
-
-  it('unknown-type punches do not advance the tutorial', () => {
-    const { game, run, read } = start({ mode: 'tutorial' });
-    game.setGuard(true);
-    run(1.2);
-    game.setGuard(false);
-    game.onAction(punch(performance.now()));
-    run(0.3);
-    expect(read().status).toContain('jab');
-  });
-
-  it('finishes with a completion banner once every step is done', () => {
-    const { game, run, read } = start({ mode: 'tutorial' });
-    game.setGuard(true);
-    run(1.2);
-    game.setGuard(false);
-    const at = () => performance.now();
-    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'left')); run(0.2); }
-    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'right')); run(0.2); }
-    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'hook', 'head')); run(0.2); }
-    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'uppercut', 'head')); run(0.2); }
-    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'body')); run(0.2); }
-    game.setDodgeZone(-1); run(0.3); game.setDodgeZone(0); run(0.3);
-    game.setDodgeZone(1); run(0.3); game.setDodgeZone(0); run(0.3);
-    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
-    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
-    const hud = read();
-    expect(hud.status).toBe('Tutorial completo!');
-    expect(hud.banner?.title).toBe('Tutorial completo!');
+    for (let i = 0; i < 25; i += 1) {
+      game.setHandsRaised(false, performance.now());
+      run(0.1);
+    }
+    for (let i = 0; i < 40; i += 1) {
+      game.setHandsRaised(true, performance.now());
+      run(0.1);
+    }
+    run(5);
+    expect(travels).toEqual([0.15, 0.25]);
+    expect(finished()).toBeGreaterThanOrEqual(1);
   });
 });
 

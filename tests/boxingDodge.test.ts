@@ -188,8 +188,9 @@ describe('lane position control through the real pipeline and calibrator', () =>
       // The exact App.tsx wiring: every frame is calibration evidence first — with the lane zone
       // as context — control input second.
       profile = calibrator.update(snapshot, pipeline.dodgeZone, EXIT_DODGE_SW) ?? profile;
-      const result = pipeline.update(snapshot, profile);
-      zoneTrace.push({ atMs: time, zone: result.controls.dodgeZone });
+      pipeline.update(snapshot, profile);
+      // The position tracker, which still tells calibration when a lane is held; the game reads bodyDodge.
+      zoneTrace.push({ atMs: time, zone: pipeline.dodgeZone });
     }
     return { zoneTrace, profile };
   }

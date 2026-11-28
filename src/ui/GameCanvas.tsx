@@ -4,7 +4,7 @@ import type { AthleticsHudState } from '../games/athletics/AthleticsGame';
 import type { Goal } from '../games/athletics/race';
 import type { ProceduralAudio } from '../games/audio';
 import type { BoxingScoreboard } from '../games/boxing/BoxingGame';
-import { BOXING_MODES, type BoxingMode } from '../games/boxing/boxingModes';
+import type { BoxingMode } from '../games/boxing/boxingModes';
 import { type BoxingSetup, DEFAULT_BOXING_SETUP } from '../games/boxing/boxingSetup';
 import { OPPONENT_PROFILES, type OpponentProfileId } from '../games/boxing/opponentProfiles';
 import type { ArmMotion } from '../kinematics/armMotion';
@@ -21,6 +21,7 @@ type GameHudState = Omit<TrackHudState, 'feedback'> & {
   energy?: AthleticsHudState['energy'];
   runners?: AthleticsHudState['runners'];
   boxing?: BoxingScoreboard;
+  learn?: { progress01: number; step: number; steps: number };
 };
 import { BOXING_TRAINING_CONTROLS, HUD_TEXT } from './hudText';
 import { forwardKeyDown } from './keys';
@@ -66,10 +67,10 @@ export function GameCanvas(props: Props) {
   return <GameRun
     key={`${run}-${boxingMode}-${boxingOpponent}`}
     {...props}
-    boxingMode={boxingMode}
     onBoxingMode={(mode) => changeBoxing({ ...boxing, mode })}
+    boxingMode={props.ironMan ? 'fight' : boxingMode}
     boxingOpponent={boxingOpponent}
-    onBoxingOpponent={(opponent) => changeBoxing({ ...boxing, opponent })}
+    onBoxingOpponent={(opponent) => changeBoxing({ mode: 'fight', opponent })}
     tutorial={run === 0}
     initialRacketHand={racketHandRef.current}
     onRacketHand={rememberRacketHand}
@@ -111,6 +112,8 @@ function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crosse
   travelRef.current = onStrokeTravel;
   const punchTravelRef = useRef(onPunchTravel);
   punchTravelRef.current = onPunchTravel;
+  const boxingModeRef = useRef(onBoxingMode);
+  boxingModeRef.current = onBoxingMode;
   const racketHandRef = useRef(initialRacketHand);
   racketHandRef.current = initialRacketHand;
   const racketHandCallbackRef = useRef(onRacketHand);
@@ -206,6 +209,7 @@ function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crosse
                 opponent: boxingOpponent,
                 motionRng: Math.random,
                 onPunchTravel: (travel) => punchTravelRef.current?.(travel),
+                onTutorialDone: () => boxingModeRef.current('fight'),
               });
         if (disposed) { engine.dispose(); return; }
         game = engine;
@@ -251,18 +255,17 @@ function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crosse
     </section>}
     {sport === 'boxing' && !ironMan && hud.boxing?.selectionOpen && <fieldset className="game-goals boxing-setup" aria-label="Configuração do boxe">
       <div className="boxing-select-row">
-        <span>MODO</span>
-        {BOXING_MODES.map((mode) => <button key={mode.id} type="button" className="dock-btn" aria-pressed={mode.id === boxingMode} onClick={() => onBoxingMode(mode.id)}>{mode.label}</button>)}
-      </div>
-      {boxingMode === 'fight' && <div className="boxing-select-row">
         <span>ADVERSÁRIO</span>
         {OPPONENT_PROFILES.map((profile) => <button key={profile.id} type="button" className="dock-btn" aria-pressed={profile.id === boxingOpponent} onClick={() => onBoxingOpponent(profile.id)}>{profile.label}</button>)}
-      </div>}
+      </div>
     </fieldset>}
     {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${('kind' in hud.feedback ? hud.feedback.kind : hud.feedback.tone)}`}>
       <span>{hud.feedback.text}</span>
     </div>}
     {hud.banner && <div className="game-banner" role="status"><strong>{hud.banner.title}</strong>{hud.banner.detail && <span>{hud.banner.detail}</span>}</div>}
+    {hud.learn && <div className="learn-ring" role="progressbar" aria-label={`Etapa ${hud.learn.step} de ${hud.learn.steps}`} aria-valuenow={Math.round(hud.learn.progress01 * 100)} aria-valuemin={0} aria-valuemax={100} style={{ background: `conic-gradient(#7be595 ${hud.learn.progress01 * 360}deg, #ffffff40 0deg)` }}>
+      <span>{hud.learn.step}/{hud.learn.steps}</span>
+    </div>}
     {hud.runners && <div className="race-progress">{hud.runners.map((runner) => (
       <div key={runner.name} className={runner.you ? 'you' : ''}><span>{runner.name}</span><i><b style={{ width: `${runner.progress01 * 100}%` }} /></i></div>
     ))}</div>}
@@ -302,7 +305,7 @@ function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crosse
   </div>;
 }
 
-function BoxingHud({ playerHp, opponentHp, maxHp, round, rounds, secondsLeft, training }: BoxingScoreboard) {
+function BoxingHud({ playerHp, opponentHp, maxHp, round, rounds, secondsLeft, training, streak = 0 }: BoxingScoreboard) {
   if (training) {
     const card = (label: string, value: string | number) => <div className="boxing-card boxing-training-card">
       <span className="boxing-label">{label}</span>
@@ -333,5 +336,6 @@ function BoxingHud({ playerHp, opponentHp, maxHp, round, rounds, secondsLeft, tr
       <strong className="boxing-value">{Math.floor(secondsLeft / 60)}:{String(secondsLeft % 60).padStart(2, '0')}</strong>
     </div>
     {fighter('CPU', opponentHp, 'opponent')}
+    {streak > 1 && <strong className="boxing-streak" role="status">COMBO {streak}</strong>}
   </div>;
 }

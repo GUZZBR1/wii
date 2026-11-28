@@ -93,7 +93,7 @@ function mockAnimationFrames() {
 }
 
 beforeEach(() => {
-  document.elementsFromPoint = () => [];
+  document.elementFromPoint = () => null;
   harness.webglFails = true;
   harness.presence = 0;
   harness.smoothers = 0;
@@ -135,7 +135,7 @@ describe('SiteAsciiHand', () => {
     const button = document.createElement('button');
     document.body.appendChild(button);
     const click = vi.spyOn(button, 'click');
-    document.elementsFromPoint = vi.fn(() => [button] as unknown as Element[]);
+    document.elementFromPoint = vi.fn(() => button);
 
     await render(false, tracked, () => undefined);
     await act(async () => frames.step(16));
@@ -146,6 +146,8 @@ describe('SiteAsciiHand', () => {
     await render(false, tracked, () => undefined);
     harness.presence = 0.98;
     await act(async () => frames.step(32));
+    // Hover follows on the next display frame, once the hand has settled.
+    await act(async () => frames.step(48));
     expect(button.getAttribute('data-hand-hover')).toBe('true');
     await render(false, { ...tracked, pinchRelease: true }, () => undefined);
     expect(click).toHaveBeenCalledTimes(1);
@@ -157,7 +159,7 @@ describe('SiteAsciiHand', () => {
     const unregister = registerMiiPicker(picker);
     const plain = document.createElement('div');
     document.body.appendChild(plain);
-    document.elementsFromPoint = vi.fn(() => [plain] as unknown as Element[]);
+    document.elementFromPoint = vi.fn(() => plain);
 
     await render(false, tracked, () => undefined);
     await render(false, { ...tracked, pinchRelease: true }, () => undefined);

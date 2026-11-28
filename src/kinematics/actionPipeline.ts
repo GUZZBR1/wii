@@ -4,7 +4,8 @@ import { CadenceTracker } from './cadenceTracker';
 import { upsideDown } from './framing';
 import { IntensityMeter } from './intensity';
 import { JumpDetector } from './jumpDetector';
-import { DodgeZoneTracker, DuckTracker, LanePositionTracker, REFERENCE_VETO_SPEED_SW_PER_S, RingDepthTracker, ShoulderLineVerticalSpeed } from './postureSignals';
+import { DodgeZoneTracker, LanePositionTracker, REFERENCE_VETO_SPEED_SW_PER_S, RingDepthTracker, ShoulderLineVerticalSpeed } from './postureSignals';
+import { BodyDodgeDetector } from './bodyDodge';
 import { isGuardingPose, PunchDetector, type PunchDiagnostics } from './punchDetector';
 import { classifyPunch } from './punchClassifier';
 import { type ArmMotion, ArmMotionDetector } from './armMotion';
@@ -26,6 +27,7 @@ const COAST_TIMEOUT_MS = 600;
 const COAST_HALF_LIFE_MS = 150;
 /** Below this the carried speed is indistinguishable from stopped; the coast ends in a clean zero. */
 const COAST_MIN_SPEED01 = 0.02;
+const PUNCH_ECHO_MS = 150;
 
 export interface SwingTracking {
   scaleReady: boolean;
@@ -47,7 +49,7 @@ export class ActionPipeline {
   private readonly footworkGate = new TrackingGate([11, 12, 23, 24]);
   private readonly ringDepth = new RingDepthTracker();
   private readonly lateralDash = new LateralDashTracker();
-  private readonly duckTracker = new DuckTracker();
+  private readonly bodyDodge = new BodyDodgeDetector();
   private readonly shoulderSpeed = new ShoulderLineVerticalSpeed();
   /** Frames where the torso reference moved fast, trimmed to the longest punch window: confirmation
    * evidence measured while the reference itself moved is torso motion, not arm motion — so a punch
@@ -55,6 +57,8 @@ export class ActionPipeline {
    * pattern as the tennis contact. */
   private referenceVetoAtMs: number[] = [];
   private readonly punchInFlight = new PunchInFlight();
+  /** The latest punch reported, to drop its echo on the other arm. */
+  private lastPunch: { hand: Hand; peakMs: number } | undefined;
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
     { hand, wrist, gate: new TrackingGate([], 'world'), detector: new SwingDetector(hand) }
@@ -237,6 +241,10 @@ export class ActionPipeline {
         const { power01, confidence, peakTimestampMs, onsetTimestampMs, measurement } = output;
         const classification = classifyPunch(measurement);
         this.punchInFlight.end(hand);
+        // A punch twists the trunk, which the other arm reads as its own punch at the same instant.
+        // A real one-two is further apart than this.
+        if (this.lastPunch && this.lastPunch.hand !== hand && Math.abs(peakTimestampMs - this.lastPunch.peakMs) < PUNCH_ECHO_MS) continue;
+        this.lastPunch = { hand, peakMs: peakTimestampMs };
         events.push({
           ...this.eventBase(snapshot, confidence, tracking.state),
           id: this.nextId++,
@@ -252,19 +260,20 @@ export class ActionPipeline {
       }
     }
 
+    // Read after the punch detectors, so the frame of a punch onset is already frozen.
+    const punching = this.punchInFlight.active(snapshot.timestampMs);
     // Boxing's footwork signals need the calibrated neutral, and read the torso the vertical channel does.
     if (calibration && (calibration.readiness?.neutral01 ?? 1) >= 0.65 && footworkTracked) {
-      const dodge = this.dodge.update(current, calibration);
-      if (dodge !== undefined) controls = { ...controls, dodgeZone: dodge };
-      // Read after the punch detectors, so the frame of a punch onset is already frozen.
-      const punching = this.punchInFlight.active(snapshot.timestampMs);
+      this.dodge.update(current, calibration);
       const depth = this.ringDepth.update(current, calibration, punching);
       if (depth !== undefined) controls = { ...controls, ringDepthMove: depth, ringDepth01: this.ringDepth.approach01 };
       const dash = this.lateralDash.update(current, punching);
       if (dash !== undefined) controls = { ...controls, lateralDash: dash };
-      const duck = this.duckTracker.update(current, punching);
-      if (duck !== undefined) controls = { ...controls, duck };
     }
+
+    // Dodges are judged against the body itself; the position tracker above only gives calibration context.
+    const dodging = this.bodyDodge.update(current, punching);
+    if (dodging) controls = { ...controls, dodgeZone: dodging.zone, duck: dodging.duck };
 
     return { snapshot: current, events, controls, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked, pending }) => ({ hand, tracked, pending, arbitrating: this.heldSwing?.hand === hand })) } };
   }
@@ -329,5 +338,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.dodge.reset(); this.footworkGate.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.duckTracker.reset(); this.punchInFlight.reset(); this.punches.forEach(({ detector }) => { detector.reset(); }); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.dodge.reset(); this.footworkGate.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.bodyDodge.reset(); this.lastPunch = undefined; this.punchInFlight.reset(); this.punches.forEach(({ detector }) => { detector.reset(); }); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }

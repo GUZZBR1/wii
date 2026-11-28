@@ -1,29 +1,31 @@
-import type { Hand, PunchKind, PunchTargetZone } from '../../cv/protocol';
-
 /** No progress for this long and the step explains itself; longer still and it moves on. */
-export const HINT_AFTER_S = 10;
+export const HINT_AFTER_S = 9;
 export const GIVE_UP_AFTER_S = 22;
-/** A duck must be held this long to count, so a small bob does not pass as defense. */
-export const DUCK_HOLD_S = 0.35;
-/** While teaching, even a compact punch should confirm — the floor is generous on purpose. */
+/** The guard is shown, not depended on: no detector of it is reliable enough to hold anyone back. */
+const GUARD_GIVE_UP_S = 8;
+/** Time to read the instruction and leave the previous pose before anything is taken. */
+export const SETTLE_S = 1.2;
+const GUARD_S = 0.8;
+export const PUNCHES_NEEDED = 5;
+export const DODGE_HOLD_S = 0.4;
+/** The closing test: warned attacks, each answered by any dodge inside its window. */
+export const PROOF_ATTACKS = 3;
+export const PROOF_NEEDED = 2;
+export const PROOF_WARN_S = 1.6;
+export const PROOF_WINDOW_S = 1;
+const PROOF_CYCLE_S = PROOF_WARN_S + PROOF_WINDOW_S + 0.6;
+/** While teaching, even a compact punch should confirm; the fight goes back to the default. */
 export const LEARNING_PUNCH_TRAVEL = 0.15;
-/** Adapted travel never goes below noise or above the untuned default. */
-const MIN_ADAPTED_TRAVEL = 0.15;
-const MAX_ADAPTED_TRAVEL = 0.25;
-/** Players punch a bit shorter in a fight than when demonstrating, like the tennis warm-up. */
-const TRAVEL_FACTOR = 0.75;
 
-export type BoxingStepKind = 'guard' | 'jab' | 'cross' | 'hook' | 'uppercut' | 'body' | 'slip' | 'duck';
+export type BoxingStepKind = 'guard' | 'punch' | 'left' | 'right' | 'duck' | 'proof';
 
-const STEPS: readonly { kind: BoxingStepKind; needed: number; title: string; hint: string }[] = [
-  { kind: 'guard', needed: 1, title: 'Segure a guarda alta', hint: 'Punhos fechados na altura do rosto' },
-  { kind: 'jab', needed: 3, title: 'Dê 3 jabs', hint: 'Estique o braço da frente direto, rápido' },
-  { kind: 'cross', needed: 3, title: 'Agora 3 cruzados', hint: 'Estique o braço de trás girando o tronco' },
-  { kind: 'hook', needed: 2, title: 'Dê 2 ganchos', hint: 'Braço dobrado, gire o tronco de lado' },
-  { kind: 'uppercut', needed: 2, title: 'Dê 2 uppercuts', hint: 'Suba o punho por baixo, em direção ao queixo' },
-  { kind: 'body', needed: 2, title: 'Soco no corpo', hint: 'Agache um pouco e soque abaixo do peito' },
-  { kind: 'slip', needed: 2, title: 'Esquive para o lado', hint: 'Incline o tronco para esquerda ou direita' },
-  { kind: 'duck', needed: 2, title: 'Agache sob o gancho', hint: 'Flexione os joelhos e segure um instante' },
+const STEPS: readonly { kind: BoxingStepKind; title: string; hint: string }[] = [
+  { kind: 'guard', title: 'Defesa: punhos no rosto', hint: 'Levante os dois punhos até o queixo' },
+  { kind: 'punch', title: 'Soco: 5 para a frente', hint: 'Estique o braço na direção da tela, rápido' },
+  { kind: 'left', title: 'Esquiva: incline para a esquerda', hint: 'Incline o tronco, sem tirar os pés do lugar' },
+  { kind: 'right', title: 'Agora para a direita', hint: 'Incline o tronco, sem tirar os pés do lugar' },
+  { kind: 'duck', title: 'Agora abaixe', hint: 'Dobre os joelhos e leve a cabeça para baixo' },
+  { kind: 'proof', title: 'Prova: desvie dos socos', hint: 'Qualquer esquiva vale' },
 ];
 
 /** Continuous inputs sampled once per frame while the tutorial runs. */
@@ -35,152 +37,115 @@ export interface TutorialFrame {
   readonly ducked: boolean;
 }
 
-export interface TutorialPunch {
-  readonly hand: Hand;
-  readonly kind: Exclude<PunchKind, 'unknown'>;
-  readonly target: PunchTargetZone;
-  /** Peak forward reach in shoulder widths, when the pipeline measured it. */
-  readonly travelSw?: number;
-}
-
-/** What the tutorial learned about this body; memory only, never persisted. */
-export interface BoxerProfile {
-  readonly leadHand: Hand | undefined;
-  /** Median peak reach per punch kind, in shoulder widths. */
-  readonly reachByKind: Readonly<Partial<Record<'straight' | 'hook' | 'uppercut', number>>>;
-}
-
-const median = (values: readonly number[]): number | undefined => {
-  if (values.length === 0) return undefined;
-  const sorted = [...values].sort((a, b) => a - b);
-  return sorted[sorted.length >> 1];
-};
 
 /**
- * The boxing warm-up: no opponent, one instruction at a time, advancing as each movement is
- * recognised. It learns the player's stance (which hand jabs) and how far this body's punches
- * actually reach, so later calibration can trust the player instead of fixed thresholds. Pure.
+ * The boxing warm-up: defense, punch and dodge, one at a time, closing with a short test. It only
+ * teaches the player; the detectors follow whoever is in front of the camera on their own. Pure.
  */
 export class BoxingTutorial {
   private index = 0;
-  private count = 0;
-  private idleS = 0;
-  private guardS = 0;
-  private duckS = 0;
-  private duckCounted = false;
-  private slipArmed = true;
-  private lead: Hand | undefined;
-  private readonly reaches: Record<'straight' | 'hook' | 'uppercut', number[]> = { straight: [], hook: [], uppercut: [] };
+  private stepS = 0;
+  private heldS = 0;
+  private punches = 0;
+  private proofDodged = 0;
+  private proofJudged = 0;
+  private dodgedThisAttack = false;
+  private retried = false;
+  /** Steps completed by doing them, not by giving up. */
+  learned = 0;
 
   get done(): boolean { return this.index >= STEPS.length; }
   get step(): BoxingStepKind | undefined { return STEPS[this.index]?.kind; }
+  get stepCount(): number { return STEPS.length; }
+  get stepIndex(): number { return Math.min(this.index, STEPS.length - 1); }
 
-  /**
-   * Forward travel the detector should require for this player: three quarters of the median
-   * demonstrated reach, clamped so it never gets stricter than the untuned default. Undefined
-   * when nothing was measured — the default applies.
-   */
-  get punchTravel(): number | undefined {
-    const all = [...this.reaches.straight, ...this.reaches.hook, ...this.reaches.uppercut];
-    const center = median(all);
-    if (center === undefined) return undefined;
-    return Math.min(MAX_ADAPTED_TRAVEL, Math.max(MIN_ADAPTED_TRAVEL, center * TRAVEL_FACTOR));
+  /** Seconds until the test punch lands; undefined when none is on its way. */
+  get attackInS(): number | undefined {
+    if (this.step !== 'proof' || this.stepS < SETTLE_S) return undefined;
+    const left = PROOF_WARN_S - ((this.stepS - SETTLE_S) % PROOF_CYCLE_S);
+    return left > -PROOF_WINDOW_S ? Math.max(0, left) : undefined;
   }
 
-  get profile(): BoxerProfile {
-    return {
-      leadHand: this.lead,
-      reachByKind: {
-        straight: median(this.reaches.straight),
-        hook: median(this.reaches.hook),
-        uppercut: median(this.reaches.uppercut),
-      },
-    };
+  get progress01(): number {
+    const step = this.step;
+    if (step === undefined) return 1;
+    if (step === 'guard') return Math.min(1, this.heldS / GUARD_S);
+    if (step === 'punch') return this.punches / PUNCHES_NEEDED;
+    if (step === 'proof') return this.proofDodged / PROOF_NEEDED;
+    return Math.min(1, this.heldS / DODGE_HOLD_S);
   }
 
   get text(): { title: string; detail: string } {
     const step = STEPS[this.index];
     if (!step) return { title: 'Pronto!', detail: 'Agora é pra valer' };
-    const progress = step.kind === 'guard' ? `${Math.min(1, this.guardS).toFixed(0)} de 1 s` : `${this.count} de ${step.needed}`;
-    return {
-      title: step.title,
-      detail: `${progress}${this.idleS >= HINT_AFTER_S ? ` · ${step.hint}` : ' · levante as duas mãos para pular'}`,
-    };
+    let detail = 'Levante as duas mãos para pular';
+    if (step.kind === 'punch') detail = `${this.punches} de ${PUNCHES_NEEDED}`;
+    else if (step.kind === 'proof') detail = this.attackInS !== undefined ? 'ESQUIVE!' : `${this.proofDodged} de ${PROOF_NEEDED}`;
+    return { title: step.title, detail: this.stepS >= HINT_AFTER_S ? step.hint : detail };
   }
 
   /** Frame inputs only count while the camera can see the player. */
   tick(frame: TutorialFrame): void {
-    if (this.done) return;
-    if (!frame.seen) {
-      this.duckS = 0;
-      this.duckCounted = false;
+    if (this.done || !frame.seen) return;
+    const step = this.step;
+    this.stepS += frame.dtS;
+    if (this.stepS < SETTLE_S) return;
+    if (step === 'proof') {
+      this.tickProof(frame);
       return;
     }
-    this.idleS += frame.dtS;
-    const step = this.step;
-    if (step === 'guard' && frame.guard) {
-      this.guardS += frame.dtS;
-      if (this.guardS >= 1) this.advanceCount();
-    }
-    if (step === 'slip') {
-      if (frame.zone === 0) {
-        this.slipArmed = true;
-      } else if (this.slipArmed) {
-        this.slipArmed = false;
-        this.advanceCount();
+    const doing = (step === 'guard' && frame.guard) || (step === 'left' && frame.zone === -1)
+      || (step === 'right' && frame.zone === 1) || (step === 'duck' && frame.ducked);
+    if (doing) {
+      this.heldS += frame.dtS;
+      if (this.heldS >= (step === 'guard' ? GUARD_S : DODGE_HOLD_S)) {
+        this.advance(true);
+        return;
       }
     }
-    if (step === 'duck') {
-      if (!frame.ducked) {
-        this.duckS = 0;
-        this.duckCounted = false;
-      } else {
-        this.duckS += frame.dtS;
-        if (!this.duckCounted && this.duckS >= DUCK_HOLD_S) {
-          this.duckCounted = true;
-          this.advanceCount();
-        }
-      }
-    }
-    if (this.idleS >= GIVE_UP_AFTER_S) this.nextStep();
+    if (this.stepS >= (step === 'guard' ? GUARD_GIVE_UP_S : GIVE_UP_AFTER_S)) this.advance(false);
   }
 
-  /** A confirmed punch; returns true when it advanced the current step. */
-  punch(punch: TutorialPunch): boolean {
-    if (punch.travelSw !== undefined && Number.isFinite(punch.travelSw)) this.reaches[punch.kind].push(punch.travelSw);
-    const step = this.step;
-    if (step === 'jab' && punch.kind === 'straight' && punch.target !== 'body') {
-      if (this.lead === undefined) this.lead = punch.hand;
-      if (punch.hand !== this.lead) return false;
-      return this.advanceCount();
-    }
-    if (step === 'cross' && punch.kind === 'straight' && punch.target !== 'body') {
-      const rear: Hand = this.lead === 'left' ? 'right' : 'left';
-      if (punch.hand !== rear) return false;
-      return this.advanceCount();
-    }
-    if (step === 'hook' && punch.kind === 'hook') return this.advanceCount();
-    if (step === 'uppercut' && punch.kind === 'uppercut') return this.advanceCount();
-    if (step === 'body' && punch.target === 'body') return this.advanceCount();
-    return false;
+  /** A confirmed punch; returns true when it counted. */
+  punch(): boolean {
+    if (this.step !== 'punch') return false;
+    this.punches += 1;
+    if (this.punches >= PUNCHES_NEEDED) this.advance(true);
+    return true;
   }
 
   skip(): void { this.index = STEPS.length; }
 
-  private advanceCount(): boolean {
-    this.count += 1;
-    this.idleS = 0;
-    if (this.count >= STEPS[this.index]!.needed) this.nextStep();
-    return true;
+  private tickProof(frame: TutorialFrame): void {
+    const into = (this.stepS - SETTLE_S) % PROOF_CYCLE_S;
+    const inWindow = into >= PROOF_WARN_S - 0.4 && into <= PROOF_WARN_S + PROOF_WINDOW_S;
+    if (inWindow && (frame.zone !== 0 || frame.ducked)) this.dodgedThisAttack = true;
+    const judged = Math.floor((this.stepS - SETTLE_S + PROOF_CYCLE_S - PROOF_WARN_S - PROOF_WINDOW_S) / PROOF_CYCLE_S);
+    if (judged <= this.proofJudged) return;
+    this.proofJudged = judged;
+    if (this.dodgedThisAttack) this.proofDodged += 1;
+    this.dodgedThisAttack = false;
+    if (this.proofDodged >= PROOF_NEEDED) this.advance(true);
+    else if (this.proofJudged >= PROOF_ATTACKS) {
+      if (this.retried) this.advance(false);
+      else {
+        // The dodges did not carry over: practise them once more.
+        this.retried = true;
+        this.index = STEPS.findIndex(({ kind }) => kind === 'left');
+        this.resetStep();
+      }
+    }
   }
 
-  private nextStep(): void {
+  private advance(learned: boolean): void {
+    if (learned) this.learned += 1;
     this.index += 1;
-    this.count = 0;
-    this.idleS = 0;
-    this.guardS = 0;
-    this.duckS = 0;
-    this.duckCounted = false;
-    this.slipArmed = true;
+    this.resetStep();
+  }
+
+  private resetStep(): void {
+    this.stepS = this.heldS = 0;
+    this.proofDodged = this.proofJudged = this.punches = 0;
+    this.dodgedThisAttack = false;
   }
 }

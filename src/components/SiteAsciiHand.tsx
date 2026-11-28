@@ -13,6 +13,7 @@ import { cameraDistance, HAND_FOV, screenToPlane, stageProjection } from '../lib
 import { CREATOR_HAND_POSE, HandRigSmoother, mapObservationToRig, sampleIdleHand } from '../lib/handRig';
 import { pickMiiAt } from '../miis/miiPick';
 import { rotationBlocksHandInput } from '../ui/handCursorTypes';
+import { createHandInputStore, type HandInputStore } from '../ui/handInputStore';
 import { useHandHitTest } from '../ui/useHandHitTest';
 import { createAsciiPass } from './handAsciiPass';
 import { addHandLights, createHand, paintHands } from './handMesh';
@@ -35,7 +36,16 @@ export default function SiteAsciiHand({ onProduct, onBack }: Props) {
   const backProgress = onProduct ? 0 : input.backProgress;
   const [settled, setSettled] = useState(false);
   const [webglFailed, setWebglFailed] = useState(false);
-  useHandHitTest({ ...input, backProgress }, live && settled, onBack, pickMiiAt);
+  // The shared hit test reads a store; this pointer draws its own tip, so it takes no cursor element.
+  const storeRef = useRef<HandInputStore | null>(null);
+  storeRef.current ??= createHandInputStore();
+  const store = storeRef.current;
+  const noCursorRef = useRef<HTMLElement | null>(null);
+  useHandHitTest(store, live && settled, onBack, noCursorRef, pickMiiAt);
+  // Declared after the hook, so its subscription already exists when a sample is published.
+  useEffect(() => {
+    store.publish({ ...input, backProgress });
+  }, [store, input, backProgress]);
 
   const hostRef = useRef<HTMLDivElement>(null);
   const smootherRef = useRef<HandRigSmoother | null>(null);

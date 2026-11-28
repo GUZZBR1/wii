@@ -1,267 +1,166 @@
 // @vitest-environment happy-dom
-import { act, createElement, useState, type ChangeEvent } from 'react';
+import { act, createElement, useRef, useState, type ChangeEvent } from 'react';
 import { createRoot } from 'react-dom/client';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { HandCursor } from '../src/ui/HandCursor';
 import { HAND_IDLE, type HandCursorInput } from '../src/ui/handCursorTypes';
+import { createHandInputStore, type HandInputStore, useHandInput } from '../src/ui/handInputStore';
 import { useHandHitTest } from '../src/ui/useHandHitTest';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
-function Probe({
-  input,
-  onBack,
-  onEmptyClick,
-}: {
-  input: HandCursorInput;
-  onBack: () => void;
-  onEmptyClick?: (x: number, y: number, hit: Element | undefined) => void;
-}) {
-  useHandHitTest(input, true, onBack, onEmptyClick);
+const tracked: HandCursorInput = { ...HAND_IDLE, visible: true, synced: true, x: 20, y: 20 };
+
+function SyncProbe({ store, onRender }: { store: HandInputStore; onRender: () => void }) {
+  useHandInput(store, (hand) => hand.current.synced);
+  onRender();
   return null;
 }
 
-function renderProbe(input: HandCursorInput, onBack = vi.fn()) {
-  const container = document.createElement('div');
-  document.body.appendChild(container);
-  const root = createRoot(container);
-  act(() => {
-    root.render(createElement(Probe, { input, onBack }));
-  });
-  return { container, root, onBack };
-}
+describe('hand cursor DOM driver', () => {
+  let frames: FrameRequestCallback[];
+  let button: HTMLButtonElement;
+  let hitTest: ReturnType<typeof vi.fn>;
+  let unmount: () => void;
 
-describe('useHandHitTest', () => {
+  const frame = (now: number) =>
+    act(() => {
+      for (const callback of frames.splice(0)) callback(now);
+    });
+  const publish = (store: HandInputStore, next: Partial<HandCursorInput>) =>
+    act(() => store.publish({ ...tracked, ...next }));
+
+  function render(onBack = vi.fn()) {
+    const store = createHandInputStore();
+    const container = document.body.appendChild(document.createElement('div'));
+    const root = createRoot(container);
+    act(() => root.render(createElement(HandCursor, { store, active: true, onBack })));
+    unmount = () => act(() => root.unmount());
+    return { store, onBack, cursor: container.querySelector<HTMLElement>('.hand-cursor')! };
+  }
+
+  beforeEach(() => {
+    frames = [];
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => frames.push(callback));
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {
+      frames.length = 0;
+    });
+    button = document.body.appendChild(document.createElement('button'));
+    hitTest = vi.fn(() => button);
+    document.elementFromPoint = hitTest as unknown as typeof document.elementFromPoint;
+  });
+
   afterEach(() => {
+    unmount();
     vi.restoreAllMocks();
     document.body.innerHTML = '';
   });
 
-  it('blocks hover and click while rotation is active, then restores them on IDLE', () => {
-    const button = document.createElement('button');
-    document.body.appendChild(button);
+  it('glides between camera samples and snaps when the hand reappears', () => {
+    const { store, cursor } = render();
+    publish(store, { x: 100, y: 0 });
+    frame(1000);
+    expect(cursor.style.transform).toBe('translate3d(100px, 0px, 0)');
+
+    publish(store, { x: 200, y: 0 });
+    frame(1016);
+    const x = Number(/translate3d\(([\d.]+)px/.exec(cursor.style.transform)![1]);
+    expect(x).toBeGreaterThan(130);
+    expect(x).toBeLessThan(200);
+
+    publish(store, { visible: false, synced: false });
+    frame(1032);
+    expect(cursor.className).toContain('off');
+    publish(store, { x: 500, y: 40 });
+    frame(1048);
+    expect(cursor.style.transform).toBe('translate3d(500px, 40px, 0)');
+  });
+
+  it('keeps gliding through a CPU camera interval instead of arriving in one display frame', () => {
+    const { store, cursor } = render();
+    publish(store, { x: 100, y: 0 });
+    frame(1000);
+    publish(store, { x: 200, y: 0 });
+    frame(1016);
+    frame(1032);
+    const x = Number(/translate3d\(([\d.]+)px/.exec(cursor.style.transform)![1]);
+    expect(x).toBeGreaterThan(140);
+    expect(x).toBeLessThan(165);
+  });
+
+  it('hit-tests on movement or periodically, not on every display frame', () => {
+    const { store } = render();
+    publish(store, {});
+    frame(1000);
+    frame(1016);
+    publish(store, { x: 21 });
+    frame(1032);
+    expect(hitTest).toHaveBeenCalledTimes(1);
+    publish(store, { x: 60 });
+    frame(1048);
+    expect(hitTest).toHaveBeenCalledTimes(2);
+    publish(store, { x: 60 });
+    frame(2000);
+    frame(2200);
+    expect(hitTest).toHaveBeenCalledTimes(4);
+  });
+
+  it('clicks once per pinch pulse even when no display frame runs in between', () => {
     const click = vi.spyOn(button, 'click');
-    document.elementsFromPoint = vi.fn(() => [button] as unknown as Element[]);
-    const input: HandCursorInput = {
-      ...HAND_IDLE,
-      visible: true,
-      synced: true,
-      x: 20,
-      y: 20,
-      pinchRelease: true,
-      rotationPhase: 'ROTATING',
-    };
-    const { root } = renderProbe(input);
+    const { store } = render();
+    publish(store, { pinchRelease: true });
+    publish(store, { pinchRelease: true });
+    publish(store, {});
+    publish(store, { pinchRelease: true });
+    expect(click).toHaveBeenCalledTimes(2);
+  });
+
+  it('blocks hover and click while a rotation is committed, with no late click afterwards', () => {
+    const click = vi.spyOn(button, 'click');
+    const { store } = render();
+    publish(store, { pinchRelease: true, rotationPhase: 'ROTATING' });
+    frame(1000);
     expect(button.hasAttribute('data-hand-hover')).toBe(false);
-    expect(click).not.toHaveBeenCalled();
 
-    act(() => {
-      root.render(createElement(Probe, { input: { ...input, rotationPhase: 'IDLE' }, onBack: vi.fn() }));
-    });
+    publish(store, { pinchRelease: true });
+    frame(1016);
     expect(button.getAttribute('data-hand-hover')).toBe('true');
-    expect(click).not.toHaveBeenCalled(); // a pinça segurada durante a rotação não vira clique atrasado
-    act(() => {
-      root.render(
-        createElement(Probe, { input: { ...input, rotationPhase: 'IDLE', pinchRelease: false }, onBack: vi.fn() }),
-      );
-    });
-    act(() => {
-      root.render(createElement(Probe, { input: { ...input, rotationPhase: 'IDLE' }, onBack: vi.fn() }));
-    });
-    expect(click).toHaveBeenCalledTimes(1);
-    act(() => {
-      root.unmount();
-    });
-  });
-
-  it('blocks back completion during braking and snap phases', () => {
-    const onBack = vi.fn();
-    const input: HandCursorInput = {
-      ...HAND_IDLE,
-      visible: true,
-      synced: true,
-      backProgress: 1,
-      rotationPhase: 'BRAKING',
-    };
-    const { root } = renderProbe(input, onBack);
-    expect(onBack).not.toHaveBeenCalled();
-    act(() => {
-      root.render(createElement(Probe, { input: { ...input, rotationPhase: 'SNAP_TO_CARD' }, onBack }));
-    });
-    expect(onBack).not.toHaveBeenCalled();
-    act(() => {
-      root.unmount();
-    });
-  });
-
-  it('keeps the language menu marked across its padding without clicking outside buttons', () => {
-    const anchor = document.createElement('span');
-    anchor.className = 'lang-anchor';
-    const theme = document.createElement('button');
-    const menu = document.createElement('span');
-    menu.className = 'lang-menu';
-    const pt = document.createElement('button');
-    const en = document.createElement('button');
-    menu.append(pt, en);
-    anchor.append(theme, menu);
-    document.body.appendChild(anchor);
-    const themeClick = vi.spyOn(theme, 'click');
-    const ptClick = vi.spyOn(pt, 'click');
-    const enClick = vi.spyOn(en, 'click');
-    let hit: Element = theme;
-    document.elementsFromPoint = vi.fn(() => [hit] as unknown as Element[]);
-    const input: HandCursorInput = { ...HAND_IDLE, visible: true, synced: true, x: 20, y: 20 };
-    const { root } = renderProbe(input);
-
-    expect(anchor.getAttribute('data-hand-within')).toBe('true');
-    expect(theme.getAttribute('data-hand-hover')).toBe('true');
-
-    hit = menu;
-    act(() => {
-      root.render(createElement(Probe, { input: { ...input, x: 24 }, onBack: vi.fn() }));
-    });
-    expect(theme.hasAttribute('data-hand-hover')).toBe(false);
-    expect(anchor.getAttribute('data-hand-within')).toBe('true');
-
-    act(() => {
-      root.render(createElement(Probe, { input: { ...input, x: 25, pinchRelease: true }, onBack: vi.fn() }));
-    });
-    expect(themeClick).not.toHaveBeenCalled();
-    expect(ptClick).not.toHaveBeenCalled();
-    expect(enClick).not.toHaveBeenCalled();
-
-    hit = en;
-    act(() => {
-      root.render(createElement(Probe, { input: { ...input, x: 31 }, onBack: vi.fn() }));
-    });
-    expect(en.getAttribute('data-hand-hover')).toBe('true');
-    expect(anchor.getAttribute('data-hand-within')).toBe('true');
-    act(() => {
-      root.render(createElement(Probe, { input: { ...input, x: 31, pinchRelease: true }, onBack: vi.fn() }));
-    });
-    expect(enClick).toHaveBeenCalledTimes(1);
-    expect(themeClick).not.toHaveBeenCalled();
-    expect(ptClick).not.toHaveBeenCalled();
-    act(() => {
-      root.unmount();
-    });
-    expect(anchor.hasAttribute('data-hand-within')).toBe(false);
-  });
-
-  it('keeps an article explainer marked while the hand crosses into its card', () => {
-    const explainer = document.createElement('span');
-    explainer.className = 'article-explainer';
-    const term = document.createElement('button');
-    term.className = 'article-term';
-    const card = document.createElement('span');
-    card.className = 'article-explainer-card';
-    const link = document.createElement('a');
-    card.appendChild(link);
-    explainer.append(term, card);
-    document.body.appendChild(explainer);
-    let hit: Element = term;
-    document.elementsFromPoint = vi.fn(() => [hit] as unknown as Element[]);
-    const input: HandCursorInput = { ...HAND_IDLE, visible: true, synced: true, x: 20, y: 20 };
-    const { root } = renderProbe(input);
-
-    expect(explainer.getAttribute('data-hand-within')).toBe('true');
-    expect(term.getAttribute('data-hand-hover')).toBe('true');
-
-    hit = card;
-    act(() => {
-      root.render(createElement(Probe, { input: { ...input, x: 22 }, onBack: vi.fn() }));
-    });
-    expect(term.hasAttribute('data-hand-hover')).toBe(false);
-    expect(explainer.getAttribute('data-hand-within')).toBe('true');
-
-    hit = link;
-    act(() => {
-      root.render(createElement(Probe, { input: { ...input, x: 23 }, onBack: vi.fn() }));
-    });
-    expect(link.getAttribute('data-hand-hover')).toBe('true');
-    expect(explainer.getAttribute('data-hand-within')).toBe('true');
-
-    act(() => {
-      root.render(createElement(Probe, { input: { ...input, visible: false }, onBack: vi.fn() }));
-    });
-    expect(link.hasAttribute('data-hand-hover')).toBe(false);
-    expect(explainer.hasAttribute('data-hand-within')).toBe(false);
-    act(() => {
-      root.unmount();
-    });
-  });
-
-  it('forwards pinches without a clickable target to the empty-click handler', () => {
-    const plain = document.createElement('div');
-    const button = document.createElement('button');
-    document.body.append(plain, button);
-    const click = vi.spyOn(button, 'click');
-    let hit: Element = plain;
-    document.elementsFromPoint = vi.fn(() => [hit] as unknown as Element[]);
-    const onEmptyClick = vi.fn();
-    const input: HandCursorInput = { ...HAND_IDLE, visible: true, synced: true, x: 20, y: 30, pinchRelease: true };
-    const container = document.createElement('div');
-    document.body.appendChild(container);
-    const root = createRoot(container);
-    const probe = (next: HandCursorInput) => createElement(Probe, { input: next, onBack: vi.fn(), onEmptyClick });
-    act(() => {
-      root.render(probe(input));
-    });
-
-    expect(onEmptyClick).toHaveBeenCalledTimes(1);
-    expect(onEmptyClick).toHaveBeenCalledWith(20, 30, plain);
     expect(click).not.toHaveBeenCalled();
-
-    // Um controle DOM no topo continua à frente: a pinça vira clique e não é repassada.
-    hit = button;
-    act(() => {
-      root.render(probe({ ...input, pinchRelease: false }));
-    });
-    act(() => {
-      root.render(probe(input));
-    });
-    expect(click).toHaveBeenCalledTimes(1);
-    expect(onEmptyClick).toHaveBeenCalledTimes(1);
-
-    // Com o gesto desativado (mão invisível), nada é repassado.
-    hit = plain;
-    act(() => {
-      root.render(probe({ ...input, pinchRelease: false }));
-    });
-    act(() => {
-      root.render(probe({ ...input, visible: false }));
-    });
-    expect(onEmptyClick).toHaveBeenCalledTimes(1);
-    act(() => {
-      root.unmount();
-    });
   });
 
-  it('toggles details when the pinch target is a summary', () => {
-    const details = document.createElement('details');
-    const summary = document.createElement('summary');
-    details.append(summary, document.createElement('p'));
-    document.body.appendChild(details);
-    document.elementsFromPoint = vi.fn(() => [summary] as unknown as Element[]);
-    const input: HandCursorInput = { ...HAND_IDLE, visible: true, synced: true, x: 20, y: 20, pinchRelease: true };
-    const { root } = renderProbe(input);
+  it('keeps hover during a mere rotation candidate', () => {
+    const { store } = render();
+    publish(store, { rotationPhase: 'ROTATION_CANDIDATE' });
+    frame(1000);
+    expect(button.getAttribute('data-hand-hover')).toBe('true');
+  });
 
-    expect(details.open).toBe(true);
-    act(() => {
-      root.render(createElement(Probe, { input: { ...input, pinchRelease: false }, onBack: vi.fn() }));
-    });
-    act(() => {
-      root.render(createElement(Probe, { input, onBack: vi.fn() }));
-    });
-    expect(details.open).toBe(false);
-    act(() => {
-      root.unmount();
-    });
+  it('goes back once per completed gesture and never during braking or snap', () => {
+    const { store, onBack } = render();
+    publish(store, { backProgress: 1, rotationPhase: 'BRAKING' });
+    publish(store, { backProgress: 1, rotationPhase: 'SNAP_TO_CARD' });
+    expect(onBack).not.toHaveBeenCalled();
+    publish(store, {});
+    publish(store, { backProgress: 1 });
+    publish(store, { backProgress: 1 });
+    expect(onBack).toHaveBeenCalledOnce();
+  });
+
+  it('re-renders a subscriber only when its selected value changes, not per sample', () => {
+    const store = createHandInputStore();
+    const onRender = vi.fn();
+    const root = createRoot(document.body.appendChild(document.createElement('div')));
+    act(() => root.render(createElement(SyncProbe, { store, onRender })));
+    publish(store, {});
+    const renders = onRender.mock.calls.length;
+    for (let x = 0; x < 30; x++) publish(store, { x });
+    expect(onRender).toHaveBeenCalledTimes(renders);
   });
 });
 
-function ControlledSliderProbe({ input }: { input: HandCursorInput }) {
+function ControlledSliderProbe({ store }: { store: HandInputStore }) {
   const [value, setValue] = useState(52);
-  useHandHitTest(input, true, () => undefined);
+  useHandHitTest(store, true, () => undefined, useRef(null));
   return createElement(
     'div',
     null,
@@ -287,6 +186,7 @@ describe('useHandHitTest range sliders', () => {
     const container = document.createElement('div');
     document.body.appendChild(container);
     const root = createRoot(container);
+    const store = createHandInputStore();
     const idleInput: HandCursorInput = {
       ...HAND_IDLE,
       visible: true,
@@ -295,8 +195,9 @@ describe('useHandHitTest range sliders', () => {
       y: 20,
       rotationPhase: 'IDLE',
     };
+    store.publish(idleInput);
     act(() => {
-      root.render(createElement(ControlledSliderProbe, { input: idleInput }));
+      root.render(createElement(ControlledSliderProbe, { store }));
     });
     const slider = container.querySelector('input');
     expect(slider).not.toBeNull();
@@ -304,10 +205,10 @@ describe('useHandHitTest range sliders', () => {
     Object.defineProperty(slider, 'getBoundingClientRect', {
       value: () => ({ left: 100, right: 300, width: 200, top: 0, bottom: 20, height: 20, x: 100, y: 0 }) as DOMRect,
     });
-    document.elementsFromPoint = vi.fn(() => [slider] as unknown as Element[]);
+    document.elementFromPoint = vi.fn(() => slider as Element);
 
     act(() => {
-      root.render(createElement(ControlledSliderProbe, { input: { ...idleInput, pinchRelease: true } }));
+      store.publish({ ...idleInput, pinchRelease: true });
     });
 
     expect(slider.value).toBe('47');
@@ -315,5 +216,98 @@ describe('useHandHitTest range sliders', () => {
     act(() => {
       root.unmount();
     });
+  });
+});
+
+function SiteProbe({ store, onEmptyClick }: { store: HandInputStore; onEmptyClick: () => void }) {
+  const cursor = useRef<HTMLElement | null>(null);
+  useHandHitTest(store, true, () => undefined, cursor, onEmptyClick);
+  return null;
+}
+
+describe('hit test for the site hand', () => {
+  let hit: Element;
+  let store: HandInputStore;
+  let frames: FrameRequestCallback[];
+  let unmount: () => void;
+
+  function mount(onEmptyClick = vi.fn()) {
+    const root = createRoot(document.body.appendChild(document.createElement('div')));
+    act(() => root.render(createElement(SiteProbe, { store, onEmptyClick })));
+    unmount = () => act(() => root.unmount());
+    return onEmptyClick;
+  }
+  /** One camera sample followed by one display frame, late enough to hit-test again. */
+  let now = 0;
+  const sample = (next: Partial<HandCursorInput> = {}) => act(() => {
+    store.publish({ ...tracked, ...next });
+    now += 200;
+    for (const callback of frames.splice(0)) callback(now);
+  });
+
+  beforeEach(() => {
+    frames = [];
+    store = createHandInputStore();
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => frames.push(callback));
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => { frames.length = 0; });
+    document.elementFromPoint = (() => hit) as typeof document.elementFromPoint;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  it.each(['lang-anchor', 'article-explainer'])('keeps a %s marked across its padding, without clicking', (name) => {
+    const panel = document.body.appendChild(document.createElement('span'));
+    panel.className = name;
+    const button = panel.appendChild(document.createElement('button'));
+    const padding = panel.appendChild(document.createElement('span'));
+    const click = vi.spyOn(button, 'click');
+    hit = button;
+    mount();
+    sample();
+    expect(panel.getAttribute('data-hand-within')).toBe('true');
+    expect(button.getAttribute('data-hand-hover')).toBe('true');
+    hit = padding;
+    sample({ x: 40 });
+    expect(button.hasAttribute('data-hand-hover')).toBe(false);
+    expect(panel.getAttribute('data-hand-within')).toBe('true');
+    sample({ x: 41, pinchRelease: true });
+    expect(click).not.toHaveBeenCalled();
+    unmount();
+    expect(panel.hasAttribute('data-hand-within')).toBe(false);
+  });
+
+  it('forwards only pinches with nothing clickable under them', () => {
+    const plain = document.body.appendChild(document.createElement('div'));
+    const button = document.body.appendChild(document.createElement('button'));
+    const click = vi.spyOn(button, 'click');
+    hit = plain;
+    const onEmptyClick = mount();
+    sample({ y: 30, pinchRelease: true });
+    expect(onEmptyClick).toHaveBeenCalledExactlyOnceWith(20, 30, plain);
+    hit = button;
+    sample();
+    sample({ pinchRelease: true });
+    expect(click).toHaveBeenCalledTimes(1);
+    hit = plain;
+    sample();
+    sample({ visible: false, pinchRelease: true });
+    expect(onEmptyClick).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it('toggles details when the pinch target is a summary', () => {
+    const details = document.body.appendChild(document.createElement('details'));
+    const summary = details.appendChild(document.createElement('summary'));
+    hit = summary;
+    mount();
+    sample({ pinchRelease: true });
+    expect(details.open).toBe(true);
+    sample();
+    sample({ pinchRelease: true });
+    expect(details.open).toBe(false);
+    unmount();
   });
 });

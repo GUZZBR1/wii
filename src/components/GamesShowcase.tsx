@@ -1,8 +1,15 @@
 import { useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { useLang } from '../i18n';
+import { useLang, type Bilingual } from '../i18n';
+import GameplayVideo from './GameplayVideo';
 
-const GAMES = [
+type ShowcaseGame = {
+  id: 'athletics' | 'tennis' | 'boxing';
+  name: Bilingual;
+  description: Bilingual;
+};
+
+const GAMES: ShowcaseGame[] = [
   {
     id: 'athletics',
     name: { pt: 'Atletismo', en: 'Athletics' },
@@ -23,8 +30,8 @@ const GAMES = [
     id: 'boxing',
     name: { pt: 'Boxe', en: 'Boxing' },
     description: {
-      pt: 'As luzes se acendem, a torcida se ajeita e o adversário já ergueu a guarda. Soque para a frente quando surgir a brecha e incline o corpo para esquivar do que vier. Antes da luta, aprenda no tutorial, treine no saco de pancada ou pratique a esquiva.',
-      en: 'The lights come up, the crowd settles in and your opponent already has their guard up. Punch forward when an opening appears and lean away from whatever comes back. Before the fight, learn in the tutorial, train on the punching bag or practise your evasion.',
+      pt: 'As luzes se acendem, a torcida se ajeita e o adversário já ergueu a guarda. Soque para a frente quando surgir a brecha e incline o corpo para esquivar do que vier. Antes da primeira luta, um aquecimento rápido ensina a defender, socar e esquivar.',
+      en: 'The lights come up, the crowd settles in and your opponent already has their guard up. Punch forward when an opening appears and lean away from whatever comes back. Before your first fight, a quick warm-up teaches you to guard, punch and dodge.',
     },
   },
 ];
@@ -55,13 +62,7 @@ export default function GamesShowcase() {
       <ul ref={listRef}>
         {GAMES.map((game) => (
           <li key={game.id}>
-            <img
-              src={`/images/games/${game.id}.jpg`}
-              alt={tr(`Cena do jogo: ${game.name.pt}`, `Game scene: ${game.name.en}`)}
-              width={1280}
-              height={800}
-              loading="lazy"
-            />
+            <GameplayVideo sport={game.id} name={game.name} />
             <div>
               <h3>{tr(game.name.pt, game.name.en)}</h3>
               <p>{tr(game.description.pt, game.description.en)}</p>
