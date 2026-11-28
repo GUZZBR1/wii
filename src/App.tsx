@@ -33,6 +33,7 @@ import { EXIT_DODGE_SW } from './kinematics/postureSignals';
 import { HomeMenu } from './ui/WiiMenu';
 import { MiiCreator } from './ui/MiiCreator';
 import { WiiSplash } from './ui/WiiSplash';
+import { hipsHidden } from './kinematics/bodyDodge';
 import './arena.css';
 
 type Screen = 'home' | 'lobby' | 'ironman' | 'play' | 'summary' | 'mii';
@@ -270,7 +271,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
       poseFramesRef.current += 1;
       poseDelayRef.current = performance.now() - raw.timestampMs;
       noteArrival(raw, performance.now());
-      rememberFrame(recentFramesRef.current, raw);
+      // The rolling buffer only feeds the diagnostic clip save; keeping it otherwise is GC pressure.
+      if (diagnosticsEnabled()) rememberFrame(recentFramesRef.current, raw);
       if (keepPhotos) photoTrailRef.current.add(raw.timestampMs, videoRef.current);
       if (recorderRef.current) {
         const current = recorderRef.current.push(raw);
@@ -312,6 +314,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setDodgeZone?.(result.controls.dodgeZone, raw.timestampMs);
       engineRef.current?.setGuard?.(result.controls.guard, raw.timestampMs);
       engineRef.current?.setDuck?.(result.controls.duck, raw.timestampMs);
+      engineRef.current?.setHipsHidden?.(hipsHidden(raw), raw.timestampMs);
       engineRef.current?.setDepthMove?.(result.controls.ringDepthMove, raw.timestampMs);
       engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01, raw.timestampMs);
       engineRef.current?.setLateralDash?.(result.controls.lateralDash);
@@ -489,7 +492,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
-        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 60 } },
+        // Pose inference runs below 20 poses a second, so frames past 30 are only decoded to be dropped.
+        video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 30 } },
       });
       if (stale()) { stream.getTracks().forEach((track) => { track.stop(); }); return; }
       streamRef.current = stream;

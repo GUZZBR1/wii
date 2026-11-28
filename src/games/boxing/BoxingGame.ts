@@ -91,6 +91,8 @@ const CAMERA_Y = RING_CANVAS_Y + 2.9;
 const CAMERA_BACK_M = 1.85;
 /** The view follows only part of a dodge, so the boxer visibly moves within the frame. */
 const CAMERA_DODGE_FOLLOW = 0.35;
+/** Hips out of view this long asks the player to step back. */
+const HIPS_HINT_AFTER_MS = 1500;
 const PLAYER_OPACITY = 0.6;
 /** The player's punch must be extended when its impact shows, `PUNCH_OUT_S` in; the camera already lags. */
 export const PLAYER_PUNCH_SPEED = 2.2;
@@ -320,6 +322,8 @@ export class BoxingGame {
   private readonly impactRing = createImpactRing();
   private keyPunchAtMs: Record<Hand, number> = { left: Number.NEGATIVE_INFINITY, right: Number.NEGATIVE_INFINITY };
   private status = 'Soque quando a guarda abrir';
+  private hipsHiddenSinceMs: number | undefined;
+  private hipsHiddenForMs = 0;
   private feedback: HudFeedback | undefined;
 
   constructor(
@@ -379,6 +383,8 @@ export class BoxingGame {
     this.loop.onBeforeRender = (wallTimeMs) => this.faceVisibility.update(this.camera, wallTimeMs);
     if (this.loop.renderer) {
       this.ring = buildBoxingRing(this.scene, this.loop.renderer);
+      // Without this the governor never engages and the ring stays at full quality on slow frames.
+      this.loop.onQualityChange = (tier) => this.ring?.setQuality(tier);
     } else {
       this.scene.add(new THREE.HemisphereLight(0xf0f4ff, 0x2a2018, 2));
     }
@@ -453,6 +459,11 @@ export class BoxingGame {
     this.cameraDuckAtMs = typeof _atMs === 'number' ? _atMs : performance.now();
     this.cameraDuckValid = ducked !== undefined && _atMs !== null;
     this.cameraDuck = ducked === true;
+  }
+
+  setHipsHidden(hidden: boolean, atMs: number): void {
+    this.hipsHiddenSinceMs = hidden ? (this.hipsHiddenSinceMs ?? atMs) : undefined;
+    this.hipsHiddenForMs = hidden ? atMs - this.hipsHiddenSinceMs! : 0;
   }
 
   /** Feeds the tutorial skip gesture; outside the tutorial the boxing game has no use for it. */
@@ -1370,6 +1381,8 @@ export class BoxingGame {
     const banner = this.gate.phase === 'countdown' ? { title: String(this.gate.count), detail: countdownDetail }
       : this.gate.phase === 'paused' ? { title: 'PAUSA', detail: 'Volte para a câmera ou aperte W A S D' }
       : finished ? { title: this.status }
+      : this.hipsHiddenForMs >= HIPS_HINT_AFTER_MS && !(this.mode === 'fight' && this.ai.phase.kind === 'windup')
+        ? { title: 'Afaste-se um pouco', detail: 'Mostre os quadris para esquivar de lado' }
       : this.mode === 'fight' && this.breakMsLeft > 0 ? { title: `ROUND ${this.match.round}`, detail: 'Intervalo' }
       : this.mode === 'fight' && !this.pendingBell && this.ai.phase.kind === 'windup'
         ? { title: 'ESQUIVE!' }

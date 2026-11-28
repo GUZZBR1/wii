@@ -794,3 +794,13 @@ it('resolves a mid-round knockout after an earlier opponent impact in physical o
   fight.run(0.5);
   expect(fight.read().banner?.title).toBe('Adversário venceu');
 });
+
+it('asks the player to step back when the hips stay out of view, and stops once they return', () => {
+  const { game, run, read } = start();
+  run(0.1);
+  game.setHipsHidden(true, 1000);
+  game.setHipsHidden(true, 3000);
+  expect(read().banner?.title).toBe('Afaste-se um pouco');
+  game.setHipsHidden(false, 3100);
+  expect(read().banner?.title).not.toBe('Afaste-se um pouco');
+});
