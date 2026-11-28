@@ -1,4 +1,4 @@
-import type { Hand, PoseSnapshot } from '../cv/protocol';
+import type { Hand, PoseSnapshot } from '@wii/spatial-core';
 import { clamp, landmarkConfidence } from './math';
 
 export interface SwingSignal {

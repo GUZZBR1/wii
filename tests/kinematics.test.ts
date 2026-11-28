@@ -164,14 +164,16 @@ describe('action pipeline tracking gate', () => {
     driveBounce(pipeline, profile, 66, 1046);
     pipeline.update(poseWithHipBounce(1079, 0), profile);
     const after = [1112, 1145, 1178, 1211, 1244, 2000].flatMap((time) => {
-      if (cause === 'reset') return pipeline.reset();
+      if (cause === 'reset') return pipeline.reset(time);
       return pipeline.update(pose(time, { hiddenLandmarks: [11, 12] }), profile).events;
     });
     const stops = after.filter((event) => event.type === 'sprint' && event.speed01 === 0);
     expect(stops).toHaveLength(1);
     // The stop rides whatever tracking state the frame carries when the coast runs out —
     // degraded early in the blackout, lost once the blackout is sustained.
-    if (cause === 'reset') expect(stops[0]).toMatchObject({ speed01: 0, cadenceSpm: 0, trackingState: state });
+    if (cause === 'reset') {
+      expect(stops[0]).toMatchObject({ timestampMs: 1112, speed01: 0, cadenceSpm: 0, trackingState: state });
+    }
     else expect(stops[0]?.trackingState).not.toBe('tracked');
   });
 

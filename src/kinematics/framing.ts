@@ -1,4 +1,4 @@
-import type { Hand, PoseSnapshot } from '../cv/protocol';
+import type { Hand, PoseSnapshot } from '@wii/spatial-core';
 import { landmarkConfidence, visibleImagePoint } from './math';
 
 /** The warning waits this long: a head that dips out during a hop or a stride is not worth a word. */

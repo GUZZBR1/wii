@@ -1,5 +1,6 @@
 import type { Delegate } from '../types';
 import type { HandSnapshot, HandWorkerReply, HandWorkerRequest } from './handProtocol';
+import { VideoFramePump } from './videoFramePump';
 
 export interface HandClientCallbacks {
   onStatus(status: 'loading' | 'ready' | 'fallback' | 'error', detail: string): void;
@@ -17,6 +18,8 @@ interface PendingFrame {
 
 /** Owns the hand-model worker and accepts transferred frames from a host capture loop. */
 export class HandClient {
+  private readonly capturePump = new VideoFramePump();
+  private captureSession = 0;
   private worker?: Worker;
   private ready = false;
   private activeDelegate?: Delegate;
@@ -37,6 +40,42 @@ export class HandClient {
 
   get delegate(): Delegate | undefined {
     return this.activeDelegate;
+  }
+
+  beginCapture(
+    video: HTMLVideoElement,
+    onHand: (snapshot: HandSnapshot, aspectY: number) => void,
+    onError?: (error: Error) => void,
+  ): void {
+    this.pauseCapture();
+    const session = this.captureSession;
+    this.capturePump.start(video, {
+      onFrame: async (timestampMs) => {
+        if (this.captureSession !== session || !this.ready || video.videoWidth <= 0 || video.videoHeight <= 0) return;
+        const aspectY = video.videoHeight / video.videoWidth;
+        let bitmap: ImageBitmap | undefined;
+        try {
+          bitmap = await createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'low' });
+          if (this.captureSession !== session || !this.ready) return;
+          const frame = bitmap;
+          bitmap = undefined;
+          const snapshot = await this.processFrame(frame, timestampMs);
+          if (this.captureSession === session && snapshot) onHand(snapshot, aspectY);
+        } finally {
+          bitmap?.close();
+        }
+      },
+      onError: (error) => {
+        if (this.captureSession !== session) return;
+        if (onError) onError(error);
+        else this.callbacks?.onStatus('error', error.message);
+      },
+    });
+  }
+
+  pauseCapture(): void {
+    this.captureSession += 1;
+    this.capturePump.stop();
   }
 
   init(callbacks: HandClientCallbacks, preferred: Delegate = 'GPU'): Promise<void> {
@@ -79,10 +118,15 @@ export class HandClient {
           this.failInitialization(worker, new Error(message.message));
           return;
         }
-        if (this.inFlight?.requestId !== message.requestId) return;
+        if (!message.fatal && this.inFlight?.requestId !== message.requestId) return;
+        if (message.fatal) {
+          const callbacks = this.callbacks;
+          this.dispose();
+          callbacks?.onStatus('error', message.message);
+          return;
+        }
         this.releaseFrame(message.requestId);
-        this.callbacks?.onStatus(message.fatal ? 'error' : 'fallback', message.message);
-        if (message.fatal) this.dispose();
+        this.callbacks?.onStatus('fallback', message.message);
       } else if (message.type === 'HAND') {
         if (this.inFlight?.requestId !== message.requestId) return;
         this.releaseFrame(message.requestId, { timestampMs: message.timestampMs, hands: message.hands });
@@ -142,6 +186,7 @@ export class HandClient {
   }
 
   dispose(): void {
+    this.pauseCapture();
     const worker = this.worker;
     this.worker = undefined;
     this.ready = false;

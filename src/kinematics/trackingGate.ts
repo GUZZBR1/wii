@@ -1,4 +1,4 @@
-import type { PoseSnapshot, TrackingState } from '../cv/protocol';
+import type { PoseSnapshot, TrackingState } from '@wii/spatial-core';
 import { landmarkConfidence } from './math';
 
 const CORE_BODY_LANDMARKS = [11, 12, 23, 24] as const;

@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { CalibrationProfile, PoseSnapshot, SportActionEvent } from './cv/protocol';
 import { HandClient } from './cv/handClient';
 import { AdaptiveCalibrator } from './cv/adaptiveCalibrator';
-import { observeEarlyRejection } from './cv/observeEarlyRejection';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { diagnosticsEnabled } from './cv/diagnostics/flags';
 import { PhotoTrail } from './cv/diagnostics/photoTrail';
@@ -86,7 +85,9 @@ export default function App({ exit }: { exit?: ReactNode }) {
   sportRef.current = sport;
   const screenRef = useRef(screen);
   screenRef.current = screen;
-  const visionModeRef = useRef<VisionMode>('pose');
+  const activeVisionModeRef = useRef<VisionMode>('pose');
+  const visionActivationRef = useRef(0);
+  const captureStartedRef = useRef<{ cameraAttempt: number; visionActivation: number } | undefined>(undefined);
   const profileRef = useRef<CalibrationProfile | undefined>(undefined);
   const audioRef = useRef(new ProceduralAudio());
   const cameraAttemptRef = useRef(0);
@@ -119,6 +120,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     }).catch(() => undefined);
     return () => {
       cameraAttemptRef.current += 1;
+      captureStartedRef.current = undefined;
       poseClientRef.current?.dispose();
       handClientRef.current?.dispose();
       streamRef.current?.getTracks().forEach((track) => { track.stop(); });
@@ -144,6 +146,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
   const stopCamera = useCallback(() => {
     cameraAttemptRef.current += 1;
+    captureStartedRef.current = undefined;
     recorderRef.current = undefined;
     setRecordingPrompt(undefined);
     setHeadCut(false);
@@ -162,7 +165,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     setCameraStatus('Câmera desligada');
     publishHandInput(HAND_IDLE);
     handDetectorRef.current.reset();
-    for (const event of pipelineRef.current.reset()) dispatchEvent(event);
+    for (const event of pipelineRef.current.reset(performance.now())) dispatchEvent(event);
     engineRef.current?.resetLaneZone?.();
     engineRef.current?.setGuard?.(undefined);
     engineRef.current?.setDepthMove?.(undefined);
@@ -200,7 +203,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       }
       if (event.key.toLowerCase() !== 'g' || event.repeat) return;
       if (recorderRef.current) { finishRecording(); return; }
-      for (const stop of pipelineRef.current.reset()) dispatchEvent(stop);
+      for (const stop of pipelineRef.current.reset(performance.now())) dispatchEvent(stop);
       resetCalibration();
       recorderRef.current = new PoseRecorder([], sport === 'tennis' ? TENNIS_RECORDING_SCRIPT : undefined);
       setRecordingPrompt('Gravando…');
@@ -212,6 +215,34 @@ export default function App({ exit }: { exit?: ReactNode }) {
       setRecordingPrompt(undefined);
     };
   }, [screen, sport, cameraOn, dispatchEvent, resetCalibration, finishRecording]);
+
+  const activateVisionMode = useCallback((next: VisionMode): VisionMode | undefined => {
+    const previous = activeVisionModeRef.current;
+    if (previous === next) return undefined;
+    activeVisionModeRef.current = next;
+    visionActivationRef.current += 1;
+    captureStartedRef.current = undefined;
+    return previous;
+  }, []);
+
+  const isCurrentVisionActivation = useCallback((attempt: number, activation: number, mode: VisionMode) =>
+    cameraAttemptRef.current === attempt &&
+    visionActivationRef.current === activation &&
+    activeVisionModeRef.current === mode &&
+    modeForScreen(screenRef.current) === mode,
+  []);
+
+  const failVisionActivation = useCallback((
+    attempt: number,
+    activation: number,
+    mode: VisionMode,
+    error: unknown,
+    fallback: string,
+  ) => {
+    if (!isCurrentVisionActivation(attempt, activation, mode)) return;
+    stopCamera();
+    setCameraStatus(error instanceof Error ? error.message : fallback);
+  }, [isCurrentVisionActivation, stopCamera]);
 
   const poseCallbacksRef = useRef<PoseClientCallbacks | undefined>(undefined);
   poseCallbacksRef.current = {
@@ -268,8 +299,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
     },
   };
 
-  const startHandCapture = useCallback(async (video: HTMLVideoElement, attempt: number) => {
-    const stale = () => cameraAttemptRef.current !== attempt;
+  const startHandCapture = useCallback(async (video: HTMLVideoElement, attempt: number, activation: number) => {
+    const stale = () => !isCurrentVisionActivation(attempt, activation, 'hand');
     handClientRef.current ??= new HandClient();
     const handClient = handClientRef.current;
     await handClient.init({
@@ -282,7 +313,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
         }
       },
     });
-    if (stale() || !handClient.isReady || !streamRef.current || visionModeRef.current !== 'hand') return;
+    if (stale() || !handClient.isReady || !streamRef.current || activeVisionModeRef.current !== 'hand') return;
     handClient.beginCapture(video, (snapshot, aspectY) => {
       if (stale()) return;
       const primary = snapshot.hands[0];
@@ -319,10 +350,10 @@ export default function App({ exit }: { exit?: ReactNode }) {
     }, (error) => {
       if (!stale()) setCameraStatus(error.message);
     });
-  }, [publishHandInput, stopCamera]);
+  }, [isCurrentVisionActivation, publishHandInput, stopCamera]);
 
-  const startPoseCapture = useCallback(async (video: HTMLVideoElement, attempt: number) => {
-    const stale = () => cameraAttemptRef.current !== attempt;
+  const startPoseCapture = useCallback(async (video: HTMLVideoElement, attempt: number, activation: number) => {
+    const stale = () => !isCurrentVisionActivation(attempt, activation, 'pose');
     poseClientRef.current ??= new PoseClient();
     const poseClient = poseClientRef.current;
     await poseClient.init({
@@ -335,7 +366,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
         poseCallbacksRef.current?.onPose(raw);
       },
     });
-    if (stale() || !poseClient.isReady || !streamRef.current || visionModeRef.current !== 'pose') return;
+    if (stale() || !poseClient.isReady || !streamRef.current || activeVisionModeRef.current !== 'pose') return;
     poseClient.beginCapture(video, {
       onStatus: (status, detail) => {
         if (stale()) return;
@@ -346,36 +377,44 @@ export default function App({ exit }: { exit?: ReactNode }) {
         poseCallbacksRef.current?.onPose(raw);
       },
     });
-  }, []);
+  }, [isCurrentVisionActivation]);
 
   // Menus use hand tracking; adaptive body calibration runs continuously during play.
   useEffect(() => {
     const next = modeForScreen(screen);
-    if (visionModeRef.current === next) return;
-    visionModeRef.current = next;
-    handDetectorRef.current.reset();
-    publishHandInput(HAND_IDLE);
+    const previous = activateVisionMode(next);
+    if (previous !== undefined) {
+      handDetectorRef.current.reset();
+      publishHandInput(HAND_IDLE);
+      if (next === 'hand') {
+        poseClientRef.current?.pauseCapture();
+        drawPose(overlayRef.current, videoRef.current);
+      } else {
+        handClientRef.current?.pauseCapture();
+      }
+    }
+
     const video = videoRef.current;
     if (!cameraOn || !video || !streamRef.current) return;
 
     const attempt = cameraAttemptRef.current;
+    const activation = visionActivationRef.current;
+    if (
+      captureStartedRef.current?.cameraAttempt === attempt &&
+      captureStartedRef.current.visionActivation === activation
+    ) return;
+    captureStartedRef.current = { cameraAttempt: attempt, visionActivation: activation };
+
     if (next === 'hand') {
-      poseClientRef.current?.pauseCapture();
-      drawPose(overlayRef.current, videoRef.current);
-      void startHandCapture(video, attempt).catch((error: unknown) => {
-        if (cameraAttemptRef.current === attempt) {
-          setCameraStatus(error instanceof Error ? error.message : 'Não foi possível iniciar o modo de mão.');
-        }
+      void startHandCapture(video, attempt, activation).catch((error: unknown) => {
+        failVisionActivation(attempt, activation, 'hand', error, 'Não foi possível iniciar o modo de mão.');
       });
     } else {
-      handClientRef.current?.pauseCapture();
-      void startPoseCapture(video, attempt).catch((error: unknown) => {
-        if (cameraAttemptRef.current === attempt) {
-          setCameraStatus(error instanceof Error ? error.message : 'Não foi possível iniciar o modo de pose.');
-        }
+      void startPoseCapture(video, attempt, activation).catch((error: unknown) => {
+        failVisionActivation(attempt, activation, 'pose', error, 'Não foi possível iniciar o modo de pose.');
       });
     }
-  }, [screen, cameraOn, startHandCapture, startPoseCapture, publishHandInput]);
+  }, [screen, cameraOn, activateVisionMode, failVisionActivation, startHandCapture, startPoseCapture, publishHandInput]);
 
   const startCamera = useCallback(async () => {
     stopCamera();
@@ -384,33 +423,35 @@ export default function App({ exit }: { exit?: ReactNode }) {
     try {
       void audioRef.current.unlock();
       const desiredMode = modeForScreen(screenRef.current);
-      visionModeRef.current = desiredMode;
+      activateVisionMode(desiredMode);
+      const activation = visionActivationRef.current;
 
+      let visionReady: Promise<void>;
       if (desiredMode === 'hand') {
         handClientRef.current ??= new HandClient();
+        visionReady = handClientRef.current.init({
+          onStatus: (status, detail) => {
+            if (!isCurrentVisionActivation(attempt, activation, 'hand')) return;
+            setCameraStatus(detail);
+            if (status === 'error') { stopCamera(); setCameraStatus(detail); }
+          },
+        });
       } else {
         poseClientRef.current ??= new PoseClient();
+        visionReady = poseClientRef.current.init({
+          onStatus: (status, detail) => {
+            if (!isCurrentVisionActivation(attempt, activation, 'pose')) return;
+            poseCallbacksRef.current?.onStatus(status, detail);
+          },
+          onPose: (raw) => {
+            if (!isCurrentVisionActivation(attempt, activation, 'pose')) return;
+            poseCallbacksRef.current?.onPose(raw);
+          },
+        });
       }
-      const visionReady = observeEarlyRejection(
-        desiredMode === 'hand'
-          ? handClientRef.current!.init({
-              onStatus: (status, detail) => {
-                if (stale()) return;
-                setCameraStatus(detail);
-                if (status === 'error') { stopCamera(); setCameraStatus(detail); }
-              },
-            })
-          : poseClientRef.current!.init({
-              onStatus: (status, detail) => {
-                if (stale()) return;
-                poseCallbacksRef.current?.onStatus(status, detail);
-              },
-              onPose: (raw) => {
-                if (stale()) return;
-                poseCallbacksRef.current?.onPose(raw);
-              },
-            }),
-      );
+      void visionReady.catch((error: unknown) => {
+        failVisionActivation(attempt, activation, desiredMode, error, 'Não foi possível iniciar a visão.');
+      });
 
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: false,
@@ -432,19 +473,12 @@ export default function App({ exit }: { exit?: ReactNode }) {
       });
       if (stale()) return;
       setCameraOn(true);
-      await visionReady;
-      if (stale() || streamRef.current !== stream) return;
-      if (visionModeRef.current === 'hand') {
-        await startHandCapture(video, attempt);
-      } else {
-        await startPoseCapture(video, attempt);
-      }
     } catch (error) {
       if (stale()) return;
       stopCamera();
       setCameraStatus(error instanceof Error ? error.message : 'Não foi possível iniciar a câmera.');
     }
-  }, [stopCamera, startHandCapture, startPoseCapture]);
+  }, [activateVisionMode, failVisionActivation, isCurrentVisionActivation, stopCamera]);
 
   const toggleMute = useCallback(() => {
     void audioRef.current.unlock();
