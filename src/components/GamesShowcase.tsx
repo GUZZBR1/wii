@@ -23,8 +23,8 @@ const GAMES = [
     id: 'boxing',
     name: { pt: 'Boxe', en: 'Boxing' },
     description: {
-      pt: 'As luzes se acendem, a torcida se ajeita e o adversário já ergueu a guarda. Soque para a frente quando surgir a brecha e incline o corpo para esquivar do que vier. Entre uma luta e outra, treine no saco de pancada ou pratique a esquiva.',
-      en: 'The lights come up, the crowd settles in and your opponent already has their guard up. Punch forward when an opening appears and lean away from whatever comes back. Between fights, train on the punching bag or practise your evasion.',
+      pt: 'As luzes se acendem, a torcida se ajeita e o adversário já ergueu a guarda. Soque para a frente quando surgir a brecha e incline o corpo para esquivar do que vier. Antes da luta, aprenda no tutorial, treine no saco de pancada ou pratique a esquiva.',
+      en: 'The lights come up, the crowd settles in and your opponent already has their guard up. Punch forward when an opening appears and lean away from whatever comes back. Before the fight, learn in the tutorial, train on the punching bag or practise your evasion.',
     },
   },
 ];
@@ -69,6 +69,12 @@ export default function GamesShowcase() {
           </li>
         ))}
       </ul>
+      <p className="games-showcase-iron">
+        {tr(
+          'E quando um só não bastar, o Iron Man junta os três em um único desafio.',
+          'And when one is not enough, Iron Man strings all three into a single challenge.',
+        )}
+      </p>
       <Link className="vision-cta" to="/app">
         {tr('Jogar agora', 'Play now')} <span aria-hidden="true">↗</span>
       </Link>
