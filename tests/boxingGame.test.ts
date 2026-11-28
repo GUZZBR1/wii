@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import * as THREE from 'three';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SportActionEvent } from '../src/cv/protocol';
 import type { BoxingGameOptions, BoxingHudState } from '../src/games/boxing/BoxingGame';
@@ -486,9 +487,10 @@ describe('BoxingGame body controls and animation', () => {
     internals(game).playerPos = { x: 0, z: 2.4 };
     run(STEP_S);
     expect(internals(game).camera.position.z).toBeGreaterThan(before);
-    expect(internals(game).camera.position.z).toBeLessThan(2.4);
+    expect(internals(game).camera.position.z).toBeLessThan(3.05);
     run(1);
-    expect(internals(game).camera.position.z).toBeCloseTo(2.4, 3);
+    // aligned with the bag at the origin, the camera converges to 0.65 m behind the eye
+    expect(internals(game).camera.position.z).toBeCloseTo(2.4 + 0.65, 3);
   });
 
   it('freezes the glove at impact without freezing the fight clock', () => {
@@ -500,6 +502,142 @@ describe('BoxingGame body controls and animation', () => {
     run(0.2);
     expect(state.fightMs - fightMs).toBeCloseTo(200, 5);
     expect(state.animTimeS - animTimeS).toBeCloseTo(0.2 - 0.045, 5);
+  });
+});
+
+describe('BoxingGame camera rig', () => {
+  type Spot = { x: number; z: number };
+  type Rig = {
+    playerPos: Spot;
+    eye: Spot;
+    lookTarget: Spot;
+    telegraphOffset: number;
+    opponentMotion: { position: Spot };
+    opponentBoxer: { root: { position: { x: number; y: number; z: number } } };
+    camera: THREE.PerspectiveCamera;
+  };
+  const rig = (game: object) => game as unknown as Rig;
+
+  it('snaps the eye, camera and look target once at construction', () => {
+    const game = new BoxingGame(document.createElement('canvas'), () => {}, undefined, () => 0, { mode: 'bag' });
+    const state = rig(game);
+    expect(state.eye).toEqual({ x: 0, z: 1.85 });
+    // 0.65 m behind the eye along the aligned bag axis, 1.9 m above the 1.05 m canvas
+    expect(state.camera.position.z).toBeCloseTo(1.85 + 0.65, 5);
+    expect(state.camera.position.y).toBeCloseTo(1.05 + 1.9, 5);
+    expect(state.lookTarget).toEqual({ x: 0, z: 0 }); // the bag sits at the origin
+    game.dispose();
+  });
+
+  it('composes eye height, back offset and lateral dodge on independent axes when aligned', () => {
+    const { game, run } = start({ mode: 'bag' });
+    rig(game).playerPos = { x: 0, z: 2.4 };
+    game.onKey('ArrowLeft'); // lane -1: a pure lateral dodge, no lean and no footwork
+    run(2);
+    const { position } = rig(game).camera;
+    expect(position.x).toBeCloseTo(-0.7, 3); // lane width, perpendicular to the view axis
+    expect(position.y).toBeCloseTo(1.05 + 1.9, 5);
+    expect(position.z).toBeCloseTo(2.4 + 0.65, 3);
+  });
+
+  it('hangs the camera 0.65 m behind the eye along the opponent-to-eye axis when off-center', () => {
+    const { game, run } = start({ mode: 'bag' });
+    rig(game).playerPos = { x: 0.6, z: 2.4 };
+    run(2);
+    const { position } = rig(game).camera;
+    const back = { x: position.x - 0.6, z: position.z - 2.4 };
+    expect(Math.hypot(back.x, back.z)).toBeCloseTo(0.65, 3);
+    // pointing away from the bag at the origin, along the player direction
+    const length = Math.hypot(0.6, 2.4);
+    expect(back.x / 0.65).toBeCloseTo(0.6 / length, 3);
+    expect(back.z / 0.65).toBeCloseTo(2.4 / length, 3);
+  });
+
+  it('chases the opponent with a smoothed look target and aims the camera at it', () => {
+    const { game, run } = start({ mode: 'bag' });
+    const state = rig(game);
+    expect(state.lookTarget).toEqual({ x: 0, z: 0 });
+    state.opponentMotion.position = { x: 1, z: -0.5 }; // bag mode never steps the motion back
+    run(STEP_S);
+    expect(state.lookTarget.x).toBeGreaterThan(0.02);
+    expect(state.lookTarget.x).toBeLessThan(0.5);
+    run(2);
+    expect(state.lookTarget.x).toBeCloseTo(1, 3);
+    expect(state.lookTarget.z).toBeCloseTo(-0.5, 3);
+    // the camera forward axis passes through the look target at the 1.05 + 1.35 look height
+    const forward = state.camera.getWorldDirection(new THREE.Vector3());
+    const expected = new THREE.Vector3(state.lookTarget.x, 2.4, state.lookTarget.z).sub(state.camera.position).normalize();
+    expect(forward.dot(expected)).toBeCloseTo(1, 5);
+  });
+
+  it('eases the camera identically regardless of the fixed step size', () => {
+    const make = () => {
+      const game = new BoxingGame(document.createElement('canvas'), () => {}, undefined, () => 0, { mode: 'bag' });
+      const update = loopState.update!;
+      rig(game).playerPos = { x: 0.3, z: 2.4 };
+      return { game, update };
+    };
+    const fine = make();
+    const coarse = make();
+    for (let step = 0; step < 60; step += 1) fine.update(1 / 60);
+    for (let step = 0; step < 30; step += 1) coarse.update(1 / 30);
+    expect(rig(coarse.game).camera.position.x).toBeCloseTo(rig(fine.game).camera.position.x, 10);
+    expect(rig(coarse.game).camera.position.z).toBeCloseTo(rig(fine.game).camera.position.z, 10);
+    fine.game.dispose();
+    coarse.game.dispose();
+  });
+
+  it('smooths the dodge telegraph lean into the threatened lane and back out', () => {
+    const { game, run } = start({ mode: 'dodge' });
+    const state = rig(game);
+    expect(state.telegraphOffset).toBe(0); // the first two attacks threaten the center lane
+    run(3.25); // inside the third attack's telegraph (lane -1, starting at 3.2 s of training time)
+    expect(state.telegraphOffset).toBeLessThan(-0.01);
+    expect(state.telegraphOffset).toBeGreaterThan(-0.14);
+    run(0.7);
+    expect(state.telegraphOffset).toBeCloseTo(-0.14, 3);
+    // aligned geometry: the lean is exactly the offset along +x, the opponent itself never moves
+    expect(state.opponentBoxer.root.position.x).toBeCloseTo(state.telegraphOffset, 8);
+    expect(state.opponentBoxer.root.position.z).toBeCloseTo(-0.85, 5);
+    run(0.5); // the blow lands at 4.3 s, the challenge is lost and the lean relaxes
+    expect(state.telegraphOffset).toBeLessThan(-0.005);
+    expect(state.telegraphOffset).toBeGreaterThan(-0.1);
+    run(1);
+    expect(state.telegraphOffset).toBeCloseTo(0, 3);
+  });
+
+  it('eases the punch reach in and out with a single smooth peak', () => {
+    const { game, run } = start();
+    const state = game as unknown as {
+      playerPos: Spot;
+      opponentMotion: { position: Spot };
+      gloves: { animate(timeSeconds: number, input: { rightPunch?: number }): void };
+    };
+    const reaches: (number | undefined)[] = [];
+    vi.spyOn(state.gloves, 'animate').mockImplementation((_time, input) => {
+      reaches.push(input.rightPunch);
+    });
+    // out of range, so the whiffed punch animates without hitstop or a landed hit
+    state.playerPos = { x: 0, z: 2.55 };
+    state.opponentMotion.position = { x: 0, z: -2 };
+    game.onKey('e'); // the first key punch is the right hand
+    run(0.4); // the whole 0.26 s animation plus rest
+    const samples = reaches.map((reach) => reach ?? 0);
+    expect(samples.length).toBeGreaterThan(16);
+    // zero velocity at the onset: one frame in, the glove has barely moved (the old cubic was at 50%)
+    expect(samples[0]).toBeGreaterThan(0);
+    expect(samples[0]).toBeLessThan(0.2);
+    const peakIndex = samples.indexOf(Math.max(...samples));
+    expect(samples[peakIndex]).toBeGreaterThan(0.99);
+    // one single peak, strictly rising before it and strictly falling after it — no plateau
+    for (let i = 0; i < peakIndex; i += 1) expect(samples[i + 1]!).toBeGreaterThan(samples[i]!);
+    for (let i = peakIndex; i + 1 < samples.length && samples[i]! > 0; i += 1) {
+      expect(samples[i + 1]!).toBeLessThan(samples[i]!);
+    }
+    // already essentially at rest before the hard cutoff, then exactly parked
+    expect(samples[14]).toBeLessThan(0.01);
+    expect(samples[15]).toBe(0);
+    expect(samples.at(-1)).toBe(0);
   });
 });
 

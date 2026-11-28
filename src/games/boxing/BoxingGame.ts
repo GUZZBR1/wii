@@ -69,12 +69,10 @@ const KEY_PUNCH_COOLDOWN_MS = 250;
 const COUNTER_WINDOW_MS = 1100;
 const GUARD_KEYS = new Set(['arrowdown', 'q']);
 const PUNCH_KEY = 'e';
-/** The glove snaps out and comes back slower; together they are one punch animation. */
+/** The glove eases out fast and comes back slower; together they are one punch animation. */
 const PUNCH_OUT_S = 0.08;
 const PUNCH_RETURN_S = 0.18;
 const PUNCH_ANIM_S = PUNCH_OUT_S + PUNCH_RETURN_S;
-/** Stiffness of the exponential tail of the glove's way back. */
-const PUNCH_RETURN_STIFFNESS = 5;
 /** Animation freeze on a clean hit; the fight clock and the rules keep running. */
 const HITSTOP_S = 0.045;
 const GUARD_LOWERED = 0.35;
@@ -91,7 +89,15 @@ const OPPONENT_HIT_S = 0.35;
 const ZONE_WIDTH = 0.7;
 const ZONE_HISTORY_MS = 1000;
 const RING_CANVAS_Y = 1.05;
-const CAMERA_EYE_Y = RING_CANVAS_Y + 1.55;
+const CAMERA_EYE_Y = RING_CANVAS_Y + 1.9;
+/** The camera hangs this far behind the smoothed eye, away from the opponent along their line. */
+const CAMERA_BACK_M = 0.65;
+/** Frame-rate-independent exponential smoothing rates (1/s) of the visual-only camera rig. */
+const EYE_RATE = 8;
+const DODGE_RATE = 13;
+const ROLL_RATE = 12;
+const LOOK_RATE = 7.5;
+const TELEGRAPH_RATE = 12;
 /** Footwork speeds in m/s. */
 const KEY_MOVE_SPEED = 1.4;
 const BODY_MOVE_SPEED = 0.7;
@@ -112,12 +118,20 @@ const MOVE_KEYS: Record<string, { forward: number; strafe: number }> = {
 const clampUnit = (value: number) => Math.max(-1, Math.min(1, value));
 const PLANTED: Readonly<Required<MiiBoxerFootwork>> = Object.freeze({ speed01: 0, forward: 0, strafe: 0 });
 
-/** Glove extension 0..1 at `ageS` into a punch: eased out fast, then damped back to the guard. */
+const smoothstep01 = (t: number) => {
+  const x = Math.min(1, Math.max(0, t));
+  return x * x * (3 - 2 * x);
+};
+
+/**
+ * Glove extension 0..1 at `ageS` into a punch. One smoothstep out and one back: a single peak at
+ * full extension with zero velocity at the onset, at the peak and at the final rest, so the glove
+ * never jumps on the first frame nor snaps when the animation cutoff parks it at the guard.
+ */
 function punchReach(ageS: number): number {
   if (ageS >= PUNCH_ANIM_S) return 0;
-  if (ageS < PUNCH_OUT_S) return 1 - (1 - ageS / PUNCH_OUT_S) ** 3;
-  const damped = (t: number) => (1 + PUNCH_RETURN_STIFFNESS * t) * Math.exp(-PUNCH_RETURN_STIFFNESS * t);
-  return (damped((ageS - PUNCH_OUT_S) / PUNCH_RETURN_S) - damped(1)) / (1 - damped(1));
+  if (ageS < PUNCH_OUT_S) return smoothstep01(ageS / PUNCH_OUT_S);
+  return 1 - smoothstep01((ageS - PUNCH_OUT_S) / PUNCH_RETURN_S);
 }
 const HANDS = ['left', 'right'] as const;
 
@@ -231,6 +245,10 @@ export class BoxingGame {
   private dodgeOffset = 0;
   /** The camera's damped copy of `playerPos`. */
   private eye: RingPosition = PLAYER_START;
+  /** The camera's damped copy of `opponentPos` it aims at; nothing but `lookAt` reads it. */
+  private lookTarget: RingPosition = OPPONENT_START;
+  /** Visual lean of the opponent into its telegraphed lane; never read by rules or AI. */
+  private telegraphOffset = 0;
   private cameraRoll = 0;
   private gloveGuard = { value: GUARD_LOWERED, velocity: 0 };
   private hitstop = { delayS: 0, leftS: 0 };
@@ -314,7 +332,7 @@ export class BoxingGame {
       this.options.onPunchTravel?.(LEARNING_PUNCH_TRAVEL);
     }
 
-    this.placeFighters(1);
+    this.placeFighters(0, true);
     this.gloves = createFirstPersonGloves();
     this.camera.add(this.gloves.root);
     this.scene.add(this.camera);
@@ -1086,40 +1104,57 @@ export class BoxingGame {
   // ---------------------------------------------------------------- scene
 
   private poseScene(dt: number): void {
-    this.placeFighters(1 - Math.exp(-14 * dt));
+    this.placeFighters(dt);
     this.poseGloves();
   }
 
-  /** The dodge is a sideways offset from the stance, with the eyes staying on the opponent. */
-  private placeFighters(blend: number): void {
+  /**
+   * Poses the visual rig for one fixed step of `dtS` seconds. Every damped channel has its own
+   * exponential rate, so the motion is independent of the frame rate; `snap` instead jumps every
+   * channel to its target, which only the constructor's initial placement may do. All of this is
+   * visual-only state: rules, AI and adjudication read `playerPos`/`opponentPos` and never these.
+   */
+  private placeFighters(dtS: number, snap = false): void {
     const { playerPos, opponentPos } = this;
-    this.dodgeOffset += (this.zone * ZONE_WIDTH - this.dodgeOffset) * blend;
+    const blend = (rate: number) => (snap ? 1 : 1 - Math.exp(-rate * dtS));
+    // The dodge is a sideways offset from the stance, with the eyes staying on the opponent.
+    this.dodgeOffset += (this.zone * ZONE_WIDTH - this.dodgeOffset) * blend(DODGE_RATE);
     this.eye = {
-      x: this.eye.x + (playerPos.x - this.eye.x) * blend,
-      z: this.eye.z + (playerPos.z - this.eye.z) * blend,
+      x: this.eye.x + (playerPos.x - this.eye.x) * blend(EYE_RATE),
+      z: this.eye.z + (playerPos.z - this.eye.z) * blend(EYE_RATE),
     };
     // Tilting into the move: negative roll leans the view to the right.
     const roll = -(this.zone * DODGE_ROLL + (this.dash?.direction ?? 0) * DASH_ROLL);
-    this.cameraRoll += (roll - this.cameraRoll) * blend;
-    const right = rightOf(playerPos, opponentPos);
+    this.cameraRoll += (roll - this.cameraRoll) * blend(ROLL_RATE);
+    this.lookTarget = {
+      x: this.lookTarget.x + (opponentPos.x - this.lookTarget.x) * blend(LOOK_RATE),
+      z: this.lookTarget.z + (opponentPos.z - this.lookTarget.z) * blend(LOOK_RATE),
+    };
+    let telegraphTarget = 0;
+    const dodge = this.dodgeChallenge?.snapshot;
+    if (this.mode === 'dodge' && dodge?.currentAttack && (dodge.phase === 'telegraph' || dodge.phase === 'active')) {
+      telegraphTarget = dodge.currentAttack.attackLane * 0.14;
+    }
+    this.telegraphOffset += (telegraphTarget - this.telegraphOffset) * blend(TELEGRAPH_RATE);
+
+    // The camera hangs back from the eye along the opponent-to-eye line, so the player's own
+    // gloves and the opponent share the frame; the dodge offset stays perpendicular to that axis.
+    const right = rightOf(this.eye, opponentPos);
+    const back = { x: -right.z, z: right.x };
     this.camera.position.set(
-      this.eye.x + right.x * this.dodgeOffset,
+      this.eye.x + right.x * this.dodgeOffset + back.x * CAMERA_BACK_M,
       CAMERA_EYE_Y + Math.sin(this.hitShakeS * 70) * this.hitShakeS * 0.12,
-      this.eye.z + right.z * this.dodgeOffset,
+      this.eye.z + right.z * this.dodgeOffset + back.z * CAMERA_BACK_M,
     );
-    this.camera.lookAt(opponentPos.x, RING_CANVAS_Y + 1.35, opponentPos.z);
+    this.camera.lookAt(this.lookTarget.x, RING_CANVAS_Y + 1.35, this.lookTarget.z);
     this.camera.rotateZ(this.cameraRoll);
     this.bag?.root.position.set(opponentPos.x, RING_CANVAS_Y, opponentPos.z);
     if (this.opponentBoxer) {
-      let telegraphOffset = 0;
-      const dodge = this.dodgeChallenge?.snapshot;
-      if (this.mode === 'dodge' && dodge?.currentAttack && (dodge.phase === 'telegraph' || dodge.phase === 'active')) {
-        telegraphOffset = dodge.currentAttack.attackLane * 0.14;
-      }
+      const fighterRight = rightOf(playerPos, opponentPos);
       this.opponentBoxer.root.position.set(
-        opponentPos.x + right.x * telegraphOffset,
+        opponentPos.x + fighterRight.x * this.telegraphOffset,
         RING_CANVAS_Y,
-        opponentPos.z + right.z * telegraphOffset,
+        opponentPos.z + fighterRight.z * this.telegraphOffset,
       );
       this.opponentBoxer.root.rotation.y = Math.atan2(playerPos.x - opponentPos.x, playerPos.z - opponentPos.z) + Math.PI;
     }
