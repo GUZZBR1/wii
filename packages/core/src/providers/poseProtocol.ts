@@ -45,11 +45,7 @@ export interface WorkerFrame {
   /** Changes for each capture session; stale replies must not reach the active session. */
   captureEpoch: number;
   timestampMs: number;
-  /**
-   * Transferred to the worker, which owns it from then on and closes it exactly once. A
-   * VideoFrame is the unresized video; an ImageBitmap may be downscaled.
-   */
-  bitmap: ImageBitmap | VideoFrame;
+  bitmap: ImageBitmap;
 }
 
 export type WorkerRequest = WorkerInit | WorkerFrame | { type: 'DISPOSE' };
