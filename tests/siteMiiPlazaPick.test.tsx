@@ -56,7 +56,10 @@ const spot = () => {
 };
 const bubbleHidden = () => document.querySelector<HTMLElement>('.mii-grump')!.hidden;
 let frames: FrameRequestCallback[] = [];
-const paint = () => act(() => frames.splice(0).forEach((frame) => frame(performance.now())));
+const paint = () =>
+  act(() => {
+    for (const frame of frames.splice(0)) frame(performance.now());
+  });
 
 beforeEach(() => {
   vi.stubGlobal(
