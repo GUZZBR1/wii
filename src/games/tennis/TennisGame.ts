@@ -191,6 +191,7 @@ export class TennisGame {
   private status = 'Faça uma raquetada para sacar';
   private feedback: { id: number; text: string; tone: 'good' | 'bad' | 'neutral' } | undefined;
   private feedbackCounter = 0;
+  private lastHud = '';
   private faults = 0;
   private servingFlight = false;
   private pendingPoint?: { deadAt: number; winner: PlayerSide; label: string };
@@ -1106,7 +1107,7 @@ export class TennisGame {
   private publishHud(): void {
     if (this.tutorial) {
       const text = this.tutorial.text;
-      this.onHud({
+      this.emitHud({
         score: 0,
         label: '',
         speed01: 0,
@@ -1117,7 +1118,7 @@ export class TennisGame {
       return;
     }
     const labels = pointLabels(this.score);
-    this.onHud({
+    this.emitHud({
       score: this.score.games.player,
       label: `${labels.player} × ${labels.opponent}`,
       speed01: 0,
@@ -1132,6 +1133,14 @@ export class TennisGame {
         restart01: Math.floor(this.restart.progress01 * 20) / 20,
       },
     });
+  }
+
+  /** Publishes only changes, so an idle tick does not re-render React. */
+  private emitHud(state: GameHudState): void {
+    const key = JSON.stringify(state);
+    if (key === this.lastHud) return;
+    this.lastHud = key;
+    this.onHud(state);
   }
 
   dispose(): void {
