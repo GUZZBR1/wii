@@ -1,9 +1,9 @@
 import { rankGlyphs, type RankedGlyph } from './ascii';
 
 /**
- * The canvas plumbing both ASCII portraits need: an image sampled on a small offscreen buffer,
+ * The canvas plumbing of the ASCII portrait: an image sampled on a small offscreen buffer,
  * a glyph atlas sized to the element, and the fit between a glyph grid and an image aspect ratio.
- * Nothing here decides colors or animation — those belong to each portrait.
+ * Nothing here decides colors or animation — those belong to the portrait.
  */
 export const MONO_FONT = '"DM Mono", monospace';
 
@@ -48,12 +48,14 @@ export function sizeCanvasToGrid(
   grid: GlyphGrid,
 ) {
   const height = grid.rows * grid.cellH;
+  // Resizing a canvas resets its context, so the font has to be read before.
+  const font = output.font;
   canvas.style.height = `${height}px`;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   canvas.width = Math.round(width * dpr);
   canvas.height = Math.round(height * dpr);
   output.setTransform(dpr, 0, 0, dpr, 0, 0);
-  output.font = `${output.font.match(/(\d+(?:\.\d+)?)px/)?.[0] ?? '7px'} ${MONO_FONT}`;
+  output.font = font;
   output.textBaseline = 'top';
   return height;
 }
@@ -73,35 +75,4 @@ export function sampleImage(
   context.imageSmoothingQuality = 'high';
   context.drawImage(image, 0, 0, source.width, source.height);
   return context.getImageData(0, 0, source.width, source.height).data;
-}
-
-/** Alpha-weighted color and coverage of one cell of a sampled buffer. */
-export function sampleCell(
-  pixels: Uint8ClampedArray,
-  sourceWidth: number,
-  col: number,
-  row: number,
-  sampleSize: number,
-  target: [number, number, number],
-): number {
-  let red = 0;
-  let green = 0;
-  let blue = 0;
-  let alpha = 0;
-  for (let sy = 0; sy < sampleSize; sy += 1) {
-    let offset = ((row * sampleSize + sy) * sourceWidth + col * sampleSize) * 4;
-    for (let sx = 0; sx < sampleSize; sx += 1) {
-      const weight = pixels[offset + 3] / 255;
-      red += pixels[offset] * weight;
-      green += pixels[offset + 1] * weight;
-      blue += pixels[offset + 2] * weight;
-      alpha += weight;
-      offset += 4;
-    }
-  }
-  const samples = sampleSize * sampleSize;
-  target[0] = alpha ? red / alpha : 0;
-  target[1] = alpha ? green / alpha : 0;
-  target[2] = alpha ? blue / alpha : 0;
-  return alpha / samples;
 }

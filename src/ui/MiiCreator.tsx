@@ -82,11 +82,16 @@ function MiiPreview({ spec }: { spec: MiiFaceSpec }) {
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
-    const stage = createMiiStage(host, { drag: true, animate: false, camera: { position: [0, 1.5, 5.2], lookAt: [0, 1.02, 0], fov: 30 } });
+    // The editor shows a head built at the origin and facing -Z, with its own softer lights.
+    const stage = createMiiStage(host, { drag: true, animate: false, lights: false, maxPixelRatio: 2, camera: { position: [0, 0.03, -1.55], lookAt: [0, 0, 0], fov: 34, near: 0.05, far: 10 } });
     if (!stage) {
       setWebglError(true);
       return;
     }
+    const key = new THREE.DirectionalLight(0xffffff, 1.5);
+    key.position.set(-1.5, 2, -2.5);
+    stage.scene.add(new THREE.HemisphereLight(0xffffff, 0x91a7bb, 2.3), key);
+    stage.content.rotation.y = 0.08;
     let model: PreviewModel | undefined;
     const show = (next: MiiFaceSpec) => {
       if (model) {

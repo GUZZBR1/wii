@@ -147,6 +147,8 @@ export function createMiiStage(host: HTMLElement, options: MiiStageOptions = {})
       renderer.domElement.removeEventListener('webglcontextrestored', render);
       disposeObjectTree(scene);
       renderer.dispose();
+      // Frees the GPU context now: browsers cap how many may be alive at once.
+      renderer.forceContextLoss();
       renderer.domElement.remove();
     },
   };
