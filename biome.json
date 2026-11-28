@@ -13,7 +13,7 @@
       "!!.omx",
       "!!.omc",
       "!!src/.omc",
-      "!!draw-site"
+      "!!draw-site", "!tests/recordings"
     ]
   },
   "formatter": {
@@ -52,6 +52,10 @@
                       "PalmBasis",
                       "Point3",
                       "PoseSnapshot",
+                      "PunchKind",
+                      "PunchMeasurement",
+                      "PunchTargetZone",
+                      "PunchTrajectorySample",
                       "RotationalFlickDetector",
                       "RotationalFlickOptions",
                       "RotationalFlickPhase",

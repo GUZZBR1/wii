@@ -1,4 +1,4 @@
-import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from '@wii/spatial-core';
+import type { CalibrationProfile, Hand, Point3, PoseSnapshot, PunchMeasurement, PunchTrajectorySample } from '@wii/spatial-core';
 import { OneEuroFilter } from '@wii/spatial-core';
 import { BODY_JOINTS } from './bodyFeatures';
 import { bodyLocalPoint } from './bodyFrame';
@@ -10,6 +10,17 @@ export interface PunchSignal {
   peakTimestampMs: number;
   /** Frame where the onset conditions were met. */
   onsetTimestampMs: number;
+  measurement: PunchMeasurement;
+}
+
+export interface PunchDiagnostics {
+  readonly onsets: number;
+  readonly confirmed: number;
+  readonly timedOut: number;
+  readonly missingExtension: number;
+  readonly missingTravel: number;
+  readonly sampleGaps: number;
+  readonly invalidSamples: number;
 }
 
 /**
@@ -21,9 +32,11 @@ export type PunchOutput =
   | ({ kind: 'confirmed' } & PunchSignal);
 
 /**
- * Punch thresholds. Tunable guesses checked only against synthetic poses, not yet calibrated
- * against recorded players. Speeds and travel are in shoulder widths (per second); elbow values
- * are the articulation cosine, +1 meaning a straight arm.
+ * Punch thresholds. Speeds and travel are in shoulder widths (per second); elbow values are the
+ * articulation cosine, +1 meaning a straight arm. The confirmation chain is validated against
+ * the UTD-MHAD front-boxing floor (tests/utdMhadBoxing.test.ts): measurements must reach back to
+ * where the motion started and past the first retracting frame, because compact punches end
+ * physically at their own extension peak and the filtered signals lag it.
  */
 export const PUNCH_THRESHOLDS = {
   /** Forward wrist speed and elbow opening rate that must coincide to start a punch. */
@@ -48,6 +61,15 @@ export const PUNCH_THRESHOLDS = {
   refractoryMs: 250,
   /** A longer gap between samples restarts the detector. */
   maxSampleGapMs: 200,
+  /** The onset fires once the wrist is already fast, so the first part of the course happened
+   * before it. The measurement walks back this far looking for where the forward motion started. */
+  originWalkBackMs: 300,
+  /** Noise tolerance while walking the monotonic filtered forward series backwards. */
+  originWalkBackEpsilon: 0.02,
+  /** Maximal extension physically coincides with the start of the retraction, and the filtered
+   * signals lag it by a frame or two: an unconfirmed punch is granted this long past the first
+   * retracting sample before its window is evaluated. Confirmed punches still close at once. */
+  retractionGraceMs: 120,
 } as const;
 // Much lighter than SwingDetector's smoothing: a jab spans only 2-5 samples, and a 1 Hz cutoff
 // would lag it below both confirmation thresholds.
@@ -55,11 +77,43 @@ const FILTER_OPTIONS = { minCutoff: 4, beta: 1, derivativeCutoff: 1 };
 
 interface PendingPunch {
   startedAt: number;
+  /** First sample retracting fast; set once, never cleared — a second extension is another punch. */
+  retractingSinceMs?: number;
   /** Forward position on the sample before onset: where the motion started. */
   originForward: number;
-  peak: { speed: number; confidence: number; timestampMs: number };
+  peak: { speed: number; confidence: number; timestampMs: number; sample: PunchTrajectorySample };
   /** Extension and travel were both met on one sample inside the window. */
   reached: boolean;
+  sawExtension: boolean;
+  sawTravel: boolean;
+  samples: PunchTrajectorySample[];
+}
+
+function distance(a: PunchTrajectorySample, b: PunchTrajectorySample): number {
+  return Math.hypot(b.lateral - a.lateral, b.vertical - a.vertical, b.forward - a.forward);
+}
+
+function measurePunch(pending: PendingPunch): PunchMeasurement {
+  const samples = [...pending.samples];
+  const origin = samples[0]!;
+  const end = samples.at(-1)!;
+  const contact = samples.reduce((best, sample) => (sample.forward > best.forward ? sample : best), origin);
+  let pathLength = 0;
+  for (let index = 1; index < samples.length; index += 1) pathLength += distance(samples[index - 1]!, samples[index]!);
+  return {
+    samples,
+    origin,
+    speedPeak: pending.peak.sample,
+    contact,
+    end,
+    durationMs: end.timestampMs - origin.timestampMs,
+    forwardTravel: contact.forward - origin.forward,
+    lateralExcursion: Math.max(...samples.map((sample) => sample.lateral)) - Math.min(...samples.map((sample) => sample.lateral)),
+    verticalRise: Math.max(...samples.map((sample) => sample.vertical)) - origin.vertical,
+    pathLength,
+    netDisplacement: distance(origin, contact),
+    maxElbowCosine: Math.max(...samples.map((sample) => sample.elbowCosine)),
+  };
 }
 
 function elbowCosine(shoulder: Point3, elbow: Point3, wrist: Point3): number | undefined {
@@ -106,14 +160,25 @@ export function isGuardingPose(snapshot: PoseSnapshot, calibration: CalibrationP
 }
 
 export class PunchDetector {
+  /** How far the wrist must travel forward to confirm; override after measuring the player. */
+  minTravel: number = PUNCH_THRESHOLDS.confirmForwardTravel;
   constructor(private readonly hand: Hand) {}
 
   private readonly forwardFilter = new OneEuroFilter(FILTER_OPTIONS);
   private readonly elbowFilter = new OneEuroFilter(FILTER_OPTIONS);
-  private previous?: { forward: number; cosine: number; time: number };
+  private previous?: { forward: number; cosine: number; time: number; sample?: PunchTrajectorySample };
+  /** Recent filtered samples, oldest first, for walking the punch's origin back before its onset. */
+  private recent: { forward: number; time: number; sample: PunchTrajectorySample }[] = [];
   private mode: 'ready' | 'punch' | 'return' = 'ready';
   private pending?: PendingPunch;
   private lastPunchAt = Number.NEGATIVE_INFINITY;
+  private onsets = 0;
+  private confirmed = 0;
+  private timedOut = 0;
+  private missingExtension = 0;
+  private missingTravel = 0;
+  private sampleGaps = 0;
+  private invalidSamples = 0;
   private retractedSince?: number;
   private restSince?: number;
 
@@ -128,36 +193,68 @@ export class PunchDetector {
     const leftHip = world[23];
     const rightHip = world[24];
     if (!isFinitePoint(shoulder) || !isFinitePoint(elbow) || !isFinitePoint(wrist) || !isFinitePoint(leftShoulder)
-      || !isFinitePoint(rightShoulder) || !isFinitePoint(leftHip) || !isFinitePoint(rightHip)) { this.reset(); return undefined; }
+      || !isFinitePoint(rightShoulder) || !isFinitePoint(leftHip) || !isFinitePoint(rightHip)) { this.invalidSamples += 1; this.reset(); return undefined; }
     const localWrist = bodyLocalPoint(wrist, shoulder, leftShoulder, rightShoulder, leftHip, rightHip, calibration.world.shoulderWidth);
     const rawCosine = elbowCosine(shoulder, elbow, wrist);
-    if (!localWrist || rawCosine === undefined) { this.reset(); return undefined; }
+    if (!localWrist || rawCosine === undefined) { this.invalidSamples += 1; this.reset(); return undefined; }
 
     const time = snapshot.timestampMs;
     // Velocity across a long gap is meaningless: restart the chain and demand a fresh re-arm.
-    if (this.previous && time - this.previous.time > PUNCH_THRESHOLDS.maxSampleGapMs) this.reset();
+    if (this.previous && time - this.previous.time > PUNCH_THRESHOLDS.maxSampleGapMs) {
+      this.sampleGaps += 1;
+      this.reset();
+    }
+    const confidence = landmarkConfidence(leftShoulder, rightShoulder, leftHip, rightHip, elbow, wrist);
     const current = {
       // Body depth points away from the camera when facing it, so forward is decreasing local z.
       forward: this.forwardFilter.filter(-localWrist.z, time),
       cosine: this.elbowFilter.filter(rawCosine, time),
       time,
+      sample: undefined as PunchTrajectorySample | undefined,
     };
+    current.sample = {
+      timestampMs: time,
+      lateral: localWrist.x,
+      vertical: localWrist.y,
+      forward: current.forward,
+      elbowCosine: current.cosine,
+      rawElbowCosine: rawCosine,
+      confidence,
+    };
+    const sample = current.sample;
     const previous = this.previous;
     this.previous = current;
-    if (!previous) return undefined;
+    this.recent.push({ forward: current.forward, time, sample });
+    while (this.recent[0] && time - this.recent[0].time > PUNCH_THRESHOLDS.originWalkBackMs) this.recent.shift();
+    if (!previous?.sample) return undefined;
 
     const dt = Math.max((time - previous.time) / 1000, 1 / 120);
     const speed = (current.forward - previous.forward) / dt;
-    const confidence = landmarkConfidence(leftShoulder, rightShoulder, leftHip, rightHip, elbow, wrist);
 
     if (this.mode === 'ready') {
       const extending = (current.cosine - previous.cosine) / dt >= PUNCH_THRESHOLDS.onsetElbowCosineRatePerSec;
       if (!extending || speed < PUNCH_THRESHOLDS.onsetForwardSpeed || time - this.lastPunchAt < PUNCH_THRESHOLDS.refractoryMs) return undefined;
+      this.onsets += 1;
+      // The wrist was already fast when the onset fired: walk the filtered series backwards while
+      // it keeps decreasing and measure the course from where the forward motion really started.
+      const originSamples = [previous.sample, sample];
+      let originForward = previous.forward;
+      for (let index = this.recent.length - 2; index > 0; index -= 1) {
+        const entry = this.recent[index]!;
+        const earlier = this.recent[index - 1]!;
+        if (entry.forward < originForward + PUNCH_THRESHOLDS.originWalkBackEpsilon && earlier.forward <= entry.forward + PUNCH_THRESHOLDS.originWalkBackEpsilon) {
+          originForward = earlier.forward;
+          originSamples.unshift(earlier.sample);
+        } else break;
+      }
       this.pending = {
         startedAt: time,
-        originForward: previous.forward,
-        peak: { speed, confidence, timestampMs: time },
+        originForward,
+        peak: { speed, confidence, timestampMs: time, sample },
         reached: false,
+        sawExtension: current.cosine >= PUNCH_THRESHOLDS.confirmElbowCosine,
+        sawTravel: current.forward - originForward >= this.minTravel,
+        samples: originSamples,
       };
       this.mode = 'punch';
       this.lastPunchAt = time;
@@ -166,25 +263,51 @@ export class PunchDetector {
 
     if (this.mode === 'punch' && this.pending) {
       const pending = this.pending;
+      pending.samples.push(sample);
       const ageMs = time - pending.startedAt;
-      if (speed > pending.peak.speed) pending.peak = { speed, confidence, timestampMs: time };
-      if (ageMs <= PUNCH_THRESHOLDS.maxDurationMs && current.cosine >= PUNCH_THRESHOLDS.confirmElbowCosine
-        && current.forward - pending.originForward >= PUNCH_THRESHOLDS.confirmForwardTravel) pending.reached = true;
+      if (speed > pending.peak.speed) pending.peak = { speed, confidence, timestampMs: time, sample };
+      const extended = current.cosine >= PUNCH_THRESHOLDS.confirmElbowCosine;
+      const travelled = current.forward - pending.originForward >= this.minTravel;
+      pending.sawExtension ||= extended;
+      pending.sawTravel ||= travelled;
+      if (ageMs <= PUNCH_THRESHOLDS.maxDurationMs && extended && travelled) pending.reached = true;
       const retracting = speed <= PUNCH_THRESHOLDS.retractingForwardSpeed;
+      if (retracting) pending.retractingSinceMs ??= time;
       const decelerated = pending.reached && speed <= pending.peak.speed * PUNCH_THRESHOLDS.deceleratedPeakRatio;
-      if (!retracting && !decelerated && ageMs < PUNCH_THRESHOLDS.maxDurationMs) return undefined;
+      // A confirmed punch ends as soon as it physically does; an unconfirmed one is granted the
+      // retraction grace, because its extension peak only shows in the lagged filters then.
+      const graceOver = pending.retractingSinceMs !== undefined && time - pending.retractingSinceMs >= PUNCH_THRESHOLDS.retractionGraceMs;
+      const closedOnRetraction = pending.reached ? retracting : graceOver;
+      if (!closedOnRetraction && !decelerated && ageMs < PUNCH_THRESHOLDS.maxDurationMs) return undefined;
 
+      if (!pending.reached) {
+        // Borderline evaluation at close: extension and travel both peak at contact, so the
+        // maxima over the window measure the same instant without fragile same-sample timing.
+        const peakCosine = Math.max(...pending.samples.map((pendingSample) => Math.max(pendingSample.elbowCosine, pendingSample.rawElbowCosine ?? 0)));
+        const peakTravel = Math.max(...pending.samples.map((pendingSample) => pendingSample.forward)) - pending.originForward;
+        if (peakCosine >= PUNCH_THRESHOLDS.confirmElbowCosine && peakTravel >= this.minTravel) {
+          pending.reached = true;
+          pending.sawExtension = true;
+          pending.sawTravel = true;
+        }
+      }
+      if (ageMs >= PUNCH_THRESHOLDS.maxDurationMs && !pending.reached) this.timedOut += 1;
+      if (!pending.sawExtension) this.missingExtension += 1;
+      if (!pending.sawTravel) this.missingTravel += 1;
+      const measurement = measurePunch(pending);
       this.pending = undefined;
       this.retractedSince = undefined;
       this.restSince = undefined;
       this.mode = 'return';
       if (!pending.reached) return undefined;
+      this.confirmed += 1;
       return {
         kind: 'confirmed',
         power01: clamp((pending.peak.speed - PUNCH_THRESHOLDS.onsetForwardSpeed) / (PUNCH_THRESHOLDS.fullPowerForwardSpeed - PUNCH_THRESHOLDS.onsetForwardSpeed)),
         confidence: pending.peak.confidence,
         peakTimestampMs: pending.peak.timestampMs,
         onsetTimestampMs: pending.startedAt,
+        measurement,
       };
     }
 
@@ -201,8 +324,24 @@ export class PunchDetector {
     return undefined;
   }
 
+  get diagnostics(): PunchDiagnostics {
+    return {
+      onsets: this.onsets,
+      confirmed: this.confirmed,
+      timedOut: this.timedOut,
+      missingExtension: this.missingExtension,
+      missingTravel: this.missingTravel,
+      sampleGaps: this.sampleGaps,
+      invalidSamples: this.invalidSamples,
+    };
+  }
+
+  resetDiagnostics(): void {
+    this.onsets = 0; this.confirmed = 0; this.timedOut = 0; this.missingExtension = 0; this.missingTravel = 0; this.sampleGaps = 0; this.invalidSamples = 0;
+  }
+
   /** Explicitly rejected/degraded samples break re-arm continuity even when no valid sample reaches this detector. */
   interruptRearm(): void { this.retractedSince = undefined; this.restSince = undefined; }
 
-  reset(): void { this.forwardFilter.reset(); this.elbowFilter.reset(); this.previous = undefined; this.mode = 'return'; this.pending = undefined; this.lastPunchAt = Number.NEGATIVE_INFINITY; this.interruptRearm(); }
+  reset(): void { this.forwardFilter.reset(); this.elbowFilter.reset(); this.previous = undefined; this.recent = []; this.mode = 'return'; this.pending = undefined; this.lastPunchAt = Number.NEGATIVE_INFINITY; this.interruptRearm(); }
 }

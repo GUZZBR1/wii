@@ -6,8 +6,12 @@ import { delegateContext, incompatibleReasons } from './poseReplayCompare';
 import { PoseWorkerSession } from './poseReplaySession';
 import { seekVideoTo, waitForVideoFrame } from './poseReplayVideo';
 
-/** The rate the game's detectors see: a slower sampling misses strides and cannot judge them. */
-const SAMPLE_STEP_MS = 1000 / 30;
+const query = new URLSearchParams(location.search);
+const requestedFps = Number(query.get('fps') ?? '30');
+/** Default to the rate the game's detectors see; external clips may need their native cadence. */
+const SAMPLE_FPS = Number.isFinite(requestedFps) && requestedFps > 0 ? Math.min(60, requestedFps) : 30;
+const SAMPLE_STEP_MS = 1000 / SAMPLE_FPS;
+const EVAL_MODE = query.has('eval');
 const MAX_CLIP_BYTES = 256 * 1024 * 1024;
 const videoInput = document.querySelector<HTMLInputElement>('#video-file')!;
 const referenceInput = document.querySelector<HTMLInputElement>('#reference-file')!;
@@ -192,6 +196,7 @@ async function run(): Promise<void> {
     modelSha256: (session.sampledDelegate ?? session.delegate) === 'CPU' ? model.cpuModelSha256 : model.modelSha256,
     delegate: session.sampledDelegate ?? session.delegate,
     runningMode: 'VIDEO',
+    samplingFps: SAMPLE_FPS,
     droppedFrameCount,
     runtime: { userAgent: navigator.userAgent, platform: navigator.platform },
     input: {
@@ -202,13 +207,14 @@ async function run(): Promise<void> {
       sha256: videoHash,
     },
   }, 'media-time');
+  if (EVAL_MODE) (window as Window & { POSE_RECORDING?: PoseRecording }).POSE_RECORDING = currentRecording;
   downloadButton.disabled = false;
 
   if (!reference) {
     const result = {
       status: 'recorded',
       message: 'This run can be downloaded as a reference. Re-run with that JSON selected to compare future inference.',
-      sampling: { stepMs: SAMPLE_STEP_MS, frameCount, videoDurationMs: video.duration * 1000 },
+      sampling: { fps: SAMPLE_FPS, stepMs: SAMPLE_STEP_MS, frameCount, videoDurationMs: video.duration * 1000 },
       runtime: currentRecording.source,
     };
     (window as Window & { POSE_REGRESSION?: unknown }).POSE_REGRESSION = result;
@@ -227,7 +233,7 @@ async function run(): Promise<void> {
     status: reasons.length > 0 ? 'incomparable' : !hasValues ? 'inconclusive' : passed ? 'pass' : 'fail',
     comparison: reasons,
     delegates: delegateContext(requestedDelegate, currentRecording, reference),
-    sampling: { stepMs: SAMPLE_STEP_MS, frameCount, videoDurationMs: video.duration * 1000 },
+    sampling: { fps: SAMPLE_FPS, stepMs: SAMPLE_STEP_MS, frameCount, videoDurationMs: video.duration * 1000 },
     tolerance: {
       imageCoordinateMaxAbs: imageTolerance,
       worldCoordinateMaxAbsMeters: worldTolerance,

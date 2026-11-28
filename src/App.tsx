@@ -5,7 +5,7 @@ import { AdaptiveCalibrator } from './cv/adaptiveCalibrator';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { diagnosticsEnabled } from './cv/diagnostics/flags';
 import { PhotoTrail } from './cv/diagnostics/photoTrail';
-import { TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
+import { BOXING_RECORDING_SCRIPT, TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
 import { downloadRecording, noteArrival, PoseRecorder, rememberFrame } from './cv/diagnostics/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
 import { framingAdvice, handsHidden, armsCrossed, handsRaised, raisedTossHand, HeadWarning } from './kinematics/framing';
@@ -168,6 +168,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     for (const event of pipelineRef.current.reset(performance.now())) dispatchEvent(event);
     engineRef.current?.resetLaneZone?.();
     engineRef.current?.setGuard?.(undefined);
+    engineRef.current?.setDuck?.(undefined);
     engineRef.current?.setDepthMove?.(undefined);
     engineRef.current?.setDepthSpeed?.(undefined);
     engineRef.current?.setLateralDash?.(undefined);
@@ -182,7 +183,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     setRecordingPrompt(undefined);
     const delegate = poseClientRef.current?.delegate;
     if (!recorder?.frameCount || !delegate) return;
-    void downloadRecording(recorder, delegate, sport === 'tennis' ? 'tenis' : 'corrida').catch((error: unknown) => {
+    void downloadRecording(recorder, delegate, sport === 'tennis' ? 'tenis' : sport === 'boxing' ? 'boxe' : 'corrida').catch((error: unknown) => {
       setCameraStatus(error instanceof Error ? error.message : 'Não foi possível salvar a gravação.');
     });
   }, [sport]);
@@ -205,7 +206,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       if (recorderRef.current) { finishRecording(); return; }
       for (const stop of pipelineRef.current.reset(performance.now())) dispatchEvent(stop);
       resetCalibration();
-      recorderRef.current = new PoseRecorder([], sport === 'tennis' ? TENNIS_RECORDING_SCRIPT : undefined);
+      recorderRef.current = new PoseRecorder([], sport === 'tennis' ? TENNIS_RECORDING_SCRIPT : sport === 'boxing' ? BOXING_RECORDING_SCRIPT : undefined);
       setRecordingPrompt('Gravando…');
     };
     window.addEventListener('keydown', toggle);
@@ -292,6 +293,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setSwingTracking?.(result.swingTracking);
       engineRef.current?.setDodgeZone?.(result.controls.dodgeZone);
       engineRef.current?.setGuard?.(result.controls.guard);
+      engineRef.current?.setDuck?.(result.controls.duck);
       engineRef.current?.setDepthMove?.(result.controls.ringDepthMove);
       engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01);
       engineRef.current?.setLateralDash?.(result.controls.lateralDash);
@@ -495,12 +497,14 @@ export default function App({ exit }: { exit?: ReactNode }) {
   }, [startCamera]);
 
   const onStrokeTravel = useCallback((travel: number) => { pipelineRef.current.setStrokeTravel(travel); }, []);
+  const onPunchTravel = useCallback((travel: number) => { pipelineRef.current.setPunchTravel(travel); }, []);
 
   const play = (next: Sport, distance: Goal = 100) => {
     setGoal(distance);
     void audioRef.current.unlock();
-    // The tennis warm-up sets its own stroke length; every game starts from the default.
+    // The warm-up tutorials set their own stroke length; every game starts from the default.
     pipelineRef.current.setStrokeTravel(1.9);
+    pipelineRef.current.setPunchTravel(0.25);
     pipelineRef.current.resetSwings();
     setSport(next);
     sportRef.current = next;
@@ -514,7 +518,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} crossedPose={crossedPoseRef} onExit={() => setScreen('games')} onStrokeTravel={onStrokeTravel} />}
+    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} crossedPose={crossedPoseRef} onExit={() => setScreen('games')} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} />}
     {screen === 'home' && (
       <HomeMenu
         exit={exit}
