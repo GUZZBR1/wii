@@ -10,6 +10,7 @@ import { AdaptiveCalibrator } from '../src/cv/adaptiveCalibrator';
 import { BOXING_RECORDING_SCRIPT, segmentAt } from '../src/cv/diagnostics/recordingScript';
 import type { CalibrationProfile, PoseSnapshot } from '../src/cv/protocol';
 import { ActionPipeline } from '../src/kinematics/actionPipeline';
+import { DodgeModel } from '../src/kinematics/personal/dodgeModel';
 
 const PUNCHES = ['jab', 'cross', 'hook', 'uppercut', 'bodyshot'];
 const PUNCH_NEGATIVES = ['still', 'guard', 'prepare', 'occlusion', 'slip', 'duck'];
@@ -25,6 +26,7 @@ interface Frame {
   at: number;
   arms: (number[] | undefined)[];
   pose?: { noseX: number; noseY: number; midX: number; midY: number; width: number; wrists: number[] };
+  snapshot: PoseSnapshot;
   current: { punch: boolean; guard: boolean; duck: boolean; slip: boolean };
 }
 
@@ -63,6 +65,7 @@ function load(raw: string): Frame[] {
       pose: nose && l && r && lw && rw && width > 0.03
         ? { noseX: nose.x, noseY: nose.y, midX: (l.x + r.x) / 2, midY: (l.y + r.y) / 2, width, wrists: [lw, rw].flatMap((p) => [(p.x - nose.x) / width, (p.y - nose.y) / width]) }
         : undefined,
+      snapshot: s,
       current: {
         punch: out.events.some((event) => event.type === 'punch'),
         guard: out.controls.guard === true,
@@ -177,6 +180,35 @@ function poseScores(teach: Frame[], test: Frame[], isTeach: (f: Frame) => boolea
   });
 }
 
+/** The shipped model itself: taught on one whole session as the tutorial would, judged on another. */
+function modelScore(teach: Frame[], test: Frame[]) {
+  const model = new DodgeModel();
+  const held = (f: Frame) => f.at > 0.3 && f.at < 0.8;
+  const neutral = (frames: Frame[]) => { for (const f of frames) if (f.kind === 'still') model.teach('neutral', f.snapshot); };
+  neutral(teach);
+  const still = teach.filter((f) => f.kind === 'still' && f.pose);
+  const centre = still.reduce((sum, f) => sum + f.pose!.noseX, 0) / still.length;
+  // The script's two slips go to opposite sides; the head says which one each was.
+  for (const segment of segmentsOf(teach, ['slip'])) {
+    const frames = teach.filter((f) => f.segment === segment && held(f) && f.pose);
+    const side = frames.reduce((sum, f) => sum + f.pose!.noseX, 0) / frames.length > centre ? 'left' : 'right';
+    for (const f of frames) model.teach(side, f.snapshot);
+  }
+  for (const f of teach) if (f.kind === 'duck' && held(f)) model.teach('duck', f.snapshot);
+  const outputs = test.map((f) => ({ f, out: model.update(f.snapshot) }));
+  const share = (keep: (f: Frame) => boolean, on: (o: { zone?: number; duck?: boolean }) => boolean) => {
+    const rows = outputs.filter(({ f }) => keep(f));
+    return rows.length ? `${Math.round((100 * rows.filter(({ out }) => on(out)).length) / rows.length)}%` : '-';
+  };
+  const quiet = (f: Frame) => ['still', 'guard', 'prepare'].includes(f.kind);
+  /** What the game feels: did each requested dodge register at all? */
+  const registered = (kind: string, on: (f: Frame, o: { zone?: number; duck?: boolean }) => boolean) => {
+    const segments = [...new Set(outputs.filter(({ f }) => f.kind === kind).map(({ f }) => f.segment))];
+    return `${segments.filter((segment) => outputs.some(({ f, out }) => f.segment === segment && on(f, out))).length}/${segments.length}`;
+  };
+  return `registered slips ${registered('slip', (_, o) => !!o.zone)} (current ${registered('slip', (f) => f.current.slip)}), ducks ${registered('duck', (_, o) => !!o.duck)} (current ${registered('duck', (f) => f.current.duck)}) | model slip ${share((f) => f.kind === 'slip' && held(f), (o) => !!o.zone)} on / ${share(quiet, (o) => !!o.zone)} false | duck ${share((f) => f.kind === 'duck' && held(f), (o) => !!o.duck)} on / ${share(quiet, (o) => !!o.duck)} false | knows ${JSON.stringify(model.knows)}`;
+}
+
 const recordings = Object.entries(import.meta.glob<string>('./recordings/boxe-*.json', { query: '?raw', import: 'default', eager: true }));
 
 describe.skipIf(recordings.length === 0)('personal motion model against the current detectors', () => {
@@ -217,6 +249,8 @@ describe.skipIf(recordings.length === 0)('personal motion model against the curr
         lines.push(...poseScores(teach.frames, test.frames, () => true, () => true));
       }
     }
+    for (const { name, frames } of sessions) { const still = (f: Frame) => f.kind === 'still' || f.kind === 'prepare' || f.kind === 'guard'; lines.push(`\n== shipped model, same ${name}`, modelScore(frames.filter((f) => f.at < (still(f) ? 0.5 : 0.55)), frames.filter((f) => f.at >= (still(f) ? 0.5 : 0.55)))); }
+    for (const teach of sessions) for (const test of sessions) if (teach !== test) lines.push(`\n== shipped model ${teach.name} -> ${test.name}`, modelScore(teach.frames, test.frames));
     process.stdout.write(`${lines.join('\n')}\n`);
   }, 120_000);
 });

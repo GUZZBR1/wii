@@ -153,6 +153,8 @@
   .game-feedback.neutral span { color: var(--muted); }
 
   .boxing-streak { position: absolute; top: 100%; right: 0; margin-top: 8px; color: #ffe066; font-size: 28px; text-shadow: 0 2px 8px #000a; }
+  .learn-ring { position: absolute; left: 24px; bottom: 70px; display: grid; place-items: center; width: 110px; height: 110px; border-radius: 50%; z-index: 3; box-shadow: 0 4px 14px #0006; }
+  .learn-ring span { display: grid; place-items: center; width: 80px; height: 80px; border-radius: 50%; background: #102d40; color: white; font-size: 24px; font-weight: 800; }
   .game-over { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(320px, 90vw); max-height: 90%; overflow: auto; padding: 20px; border: 3px solid var(--blue); border-radius: 24px; background: #fffffff5; box-shadow: var(--shadow); text-align: center; z-index: 9; }
   .game-over h2 { margin: 0 0 8px; font-size: 30px; color: #d64545; }
   .game-viewport.tennis .game-ready { top: auto; bottom: 35px; max-width: 94%; white-space: normal; text-align: center; }
