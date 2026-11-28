@@ -4,7 +4,7 @@ import { CadenceTracker } from './cadenceTracker';
 import { upsideDown } from './framing';
 import { IntensityMeter } from './intensity';
 import { JumpDetector } from './jumpDetector';
-import { DodgeZoneTracker, LanePositionTracker, RingDepthTracker } from './postureSignals';
+import { DodgeZoneTracker, DuckTracker, LanePositionTracker, RingDepthTracker } from './postureSignals';
 import { isGuardingPose, PunchDetector, type PunchDiagnostics } from './punchDetector';
 import { classifyPunch } from './punchClassifier';
 import { type ArmMotion, ArmMotionDetector } from './armMotion';
@@ -47,6 +47,7 @@ export class ActionPipeline {
   private readonly footworkGate = new TrackingGate([11, 12, 23, 24]);
   private readonly ringDepth = new RingDepthTracker();
   private readonly lateralDash = new LateralDashTracker();
+  private readonly duckTracker = new DuckTracker();
   private readonly punchInFlight = new PunchInFlight();
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
@@ -240,6 +241,8 @@ export class ActionPipeline {
       if (depth !== undefined) controls = { ...controls, ringDepthMove: depth, ringDepth01: this.ringDepth.approach01 };
       const dash = this.lateralDash.update(current, punching);
       if (dash !== undefined) controls = { ...controls, lateralDash: dash };
+      const duck = this.duckTracker.update(current, punching);
+      if (duck !== undefined) controls = { ...controls, duck };
     }
 
     return { snapshot: current, events, controls, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked, pending }) => ({ hand, tracked, pending, arbitrating: this.heldSwing?.hand === hand })) } };
@@ -305,5 +308,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.dodge.reset(); this.footworkGate.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.punchInFlight.reset(); this.punches.forEach(({ detector }) => { detector.reset(); }); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.dodge.reset(); this.footworkGate.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.duckTracker.reset(); this.punchInFlight.reset(); this.punches.forEach(({ detector }) => { detector.reset(); }); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }

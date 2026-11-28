@@ -176,6 +176,12 @@ export interface ContinuousControls {
    */
   guard?: boolean;
   /**
+   * Boxing's duck: the shoulder line has dropped well below the player's standing baseline.
+   * Restated every frame; undefined while the camera has no opinion (no baseline yet or
+   * shoulders unreadable) — consumers must read that as not ducking.
+   */
+  duck?: boolean;
+  /**
    * Step in depth relative to the calibrated distance: 1 toward the camera, -1 away, 0 neutral.
    * Restated every frame; undefined while the camera has no opinion.
    */

@@ -168,6 +168,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     for (const event of pipelineRef.current.reset(performance.now())) dispatchEvent(event);
     engineRef.current?.resetLaneZone?.();
     engineRef.current?.setGuard?.(undefined);
+    engineRef.current?.setDuck?.(undefined);
     engineRef.current?.setDepthMove?.(undefined);
     engineRef.current?.setDepthSpeed?.(undefined);
     engineRef.current?.setLateralDash?.(undefined);
@@ -292,6 +293,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setSwingTracking?.(result.swingTracking);
       engineRef.current?.setDodgeZone?.(result.controls.dodgeZone);
       engineRef.current?.setGuard?.(result.controls.guard);
+      engineRef.current?.setDuck?.(result.controls.duck);
       engineRef.current?.setDepthMove?.(result.controls.ringDepthMove);
       engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01);
       engineRef.current?.setLateralDash?.(result.controls.lateralDash);

@@ -11,7 +11,7 @@ import { createFirstPersonGloves, createMiiBoxer, type FirstPersonGloves, type M
 import {
   createOpponentAi,
   IMPACT_GRACE_MS,
-  isDodged,
+  isDodgedTyped,
   MAX_PUNCH_LOOKBACK_MS,
   type OpponentAiState,
   type OpponentAttack,
@@ -202,9 +202,10 @@ export class BoxingGame {
   /** The punch key alternates arms, so two taps are a one-two. */
   private nextKeyHand: Hand = 'right';
   private cameraGuard = false;
+  private cameraDuck = false;
   /** Fight-time bounds of the open counter window, if any. */
   private counter: { fromMs: number; untilMs: number } | undefined;
-  private zoneHistory: { atMs: number; zone: Zone; guarded: boolean; inRange: boolean }[] = [];
+  private zoneHistory: { atMs: number; zone: Zone; guarded: boolean; ducked: boolean; inRange: boolean }[] = [];
   private punchAnimS: Record<Hand, number> = { left: PUNCH_ANIM_S, right: PUNCH_ANIM_S };
   private opponentHitS = 0;
   private hitShakeS = 0;
@@ -289,6 +290,11 @@ export class BoxingGame {
     this.cameraGuard = guard === true;
   }
 
+  /** Like the guard, a duck never latches: a camera with no opinion is not ducking. */
+  setDuck(ducked: boolean | undefined): void {
+    this.cameraDuck = ducked === true;
+  }
+
   /** Like the guard, footwork never latches: no opinion means standing still. */
   setDepthMove(move: -1 | 0 | 1 | undefined): void {
     this.cameraDepth = move ?? 0;
@@ -338,7 +344,7 @@ export class BoxingGame {
     if (event.peakTimestampMs < this.runningSinceWallMs) return;
     if (this.fighting()) {
       const ageMs = Math.min(MAX_PUNCH_LOOKBACK_MS, Math.max(0, performance.now() - event.peakTimestampMs));
-      this.landPunch(event.hand, event.power01, this.fightMs - ageMs);
+      this.landPunch(event.hand, event.power01, this.fightMs - ageMs, applyPlayerPunch, event.punchKind ?? 'unknown', event.punchTargetZone ?? 'unknown');
       return;
     }
     // Confirmation lags the peak: a punch that peaked before the bell still counts. The fight
@@ -346,7 +352,7 @@ export class BoxingGame {
     if (this.gate.phase !== 'running' || this.roundEndedWallMs === undefined) return;
     const beforeBellMs = this.roundEndedWallMs - event.peakTimestampMs;
     if (beforeBellMs < 0 || beforeBellMs > MAX_PUNCH_LOOKBACK_MS) return;
-    this.landPunch(event.hand, event.power01, this.fightMs - beforeBellMs, applyLatePunch);
+    this.landPunch(event.hand, event.power01, this.fightMs - beforeBellMs, applyLatePunch, event.punchKind ?? 'unknown', event.punchTargetZone ?? 'unknown');
   }
 
   onKey(key: string): void {
@@ -395,7 +401,7 @@ export class BoxingGame {
     return this.mode === 'fight' ? this.fighting() : this.mode === 'bag' && this.trainingActive();
   }
 
-  private landPunch(hand: Hand, power01: number, atMs: number, apply = applyPlayerPunch): void {
+  private landPunch(hand: Hand, power01: number, atMs: number, apply = applyPlayerPunch, kind: 'unknown' | 'straight' | 'hook' | 'uppercut' = 'unknown', target: 'unknown' | 'head' | 'body' = 'unknown'): void {
     const sample = [...this.zoneHistory].reverse().find((entry) => entry.atMs <= atMs);
     if (!(sample?.inRange ?? inPunchRange(this.playerPos, this.opponentPos))) {
       this.setFeedback('LONGE DEMAIS', 'neutral');
@@ -403,7 +409,7 @@ export class BoxingGame {
     }
     const decided = this.match.winner;
     const counter = this.counter !== undefined && atMs >= this.counter.fromMs && atMs <= this.counter.untilMs;
-    const result = apply(this.match, power01, openingAt(this.ai, atMs), counter);
+    const result = apply(this.match, power01, openingAt(this.ai, atMs), counter, kind, target);
     this.match = result.state;
     const blocked = result.damage === 0;
     this.spawnOpponentImpact(power01, blocked ? 'block' : 'hit');
@@ -545,7 +551,7 @@ export class BoxingGame {
     this.fightMs += dtMs;
     this.moveFighters(dtMs);
     const inRange = inPunchRange(this.playerPos, this.opponentPos);
-    this.zoneHistory.push({ atMs: this.fightMs, zone: this.zone, guarded: this.guarding(), inRange });
+    this.zoneHistory.push({ atMs: this.fightMs, zone: this.zone, guarded: this.guarding(), ducked: this.cameraDuck, inRange });
     while (this.zoneHistory[0] && this.zoneHistory[0].atMs < this.fightMs - ZONE_HISTORY_MS) this.zoneHistory.shift();
 
     const stepped = stepOpponent(this.ai, this.fightMs, this.zone, this.rng);
@@ -647,7 +653,7 @@ export class BoxingGame {
       this.audio?.whoosh(0.6);
       return;
     }
-    const dodged = isDodged(attack.targetZone, samples.map(({ zone }) => zone));
+    const dodged = isDodgedTyped(attack, samples.map(({ zone }) => zone), samples.map(({ ducked }) => ducked));
     // Same grace as the dodge: fists that come up within the pose-latency window count.
     const guarded = samples.some((sample) => sample.guarded);
     const result = applyOpponentPunch(this.match, { dodged, guarded });
