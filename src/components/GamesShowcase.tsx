@@ -30,8 +30,8 @@ const GAMES: ShowcaseGame[] = [
     id: 'boxing',
     name: { pt: 'Boxe', en: 'Boxing' },
     description: {
-      pt: 'As luzes se acendem, a torcida se ajeita e o adversário já ergueu a guarda. Soque para a frente quando surgir a brecha e incline o corpo para esquivar do que vier. Antes da luta, aprenda no tutorial, treine no saco de pancada ou pratique a esquiva.',
-      en: 'The lights come up, the crowd settles in and your opponent already has their guard up. Punch forward when an opening appears and lean away from whatever comes back. Before the fight, learn in the tutorial, train on the punching bag or practise your evasion.',
+      pt: 'As luzes se acendem, a torcida se ajeita e o adversário já ergueu a guarda. Soque para a frente quando surgir a brecha e incline o corpo para esquivar do que vier. Antes da luta, um aquecimento rápido calibra os seus golpes.',
+      en: 'The lights come up, the crowd settles in and your opponent already has their guard up. Punch forward when an opening appears and lean away from whatever comes back. Before the fight, a quick warm-up calibrates your punches.',
     },
   },
 ];

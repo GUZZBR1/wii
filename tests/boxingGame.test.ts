@@ -708,6 +708,70 @@ describe('BoxingGame tutorial mode', () => {
     expect(hud.status).toBe('Tutorial completo!');
     expect(hud.banner?.title).toBe('Tutorial completo!');
   });
+
+  it('runs the tutorial before fighting when { tutorial: true } and transitions into the fight after 1.8 s', () => {
+    const travels: number[] = [];
+    const { game, run, read } = start({ tutorial: true, onPunchTravel: (travel) => travels.push(travel) });
+    expect(travels).toEqual([0.15]);
+    expect(read().status).toContain('guarda');
+    expect(read().banner?.title).toBe('Segure a guarda alta');
+
+    game.setGuard(true);
+    run(1.2);
+    game.setGuard(false);
+    const at = () => performance.now();
+    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'left')); run(0.2); }
+    for (let i = 0; i < 3; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'head', 'right')); run(0.2); }
+    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'hook', 'head')); run(0.2); }
+    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'uppercut', 'head')); run(0.2); }
+    for (let i = 0; i < 2; i += 1) { game.onAction(tutorialPunch(at(), 'straight', 'body')); run(0.2); }
+    game.setDodgeZone(-1); run(0.3); game.setDodgeZone(0); run(0.3);
+    game.setDodgeZone(1); run(0.3); game.setDodgeZone(0); run(0.3);
+    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
+    game.setDuck(true); run(0.6); game.setDuck(false); run(0.3);
+
+    expect(travels.at(-1)).toBeCloseTo(0.25);
+    expect(read()).toMatchObject({
+      status: 'Tutorial completo!',
+      banner: { title: 'Tutorial completo!' },
+      feedback: { text: 'PRONTO! VAMOS LUTAR' },
+    });
+
+    run(1.5);
+    game.onAction(punch(wallMs));
+    expect(read().label).toBe('100 × 100');
+
+    run(0.4);
+    expect(read().status).toBe('Soque quando a guarda abrir');
+    expect(read().banner).toBeUndefined();
+
+    run(0.7);
+    game.onAction(punch(wallMs));
+    expect(read().label).toBe('100 × 88');
+  });
+
+  it('transitions into the fight after skipping { tutorial: true }', () => {
+    const travels: number[] = [];
+    const { game, run, read } = start({ tutorial: true, onPunchTravel: (travel) => travels.push(travel) });
+    for (let i = 0; i < 21; i += 1) {
+      run(0.1);
+      game.setHandsRaised(false, wallMs);
+    }
+    for (let i = 0; i < 20; i += 1) {
+      run(0.1);
+      game.setHandsRaised(true, wallMs);
+    }
+    game.setHandsRaised(false, wallMs);
+
+    expect(travels.length).toBe(2);
+    expect(read().status).toBe('Tutorial completo!');
+
+    run(1.85);
+    expect(read().status).toBe('Soque quando a guarda abrir');
+    run(0.7);
+    game.onAction(punch(wallMs));
+    expect(read().label).toBe('100 × 88');
+  });
 });
 
 describe('opponent evasion and perception', () => {

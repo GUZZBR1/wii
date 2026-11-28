@@ -62,6 +62,7 @@ import {
 
 const ROUND_BREAK_MS = 3000;
 const MATCH_PAUSE_MS = 5000;
+const TUTORIAL_TRANSITION_MS = 1800;
 const KEY_PUNCH_POWER01 = 0.65;
 /** Matches the camera detector's per-hand refractory; key auto-repeat must not outpunch an arm. */
 const KEY_PUNCH_COOLDOWN_MS = 250;
@@ -123,6 +124,7 @@ const HANDS = ['left', 'right'] as const;
 
 export interface BoxingGameOptions {
   mode?: BoxingMode;
+  tutorial?: boolean;
   holdResult?: boolean;
   opponent?: OpponentProfileId;
   /**
@@ -283,7 +285,6 @@ export class BoxingGame {
     this.holdResult = options.holdResult ?? false;
     this.motionRng = options.motionRng ?? (() => 0);
     this.profile = opponentProfile(options.opponent);
-    this.status = this.initialStatus();
     this.ai = createOpponentAi(this.fightMs, this.rng, this.profile.skill);
     this.scene.background = new THREE.Color(0x0b1522);
 
@@ -309,10 +310,11 @@ export class BoxingGame {
       this.bag = undefined;
     }
     if (this.mode === 'dodge') this.dodgeChallenge = new DodgeChallenge();
-    if (this.mode === 'tutorial') {
+    if (this.mode === 'tutorial' || (this.mode === 'fight' && options.tutorial)) {
       this.tutorial = new BoxingTutorial();
       this.options.onPunchTravel?.(LEARNING_PUNCH_TRAVEL);
     }
+    this.status = this.initialStatus();
 
     this.placeFighters(1);
     this.gloves = createFirstPersonGloves();
@@ -444,7 +446,7 @@ export class BoxingGame {
     if (event.type !== 'punch-start' && event.type !== 'punch') return;
     if (event.type === 'punch-start') {
       if (event.timestampMs < this.runningSinceWallMs || performance.now() - event.timestampMs > MAX_PUNCH_LOOKBACK_MS || this.seenPunchStartIds.has(event.id)) return;
-      if (this.punchingActive() || (this.mode === 'dodge' && this.trainingActive()) || (this.mode === 'tutorial' && this.gate.phase === 'running')) {
+      if (this.punchingActive() || (this.mode === 'dodge' && this.trainingActive()) || (this.tutorial && !this.tutorial.done && this.gate.phase === 'running')) {
         this.seenPunchStartIds.add(event.id);
         if (this.seenPunchStartIds.size > 128) this.seenPunchStartIds.delete(this.seenPunchStartIds.values().next().value!);
         this.punchAnimS[event.hand] = 0;
@@ -459,9 +461,9 @@ export class BoxingGame {
       return;
     }
     if (this.mode === 'dodge') return;
-    if (this.mode === 'tutorial') {
+    if (this.tutorial) {
       const tutorial = this.tutorial;
-      if (!tutorial || tutorial.done || this.gate.phase !== 'running' || this.restartMsLeft > 0) return;
+      if (tutorial.done || this.gate.phase !== 'running' || this.restartMsLeft > 0) return;
       if (event.type === 'punch' && event.punchKind && event.punchKind !== 'unknown') {
         const advanced = tutorial.punch({
           hand: event.hand,
@@ -669,7 +671,7 @@ export class BoxingGame {
       this.stepDodge(dtMs);
       return;
     }
-    if (this.mode === 'tutorial') {
+    if (this.tutorial) {
       this.stepTutorial(dtMs);
       return;
     }
@@ -709,8 +711,15 @@ export class BoxingGame {
     const tutorial = this.tutorial;
     if (!tutorial) return;
     if (tutorial.done) {
+      if (!this.travelAdapted) {
+        this.completeTutorial(tutorial);
+        return;
+      }
       this.restartMsLeft -= dtMs;
-      if (this.restartMsLeft <= 0) this.resetTraining();
+      if (this.restartMsLeft <= 0) {
+        if (this.mode === 'tutorial') this.resetTraining();
+        else this.startFightAfterTutorial();
+      }
       return;
     }
     this.fightMs += dtMs;
@@ -728,16 +737,29 @@ export class BoxingGame {
     this.skipGesture.step(dtMs / 1000, performance.now());
     if (this.skipGesture.progress01 >= 1) {
       tutorial.skip();
-      this.status = 'Tutorial completo!';
     }
-    if (tutorial.done) {
-      if (!this.travelAdapted) {
-        this.travelAdapted = true;
-        this.options.onPunchTravel?.(tutorial.punchTravel ?? PUNCH_THRESHOLDS.confirmForwardTravel);
-      }
-      this.restartMsLeft = MATCH_PAUSE_MS;
-      this.audio?.bell('ko');
+    if (tutorial.done && !this.travelAdapted) {
+      this.completeTutorial(tutorial);
     }
+  }
+
+  private completeTutorial(tutorial: BoxingTutorial): void {
+    this.travelAdapted = true;
+    this.options.onPunchTravel?.(tutorial.punchTravel ?? PUNCH_THRESHOLDS.confirmForwardTravel);
+    this.restartMsLeft = this.mode === 'tutorial' ? MATCH_PAUSE_MS : TUTORIAL_TRANSITION_MS;
+    this.status = 'Tutorial completo!';
+    if (this.mode === 'fight') this.setFeedback('PRONTO! VAMOS LUTAR', 'good');
+    this.audio?.bell('ko');
+  }
+
+  private startFightAfterTutorial(): void {
+    this.tutorial = undefined;
+    this.restartMsLeft = 0;
+    this.match = createBoxing();
+    this.defenseHistory.length = 0;
+    this.resetExchange();
+    this.status = 'Soque quando a guarda abrir';
+    this.audio?.bell('round');
   }
 
   private stepFight(dtMs: number): void {
@@ -1072,7 +1094,7 @@ export class BoxingGame {
   private initialStatus(): string {
     if (this.mode === 'bag') return 'Siga o ritmo do saco';
     if (this.mode === 'dodge') return 'Leia o golpe e ocupe a zona segura';
-    if (this.mode === 'tutorial') return 'Aprenda os golpes no seu ritmo';
+    if (this.tutorial) return 'Aprenda os golpes no seu ritmo';
     return 'Soque quando a guarda abrir';
   }
 
@@ -1233,10 +1255,11 @@ export class BoxingGame {
   private publishHud(): void {
     const training = this.trainingScoreboard();
     const finished = this.mode === 'fight' ? this.match.winner !== undefined : this.trainingFinished();
-    const countdownDetail = this.mode === 'bag' ? 'Prepare o ritmo' : this.mode === 'dodge' ? 'Leia o golpe' : this.mode === 'tutorial' ? 'Aprenda os golpes' : 'Guarda alta';
+    const countdownDetail = this.mode === 'bag' ? 'Prepare o ritmo' : this.mode === 'dodge' ? 'Leia o golpe' : this.tutorial ? 'Aprenda os golpes' : 'Guarda alta';
     const banner = this.gate.phase === 'countdown' ? { title: String(this.gate.count), detail: countdownDetail }
       : this.gate.phase === 'paused' ? { title: 'PAUSA', detail: 'Volte para a câmera ou aperte W A S D' }
       : finished ? { title: this.status }
+      : this.tutorial ? (this.tutorial.done ? { title: 'Tutorial completo!' } : this.tutorial.text)
       : this.mode === 'fight' && this.breakMsLeft > 0 ? { title: `ROUND ${this.match.round}`, detail: 'Intervalo' }
       : this.mode === 'fight' && !this.pendingBell && this.ai.phase.kind === 'windup'
         ? { title: `${{ straight: 'RETO', hook: 'GANCHO', uppercut: 'UPPERCUT' }[this.ai.phase.attackKind]} · ${this.ai.phase.target === 'head' ? 'CABEÇA' : 'CORPO'}` }

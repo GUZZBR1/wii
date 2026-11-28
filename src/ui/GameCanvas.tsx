@@ -4,7 +4,6 @@ import type { AthleticsHudState } from '../games/athletics/AthleticsGame';
 import type { Goal } from '../games/athletics/race';
 import type { ProceduralAudio } from '../games/audio';
 import type { BoxingScoreboard } from '../games/boxing/BoxingGame';
-import { BOXING_MODES, type BoxingMode } from '../games/boxing/boxingModes';
 import { type BoxingSetup, DEFAULT_BOXING_SETUP } from '../games/boxing/boxingSetup';
 import { OPPONENT_PROFILES, type OpponentProfileId } from '../games/boxing/opponentProfiles';
 import type { ArmMotion } from '../kinematics/armMotion';
@@ -60,16 +59,14 @@ export function GameCanvas(props: Props) {
   const racketHandRef = useRef<Hand>('right');
   const rememberRacketHand = useCallback((hand: Hand) => { racketHandRef.current = hand; }, []);
   const [boxing, setBoxing] = useState(props.boxingSetup ?? DEFAULT_BOXING_SETUP);
-  const { mode: boxingMode, opponent: boxingOpponent } = boxing;
+  const { opponent: boxingOpponent } = boxing;
   const changeBoxing = (next: BoxingSetup) => { setBoxing(next); props.onBoxingSetup?.(next); };
-  // The warm-up opens the first match only; playing again goes straight to the court.
+  // The warm-up opens the first match only; playing again goes straight to the court or ring.
   return <GameRun
-    key={`${run}-${boxingMode}-${boxingOpponent}`}
+    key={`${run}-${boxingOpponent}`}
     {...props}
-    boxingMode={boxingMode}
-    onBoxingMode={(mode) => changeBoxing({ ...boxing, mode })}
     boxingOpponent={boxingOpponent}
-    onBoxingOpponent={(opponent) => changeBoxing({ ...boxing, opponent })}
+    onBoxingOpponent={(opponent) => changeBoxing({ ...boxing, mode: 'fight', opponent })}
     tutorial={run === 0}
     initialRacketHand={racketHandRef.current}
     onRacketHand={rememberRacketHand}
@@ -77,11 +74,9 @@ export function GameCanvas(props: Props) {
   />;
 }
 
-function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, onPunchTravel, initialRacketHand, onRacketHand, tutorial, onRestart, boxingMode, onBoxingMode, boxingOpponent, onBoxingOpponent }: Props & {
+function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crossedPose, onExit, onStrokeTravel, onPunchTravel, initialRacketHand, onRacketHand, tutorial, onRestart, boxingOpponent, onBoxingOpponent }: Props & {
   onRestart: () => void;
   tutorial: boolean;
-  boxingMode: BoxingMode;
-  onBoxingMode: (mode: BoxingMode) => void;
   boxingOpponent: OpponentProfileId;
   onBoxingOpponent: (opponent: OpponentProfileId) => void;
 }) {
@@ -201,7 +196,7 @@ function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crosse
                 onStrokeTravel: (travel) => travelRef.current?.(travel),
               })
               : new (await import('../games/boxing/BoxingGame')).BoxingGame(canvas, updateHud, audio, undefined, {
-                mode: boxingMode,
+                tutorial: tutorialRef.current,
                 holdResult: ironActive,
                 opponent: boxingOpponent,
                 motionRng: Math.random,
@@ -226,7 +221,7 @@ function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crosse
       engineRef.current = null;
       onEngine(null);
     };
-  }, [sport, onEngine, audio, goal, boxingMode, boxingOpponent, ironActive]);
+  }, [sport, onEngine, audio, goal, boxingOpponent, ironActive]);
 
   const boxingControls = hud.boxing?.training ? BOXING_TRAINING_CONTROLS[hud.boxing.training.kind] : HUD_TEXT.boxing.controls;
 
@@ -251,13 +246,9 @@ function GameRun({ sport, ironMan, onEngine, tracking, audio, goal = 100, crosse
     </section>}
     {sport === 'boxing' && !ironMan && hud.boxing?.selectionOpen && <fieldset className="game-goals boxing-setup" aria-label="Configuração do boxe">
       <div className="boxing-select-row">
-        <span>MODO</span>
-        {BOXING_MODES.map((mode) => <button key={mode.id} type="button" className="dock-btn" aria-pressed={mode.id === boxingMode} onClick={() => onBoxingMode(mode.id)}>{mode.label}</button>)}
-      </div>
-      {boxingMode === 'fight' && <div className="boxing-select-row">
         <span>ADVERSÁRIO</span>
         {OPPONENT_PROFILES.map((profile) => <button key={profile.id} type="button" className="dock-btn" aria-pressed={profile.id === boxingOpponent} onClick={() => onBoxingOpponent(profile.id)}>{profile.label}</button>)}
-      </div>}
+      </div>
     </fieldset>}
     {hud.feedback && <div key={hud.feedback.id} className={`game-feedback ${('kind' in hud.feedback ? hud.feedback.kind : hud.feedback.tone)}`}>
       <span>{hud.feedback.text}</span>
