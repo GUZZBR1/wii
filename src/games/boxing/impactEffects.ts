@@ -38,7 +38,7 @@ function createSparkTexture(): THREE.DataTexture {
  * A fixed-capacity spark pool. All buffers and slots are allocated up front; hits only overwrite
  * slots, and `update` mutates the same typed arrays in place. Dead sparks are parked below the arena.
  */
-export function createImpactSparkPool(capacity = 48): ImpactSparkPool {
+export function createImpactSparkPool(capacity = 96): ImpactSparkPool {
   if (!Number.isInteger(capacity) || capacity <= 0) throw new RangeError('capacity must be a positive integer');
 
   const positions = new Float32Array(capacity * 3);
@@ -77,7 +77,7 @@ export function createImpactSparkPool(capacity = 48): ImpactSparkPool {
     },
     spawn(x, y, z, power01, kind = 'hit') {
       const power = clamp01(Number.isFinite(power01) ? power01 : 0);
-      const count = 4 + Math.round(power * 3);
+      const count = 6 + Math.round(power * 8);
       burstIndex += 1;
       for (let spark = 0; spark < count; spark += 1) {
         const slot = nextSlot;
@@ -91,7 +91,7 @@ export function createImpactSparkPool(capacity = 48): ImpactSparkPool {
         velocities[offset] = Math.cos(angle) * speed * 0.75;
         velocities[offset + 1] = 0.45 + power * 0.7 + (spark % 2) * 0.2;
         velocities[offset + 2] = Math.sin(angle) * speed * 0.75;
-        lifeSeconds[slot] = 0.18 + power * 0.1 + spark * 0.012;
+        lifeSeconds[slot] = 0.18 + power * 0.1 + spark * 0.006;
 
         const heat = 0.72 + 0.28 * ((spark + burstIndex) % 2);
         if (kind === 'block') {
@@ -126,6 +126,39 @@ export function createImpactSparkPool(capacity = 48): ImpactSparkPool {
         positions[offset + 2] += velocities[offset + 2] * dt;
       }
       if (changed) geometry.attributes.position!.needsUpdate = true;
+    },
+  };
+}
+
+const RING_S = 0.22;
+
+/** The expanding flash of a contact, as in tennis: warm for a clean hit, blue for a block. */
+export function createImpactRing() {
+  const material = new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, depthTest: false, side: THREE.DoubleSide });
+  const root = new THREE.Mesh(new THREE.RingGeometry(0.09, 0.2, 14), material);
+  root.name = 'impact-ring';
+  root.visible = false;
+  root.renderOrder = 4;
+  let ageS = RING_S;
+  let size = 1;
+  return {
+    root,
+    burst(point: { x: number; y: number; z: number }, power01: number, kind: ImpactEffectKind): void {
+      root.position.set(point.x, point.y, point.z);
+      material.color.setHex(kind === 'block' ? 0x7ec8ff : 0xfff6b0);
+      size = 0.6 + clamp01(power01);
+      ageS = 0;
+      root.scale.setScalar(size);
+      material.opacity = 1;
+      root.visible = true;
+    },
+    update(dtSeconds: number, camera: THREE.Camera): void {
+      if (!root.visible) return;
+      ageS += dtSeconds;
+      root.visible = ageS < RING_S;
+      root.scale.setScalar(size * (1 + ageS * 9));
+      material.opacity = Math.max(0, 1 - ageS / RING_S);
+      root.quaternion.copy(camera.quaternion);
     },
   };
 }
