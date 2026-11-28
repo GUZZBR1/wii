@@ -91,6 +91,15 @@ describe.skipIf(recordings.length === 0)('scoreboard for real boxing recordings'
       expect(duckPunches.length).toBeLessThanOrEqual(1);
       // - punches do confirm across the punching windows at camera-realistic rates
       expect(punchSegments.flatMap((row) => row.punches).length).toBeGreaterThanOrEqual(4);
+      // - ducking exists: each duck window detects the deep duck inside it (the windows also
+      //   hold weaves and standing, so a handful of frames is the honest positive), and no other
+      //   segment ever reads as ducked — the validated zero-false-positive contract
+      for (const duckRow of rows.filter((row) => row.kind === 'duck')) {
+        expect(duckRow.duckFrames, 'duck segment').toBeGreaterThanOrEqual(2);
+      }
+      for (const other of rows.filter((row) => row.kind !== 'duck')) {
+        expect(other.duckFrames, `${other.kind} duck-free`).toBe(0);
+      }
     });
   }
 });

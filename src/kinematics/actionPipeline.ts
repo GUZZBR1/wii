@@ -261,9 +261,13 @@ export class ActionPipeline {
       if (depth !== undefined) controls = { ...controls, ringDepthMove: depth, ringDepth01: this.ringDepth.approach01 };
       const dash = this.lateralDash.update(current, punching);
       if (dash !== undefined) controls = { ...controls, lateralDash: dash };
-      const duck = this.duckTracker.update(current, punching);
-      if (duck !== undefined) controls = { ...controls, duck };
     }
+
+    // Outside the footwork gate: a deep duck takes the legs out of the frame, footwork tracking
+    // drops, and a duck gate that depends on it closes exactly when the duck happens. The tracker
+    // normalizes by its own torso length and needs no calibration either.
+    const duck = this.duckTracker.update(current);
+    if (duck !== undefined) controls = { ...controls, duck };
 
     return { snapshot: current, events, controls, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked, pending }) => ({ hand, tracked, pending, arbitrating: this.heldSwing?.hand === hand })) } };
   }

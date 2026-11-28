@@ -572,3 +572,29 @@ A ordem evita o caminho tentador e errado: inventar interações de jogo em cima
 3. **Guarda baixa entra já?** Recomendação: não antes da validação de alvo; guarda alta + recuo bastam para golpes de corpo na primeira iteração.
 4. **Usar BoxingVI sem licença explícita?** Pode ser usado para avaliação interna se o download for acessível, mas nada de redistribuir; pedir/licenciar ou preferir Zenodo CC BY para artefatos públicos.
 5. **Quando endurecer `PunchDetector`?** Somente depois dos contadores de falha mostrarem a causa; não usar a taxa 14/32 como desculpa para ajuste cego.
+
+
+## Resultados da implementação do núcleo (sessão 3)
+
+### Duck: de 0% a detecção correta com zero falsos positivos — RESOLVIDO
+
+O redesign saiu da análise multicanal das duas gravações (subagente independente, validado em ~1750 frames negativos): um duck é **queda do quadril fora da banda de pé E pitch frontal do tronco**, os dois em conjunto. Nenhum dos canais sozinho separa — weave lateral inclina sem derrubar o quadril, inclinar-se à câmera derruba o quadril na imagem sem pitch — mas o E dos dois é limpo. Implementação: `hipDrop` normalizado pelo comprimento cabeça–quadril da baseline rolling (percentil 15 da janela de 8 s — estar de pé é o topo da banda, não depende de imobilidade) ≥ 0,12 E pitch do vetor quadril→ombros em world landmarks ≥ 15°, sustentado 2 frames, histerese de saída.
+
+Medido na gravação real: **4-5 frames positivos por segmento de duck** — exatamente o conteúdo real (as janelas de duck do roteiro são majoritariamente weaves/em pé; os agachamentos profundos duram ~1 s cada) — e **zero frames positivos em todos os outros segmentos** das duas gravações.
+
+Dois achados de fiação, não de sinal:
+
+1. **O gate de footwork matava o duck no momento do duck**: agachamento profundo tira as pernas do quadro → tracking de footwork cai → o gate fecha → detecção morta exatamente quando necessária. O tracker é auto-normalizado e saiu do gate.
+2. **O freeze de `punching` era obsoleto**: protegia contra falso duck por queda de ombro em soco — irrelevante nos canais novos, porque soco não derruba quadril. E pior: onsets phantom na descida do duck congelavam o estado em false pela janela inteira.
+
+### Bloqueio: geometria de cobertura do rosto — RESOLVIDO (precisão)
+
+A banda de altura antiga (-0,35..+0,9) lia positivo até parado. O discriminante medido: na guarda real os dois punhos ficam a 0,33-0,46 larguras de ombro do nariz; em socos e braços soltos passam muito de 0,6. Nova geometria: distância punho-nariz ≤ 0,6 sw + cotovelo dobrado, em world landmarks (independente de vista). Precisão medida: cross/hook/slip/occlusion ~0% de positivos. No coração do segmento de guarda a detecção é contínua; frames de `still` positivos são detecção correta — punhos perto do rosto geometricamente SÃO uma guarda.
+
+### Phantom de soco na guarda: resultado negativo documentado
+
+O veto de distância ao nariz no contato foi implementado e medido: o phantom da guarda tem contato a 1,00 sw do nariz — dentro da faixa dos socos reais (0,75-2,07). Não discrimina. O phantom é movimento genuinamente punch-like (item 4 segue aberto); o floor codifica o teto de 1 phantom por gravação, mesma convenção do onset-race de duck.
+
+### Esquiva lateral (slip): segue aberto
+
+Slips disparam mais em cross (23) e uppercut (18) que nos segmentos de slip (0-15) — o canal lê rotação de soco como esquiva. Calibração pendente, item 3 do plano.
