@@ -1,6 +1,6 @@
-import { Component, lazy, Suspense, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
 import { motion } from 'motion/react';
-import { Link, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import DrawTip from '../components/DrawTip';
 import Intro from '../components/Intro';
 import ScrollbarControl from '../components/ScrollbarControl';
@@ -10,7 +10,11 @@ import PapersPage from '../pages/PapersPage';
 import ProductPage from '../pages/ProductPage';
 import ArenaShell from '../components/ArenaShell';
 import VisionPage from '../pages/VisionPage';
+import { SiteHandProvider, useSiteHand } from './SiteHandContext';
 import { useLang } from '../i18n';
+
+// Loaded only once the camera is asked for, so Three.js stays out of the initial bundle.
+const SiteAsciiHand = lazy(() => import('../components/SiteAsciiHand'));
 
 export default function App() {
   const location = useLocation();
@@ -30,7 +34,7 @@ export default function App() {
   const [introOpen, setIntroOpen] = useState(() => !/^\/app\/?$/.test(location.pathname));
 
   return (
-    <>
+    <SiteHandProvider inArena={inArena}>
       {introOpen && <Intro onDone={() => setIntroOpen(false)} />}
       {!inArena && <DrawTip />}
       {!inArena && <SiteHeader
@@ -64,6 +68,34 @@ export default function App() {
         </Routes>
       </motion.div>
       {!inArena && <ScrollbarControl />}
+      {!inArena && <SiteHandControls />}
+    </SiteHandProvider>
+  );
+}
+
+/** The 3D hand pointer and camera switch for every site page: hover and pinch-click, hold a fist to go back. */
+function SiteHandControls() {
+  const { tr } = useLang();
+  const { camera, stopCamera } = useSiteHand();
+  const navigate = useNavigate();
+  const onProduct = /^\/product\/?$/.test(useLocation().pathname);
+  const back = useCallback(() => {
+    // react-router numbers the entries it created; at 0, going back would leave the site.
+    if (window.history.state?.idx > 0) navigate(-1);
+  }, [navigate]);
+  if (camera === 'off') return null;
+  return (
+    <>
+      <Suspense fallback={null}>
+        <SiteAsciiHand onProduct={onProduct} onBack={back} />
+      </Suspense>
+      {/* /product has its own camera button under the stage. */}
+      {!onProduct && (
+        <button type="button" className="product-status site-camera-off" onClick={stopCamera}>
+          <span className={camera === 'on' ? 'status-dot is-live' : 'status-dot'} />
+          {tr('Desligar câmera', 'Turn camera off')}
+        </button>
+      )}
     </>
   );
 }
