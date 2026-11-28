@@ -51,9 +51,12 @@ export class PoseRecorder {
   }
 }
 
-/** GPU runs the full model and CPU the lite one; the recording must say which it measured. */
+/** The recording must say which model measured it — lite by default on both delegates, full with `?modelo=full`. */
 export async function downloadRecording(recorder: PoseRecorder, delegate: Delegate, prefix = 'corrida', photos: readonly Photo[] = []): Promise<void> {
-  const modelName = delegate === 'GPU' ? `pose_landmarker_full.${POSE_FULL_MODEL_SHA8}.task` : `pose_landmarker_lite.${POSE_MODEL_SHA8}.task`;
+  // The model in use tracks `?modelo=full` on either delegate — the lite default applies
+  // to GPU too, so the delegate alone no longer says which model produced the frames.
+  const useFull = new URLSearchParams(globalThis.location?.search ?? '').get('modelo') === 'full';
+  const modelName = useFull ? `pose_landmarker_full.${POSE_FULL_MODEL_SHA8}.task` : `pose_landmarker_lite.${POSE_MODEL_SHA8}.task`;
   const sums = await (await fetch(`${import.meta.env.BASE_URL}mediapipe/models/SHA256SUMS`)).text();
   const sha = sums.split(/\r?\n/).find((line) => line.trim().endsWith(modelName))?.trim().split(/\s+/)[0];
   if (!sha) throw new Error(`Modelo ${modelName} não está no SHA256SUMS.`);
