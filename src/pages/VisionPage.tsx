@@ -13,8 +13,8 @@ const PARAGRAPHS: Bilingual[] = [
     en: 'We play with our bodies before learning any rule. Before memorizing buttons, reading tutorials or plugging in a console, there is a simple gesture: running, jumping, hitting the ball.',
   },
   {
-    pt: 'Wii transforma esse gesto em controle em tempo real. A webcam acompanha o seu corpo; visão computacional estima a pose e a converte em ações — andar, saltar, trocar de raia, dar uma raquetada — sem controle, sem cabo e sem instalar nada.',
-    en: 'Wii turns that gesture into real-time control. The webcam follows your body; computer vision estimates your pose and converts it into actions — walking, jumping, switching lanes, swinging a racket — with no controller, no cable and nothing to install.',
+    pt: 'NeverGear transforma esse gesto em controle em tempo real. A webcam acompanha o seu corpo; visão computacional estima a pose e a converte em ações — andar, saltar, trocar de raia, dar uma raquetada — sem controle, sem cabo e sem instalar nada.',
+    en: 'NeverGear turns that gesture into real-time control. The webcam follows your body; computer vision estimates your pose and converts it into actions — walking, jumping, switching lanes, swinging a racket — with no controller, no cable and nothing to install.',
   },
   {
     pt: 'A visão é que o corpo não seja só um sensor. Uma corrida no lugar vira velocidade, um salto vira obstáculo vencido, uma raquetada vira ponto. Tudo roda no navegador, e o vídeo é processado no seu dispositivo, sem sair dele.',

@@ -44,7 +44,7 @@ export default function HomePage() {
   }, []);
 
   return (
-    <main className="home-stage" id="page-content" aria-label={tr('Wii, início', 'Wii, home')}>
+    <main className="home-stage" id="page-content" aria-label={tr('NeverGear, início', 'NeverGear, home')}>
       <section className="archive-gallery" aria-label={tr('Marcos do corpo e do movimento como controle', 'Milestones of body and motion as input')}>
         {historicDrawings.map((drawing, index) => (
           <a

@@ -120,7 +120,7 @@ export function buildPdf(title: string, blocks: PdfBlock[]): Blob {
     objects[streamNo] = `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`;
   });
   const infoNo = firstPageObj + pages.length * 2;
-  objects[infoNo] = `<< /Title (${escapePdf(encode(title))}) /Producer (Wii) >>`;
+  objects[infoNo] = `<< /Title (${escapePdf(encode(title))}) /Producer (NeverGear) >>`;
 
   // Monta o arquivo; cada caractere e um byte (tudo esta em Latin-1).
   let body = '%PDF-1.4\n%âãÏÓ\n';

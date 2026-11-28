@@ -14,7 +14,7 @@ export default function ArenaShell() {
 
   useEffect(() => {
     const siteTitle = document.title;
-    document.title = 'Wii Web Sports — Arena';
+    document.title = 'NeverGear Sports — Arena';
     return () => { document.title = siteTitle; };
   }, []);
 

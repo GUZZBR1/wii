@@ -9,9 +9,10 @@ const SPORTS: { id: Sport; name: string; hint: string }[] = [
   { id: 'boxing', name: 'Boxe', hint: 'Soque para a frente e incline o corpo para esquivar' },
 ];
 
-const channelSports: Partial<Record<number, (typeof SPORTS)[number]>> = { 1: SPORTS[0], 11: SPORTS[1], 2: SPORTS[2] };
+// Só os canais que abrem algo: o desafio na frente, atletismo à direita, boxe atrás e tênis à esquerda.
+const channelSports: Partial<Record<number, (typeof SPORTS)[number]>> = { 1: SPORTS[0], 2: SPORTS[2], 3: SPORTS[1] };
 
-const SLOTS = Array.from({ length: 12 }, (_, i) => `slot-${i}`);
+const SLOTS = ['iron-man', 'right', 'back', 'left'];
 const GRID_MS = 1100; // a grade fica à vista antes de virar roda
 const RING_TRANSITION_MS = 900;
 const HAND_SAMPLE_STALE_MS = 150;
@@ -53,22 +54,22 @@ function usePrefersReducedMotion(): boolean {
 }
 
 
-/** Grade 4 x 3, ou roda em elipse com o canal da vez grande e à frente. */
+/** Fileira de entrada, ou roda em elipse com o canal da vez grande e à frente. */
 function placement(index: number, turn: number, ring: boolean): CSSProperties {
-  if (!ring) return { left: `${14 + 24 * (index % 4)}%`, top: `${18 + 32 * Math.floor(index / 4)}%`, transform: 'translate(-50%, -50%) scale(1)' };
+  if (!ring) return { left: `${14 + 24 * index}%`, top: '50%', transform: 'translate(-50%, -50%) scale(1)' };
   const angle = ((index - turn) / SLOTS.length) * Math.PI * 2;
   const depth = (Math.cos(angle) + 1) / 2; // 1 = frente
   return {
     left: `${50 + Math.sin(angle) * 37}%`,
     top: `${24 + depth * 34}%`,
-    transform: `translate(-50%, -50%) scale(${(.4 + .4 * depth ** 2 + .8 * depth ** 24).toFixed(3)})`,
+    transform: `translate(-50%, -50%) scale(${(.6 + .2 * depth ** 2 + .8 * depth ** 24).toFixed(3)})`,
     opacity: .45 + .55 * depth,
     zIndex: Math.round(depth * 20),
   };
 }
 
 function Logo() {
-  return <span className="logo"><b>Wii</b> <i>Sports</i></span>;
+  return <span className="logo"><img className="brand-logo" src="/images/nevergear-logo.png" alt="NeverGear" width={1200} height={234} /> <i>Sports</i></span>;
 }
 
 function Clock() {
@@ -224,11 +225,11 @@ export function HomeMenu({ onPick, onIronMan, onMii, exit, handStore, rotationGa
       {SLOTS.map((slot, index) => {
         const sport = channelSports[index];
         return <button key={slot} ref={channelRef(index)} type="button"
-          className={`channel ${index === 0 ? 'sports' : sport ? `sport-channel ${sport.id}` : 'empty'}`}
+          className={`channel ${index === 0 ? 'sports' : `sport-channel ${sport?.id}`}`}
           style={placement(index, turn, ring)}
-          onClick={() => sport || index === 0 ? selectChannel(index) : bring(index)}
-          aria-label={index === 0 ? 'Wii Sports: desafio Iron Man' : sport ? sport.name : `Trazer o canal vazio ${index} para a frente`}>
-          {index === 0 ? <Logo /> : sport ? <><span className="channel-scene" /><span className="channel-name">{sport.name}</span></> : 'Wii'}
+          onClick={() => selectChannel(index)}
+          aria-label={index === 0 ? 'NeverGear Sports: desafio Iron Man' : sport?.name}>
+          {index === 0 ? <Logo /> : <><span className="channel-scene" /><span className="channel-name">{sport?.name}</span></>}
         </button>;
       })}
       <button type="button" className="ring-arrow left" onClick={() => rotateBy(-1)} aria-label="Girar para a esquerda">◀</button>
@@ -238,7 +239,7 @@ export function HomeMenu({ onPick, onIronMan, onMii, exit, handStore, rotationGa
       <svg viewBox="0 0 1000 200" preserveAspectRatio="none" aria-hidden="true">
         <path d="M0 20H150C250 20 270 120 380 120H620C730 120 750 20 850 20H1000V200H0Z" />
       </svg>
-      <span className="wii-title">Wii Menu</span>
+      <span className="wii-title">Menu</span>
       <Clock />
       {onMii && <button type="button" className="wii-btn wii-mii-button" onClick={onMii}>Mii</button>}
       {exit}

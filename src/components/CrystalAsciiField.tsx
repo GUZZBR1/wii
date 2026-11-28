@@ -46,7 +46,6 @@ export default function CrystalAsciiField() {
     let pointerY = -1;
     let pointerDown = false;
     let lastPulse = 0;
-    let darkTheme = document.body.classList.contains('dark');
     let crystalMask = new Float32Array(4);
     let crystalFacet = new Float32Array(4);
     let crystalEdge = new Float32Array(4);
@@ -146,12 +145,11 @@ export default function CrystalAsciiField() {
       spriteH = Math.ceil(cellH * dpr * 1.4);
       atlas.width = spriteW * GLYPHS.length;
       atlas.height = spriteH * LEVELS * 2;
-      const dark = darkTheme;
       atlasCtx.font = `${Math.min(cellH * 0.9, cellW * 1.55) * dpr}px "DM Mono", monospace`;
       atlasCtx.textBaseline = 'middle';
       for (let accent = 0; accent < 2; accent++) {
         for (let level = 0; level < LEVELS; level++) {
-          atlasCtx.fillStyle = accent ? (dark ? '#b5d9d8' : '#167e9a') : (dark ? '#e5e9e1' : '#26343b');
+          atlasCtx.fillStyle = accent ? ('#167e9a') : ('#26343b');
           atlasCtx.globalAlpha = (0.30 + level * 0.14) * (accent ? 0.9 : 1);
           for (let glyph = 1; glyph < GLYPHS.length; glyph++) {
             atlasCtx.fillText(GLYPHS[glyph], glyph * spriteW, (accent * LEVELS + level + 0.5) * spriteH);
@@ -189,11 +187,6 @@ export default function CrystalAsciiField() {
     resize.observe(surface);
     const intersection = new IntersectionObserver((entries) => { visible = entries[0]?.isIntersecting ?? false; sync(); });
     intersection.observe(surface);
-    const theme = new MutationObserver(() => {
-      const next = document.body.classList.contains('dark');
-      if (next !== darkTheme) { darkTheme = next; layout(); }
-    });
-    theme.observe(document.body, { attributes: true, attributeFilter: ['class'] });
     host.addEventListener('pointermove', onMove);
     host.addEventListener('pointerleave', onLeave);
     host.addEventListener('pointerdown', onDown);
@@ -209,7 +202,6 @@ export default function CrystalAsciiField() {
       if (frame) cancelAnimationFrame(frame);
       resize.disconnect();
       intersection.disconnect();
-      theme.disconnect();
       host.removeEventListener('pointermove', onMove);
       host.removeEventListener('pointerleave', onLeave);
       host.removeEventListener('pointerdown', onDown);

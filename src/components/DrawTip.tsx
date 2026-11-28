@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { useLang } from '../i18n';
 
-// Frases dos balões: cada ocorrência de "Wii" ganha a próxima frase ainda não usada.
+// Frases dos balões: cada ocorrência de "NeverGear" ganha a próxima frase ainda não usada.
 const TIPS: { pt: string; en: string }[] = [
   { pt: 'Seu corpo é o controle.', en: 'Your body is the controller.' },
   { pt: 'Sem fio, sem controle, só você.', en: 'No cable, no controller, just you.' },
@@ -29,7 +29,7 @@ const TIPS: { pt: string; en: string }[] = [
   { pt: 'Hoje é dia de bater o seu recorde.', en: 'Today is a good day to beat your record.' },
 ];
 
-const WORD = 'Wii';
+const WORD = 'NeverGear';
 
 type Hit = { rect: DOMRect; node: Node; offset: number };
 
@@ -46,7 +46,7 @@ function caretAt(x: number, y: number): { node: Node; offset: number } | null {
   return r ? { node: r.startContainer, offset: r.startOffset } : null;
 }
 
-// Acha a palavra "Wii" sob o ponteiro, em qualquer texto da página (sem marcar nada no HTML).
+// Acha a palavra "NeverGear" sob o ponteiro, em qualquer texto da página (sem marcar nada no HTML).
 function findWord(x: number, y: number, target: EventTarget | null): Hit | null {
   const el = target instanceof Element ? target : null;
   if (!el || el.closest('.draw-tip, .wordmark, input, textarea, canvas')) return null;

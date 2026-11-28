@@ -1,6 +1,7 @@
 import { Component, lazy, Suspense, useCallback, useEffect, useMemo, useState, type ErrorInfo, type ReactNode } from 'react';
 import { motion } from 'motion/react';
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import { afterArrival } from '../lib/arrival';
 import DrawTip from '../components/DrawTip';
 import Intro from '../components/Intro';
 import LocalErrorBoundary from '../components/LocalErrorBoundary';
@@ -34,6 +35,16 @@ export default function App() {
   const inArena = /^\/app\/?$/.test(location.pathname); // a arena e '/app'
   // A abertura toca a cada carregamento da pagina (nao a cada navegacao interna); a arena fica de fora.
   const [introOpen, setIntroOpen] = useState(() => !/^\/app\/?$/.test(location.pathname));
+
+  // A praça de Miis (WebGL) só monta depois que a volta da arena termina.
+  const [plazaReady, setPlazaReady] = useState(false);
+  useEffect(() => {
+    if (inArena) {
+      setPlazaReady(false);
+      return;
+    }
+    return afterArrival(() => setPlazaReady(true));
+  }, [inArena]);
 
   return (
     <SiteHandProvider inArena={inArena}>
@@ -70,7 +81,7 @@ export default function App() {
         </Routes>
       </motion.div>
       {!inArena && <ScrollbarControl />}
-      {!inArena && !introOpen && (
+      {!inArena && !introOpen && plazaReady && (
         <Suspense fallback={null}>
           <SiteMiiPlaza />
         </Suspense>
