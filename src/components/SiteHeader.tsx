@@ -50,7 +50,7 @@ function compactFontSize() {
 
 function readSavedTheme(): boolean {
   try {
-    return localStorage.getItem('wii-theme') === 'dark';
+    return localStorage.getItem('nevergear-theme') === 'dark';
   } catch {
     return false;
   }
@@ -127,7 +127,6 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
   const productX = 0;
   const webcamOpacity = useTransform(scrollY, [0, 40], [1, 0]);
   // Quando a webcam (o pingo do último i na home) some, o pingo de verdade aparece no lugar.
-  const dotOpacity = useTransform(webcamOpacity, (value) => 1 - value);
   const inverseBrandScale = useTransform(() => 1 / brandScale.get());
   const glassAmount = useTransform(progress, [0, 0.22], [0, 44]);
   const borderAmount = useTransform(progress, [0, 0.18], [0, 11]);
@@ -277,7 +276,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
       dark ? '#1b1c19' : '#f4f8fa',
     );
     try {
-      localStorage.setItem('wii-theme', dark ? 'dark' : 'light');
+      localStorage.setItem('nevergear-theme', dark ? 'dark' : 'light');
     } catch {
       // The visual toggle still works when browser storage is unavailable.
     }
@@ -424,14 +423,12 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
           <Link
             className="wordmark relative z-[1] block font-sans font-extrabold leading-[.83] tracking-[-.035em] text-ink no-underline"
             to="/"
-            aria-label={tr('Wii, início', 'Wii, home')}
+            aria-label={tr('Nevergear, início', 'Nevergear, home')}
           >
-            {Array.from('Wiı').map((letter) => (
-              <span className="wordmark-letter" aria-hidden="true" key={letter}>
+            {Array.from('Nevergear').map((letter, index) => (
+              // biome-ignore lint/suspicious/noArrayIndexKey: fixed letters, never reordered
+              <span className="wordmark-letter" aria-hidden="true" key={index}>
                 {letter}
-                {letter === 'ı' && (
-                  <motion.span className="wordmark-dot" style={{ opacity: !isHome ? 1 : reduceMotion ? (isScrolled ? 1 : 0) : dotOpacity }}>i</motion.span>
-                )}
               </span>
             ))}
           </Link>
@@ -456,11 +453,11 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
                 <motion.button
                   className="webcam-trigger"
                   type="button"
-                  aria-label={tr('Sobre a webcam do Wii', 'About the Wii webcam')}
+                  aria-label={tr('Sobre a webcam do Nevergear', 'About the Nevergear webcam')}
                   aria-controls="webcam-info-card"
                   aria-expanded={showWebcamCard}
                   tabIndex={isScrolled ? -1 : 0}
-                  title={tr('Sobre a webcam do Wii', 'About the Wii webcam')}
+                  title={tr('Sobre a webcam do Nevergear', 'About the Nevergear webcam')}
                   onFocus={() => {
                     cancelHoverClose();
                     setBrandFocused(false);
@@ -490,7 +487,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
               <motion.aside
                 id="webcam-info-card"
                 className="webcam-card-anchor definition-card"
-                aria-label={tr('Sobre a webcam do Wii', 'About the Wii webcam')}
+                aria-label={tr('Sobre a webcam do Nevergear', 'About the Nevergear webcam')}
                 aria-hidden={!showWebcamCard}
                 initial={false}
                 animate={showWebcamCard ? 'visible' : 'hidden'}
@@ -514,7 +511,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
                 <p className="definition-phrase">
                   {tr('Acompanha o seu corpo e transforma cada movimento em comando, em tempo real. O vídeo é processado no seu dispositivo.', 'Follows your body and turns every movement into a command, in real time. Video is processed on your device.')}
                 </p>
-                <p className="definition-note">{tr('O controle do Wii.', 'The Wii controller.')}</p>
+                <p className="definition-note">{tr('O controle do Nevergear.', 'The Nevergear controller.')}</p>
               </motion.aside>
             </div>
           )}
@@ -552,7 +549,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
         <motion.div className="definition-card-anchor" style={{ x: '-50%', scale: inverseBrandScale }}>
           <motion.aside
             className="definition-card border border-white/70 bg-paper/65 p-5 text-ink shadow-[0_18px_54px_rgba(36,37,32,.1)] backdrop-blur-2xl"
-            aria-label={tr('Definição de Wii', 'Definition of Wii')}
+            aria-label={tr('Definição de Nevergear', 'Definition of Nevergear')}
             aria-hidden={!showDefinition}
             initial={false}
             animate={showDefinition ? 'visible' : 'hidden'}
@@ -567,7 +564,7 @@ export default function SiteHeader({ onRepeatProduct }: SiteHeaderProps) {
             }}
             transition={{ type: 'spring', stiffness: 320, damping: 28 }}
           >
-            <h1>wii</h1>
+            <h1>nevergear</h1>
             <p className="definition-kind"><em>{tr('arcade', 'arcade')}</em> · {tr('jogo no navegador', 'browser game')}</p>
             <p className="definition-phrase">
               {tr('Uma arena no navegador em que o corpo é o controle: corrida de obstáculos e tênis jogados por pose, só com a webcam.', 'A browser arena where the body is the controller: hurdle running and tennis played by pose, with just a webcam.')}

@@ -1,4 +1,4 @@
-import type { CalibrationProfile, ContinuousControls, Hand, PoseSnapshot, SportActionEvent, TrackingState } from '@wii/spatial-core';
+import type { CalibrationProfile, ContinuousControls, Hand, PoseSnapshot, SportActionEvent, TrackingState } from '@nevergear/spatial-core';
 import { LateralDashTracker, PunchInFlight } from './boxingLocomotion';
 import { CadenceTracker } from './cadenceTracker';
 import { upsideDown } from './framing';

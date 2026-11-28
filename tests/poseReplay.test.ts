@@ -6,8 +6,8 @@ import {
   createPoseRecording,
   parsePoseRecording,
   serializePoseRecording,
-} from '@wii/spatial-core';
-import type { PoseRecording } from '@wii/spatial-core';
+} from '@nevergear/spatial-core';
+import type { PoseRecording } from '@nevergear/spatial-core';
 import { calibration, pose } from './fixtures/syntheticPose';
 
 const lostPose = (timestampMs: number) => ({

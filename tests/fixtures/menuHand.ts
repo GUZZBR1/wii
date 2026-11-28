@@ -1,4 +1,4 @@
-import type { Point3 } from '@wii/spatial-core';
+import type { Point3 } from '@nevergear/spatial-core';
 import type { MenuHandSnapshot } from '../../src/kinematics/handCursor';
 
 export interface SyntheticHandOptions {

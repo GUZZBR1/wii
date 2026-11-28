@@ -86,7 +86,7 @@ const OPPONENT_HIT_S = 0.35;
 const ZONE_WIDTH = 0.7;
 const ZONE_HISTORY_MS = 1000;
 const RING_CANVAS_Y = 1.05;
-/** Over-the-shoulder view, as in Wii Sports: behind and above the player's own boxer. */
+/** Over-the-shoulder view, as in Nevergear Sports: behind and above the player's own boxer. */
 const CAMERA_Y = RING_CANVAS_Y + 2.9;
 const CAMERA_BACK_M = 1.85;
 /** The view follows only part of a dodge, so the boxer visibly moves within the frame. */

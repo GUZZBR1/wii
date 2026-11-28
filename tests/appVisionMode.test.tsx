@@ -17,7 +17,7 @@ const captures = vi.hoisted(() => ({
   posePauses: 0,
 }));
 
-vi.mock('../src/ui/WiiSplash', () => ({ WiiSplash: () => null }));
+vi.mock('../src/ui/NevergearSplash', () => ({ NevergearSplash: () => null }));
 vi.mock('../src/ui/PoseOverlay', () => ({ drawPose: vi.fn() }));
 
 vi.mock('../src/ui/GameCanvas', async () => {

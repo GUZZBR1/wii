@@ -1,5 +1,5 @@
-import type { CalibrationProfile, PoseSnapshot } from '@wii/spatial-core';
-import { OneEuroFilter } from '@wii/spatial-core';
+import type { CalibrationProfile, PoseSnapshot } from '@nevergear/spatial-core';
+import { OneEuroFilter } from '@nevergear/spatial-core';
 import { clamp, median, midpoint } from './math';
 
 const MIN_SHOULDER_WIDTH = 0.03;

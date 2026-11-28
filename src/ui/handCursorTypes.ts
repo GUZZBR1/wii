@@ -3,7 +3,7 @@ import type {
   RotationalFlickPhase,
   RotationalFlickRejection,
   RotationalHandShape,
-} from '@wii/spatial-core';
+} from '@nevergear/spatial-core';
 
 /** Contrato de entrada do cursor de mão. Quem o preenche é o pipeline de CV; a UI só consome. */
 export type HandCursorInput = {

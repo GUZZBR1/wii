@@ -296,7 +296,6 @@ body.dark .games-showcase { background: #252622; box-shadow: inset 0 30px 32px -
   transition: color 260ms ease;
 }
 /* Teste: cada letra da marca da um pulinho quando o mouse passa por ela. */
-.wordmark-dot { position: absolute; top: 0; left: 0; }
 .wordmark-letter {
   position: relative;
   display: inline-block;
@@ -852,7 +851,7 @@ body.intro-active :is(.archive-trace rect, .archive-art-surface, .archive-art-su
 }
 @keyframes intro-still { 0%, 100% { opacity: 0; } 15%, 90% { opacity: 1; } }
 
-/* Tema claro com um toque do Wii: branco azulado, linhas finas de TV e vidro com borda azul. O escuro não muda. */
+/* Tema claro com um toque do Nevergear: branco azulado, linhas finas de TV e vidro com borda azul. O escuro não muda. */
 body:not(.dark) { background: repeating-linear-gradient(#0000 0 3px, #ffffff8c 3px 4px) fixed, linear-gradient(#ffffff, var(--paper) 45%, #e3f3fb) fixed, var(--paper); }
 body:not(.dark) .nav-shell { border-color: #34beed80; box-shadow: 0 6px 20px rgba(26, 143, 196, .14), inset 0 1px #fff; }
 body:not(.dark) .nav-link::after { background: #34beed; }

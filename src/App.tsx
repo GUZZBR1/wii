@@ -29,9 +29,9 @@ import { HAND_IDLE, type HandCursorInput } from './ui/handCursorTypes';
 import type { CarouselStepResult } from './ui/carouselController';
 import { drawPose } from './ui/PoseOverlay';
 import { EXIT_DODGE_SW } from './kinematics/postureSignals';
-import { HomeMenu } from './ui/WiiMenu';
+import { HomeMenu } from './ui/NevergearMenu';
 import { MiiCreator } from './ui/MiiCreator';
-import { WiiSplash } from './ui/WiiSplash';
+import { NevergearSplash } from './ui/NevergearSplash';
 import './arena.css';
 
 type Screen = 'home' | 'lobby' | 'ironman' | 'play' | 'summary' | 'mii';
@@ -43,7 +43,7 @@ const ACTIVITY_LABEL: Record<ActivityKind, string> = {
   swinging: 'RAQUETE',
   striking: 'LUTA',
 };
-const MUTE_STORAGE_KEY = 'wii-web-sports.muted.v1';
+const MUTE_STORAGE_KEY = 'nevergear-web-sports.muted.v1';
 
 const inHandMenu = (screen: Screen) => screen !== 'play';
 const modeForScreen = (screen: Screen): VisionMode => (inHandMenu(screen) ? 'hand' : 'pose');
@@ -584,14 +584,14 @@ export default function App({ exit }: { exit?: ReactNode }) {
 
     {screen === 'summary' && ironResults && <section className="menu iron-summary" aria-label="Resumo do Iron Man">
       <div className="iron-summary-card">
-        <span className="iron-eyebrow">Wii Sports</span>
+        <span className="iron-eyebrow">Nevergear Sports</span>
         <h1>Iron Man concluído!</h1>
         <p>Você completou as três modalidades.</p>
         <ol>{ironResults.map((result) => <li key={result.sport}>
           <strong>{result.sport === 'athletics' ? 'Atletismo · 100 m' : result.sport === 'tennis' ? 'Tênis' : 'Boxe'}</strong>
           <span>{result.detail}</span>
         </li>)}</ol>
-        <button type="button" className="wii-btn" onClick={exitGame}>Voltar ao menu</button>
+        <button type="button" className="nevergear-btn" onClick={exitGame}>Voltar ao menu</button>
       </div>
     </section>}
     {screen === 'play' && ironResults && <div className="iron-progress">IRON MAN · ETAPA {ironResults.length + 1} DE 3</div>}
@@ -613,6 +613,6 @@ export default function App({ exit }: { exit?: ReactNode }) {
     />
     {showPerf && <PerfMeter videoRef={videoRef} poseFrames={poseFramesRef} poseDelay={poseDelayRef} />}
     {veil}
-    {splash && <WiiSplash onDone={endSplash} />}
+    {splash && <NevergearSplash onDone={endSplash} />}
   </div>;
 }

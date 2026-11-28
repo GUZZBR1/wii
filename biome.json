@@ -42,7 +42,7 @@
               "options": {
                 "paths": {
                   "@mediapipe/tasks-vision": "Kinematics must stay independent of browser inference runtimes.",
-                  "@wii/spatial-core": {
+                  "@nevergear/spatial-core": {
                     "allowImportNames": [
                       "CalibrationProfile",
                       "ContinuousControls",
@@ -75,7 +75,7 @@
                   {
                     "group": [
                       "@mediapipe/tasks-vision/**",
-                      "@wii/spatial-core/**",
+                      "@nevergear/spatial-core/**",
                       "**/packages/core/**",
                       "react/**",
                       "react-dom/**",

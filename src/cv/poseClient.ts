@@ -1,9 +1,9 @@
-import { PoseClient as CorePoseClient } from '@wii/spatial-core';
-import type { Delegate, PoseClientAssets, PoseClientCallbacks as CoreCallbacks } from '@wii/spatial-core';
+import { PoseClient as CorePoseClient } from '@nevergear/spatial-core';
+import type { Delegate, PoseClientAssets, PoseClientCallbacks as CoreCallbacks } from '@nevergear/spatial-core';
 import { preferredDelegate } from './delegate';
 import { MEDIAPIPE_WASM_VERSION, POSE_FULL_MODEL_SHA8, POSE_MODEL_SHA8 } from './mediapipeAssets';
 
-export type { PoseClientCallbacks } from '@wii/spatial-core';
+export type { PoseClientCallbacks } from '@nevergear/spatial-core';
 
 function defaultPoseAssets(): PoseClientAssets {
   const base = `${import.meta.env.BASE_URL}mediapipe`;

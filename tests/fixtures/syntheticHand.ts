@@ -1,4 +1,4 @@
-import type { HandObservation, HandSnapshot } from '@wii/spatial-core';
+import type { HandObservation, HandSnapshot } from '@nevergear/spatial-core';
 
 export interface SyntheticHandOptions {
   scale?: number;

@@ -1,5 +1,5 @@
 import type { CalibrationProfile, Hand, Point3, PoseSnapshot } from './protocol';
-import { OneEuroFilter } from '@wii/spatial-core';
+import { OneEuroFilter } from '@nevergear/spatial-core';
 import { bodyLocalPoint } from '../kinematics/bodyFrame';
 import { EXIT_LANE_SW } from '../kinematics/postureSignals';
 import { clamp, distance3, isFinitePoint, landmarkConfidence, median, midpoint } from '../kinematics/math';

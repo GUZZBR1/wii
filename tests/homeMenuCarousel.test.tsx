@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CarouselStepResult } from '../src/ui/carouselController';
 import { HAND_IDLE, type HandCursorInput } from '../src/ui/handCursorTypes';
-import { HomeMenu } from '../src/ui/WiiMenu';
+import { HomeMenu } from '../src/ui/NevergearMenu';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -79,7 +79,7 @@ describe('HomeMenu rotational carousel integration', () => {
     act(() => root.unmount());
   });
 
-  it('starts Iron Man from Wii Sports', () => {
+  it('starts Iron Man from Nevergear Sports', () => {
     mockReducedMotion();
     const onPick = vi.fn();
     const onIronMan = vi.fn();

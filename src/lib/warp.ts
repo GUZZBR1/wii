@@ -3,7 +3,7 @@
 // em branco, emendando no flash da arena.
 const DURATION = 2300;
 const STREAKS = 620;
-// Paleta do projeto (design.md): azuis do site, com o laranja do Wii em poucos riscos.
+// Paleta do projeto (design.md): azuis do site, com o laranja do Nevergear em poucos riscos.
 const COLORS = ['#34beed', '#34beed', '#34beed', '#1a8fc4', '#1a8fc4', '#ade4f8', '#0b6f9e', '#f59b3c'];
 const FAR = 3;
 const NEAR = .06;

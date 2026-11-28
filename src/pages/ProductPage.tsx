@@ -35,7 +35,7 @@ export default function ProductPage() {
   return (
     <main className="product-page" id="page-content">
       <section className="product-content">
-        <Link className="product-status product-emerge group" style={{ '--emerge': 300 } as CSSProperties} to="/app" onClick={enterArena} aria-label={tr('Em construção. Abrir a arena Wii.', 'Under construction. Open the Wii arena.')}>
+        <Link className="product-status product-emerge group" style={{ '--emerge': 300 } as CSSProperties} to="/app" onClick={enterArena} aria-label={tr('Em construção. Abrir a arena Nevergear.', 'Under construction. Open the Nevergear arena.')}>
           <span className="status-dot" />
           {tr('em construção', 'under construction')}
           <span className="status-arrow" aria-hidden="true">↗</span>

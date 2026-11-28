@@ -1,4 +1,4 @@
-import { parsePoseRecording } from '@wii/spatial-core';
+import { parsePoseRecording } from '@nevergear/spatial-core';
 import { describe, expect, it } from 'vitest';
 import { ArmMotionDetector } from '../src/kinematics/armMotion';
 import { pose } from './fixtures/syntheticPose';

@@ -1,4 +1,4 @@
-import type { Hand, PoseSnapshot } from '@wii/spatial-core';
+import type { Hand, PoseSnapshot } from '@nevergear/spatial-core';
 import { landmarkConfidence, visibleImagePoint } from './math';
 
 /** The warning waits this long: a head that dips out during a hop or a stride is not worth a word. */

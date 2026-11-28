@@ -112,7 +112,7 @@ export interface AdjudicationQuery {
 }
 
 /**
- * Wii-style contact adjudication: direction comes from WHEN the swing peaked relative to the
+ * Nevergear-style contact adjudication: direction comes from WHEN the swing peaked relative to the
  * ball's arrival, never from where the arm ended up. Everything is computed against the ball
  * state rewound to the physical peak instant, so detection latency cannot corrupt timing.
  */

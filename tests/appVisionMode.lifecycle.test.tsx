@@ -2,7 +2,7 @@
 import { act, type RefObject } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { HandSnapshot } from '@wii/spatial-core';
+import type { HandSnapshot } from '@nevergear/spatial-core';
 import { handSnapshot } from './fixtures/syntheticHand';
 import App from '../src/App';
 
@@ -97,7 +97,7 @@ vi.mock('../src/ui/HandCursor', () => ({
 }));
 vi.mock('../src/ui/GameCanvas', () => ({ GameCanvas: () => null }));
 
-vi.mock('../src/ui/WiiMenu', async () => {
+vi.mock('../src/ui/NevergearMenu', async () => {
   const React = await import('react');
   return {
     HomeMenu: ({ onPick }: { onPick(sport: 'athletics'): void }) =>
@@ -105,7 +105,7 @@ vi.mock('../src/ui/WiiMenu', async () => {
   };
 });
 
-vi.mock('../src/ui/WiiSplash', () => ({ WiiSplash: () => null }));
+vi.mock('../src/ui/NevergearSplash', () => ({ NevergearSplash: () => null }));
 
 vi.mock('../src/ui/CameraPip', async () => {
   const React = await import('react');

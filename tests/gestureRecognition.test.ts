@@ -5,7 +5,7 @@ import {
   HandFeatureExtractor,
   bandedDtwDistance,
   handGestureVector,
-} from '@wii/spatial-core';
+} from '@nevergear/spatial-core';
 import { handSnapshot } from './fixtures/syntheticHand';
 import { syntheticGestureSequence } from './fixtures/gestureSequences';
 

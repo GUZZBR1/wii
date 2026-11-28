@@ -102,7 +102,7 @@ describe('GameplayVideo', () => {
   beforeEach(() => {
     observerInstances.length = 0;
     localStorage.clear();
-    localStorage.setItem('wii-lang', 'en');
+    localStorage.setItem('nevergear-lang', 'en');
     mockMotionPreference(false);
     vi.stubGlobal('IntersectionObserver', MockIntersectionObserver);
     playMock = vi.fn().mockResolvedValue(undefined);

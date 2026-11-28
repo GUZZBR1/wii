@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createPoseRecording } from '@wii/spatial-core';
-import type { Delegate, PoseRecording, PoseSnapshot } from '@wii/spatial-core';
+import { createPoseRecording } from '@nevergear/spatial-core';
+import type { Delegate, PoseRecording, PoseSnapshot } from '@nevergear/spatial-core';
 import { delegateContext, incompatibleReasons } from '../scripts/poseReplayCompare';
 
 const MODEL_SHA = 'a'.repeat(64);

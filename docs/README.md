@@ -5,7 +5,7 @@
 | Documento | Sobre |
 | --- | --- |
 | [jogos-pelo-corpo.md](jogos-pelo-corpo.md) | **Comece aqui.** Os jogos do menu, do quadro da câmera ao jogo, o que foi medido, ferramentas de diagnóstico e o que falta. |
-| [design-tenis.md](design-tenis.md) | Regras e decisões do tênis estilo Wii Sports: direção pelo momento da raquetada, julgamento retroativo do contato. |
+| [design-tenis.md](design-tenis.md) | Regras e decisões do tênis estilo Nevergear Sports: direção pelo momento da raquetada, julgamento retroativo do contato. |
 | [plano-boxe.md](plano-boxe.md) | Plano do boxe: tracking de tipos e alvos de soco, defesas, validação em datasets externos e tutorial adaptativo. |
 | [pesquisa-pipeline-cv.md](pesquisa-pipeline-cv.md) e [auditoria-mediapipe.md](auditoria-mediapipe.md) | Como o MediaPipe é usado no navegador. Leia antes de mexer no worker de pose. |
 | [website-design.md](website-design.md) | Sistema visual do site. |

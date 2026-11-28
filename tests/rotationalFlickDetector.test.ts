@@ -3,7 +3,7 @@ import {
   DEFAULT_ROTATIONAL_FLICK_CONFIG,
   RotationalFlickDetector,
   type RotationalFlickState,
-} from '@wii/spatial-core';
+} from '@nevergear/spatial-core';
 import { rotationalSample as sample, rotationalWorldLandmarks } from './fixtures/rotationalHand';
 
 function updateSeries(
