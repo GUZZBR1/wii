@@ -1,12 +1,17 @@
-import { useEffect, useRef, type CSSProperties, type MouseEvent } from 'react';
+import { lazy, Suspense, useEffect, useRef, type CSSProperties, type MouseEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import ProductAsciiArt from '../components/ProductAsciiArt';
+import { useSiteHand } from '../app/SiteHandContext';
+import type { ProductHandStageHandle } from '../components/ProductHandStage';
 import { useLang } from '../i18n';
 import { runWarp } from '../lib/warp';
+
+const ProductHandStage = lazy(() => import('../components/ProductHandStage'));
 
 export default function ProductPage() {
   const { tr } = useLang();
   const navigate = useNavigate();
+  const { stopCamera } = useSiteHand();
+  const handStage = useRef<ProductHandStageHandle>(null);
   const stopWarp = useRef<() => void>(() => undefined);
   useEffect(() => () => {
     stopWarp.current();
@@ -17,6 +22,9 @@ export default function ProductPage() {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
     if (document.body.classList.contains('is-falling')) return;
+    // The arena claims the camera and its own MediaPipe worker.
+    stopCamera();
+    handStage.current?.shutdown();
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
       navigate('/app');
       return;
@@ -41,7 +49,9 @@ export default function ProductPage() {
           <span className="status-arrow" aria-hidden="true">↗</span>
         </Link>
         <figure className="construction-art">
-          <ProductAsciiArt />
+          <Suspense fallback={<div className="construction-ascii-canvas" aria-hidden="true" />}>
+            <ProductHandStage ref={handStage} />
+          </Suspense>
         </figure>
         <h1 className="product-headline product-emerge" style={{ '--emerge': 900 } as CSSProperties}>
           {tr('Do primeiro passo', 'From the first step')}
