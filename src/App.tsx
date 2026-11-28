@@ -5,9 +5,10 @@ import { AdaptiveCalibrator } from './cv/adaptiveCalibrator';
 import { PoseClient, type PoseClientCallbacks } from './cv/poseClient';
 import { diagnosticsEnabled } from './cv/diagnostics/flags';
 import { PhotoTrail } from './cv/diagnostics/photoTrail';
-import { TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
+import { BOXING_RECORDING_SCRIPT, TENNIS_RECORDING_SCRIPT } from './cv/diagnostics/recordingScript';
 import { downloadRecording, noteArrival, PoseRecorder, rememberFrame } from './cv/diagnostics/poseRecorder';
 import { ActionPipeline } from './kinematics/actionPipeline';
+import { PUNCH_THRESHOLDS } from './kinematics/punchDetector';
 import { framingAdvice, handsHidden, armsCrossed, handsRaised, raisedTossHand, HeadWarning } from './kinematics/framing';
 import { ContextClassifier, type ActivityKind } from './kinematics/contextClassifier';
 import { HandCursorDetector } from './kinematics/handCursor';
@@ -163,14 +164,16 @@ export default function App({ exit }: { exit?: ReactNode }) {
     if (videoRef.current) videoRef.current.srcObject = null;
     setCameraOn(false);
     setTracking('SEM POSE');
+    engineRef.current?.setTracking?.('SEM POSE');
     setCameraStatus('Câmera desligada');
     publishHandInput(HAND_IDLE);
     handDetectorRef.current.reset();
     for (const event of pipelineRef.current.reset(performance.now())) dispatchEvent(event);
     engineRef.current?.resetLaneZone?.();
-    engineRef.current?.setGuard?.(undefined);
-    engineRef.current?.setDepthMove?.(undefined);
-    engineRef.current?.setDepthSpeed?.(undefined);
+    engineRef.current?.setGuard?.(undefined, null);
+    engineRef.current?.setDuck?.(undefined, null);
+    engineRef.current?.setDepthMove?.(undefined, null);
+    engineRef.current?.setDepthSpeed?.(undefined, null);
     engineRef.current?.setLateralDash?.(undefined);
     contextRef.current.reset();
     resetCalibration();
@@ -183,7 +186,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
     setRecordingPrompt(undefined);
     const delegate = poseClientRef.current?.delegate;
     if (!recorder?.frameCount || !delegate) return;
-    void downloadRecording(recorder, delegate, sport === 'tennis' ? 'tenis' : 'corrida').catch((error: unknown) => {
+    void downloadRecording(recorder, delegate, sport === 'tennis' ? 'tenis' : sport === 'boxing' ? 'boxe' : 'corrida').catch((error: unknown) => {
       setCameraStatus(error instanceof Error ? error.message : 'Não foi possível salvar a gravação.');
     });
   }, [sport]);
@@ -206,7 +209,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
       if (recorderRef.current) { finishRecording(); return; }
       for (const stop of pipelineRef.current.reset(performance.now())) dispatchEvent(stop);
       resetCalibration();
-      recorderRef.current = new PoseRecorder([], sport === 'tennis' ? TENNIS_RECORDING_SCRIPT : undefined);
+      recorderRef.current = new PoseRecorder([], sport === 'tennis' ? TENNIS_RECORDING_SCRIPT : sport === 'boxing' ? BOXING_RECORDING_SCRIPT : undefined);
       setRecordingPrompt('Gravando…');
     };
     window.addEventListener('keydown', toggle);
@@ -277,7 +280,9 @@ export default function App({ exit }: { exit?: ReactNode }) {
       const current = result.snapshot;
       const decision = contextRef.current.update(current, profileRef.current);
       const activity = decision.confidence01 > 0.4 ? ` · ${ACTIVITY_LABEL[decision.activity]}` : '';
-      setTracking(current.trackingState === 'tracked' ? `TRACKING${activity}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO');
+      const trackingLabel = current.trackingState === 'tracked' ? `TRACKING${activity}` : current.trackingState === 'lost' ? 'SEM POSE' : 'PROCURANDO';
+      engineRef.current?.setPoseTracking?.(trackingLabel, raw.timestampMs);
+      setTracking(trackingLabel);
       drawPose(overlayRef.current, videoRef.current, current);
       engineRef.current?.setLaneZone?.(result.controls.laneZone);
       engineRef.current?.setEffort?.(result.rawEffort, result.effortSampleAtMs);
@@ -291,10 +296,11 @@ export default function App({ exit }: { exit?: ReactNode }) {
       engineRef.current?.setTossHand?.(raisedTossHand(current), raw.timestampMs);
       engineRef.current?.setArmMotions?.(result.armMotions);
       engineRef.current?.setSwingTracking?.(result.swingTracking);
-      engineRef.current?.setDodgeZone?.(result.controls.dodgeZone);
-      engineRef.current?.setGuard?.(result.controls.guard);
-      engineRef.current?.setDepthMove?.(result.controls.ringDepthMove);
-      engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01);
+      engineRef.current?.setDodgeZone?.(result.controls.dodgeZone, raw.timestampMs);
+      engineRef.current?.setGuard?.(result.controls.guard, raw.timestampMs);
+      engineRef.current?.setDuck?.(result.controls.duck, raw.timestampMs);
+      engineRef.current?.setDepthMove?.(result.controls.ringDepthMove, raw.timestampMs);
+      engineRef.current?.setDepthSpeed?.(result.controls.ringDepth01, raw.timestampMs);
       engineRef.current?.setLateralDash?.(result.controls.lateralDash);
       for (const event of result.events) dispatchEvent(event);
     },
@@ -496,12 +502,14 @@ export default function App({ exit }: { exit?: ReactNode }) {
   }, [startCamera]);
 
   const onStrokeTravel = useCallback((travel: number) => { pipelineRef.current.setStrokeTravel(travel); }, []);
+  const onPunchTravel = useCallback((travel: number) => { pipelineRef.current.setPunchTravel(travel); }, []);
 
   const play = (next: Sport, distance: Goal = 100) => {
     setGoal(distance);
     void audioRef.current.unlock();
-    // The tennis warm-up sets its own stroke length; every game starts from the default.
+    // The warm-up tutorials set their own stroke length; every game starts from the default.
     pipelineRef.current.setStrokeTravel(1.9);
+    pipelineRef.current.setPunchTravel(PUNCH_THRESHOLDS.confirmForwardTravel);
     pipelineRef.current.resetSwings();
     setSport(next);
     sportRef.current = next;
@@ -531,7 +539,7 @@ export default function App({ exit }: { exit?: ReactNode }) {
   const menu = inHandMenu(screen);
 
   return <div className="stage">
-    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} crossedPose={crossedPoseRef} onExit={exitGame} ironMan={ironResults ? { onComplete: finishIronStage } : undefined} onStrokeTravel={onStrokeTravel} />}
+    {screen === 'play' && <GameCanvas key={`${sport}-${goal}`} sport={sport} goal={goal} onEngine={onEngine} tracking={tracking} audio={audioRef.current} crossedPose={crossedPoseRef} onExit={exitGame} ironMan={ironResults ? { onComplete: finishIronStage } : undefined} onStrokeTravel={onStrokeTravel} onPunchTravel={onPunchTravel} />}
     {screen === 'home' && (
       <HomeMenu
         exit={exit}

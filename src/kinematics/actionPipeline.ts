@@ -4,8 +4,9 @@ import { CadenceTracker } from './cadenceTracker';
 import { upsideDown } from './framing';
 import { IntensityMeter } from './intensity';
 import { JumpDetector } from './jumpDetector';
-import { DodgeZoneTracker, LanePositionTracker, RingDepthTracker } from './postureSignals';
-import { isGuardingPose, PunchDetector } from './punchDetector';
+import { DodgeZoneTracker, DuckTracker, LanePositionTracker, REFERENCE_VETO_SPEED_SW_PER_S, RingDepthTracker, ShoulderLineVerticalSpeed } from './postureSignals';
+import { isGuardingPose, PunchDetector, type PunchDiagnostics } from './punchDetector';
+import { classifyPunch } from './punchClassifier';
 import { type ArmMotion, ArmMotionDetector } from './armMotion';
 import { SWING_MAX_DURATION_MS, SwingDetector, type SwingSignal } from './swingDetector';
 import { TorsoVerticalChannel } from './torsoVertical';
@@ -46,6 +47,13 @@ export class ActionPipeline {
   private readonly footworkGate = new TrackingGate([11, 12, 23, 24]);
   private readonly ringDepth = new RingDepthTracker();
   private readonly lateralDash = new LateralDashTracker();
+  private readonly duckTracker = new DuckTracker();
+  private readonly shoulderSpeed = new ShoulderLineVerticalSpeed();
+  /** Frames where the torso reference moved fast, trimmed to the longest punch window: confirmation
+   * evidence measured while the reference itself moved is torso motion, not arm motion — so a punch
+   * whose onset raced ahead of the veto is still discarded at confirmation, the same adjudication
+   * pattern as the tennis contact. */
+  private referenceVetoAtMs: number[] = [];
   private readonly punchInFlight = new PunchInFlight();
   /** One detector per wrist: whichever arm swings is the racket hand. */
   private readonly swings = ([['right', 16], ['left', 15]] as const).map(([hand, wrist]) => (
@@ -68,6 +76,11 @@ export class ActionPipeline {
   /** How long a wrist movement must be to count as a stroke; undefined restores the default. */
   setStrokeTravel(travel: number): void {
     for (const { detector } of this.swings) detector.minTravel = travel;
+  }
+
+  /** How far a wrist must travel forward to confirm a punch; the boxing tutorial tunes it to the player. */
+  setPunchTravel(travel: number): void {
+    for (const { detector } of this.punches) detector.minTravel = travel;
   }
 
   resetSwings(): void {
@@ -201,19 +214,40 @@ export class ActionPipeline {
       controls = { ...controls, guard: isGuardingPose(current, calibration) };
     }
 
+    // The torso reference in fast vertical motion manufactures wrist-relative motion that is
+    // not punching — ducking reads exactly like a rising uppercut. Veto onsets while it lasts.
+    const shoulderNow = this.shoulderSpeed.update(current);
+    // Only the descent manufactures the observed phantom: fists resting in world while the
+    // shoulders drop read as a rising extended arm — an uppercut. The speed estimate lags the
+    // drop by a frame, so the veto is also enforced retroactively at confirmation below.
+    const vetoOnset = shoulderNow !== undefined && shoulderNow >= REFERENCE_VETO_SPEED_SW_PER_S;
+    if (vetoOnset) this.referenceVetoAtMs.push(snapshot.timestampMs);
+    while (this.referenceVetoAtMs[0] && snapshot.timestampMs - this.referenceVetoAtMs[0] > 600) this.referenceVetoAtMs.shift();
     for (const { hand, elbow, wrist, gate, detector } of this.punches) {
       const tracking = gate.evaluate(snapshot, [11, 12, 23, 24, elbow, wrist], 'world');
       if (tracking.state === 'lost' || !swingScaleReady) detector.reset();
       else if (tracking.state === 'degraded') detector.interruptRearm();
-      if (!calibration || !swingScaleReady || tracking.state !== 'tracked') continue;
-      const output = detector.update(current, calibration);
+      if (!calibration || !swingScaleReady || tracking.state === 'lost') continue;
+      const output = detector.update(current, calibration, vetoOnset);
       if (output?.kind === 'onset') {
         this.punchInFlight.start(hand, snapshot.timestampMs);
         events.push({ ...this.eventBase(snapshot, tracking.confidence), id: this.nextId++, type: 'punch-start', hand });
       } else if (output?.kind === 'confirmed') {
-        const { power01, confidence, peakTimestampMs, onsetTimestampMs } = output;
+        const { power01, confidence, peakTimestampMs, onsetTimestampMs, measurement } = output;
+        const classification = classifyPunch(measurement);
         this.punchInFlight.end(hand);
-        events.push({ ...this.eventBase(snapshot, confidence), id: this.nextId++, type: 'punch', hand, power01, peakTimestampMs, onsetTimestampMs });
+        events.push({
+          ...this.eventBase(snapshot, confidence),
+          id: this.nextId++,
+          type: 'punch',
+          hand,
+          power01,
+          peakTimestampMs,
+          onsetTimestampMs,
+          punchKind: classification.punchKind,
+          punchTargetZone: classification.targetZone,
+          measurement,
+        });
       }
     }
 
@@ -227,6 +261,8 @@ export class ActionPipeline {
       if (depth !== undefined) controls = { ...controls, ringDepthMove: depth, ringDepth01: this.ringDepth.approach01 };
       const dash = this.lateralDash.update(current, punching);
       if (dash !== undefined) controls = { ...controls, lateralDash: dash };
+      const duck = this.duckTracker.update(current, punching);
+      if (duck !== undefined) controls = { ...controls, duck };
     }
 
     return { snapshot: current, events, controls, rawEffort, effortSampleAtMs: this.intensity.sampleAtMs, armMotions: this.arms.flatMap((arm) => arm.update(current) ?? []), swingTracking: { scaleReady: swingScaleReady, wrists: results.map(({ hand, tracked, pending }) => ({ hand, tracked, pending, arbitrating: this.heldSwing?.hand === hand })) } };
@@ -238,6 +274,11 @@ export class ActionPipeline {
    * than control input. One frame stale by the time the next calibration update consumes it,
    * which is meaningless for a statistical admission decision.
    */
+  /** Aggregated punch confirmation diagnostics, keyed by hand, for evaluation harnesses. */
+  get punchDiagnostics(): Readonly<Record<Hand, PunchDiagnostics>> {
+    return Object.fromEntries(this.punches.map(({ hand, detector }) => [hand, detector.diagnostics])) as Record<Hand, PunchDiagnostics>;
+  }
+
   get laneZone(): -1 | 0 | 1 { return this.lanePosition.currentZone; }
 
   get dodgeZone(): -1 | 0 | 1 { return this.dodge.currentZone; }
@@ -287,5 +328,5 @@ export class ActionPipeline {
     return { timestampMs: snapshot.timestampMs, confidence, trackingState: 'tracked' as const, source: 'cv' as const };
   }
 
-  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.dodge.reset(); this.footworkGate.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.punchInFlight.reset(); this.punches.forEach(({ detector }) => { detector.reset(); }); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
+  private resetDetectors(): void { this.arms.forEach((arm) => { arm.reset(); }); this.cadence.reset(); this.jump.reset(); this.intensity.reset(); this.torsoChannel.reset(); this.lanePosition.reset(); this.dodge.reset(); this.footworkGate.reset(); this.ringDepth.reset(); this.lateralDash.reset(); this.duckTracker.reset(); this.punchInFlight.reset(); this.punches.forEach(({ detector }) => { detector.reset(); }); this.swings.forEach(({ detector }) => { detector.reset(); }); this.lastSwingAt = Number.NEGATIVE_INFINITY; this.heldSwing = undefined; }
 }

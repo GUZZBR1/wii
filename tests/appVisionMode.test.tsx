@@ -3,11 +3,14 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { expect, it, vi } from 'vitest';
 import App from '../src/App';
+import { pose } from './fixtures/syntheticPose';
+import type { PoseSnapshot } from '../src/cv/protocol';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 const captures = vi.hoisted(() => ({
-  gameProps: undefined as { onExit?: () => void; sport: string; goal?: number; ironMan?: { onComplete: (result: { sport: 'athletics' | 'tennis' | 'boxing'; detail: string }) => void } } | undefined,
+  gameProps: undefined as { onExit?: () => void; onEngine?: (engine: unknown) => void; sport: string; goal?: number; ironMan?: { onComplete: (result: { sport: 'athletics' | 'tennis' | 'boxing'; detail: string }) => void } } | undefined,
+  onPose: undefined as ((snapshot: PoseSnapshot) => void) | undefined,
   handBegins: 0,
   handPauses: 0,
   poseBegins: 0,
@@ -15,6 +18,7 @@ const captures = vi.hoisted(() => ({
 }));
 
 vi.mock('../src/ui/WiiSplash', () => ({ WiiSplash: () => null }));
+vi.mock('../src/ui/PoseOverlay', () => ({ drawPose: vi.fn() }));
 
 vi.mock('../src/ui/GameCanvas', async () => {
   const React = await import('react');
@@ -31,7 +35,7 @@ vi.mock('../src/cv/poseClient', () => ({
     static warmVisionAssets(): void {}
     readonly delegate = 'GPU';
     isReady = true;
-    init(): Promise<void> { return Promise.resolve(); }
+    init(callbacks: { onPose(snapshot: PoseSnapshot): void }): Promise<void> { captures.onPose = callbacks.onPose; return Promise.resolve(); }
     beginCapture(): void { captures.poseBegins += 1; }
     pauseCapture(): void { captures.posePauses += 1; }
     dispose(): void {}
@@ -81,6 +85,28 @@ it('switches the camera back to hand tracking when play exits to the channel men
     expect(captures.gameProps).toBeDefined();
     expect(captures.poseBegins).toBe(1);
     expect(captures.handPauses).toBe(1);
+
+    const engine = { onAction: vi.fn(), setPoseTracking: vi.fn(), setDodgeZone: vi.fn(), setGuard: vi.fn(), setDuck: vi.fn(), setDepthMove: vi.fn(), setDepthSpeed: vi.fn() };
+    captures.gameProps?.onEngine?.(engine);
+    await act(async () => { captures.onPose?.(pose(1234)); });
+    for (const setter of [engine.setPoseTracking, engine.setDodgeZone, engine.setGuard, engine.setDuck, engine.setDepthMove, engine.setDepthSpeed]) expect(setter.mock.calls.at(-1)?.[1]).toBe(1234);
+    expect(engine.setPoseTracking.mock.invocationCallOrder[0]).toBeLessThan(engine.setGuard.mock.invocationCallOrder[0]!);
+    await act(async () => {
+      captures.onPose?.(pose(1300));
+      captures.onPose?.(pose(1400));
+      const missing = pose(10000);
+      captures.onPose?.({ ...missing, landmarks: [], worldLandmarks: [] });
+      captures.onPose?.(pose(10001));
+      captures.onPose?.(pose(10002));
+      captures.onPose?.(pose(10003));
+    });
+    expect(engine.setPoseTracking.mock.calls.map((args) => args[1])).toEqual([1234, 1300, 1400, 10000, 10001, 10002, 10003]);
+    expect(engine.setPoseTracking.mock.calls.map((args) => args[0])).toEqual([
+      'PROCURANDO', 'PROCURANDO', expect.stringContaining('TRACKING'), 'SEM POSE', 'PROCURANDO', 'PROCURANDO', expect.stringContaining('TRACKING'),
+    ]);
+    for (let index = 0; index < 7; index += 1) {
+      expect(engine.setPoseTracking.mock.invocationCallOrder[index]).toBeLessThan(engine.setGuard.mock.invocationCallOrder[index]!);
+    }
 
     await act(async () => { captures.gameProps?.onExit?.(); });
     await act(flush);
