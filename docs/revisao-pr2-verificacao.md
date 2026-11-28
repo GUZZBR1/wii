@@ -1,206 +1,206 @@
-# Verificação dos achados de code review — PR #2 (`docs/mediapipe-cv-research`)
+# Verification of code review findings — PR #2 (`docs/mediapipe-cv-research`)
 
-Data: 25 de novembro de 2026 · Repo: `/home/lucas_coimbra/projects/wii` · Branch verificada: `docs/mediapipe-cv-research` (`fd69a8d`)
-Método: cada achado foi conferido contra **fontes primárias** — o código do repo, os arquivos do pacote instalado (`node_modules/@mediapipe/tasks-vision/`), o código-fonte upstream (`google-ai-edge/mediapipe` no GitHub, branch master), as especificações WICG/W3C e MDN/BCD. Nenhuma afirmação foi validada por fonte secundária.
+Date: November 25, 2026 · Repo: `santleme/wii` · Branch reviewed: `docs/mediapipe-cv-research` (`fd69a8d`)
+Method: each finding was checked against **primary sources** — the repository code, files in the installed package (`node_modules/@mediapipe/tasks-vision/`), upstream source code (`google-ai-edge/mediapipe` on GitHub, master branch), WICG/W3C specifications, and MDN/BCD. No claim was validated through a secondary source.
 
-Legenda: **confirmado** / **parcialmente confirmado** / **refutado**.
+Legend: **confirmed** / **partially confirmed** / **refuted**.
 
-> **Nota de concorrência (25/nov/2026):** durante esta verificação, edições **não commitadas** apareceram na working tree (`git status` estava limpo no início da sessão; ao final, `scripts/pose-bench.html` e `docs/pesquisa-pipeline-cv.md` constam modificados sem commit). Os veredictos abaixo descrevem o estado **commitado `fd69a8d`** — que é o que estava sob review. O diff em andamento já implementa, parcialmente, as correções deste relatório: `firstPoseIndex`/`firstPoseMsAfterReady` + `readyAt` (achado 1), `resolve({type:'FELL_BACK'})` + `out.invalid` + break no fallback mid-run (achado 3), URL da foto no header do script (achado 2), "SHOULD (não MUST)" para `captureTime` (achado 7) e "larguras-de-ombro por segundo" no item worldLandmarks (achado 6). Seguem **pendentes** no diff observado: achados 4 (caveat do intervalo GPU), 5 (PTS do `VideoFrame`), 8 (semântica de `minTrackingConfidence` — o texto antigo continua na linha) e 9 (warmup da auditoria).
-
----
-
-## Achado 1 — O benchmark não registra quando a primeira pose aparece
-
-**Veredicto: confirmado.**
-
-**Evidência (mecânica do código):**
-- `scripts/pose-bench.html:57` — o objeto `out` tem `times: [], bitmapMs: [], detected: 0, empty: 0, errors: []`; não existe campo para o índice da primeira detecção.
-- `scripts/pose-bench.html:88-94` — o contador `out.detected` só é incrementado quando `i >= WARMUP` (=8): `if (res.type === 'POSE') { out.times.push(dt); if (res.landmarks?.length) out.detected++; else out.empty++; }`. Nos frames de warmup (`i < 8`) o único teste é `res.type !== 'POSE'` → erro; `res.landmarks?.length` nunca é inspecionado. Ou seja: uma POSE com landmarks durante o warmup é consumida em silêncio e não registrada em lugar nenhum.
-- Consequência documental: a afirmação de `docs/pesquisa-pipeline-cv.md:223` ("a primeira pose não-vazia apareceu ~8 frames após READY") **não é reproduzível a partir de `window.BENCH`** — o número coincide exatamente com `WARMUP = 8` (`pose-bench.html:28`), o que levanta a hipótese de que o "~8" seja artefato do próprio cutoff do warmup, não uma medição.
-
-**Correção necessária (trivial, confirmada como mecanicamente viável):** adicionar ao `out` um campo tipo `firstPoseIndex`, capturado dentro do loop antes do branch de warmup, p.ex. `if (out.firstPoseIndex === undefined && res.type === 'POSE' && res.landmarks?.length) out.firstPoseIndex = i;` — duas linhas bastam para sustentar a afirmação do §7.5.
+> **Concurrency note (Nov. 25, 2026):** during this verification, **uncommitted** edits appeared in the working tree (`git status` was clean at the start of the session; at the end, `scripts/pose-bench.html` and `docs/pesquisa-pipeline-cv.md` were modified but uncommitted). The verdicts below describe the **committed state `fd69a8d`** — the state under review. The diff in progress already partially implements this report's corrections: `firstPoseIndex`/`firstPoseMsAfterReady` + `readyAt` (Finding 1), `resolve({type:'FELL_BACK'})` + `out.invalid` + a break on mid-run fallback (Finding 3), the photo URL in the script header (Finding 2), "SHOULD (not MUST)" for `captureTime` (Finding 7), and "shoulder widths per second" in the `worldLandmarks` item (Finding 6). The following remain **pending** in the observed diff: Finding 4 (GPU range caveat), 5 (`VideoFrame` PTS), 8 (`minTrackingConfidence` semantics — the old text remains), and 9 (audit warmup).
 
 ---
 
-## Achado 2 — Comando de reprodução omite a foto (só a figura sintética roda)
+## Finding 1 — The benchmark does not record when the first pose appears
 
-**Veredicto: parcialmente confirmado.**
+**Verdict: confirmed.**
 
-**Evidência:**
-- `docs/pesquisa-pipeline-cv.md:210` — a metodologia **nomeia** a origem ("foto real de pessoa redimensionada a 640 px (`mediapipe-assets/pose.jpg`...)"), mas o comando de reprodução na mesma linha é apenas `` `npm run build && cp scripts/pose-bench.html dist/bench.html && npm run preview` `` — **sem URL completa e sem passo de download/cópia**.
-- `scripts/pose-bench.html:2-5` — o cabeçalho do script diz só "Opcional: copie uma foto com pessoa para `dist/pose.jpg`", também sem URL.
-- `scripts/pose-bench.html:104-111` — mecânica confirmada: sem `/pose.jpg`, `img.decode()` falha → `catch` → `console.log('sem /pose.jpg — rodando só a figura sintética')` → `photo` fica `null` → o bloco `if (photo)` em `:118-121` é pulado e as linhas "foto com pessoa" da tabela do §7.5 **não são reproduzidas** num build limpo (onde `dist/pose.jpg` não existe).
-- A URL primária existe e responde: `https://storage.googleapis.com/mediapipe-assets/pose.jpg` → HTTP 200, 44 100 bytes (HEAD verificado em 25/nov/2026). É a imagem de exemplo usada nas demos/docs do MediaPipe.
+**Evidence (code mechanics):**
+- `scripts/pose-bench.html:57` — the `out` object has `times: [], bitmapMs: [], detected: 0, empty: 0, errors: []`; it has no field for the index of the first detection.
+- `scripts/pose-bench.html:88-94` — `out.detected` is incremented only when `i >= WARMUP` (=8): `if (res.type === 'POSE') { out.times.push(dt); if (res.landmarks?.length) out.detected++; else out.empty++; }`. For warmup frames (`i < 8`), the only check is `res.type !== 'POSE'` → error; `res.landmarks?.length` is never inspected. In other words, a POSE with landmarks during warmup is silently consumed and never recorded.
+- Documentation consequence: the claim in `docs/pesquisa-pipeline-cv.md:223` ("the first non-empty pose appeared about 8 frames after READY") **cannot be reproduced from `window.BENCH`** — the number exactly matches `WARMUP = 8` (`pose-bench.html:28`), raising the possibility that "about 8" is an artifact of the warmup cutoff rather than a measurement.
 
-**Correção necessária:** incluir na §7.5 (e idealmente no comentário do script) o passo explícito, p.ex. `curl -sL -o dist/pose.jpg https://storage.googleapis.com/mediapipe-assets/pose.jpg`, e observar que a foto é redimensionada para 640 px pelo próprio script (`pose-bench.html:108-110`).
-
----
-
-## Achado 3 — Fallback GPU→CPU no meio do run mistura timings sob o rótulo do delegate pedido
-
-**Veredicto: confirmado** (com nuances que refinam a descrição do achado).
-
-**Evidência (worker):**
-- `src/cv/pose.worker.ts:87-93` — em exceção de `detectForVideo`, o worker faz `await fallback(message)`; se ok, posta `FALLBACK` (`:39`, dentro de `fallback()`) e depois `ERROR` com `fatal: false` (`:91`). A instância `landmarker` é reatribuída em `createTask('CPU')` (`:16`, chamada em `:38`) — **frames seguintes passam por um landmarker CPU real, na mesma thread do worker**.
-- Confirmado: `FRAME` pós-fallback atinge um landmarker de verdade (`:74-86` — o caminho não muda; só o objeto apontado mudou).
-
-**Evidência (bench):**
-- `scripts/pose-bench.html:83` — a promessa por frame resolve em `POSE` **ou** `ERROR`. No frame do fallback, chegam `FALLBACK` (marca `out.fellBack = true`, `:84`) e depois `ERROR` → o frame é contado em `out.errors`, não em `out.times`.
-- **Nuance A (não mencionada no achado):** se o fallback cair durante o warmup (`i < 8`), o branch `else if (res.type !== 'POSE') { out.errors.push('warmup: ' + …); break; }` (`:94`) **aborta o run inteiro** — não mistura timings, mata o run (`perFrame` sai `{n: 0}`).
-- **Nuance B:** se o fallback cair em `i ≥ 8`, o loop segue (`:93` só quebra com `errors > 3`) e os frames seguintes — agora inferidos em CPU — têm `dt` empilhados no mesmo `out.times` dos frames GPU anteriores. `out.perFrame` (`:96`) agrega a população mista.
-- `out.delegate` é fixado uma única vez, na mensagem `READY` (`:63`), e `out.requested` guarda o pedido (`:57`). A mensagem `FALLBACK` carrega `to: 'CPU'` (`protocol.ts:59`), mas o bench **não atualiza `out.delegate`** — só seta `fellBack`. Logo: resumo misto e mal rotulado — confirmado.
-
-**Correção necessária:** a flag `fellBack` já existe (`:64`, `:84`) — o que falta é usá-la: (a) separar `times` por delegate efetivo (ex.: `times` → `timesByDelegate` ou marcar cada frame com o delegate corrente, atualizando `out.delegate = m.to` no handler de `FALLBACK`), e/ou (b) invalidar `perFrame` quando `fellBack` (a população mista não representa nenhum delegate). O achado também sustenta registrar `initMs` do segundo módulo — o fallback mid-run paga `createTask('CPU')` inteiro (~250–350 ms medidos) dentro de um único frame.
+**Required fix (trivial and mechanically feasible):** add a field such as `firstPoseIndex` to `out`, captured inside the loop before the warmup branch, e.g. `if (out.firstPoseIndex === undefined && res.type === 'POSE' && res.landmarks?.length) out.firstPoseIndex = i;` — two lines are enough to support the claim in §7.5.
 
 ---
 
-## Achado 4 — "a faixa GPU-real fica entre o CPU medido e o model card" (caveat do §7.5)
+## Finding 2 — The reproduction command omits the photo (only the synthetic figure runs)
 
-**Veredicto: parcialmente confirmado** — a direção do caveat está certa (SwiftShader ≠ GPU real), mas o enquadramento como intervalo delimitado é um overclaim.
+**Verdict: partially confirmed.**
 
-**Evidência:**
-- O que o benchmark estabelece de fato (`docs/pesquisa-pipeline-cv.md:210-217` + `pose-bench.html`): (a) CPU/XNNPACK nesta máquina ≈ 13–21 ms/frame; (b) o delegate `GPU` **sob GL de software** (SwiftShader) ≈ 96–243 ms/frame. Nada além disso foi medido.
-- A frase `docs/pesquisa-pipeline-cv.md:227` propõe um intervalo `[CPU medido, model card]` para o GPU-real. Dois problemas:
-  1. **O model card não é um teto**: os próprios dados citados no doc contradizem o bound — `docs/pesquisa-pipeline-cv.md:167` cita o blog do TF medindo o runtime MediaPipe WASM+GPU a **92 fps (MBP 2019) e 160 fps (i9+GTX1070)** no modelo Lite, ambos *mais rápidos* que o model card (~49 fps num Pixel 3 de 2018). Um GPU desktop real pode ficar **abaixo** (melhor) do número do model card — ele é um piso de um celular antigo, não uma fronteira superior.
-  2. **O CPU medido não é um piso garantido**: nada no benchmark impede que um GPU real fraco (iGPU disputada, driver ruim) fique *pior* que o delegate CPU. É improvável vs. SwiftShader, mas "improvável" não é "medido".
-- Formulação honesta do que o benchmark sustenta: GPU-real **não foi medida**; a expectativa (âncoras externas: model card + números de desktop citados em §5) é que fique muito abaixo do SwiftShader e plausivelmente comparável ou mais rápida que o CPU medido — mas isso é inferência, não resultado.
+**Evidence:**
+- `docs/pesquisa-pipeline-cv.md:210` — the methodology **names** the source ("a real person photo resized to 640 px (`mediapipe-assets/pose.jpg`...)"), but the reproduction command on the same line is only `` `npm run build && cp scripts/pose-bench.html dist/bench.html && npm run preview` `` — **with no full URL and no download/copy step**.
+- `scripts/pose-bench.html:2-5` — the script header only says "Optional: copy a photo with a person to `dist/pose.jpg`", also without a URL.
+- `scripts/pose-bench.html:104-111` — confirmed mechanics: without `/pose.jpg`, `img.decode()` fails → `catch` → `console.log('No /pose.jpg — running only the synthetic figure.')` → `photo` remains `null` → the `if (photo)` block at `:118-121` is skipped, and the "photo with a person" rows in the §7.5 table **cannot be reproduced** from a clean build (where `dist/pose.jpg` does not exist).
+- The primary URL exists and responds: `https://storage.googleapis.com/mediapipe-assets/pose.jpg` → HTTP 200, 44,100 bytes (HEAD checked on Nov. 25, 2026). It is the sample image used in MediaPipe demos/docs.
 
-**Correção necessária:** reescrever o caveat para não apresentar o intervalo como delimitado, p.ex.: "o benchmark não mede GPU real — a expectativa por fontes externas (model card ~49 fps num Pixel 3; até 92–160 fps em desktops citados em §5) é que fique comparável ou mais rápida que o CPU medido, mas isso não é resultado deste benchmark."
-
----
-
-## Achado 5 — `frame.timestamp` como `timestampMs`: PTS real, mas com origem por fonte (reseta entre sessões)
-
-**Veredicto: confirmado** — a sugestão do doc precisa de caveat/correção; manter o relógio ms próprio do `PoseClient` (ou rebasear o PTS por sessão) é o correto.
-
-**Evidência (specs):**
-- WebCodecs, `VideoFrame(image, init)`, branch `HTMLVideoElement`: "Let currentPlaybackFrame be the `VideoFrame` at the current playback position" → `Initialize Frame From Other Frame` (https://w3c.github.io/webcodecs/#dom-videoframe-videoframe-image-init). No algoritmo, passo 13: "If `timestamp` exists in init, assign it…; Otherwise, assign otherFrame's `[[timestamp]]` to frame's `[[timestamp]]`" — ou seja, `new VideoFrame(video)` herda o PTS do frame interno do elemento. O atributo é "the presentation timestamp, given in microseconds" — **sem época definida**.
-- mediacapture-extensions, seção "Video timestamp concepts" (https://w3c.github.io/mediacapture-extensions/#video-timestamp-concepts, merge do PR w3c/mediacapture-extensions#156): "**Each video frame must have a presentation timestamp which is relative to a source specific origin.** A source of frames can define how this timestamp is set." E em "Local video capture timestamps": "Local capture tracks have a **fixed offset between presentation timestamp and capture timestamp**. The user agent may let this be zero…" — ou seja, o PTS de um frame de câmera é **relativo a uma origem por track/fonte**, com offset arbitrário definido pelo UA. Um novo `getUserMedia` = nova track = nova origem → o PTS pode (e tipicamente vai) reiniciar perto de 0.
-- Corroboração: o próprio rVFC spec diz que `mediaTime` "MAY have a zero value for live-streams or WebRTC applications" (wicg.github.io/video-rvfc §2.2) — relógios relativos por stream são a norma para fontes ao vivo.
-
-**Evidência (código):**
-- `src/cv/poseClient.ts:29` — `private lastTimestamp = 0` é estado do cliente, **nunca resetado** em `beginCapture` (só `lastVideoTime` é, `:62`) nem em `pauseCapture` (`:85-92`).
-- `src/App.tsx:76-90` — `stopCamera()` chama `clientRef.current?.pauseCapture()` e para as tracks, mas **não chama `dispose()`**; `startCamera` reutiliza a mesma instância via `clientRef.current ??= new PoseClient()` (`:115`). Ou seja: o worker e o `lastTimestamp` sobrevivem ao ciclo parar→religar da câmera (dispose só existe no cleanup de unmount, `:43`).
-- `src/cv/poseClient.ts:155-156` — `Math.max(now, lastTimestamp + 0.01)`: se `now` passar a vir de um PTS que resetou para ~0 na nova sessão, o clamp impede regressão (a exigência "estritamente crescente" do modo VIDEO é preservada), mas **todos os frames seguintes serão carimbados em passos de +0,01 ms** — os deltas temporais viram sintéticos. Consequência concreta: o smoothing OneEuro interno do grafo (dt-dependente) e os detectores do app que usam `snapshot.timestampMs` em intervalos reais (`cadenceTracker.ts:26-34` — janelas de 450 ms; `jumpDetector.ts:19,28` — 400/160 ms; `postureSignals.ts:19` — 350 ms; `swingDetector.ts:38,47` — dt com piso de 1/120 s e cooldown de 400 ms) passam a operar sobre deltas de 0,01 ms → cooldowns na prática nunca expiram e velocidades ficam infladas/distópicas.
-- `now` do rVFC e `performance.now()` compartilham o relógio monotônico do documento — não resetam entre sessões de câmera. É por isso que o clamp atual é robusto: a base dele é monotônica *por página*, não por track.
-
-**Correção necessária em `docs/pesquisa-pipeline-cv.md:63`:** a afirmação "`frame.timestamp` = PTS real em µs — melhor que `performance.now()` para `timestampMs`" deve ser qualificada: o PTS é real, mas tem **origem por fonte** (mediacapture-extensions) e reinicia entre tracks/sessões — o que, combinado com o warm worker e o `lastTimestamp` persistente, corromperia os deltas usados por detectores e pelo smoothing interno. Recomendar: manter o relógio ms do `PoseClient` (rVFC `now`/`performance.now()`) para `timestampMs`, e usar `frame.timestamp` apenas com rebase por sessão (subtrair o PTS do primeiro frame da captura corrente) ou como metadado de telemetria.
+**Required fix:** add an explicit step to §7.5 (and ideally to the script comment), e.g. `curl -sL -o dist/pose.jpg https://storage.googleapis.com/mediapipe-assets/pose.jpg`, and note that the script itself resizes the photo to 640 px (`pose-bench.html:108-110`).
 
 ---
 
-## Achado 6 — Velocidade de swing está em larguras-de-ombro/s, não em m/s
+## Finding 3 — Mid-run GPU→CPU fallback mixes timings under the requested delegate label
 
-**Veredicto: confirmado.**
+**Verdict: confirmed** (with nuances that refine the finding's description).
 
-**Evidência (código completo):**
-- `src/kinematics/swingDetector.ts:25-26` — entradas `worldLandmarks` do punho/ombro, que são metros (confirmado: ai.google.dev pose_landmarker, tabela "Task output" — `worldLandmarks` em "meters… midpoint of the hips"; `vision.d.ts` `PoseLandmarkerResult`).
-- `src/kinematics/swingDetector.ts:29-30` — `lateral` = vetor ombro→ombro em metros; `width` = `|lateral|` (metros) com fallback `calibration.world.shoulderWidth` (metros, `calibrator.ts:45,69`).
-- `src/kinematics/swingDetector.ts:32-34` — `current` = `(wrist − shoulder) / width` por componente → **adimensional, em "larguras de ombro"** — normalizado *antes* da diferenciação.
-- `src/kinematics/swingDetector.ts:38-42` — `v = Δcurrent/dt`, `speed = |v|` → **larguras-de-ombro por segundo**, não m/s.
-- Thresholds nessas unidades: gatilho `speed >= 2` (`:47`), `softSpeed = 2`/`strongSpeed = 7` (`:15-16`, ajustáveis por `setPowerAnchors`), `lateralSpeed` também em larguras/s (`:43` — projeção de `v` sobre o eixo ombro→ombro normalizado), `readyDistance < 0.35` (`:62`) e `aimValue` ±0,2 (`:52`) em larguras-de-ombro — consistente com `calibration.world.readyWristLocal`, que o calibrador grava já normalizado por `worldShoulderWidth` (`calibrator.ts:48` — mesmo denominador).
-- Referência de escala: com ombros ~0,4 m, "speed 2" ≈ 0,8 m/s e "speed 7" ≈ 2,8 m/s — plausível para raquetada, mas a unidade gravada no código é adimensional.
+**Evidence (worker):**
+- `src/cv/pose.worker.ts:87-93` — when `detectForVideo` throws, the worker calls `await fallback(message)`; if successful, it posts `FALLBACK` (`:39`, inside `fallback()`) and then `ERROR` with `fatal: false` (`:91`). The `landmarker` instance is reassigned to `createTask('CPU')` (`:16`, called at `:38`) — **subsequent frames go through a real CPU landmarker on the same worker thread**.
+- Confirmed: a `FRAME` after fallback reaches a real landmarker (`:74-86` — the path is unchanged; only the referenced object changed).
 
-**Correção necessária em `docs/pesquisa-pipeline-cv.md:189`:** a frase "usa punho/ombro em **metros** (velocidade de raquetada em m/s reais)" está meio certa — os *inputs* são metros, mas a *velocidade* é em larguras-de-ombro/s. Sugestão: "usa punho/ombro em metros, mas normaliza o deslocamento pela largura dos ombros **antes** de derivar — velocidade e thresholds (`speed ≥ 2`, soft/strong 2/7) são em larguras-de-ombro/s, adimensionais — é isso que torna o detector invariante à distância da câmera, junto com `readyWristLocal` na mesma unidade (`calibrator.ts:48`)". A mesma correção vale para `docs/auditoria-mediapipe.md:62` ("velocidade 3D do punho — coordenadas métricas"), que também sugere velocidade em m/s.
+**Evidence (bench):**
+- `scripts/pose-bench.html:83` — the per-frame promise resolves on `POSE` **or** `ERROR`. On the fallback frame, `FALLBACK` arrives (sets `out.fellBack = true`, `:84`) and then `ERROR` → the frame is counted in `out.errors`, not `out.times`.
+- **Nuance A (not mentioned in the finding):** if fallback occurs during warmup (`i < 8`), the branch `else if (res.type !== 'POSE') { out.errors.push('warmup: ' + …); break; }` (`:94`) **aborts the entire run** — it does not mix timings; the run stops (`perFrame` ends up `{n: 0}`).
+- **Nuance B:** if fallback occurs at `i ≥ 8`, the loop continues (`:93` only breaks when `errors > 3`), and subsequent frames — now inferred on CPU — have their `dt` values added to the same `out.times` as earlier GPU frames. `out.perFrame` (`:96`) aggregates this mixed population.
+- `out.delegate` is set once, on the `READY` message (`:63`), and `out.requested` stores the requested delegate (`:57`). The `FALLBACK` message carries `to: 'CPU'` (`protocol.ts:59`), but the bench **does not update `out.delegate`** — it only sets `fellBack`. Therefore, the mixed summary is mislabeled — confirmed.
 
----
-
-## Achado 7 — `captureTime` é SHOULD na spec, não "DEVE"
-
-**Veredicto: confirmado** — e o doc é internamente inconsistente.
-
-**Evidência:**
-- Spec WICG video-rvfc §2.2 (https://wicg.github.io/video-rvfc/#dom-videoframecallbackmetadata-capturetime), texto normativo literal de `captureTime`: "**SHOULD be present for WebRTC or getUserMedia applications, and absent otherwise.**" Na WebIDL, o membro aparece sem `required` (`[DOMHighResTimeStamp] captureTime;`) — ou seja, é um campo **opcional** que vem `undefined` quando ausente.
-- `docs/pesquisa-pipeline-cv.md:34` — diz "`metadata.captureTime` — 'the time at which the frame was captured by the camera' — **DEVE estar presente para fontes getUserMedia** (spec §2.2)". "DEVE" = MUST — **exagera a normatividade**.
-- Inconsistência interna: o próprio doc diz o correto em dois outros lugares — `docs/pesquisa-pipeline-cv.md:183` ("SHOULD para getUserMedia — spec WICG §2.2") e `:253` ("`captureTime` SHOULD p/ gUM").
-- Suporte real quando presente (fontes primárias): Chromium popula `captureTime` para fontes gUM/WebRTC via metadados de captura do `VideoFrame`; Firefox implementou `captureTime`/`receiveTime`/`rtpTimestamp`/`processingDuration` no rVFC no **Firefox 132** (bug 1908245, bugzilla.mozilla.org — "for WebRTC related elements", incluindo câmera — arquivos `PCameras.ipdl`, `MediaEngineRemoteVideoSource.cpp` no patch). Quando o campo está ausente (fonte não-gUM, browser sem suporte), o valor é `undefined` — telemetria precisa de guarda; não é erro.
-
-**Correção necessária:** em `pesquisa-pipeline-cv.md:34`, trocar "DEVE" por "deveria (SHOULD) estar presente — campo opcional; vem `undefined` quando a fonte/UA não o provê". Alinha a linha 34 com as linhas 183/253.
+**Required fix:** the `fellBack` flag already exists (`:64`, `:84`) — it just needs to be used: (a) separate `times` by effective delegate (e.g., `times` → `timesByDelegate` or tag each frame with the current delegate, updating `out.delegate = m.to` in the `FALLBACK` handler), and/or (b) invalidate `perFrame` when `fellBack` is true (the mixed population does not represent any single delegate). This finding also supports recording `initMs` for the second module — mid-run fallback pays the full `createTask('CPU')` cost (~250–350 ms measured) within a single frame.
 
 ---
 
-## Achado 8 — Semântica de `minTrackingConfidence`: a auditoria tem razão, a pesquisa não
+## Finding 4 — "the real-GPU range falls between measured CPU and the model card" (§7.5 caveat)
 
-**Veredicto: confirmado** — para a API tasks usada pelo app, a descrição da auditoria (`min_similarity_threshold` do `AssociationNormRectCalculator`) é a mecanicamente correta; a da pesquisa (confiança de tracking que re-dispara o detector) descreve a **API legada** `solutions/pose`.
+**Verdict: partially confirmed** — the caveat points in the right direction (SwiftShader ≠ real GPU), but presenting it as a bounded interval overclaims what was measured.
 
-**Evidência (upstream, `google-ai-edge/mediapipe` master):**
-1. Mapeamento JS→proto (`mediapipe/tasks/web/vision/pose_landmarker/pose_landmarker.ts`, `setOptions`): `minTrackingConfidence` → `PoseLandmarkerGraphOptions.min_tracking_confidence`; `minPosePresenceConfidence` → `PoseLandmarksDetectorGraphOptions.min_detection_confidence`; `minPoseDetectionConfidence` → `PoseDetectorGraphOptions.min_detection_confidence`; `numPoses` → `PoseDetectorGraphOptions.num_poses`.
-2. Único consumo no grafo tasks (`mediapipe/tasks/cc/vision/pose_landmarker/pose_landmarker_graph.cc:376-379`): `pose_association.GetOptions<AssociationCalculatorOptions>().set_min_similarity_threshold(tasks_options.min_tracking_confidence())` — igual ao que diz `docs/auditoria-mediapipe.md:155`. O `.d.ts` local (`vision.d.ts:2762-2765`) e a doc oficial (ai.google.dev pose_landmarker, "Configuration options") só dizem "minimum confidence score for the pose tracking to be considered successful" — vago, não decide a questão.
-3. O que decide re-rodar o detector de pessoa (`pose_landmarker_graph.cc:353-371`): `prev_pose_rects` (loopback do frame anterior) → `NormalizedRectVectorHasMinSizeCalculator` com `min_size = num_poses` → `has_enough_poses` → `DisallowIf(image_in/norm_rect_in, has_enough_poses)` **pula o `PoseDetectorGraph`** quando há rects suficientes. Ou seja, o gatilho é **contagem** de rects do frame anterior, não um score vs. `minTrackingConfidence`.
-4. O que esvazia `prev_pose_rects` (`pose_landmarks_detector_graph.cc`): dentro de `SinglePoseLandmarksDetectorGraph`, `pose_presence = presence_score > min_detection_confidence` (`:393-398`, onde `min_detection_confidence` do subgrafo = **JS `minPosePresenceConfidence`**) → `GateCalculator` com `ALLOW=pose_presence` (`:401-406`) barra os tensores → sem landmarks → `POSE_RECT_NEXT_FRAME` não é emitido (`:560-586`) → vetor vazio → detector roda no próximo frame. **O threshold que governa re-detecção é `minPosePresenceConfidence`, não `minTrackingConfidence`.**
-5. O que o threshold faz de fato (`mediapipe/calculators/util/association_calculator.h`): IoU > `min_similarity_threshold` entre rects de streams distintos → dedup (o elemento do stream posterior substitui o anterior) e propagação de `id` — associação espacial entre rects do frame anterior e novas detecções, não "confiança do tracker".
-6. Bônus para a config do app: com `numPoses=1` (`pose.worker.ts:19`), `has_enough_poses = (prev.size ≥ 1)` — o detector só roda quando `prev` está **vazio**, logo as duas entradas do association nunca estão não-vazias ao mesmo tempo → **`minTrackingConfidence` é efetivamente inerte nesta configuração** (só atua com `numPoses ≥ 2` e tracking parcial). A sugestão "0,5→0,4 diminui re-detecções" (`pesquisa-pipeline-cv.md:187`) é duplamente equivocada: threshold errado e opção inerte.
-7. Origem da confusão: na API legada (`mediapipe/python/solutions/pose.py`, v0.10.14), `min_tracking_confidence` era mapeado para `…ThresholdingCalculator.threshold` — um threshold sobre o score do próprio landmark, que ao falhar produzia frame vazio → detecção no próximo frame. A semântica "tracking fraco → re-detecta" existia lá; a API tasks reaproveitou o nome do campo para o IoU de associação.
+**Evidence:**
+- What the benchmark actually establishes (`docs/pesquisa-pipeline-cv.md:210-217` + `pose-bench.html`): (a) CPU/XNNPACK on this machine ≈ 13–21 ms/frame; (b) the `GPU` delegate **under software GL** (SwiftShader) ≈ 96–243 ms/frame. Nothing else was measured.
+- The statement in `docs/pesquisa-pipeline-cv.md:227` proposes a `[measured CPU, model card]` interval for a real GPU. There are two problems:
+  1. **The model card is not an upper bound**: the document's own cited data contradicts this bound — `docs/pesquisa-pipeline-cv.md:167` cites the TF blog measuring MediaPipe WASM+GPU runtime at **92 fps (2019 MBP) and 160 fps (i9+GTX1070)** on the Lite model, both *faster* than the model card (~49 fps on a 2018 Pixel 3). A real desktop GPU can be **below** (faster than) the model-card number — it is a floor from an older phone, not an upper boundary.
+  2. **Measured CPU is not a guaranteed lower bound**: nothing in the benchmark prevents a weak real GPU (a contended iGPU, poor driver) from being *slower* than the CPU delegate. That is unlikely compared with SwiftShader, but "unlikely" is not "measured".
+- An honest statement of what the benchmark supports: real-GPU performance **was not measured**; external anchors (the model card + desktop figures cited in §5) suggest it may be far faster than SwiftShader and plausibly comparable to or faster than the measured CPU — but this is an inference, not a result.
 
-**Correção necessária:**
-- `pesquisa-pipeline-cv.md:187` — reescrever o item: "`minTrackingConfidence` é o IoU mínimo (`min_similarity_threshold`) do `AssociationNormRectCalculator` que casa novas detecções com os rects do frame anterior (dedup/herança de track id — `pose_landmarker_graph.cc:376-379`); quem dispara re-detecção é a **contagem** de rects do frame anterior (`DisallowIf`/`has_enough_poses`), alimentada pela presença — o threshold efetivo para 'tracking perdido' é `minPosePresenceConfidence` (score de presença dentro do landmarker). Com `numPoses=1`, `minTrackingConfidence` é praticamente inerte." A alavanca real para "menos re-detecções" é baixar `minPosePresenceConfidence` — com o trade-off de aceitar poses de presença marginal.
-- `auditoria-mediapipe.md:155` — a descrição está correta; opcionalmente adicionar a nota de inércia para `numPoses=1`.
+**Required fix:** rewrite the caveat so it does not present a bounded interval, e.g.: "the benchmark does not measure a real GPU — external sources (model card at ~49 fps on a Pixel 3; up to 92–160 fps on desktops cited in §5) suggest performance comparable to or faster than the measured CPU, but this is not a result of this benchmark."
 
 ---
 
-## Achado 9 — Warmup com frame vazio não cobre o estágio do landmarker
+## Finding 5 — `frame.timestamp` as `timestampMs`: real PTS, but with a source-specific origin (resets between sessions)
 
-**Veredicto: parcialmente confirmado** — o mecanismo apontado está certo, mas o doc da auditoria já mitiga parcialmente com a alternativa "(ou no primeiro bitmap)"; e a atribuição do "~8 frames" à primeira detecção continua hipótese não medida (amarra com o achado 1).
+**Verdict: confirmed** — the document's suggestion needs a caveat/correction; keeping `PoseClient`'s own millisecond clock (or rebasing PTS per session) is correct.
 
-**Evidência:**
-- Pipeline de dois estágios confirmado no upstream (`pose_landmarker_graph.cc`): `PoseDetectorGraph` → rects → `MultiplePoseLandmarksDetectorGraph` (loop por ROI via `BeginLoopNormalizedRectCalculator`, `pose_landmarks_detector_graph.cc:697`). Com `pose_rects` **vazio**, o begin-loop itera zero vezes → o `SinglePoseLandmarksDetectorGraph` **nunca é invocado** — o caminho warp/crop 256², o interpreter do landmarker, `TensorsToLandmarks`, `RefineLandmarksFromHeatmap`, `ThresholdingCalculator` de presença, `LandmarksToDetection`→`AlignmentPointsRects`→`RectTransformation` (emissor do `POSE_RECT_NEXT_FRAME`) e os nós de smoothing não executam nenhuma vez.
-- Consequência: um `detectForVideo` sobre `OffscreenCanvas` 1×1 (sugestão de `docs/auditoria-mediapipe.md:134`) aquece o grafo, a conversão de entrada e o **interpreter do detector** — mas deixa *intocados* os custos lazy do estágio landmarker, que incidiriam no primeiro frame **com pessoa**. Ou seja, o frame vazio não cobre a latência de primeira detecção — confirmado.
-- Mitigação já presente: a mesma linha sugere "(ou no primeiro bitmap)" — o primeiro bitmap real da câmera tem pessoa e cobre os dois estágios (com a ressalva de que o spike ainda existe; só é antecipado para dentro da janela de init).
-- Consistência com o dado: a primeira pose em ~frame 8 (`pesquisa-pipeline-cv.md:223`) é *plausível* como mistura de primeiro-detector + primeiro landmarker + aquisição de tracking — mas, conforme o achado 1, o harness não registra `firstPoseIndex`, e o valor coincide com `WARMUP = 8`; a hipótese "parte do ~8 é latência de primeira detecção" não pode ser confirmada nem refutada sem instrumentar o bench.
+**Evidence (specifications):**
+- WebCodecs, `VideoFrame(image, init)`, `HTMLVideoElement` branch: "Let currentPlaybackFrame be the `VideoFrame` at the current playback position" → `Initialize Frame From Other Frame` (https://w3c.github.io/webcodecs/#dom-videoframe-videoframe-image-init). At algorithm step 13: "If `timestamp` exists in init, assign it…; Otherwise, assign otherFrame's `[[timestamp]]` to frame's `[[timestamp]]`" — that is, `new VideoFrame(video)` inherits the PTS of the element's internal frame. The attribute is "the presentation timestamp, given in microseconds" — **with no defined epoch**.
+- mediacapture-extensions, "Video timestamp concepts" section (https://w3c.github.io/mediacapture-extensions/#video-timestamp-concepts, merged from PR w3c/mediacapture-extensions#156): "**Each video frame must have a presentation timestamp which is relative to a source specific origin.** A source of frames can define how this timestamp is set." And under "Local video capture timestamps": "Local capture tracks have a **fixed offset between presentation timestamp and capture timestamp**. The user agent may let this be zero…" — that is, a camera frame's PTS is **relative to a per-track/source origin**, with an arbitrary offset defined by the user agent. A new `getUserMedia` call means a new track and a new origin → PTS can (and typically will) restart near 0.
+- Corroboration: the rVFC spec itself says `mediaTime` "MAY have a zero value for live-streams or WebRTC applications" (wicg.github.io/video-rvfc §2.2) — per-stream relative clocks are normal for live sources.
 
-**Correção necessária em `auditoria-mediapipe.md:134`:** qualificar a sugestão — um frame **vazio** aquece apenas o estágio do detector; para cobrir também os custos lazy do landmarker (crop/warp + interpreter + presença + rect-para-próximo-frame), o warmup precisa ser num frame **com pessoa** (o próprio primeiro bitmap, como já sugerido em parêntese, ou uma imagem sintética que passe pelo detector). Conectar a observação à instrumentação do achado 1: `firstPoseIndex` no bench mediria de fato quantos frames a primeira detecção custa.
+**Evidence (code):**
+- `src/cv/poseClient.ts:29` — `private lastTimestamp = 0` is client state, **never reset** in `beginCapture` (only `lastVideoTime` is reset, `:62`) or in `pauseCapture` (`:85-92`).
+- `src/App.tsx:76-90` — `stopCamera()` calls `clientRef.current?.pauseCapture()` and stops the tracks, but **does not call `dispose()`**; `startCamera` reuses the same instance via `clientRef.current ??= new PoseClient()` (`:115`). That is, the worker and `lastTimestamp` survive the stop→restart camera cycle (`dispose` only runs in the unmount cleanup, `:43`).
+- `src/cv/poseClient.ts:155-156` — `Math.max(now, lastTimestamp + 0.01)`: if `now` starts coming from a PTS that reset to ~0 in the new session, the clamp prevents regression (preserving VIDEO mode's "strictly increasing" requirement), but **all subsequent frames are timestamped in +0.01 ms increments** — temporal deltas become synthetic. The concrete consequence: the graph's internal OneEuro smoothing (which depends on `dt`) and app detectors using `snapshot.timestampMs` over real intervals (`cadenceTracker.ts:26-34` — 450 ms windows; `jumpDetector.ts:19,28` — 400/160 ms; `postureSignals.ts:19` — 350 ms; `swingDetector.ts:38,47` — `dt` floor of 1/120 s and 400 ms cooldown) start operating on 0.01 ms deltas → cooldowns effectively never expire and velocities become inflated/unrealistic.
+- rVFC's `now` and `performance.now()` share the document's monotonic clock — neither resets between camera sessions. That is why the current clamp is robust: its base is monotonic *per page*, not per track.
+
+**Required fix in `docs/pesquisa-pipeline-cv.md:63`:** qualify the claim "`frame.timestamp` = real PTS in µs — better than `performance.now()` for `timestampMs`": the PTS is real, but has a **source-specific origin** (mediacapture-extensions) and resets between tracks/sessions — which, combined with the warm worker and persistent `lastTimestamp`, would corrupt the deltas used by detectors and internal smoothing. Recommendation: keep `PoseClient`'s millisecond clock (rVFC `now`/`performance.now()`) for `timestampMs`, and use `frame.timestamp` only after rebasing it per session (subtracting the PTS of the first frame in the current capture) or as telemetry metadata.
 
 ---
 
-## Verificações baratas pedidas (fatos de suporte)
+## Finding 6 — Swing speed is measured in shoulder widths/s, not m/s
 
-| Fato | Verificado em | Resultado |
+**Verdict: confirmed.**
+
+**Evidence (full code path):**
+- `src/kinematics/swingDetector.ts:25-26` — wrist/shoulder `worldLandmarks` inputs, measured in meters (confirmed: ai.google.dev pose_landmarker, "Task output" table — `worldLandmarks` in "meters… midpoint of the hips"; `PoseLandmarkerResult` in `vision.d.ts`).
+- `src/kinematics/swingDetector.ts:29-30` — `lateral` = shoulder-to-shoulder vector in meters; `width` = `|lateral|` (meters), falling back to `calibration.world.shoulderWidth` (meters, `calibrator.ts:45,69`).
+- `src/kinematics/swingDetector.ts:32-34` — component-wise `current` = `(wrist − shoulder) / width` → **dimensionless, in "shoulder widths"** — normalized *before* differentiation.
+- `src/kinematics/swingDetector.ts:38-42` — `v = Δcurrent/dt`, `speed = |v|` → **shoulder widths per second**, not m/s.
+- Thresholds in these units: trigger `speed >= 2` (`:47`), `softSpeed = 2`/`strongSpeed = 7` (`:15-16`, adjustable through `setPowerAnchors`), `lateralSpeed` also in widths/s (`:43` — projection of `v` onto the normalized shoulder-to-shoulder axis), `readyDistance < 0.35` (`:62`), and `aimValue` ±0.2 (`:52`) in shoulder widths — consistent with `calibration.world.readyWristLocal`, which the calibrator stores already normalized by `worldShoulderWidth` (`calibrator.ts:48` — same denominator).
+- Scale reference: with shoulders ~0.4 m wide, "speed 2" ≈ 0.8 m/s and "speed 7" ≈ 2.8 m/s — plausible for a racket swing, but the unit stored in the code is dimensionless.
+
+**Required fix in `docs/pesquisa-pipeline-cv.md:189`:** the phrase "uses wrist/shoulder positions in **meters** (racket swing speed in real m/s)" is partly correct — the *inputs* are in meters, but *speed* is in shoulder widths/s. Suggested wording: "uses wrist/shoulder positions in meters, but normalizes displacement by shoulder width **before** differentiation — speed and thresholds (`speed ≥ 2`, soft/strong 2/7) are in shoulder widths/s, dimensionless — this makes the detector invariant to camera distance, together with `readyWristLocal` in the same unit (`calibrator.ts:48`)." The same correction applies to `docs/auditoria-mediapipe.md:62` ("3D wrist speed — metric coordinates"), which also implies speed is in m/s.
+
+---
+
+## Finding 7 — `captureTime` is SHOULD in the specification, not "MUST"
+
+**Verdict: confirmed** — and the document is internally inconsistent.
+
+**Evidence:**
+- WICG video-rvfc specification §2.2 (https://wicg.github.io/video-rvfc/#dom-videoframecallbackmetadata-capturetime), exact normative text for `captureTime`: "**SHOULD be present for WebRTC or getUserMedia applications, and absent otherwise.**" In WebIDL, the member appears without `required` (`[DOMHighResTimeStamp] captureTime;`) — in other words, it is an **optional** field that is `undefined` when absent.
+- `docs/pesquisa-pipeline-cv.md:34` — says "`metadata.captureTime` — 'the time at which the frame was captured by the camera' — **MUST be present for getUserMedia sources** (spec §2.2)." "MUST" **overstates the normative requirement**.
+- Internal inconsistency: the same document correctly states this in two other places — `docs/pesquisa-pipeline-cv.md:183` ("SHOULD for getUserMedia — WICG spec §2.2") and `:253` ("`captureTime` SHOULD for gUM").
+- Actual support when present (primary sources): Chromium populates `captureTime` for gUM/WebRTC sources through `VideoFrame` capture metadata; Firefox implemented `captureTime`/`receiveTime`/`rtpTimestamp`/`processingDuration` in rVFC in **Firefox 132** (bug 1908245, bugzilla.mozilla.org — "for WebRTC related elements", including cameras — `PCameras.ipdl`, `MediaEngineRemoteVideoSource.cpp` files in the patch). When the field is absent (non-gUM source, browser without support), its value is `undefined` — telemetry needs a guard; this is not an error.
+
+**Required fix:** in `pesquisa-pipeline-cv.md:34`, replace "MUST" with "should (SHOULD) be present — optional field; it is `undefined` when the source/user agent does not provide it". This aligns line 34 with lines 183/253.
+
+---
+
+## Finding 8 — `minTrackingConfidence` semantics: the audit is right, the research is not
+
+**Verdict: confirmed** — for the Tasks API used by the app, the audit's description (`min_similarity_threshold` on `AssociationNormRectCalculator`) is mechanically correct; the research document's description (tracking confidence that triggers the detector again) describes the **legacy** `solutions/pose` API.
+
+**Evidence (upstream, `google-ai-edge/mediapipe` master):**
+1. JS → proto mapping (`mediapipe/tasks/web/vision/pose_landmarker/pose_landmarker.ts`, `setOptions`): `minTrackingConfidence` → `PoseLandmarkerGraphOptions.min_tracking_confidence`; `minPosePresenceConfidence` → `PoseLandmarksDetectorGraphOptions.min_detection_confidence`; `minPoseDetectionConfidence` → `PoseDetectorGraphOptions.min_detection_confidence`; `numPoses` → `PoseDetectorGraphOptions.num_poses`.
+2. The only use in the Tasks graph (`mediapipe/tasks/cc/vision/pose_landmarker/pose_landmarker_graph.cc:376-379`): `pose_association.GetOptions<AssociationCalculatorOptions>().set_min_similarity_threshold(tasks_options.min_tracking_confidence())` — matching `docs/auditoria-mediapipe.md:155`. The local `.d.ts` (`vision.d.ts:2762-2765`) and official documentation (ai.google.dev pose_landmarker, "Configuration options") only say "minimum confidence score for the pose tracking to be considered successful" — vague and inconclusive.
+3. What controls whether the person detector runs again (`pose_landmarker_graph.cc:353-371`): `prev_pose_rects` (loopback from the previous frame) → `NormalizedRectVectorHasMinSizeCalculator` with `min_size = num_poses` → `has_enough_poses` → `DisallowIf(image_in/norm_rect_in, has_enough_poses)` **skips `PoseDetectorGraph`** when there are enough rects. In other words, the trigger is the **count** of rects from the previous frame, not a score against `minTrackingConfidence`.
+4. What empties `prev_pose_rects` (`pose_landmarks_detector_graph.cc`): inside `SinglePoseLandmarksDetectorGraph`, `pose_presence = presence_score > min_detection_confidence` (`:393-398`, where the subgraph's `min_detection_confidence` = **JS `minPosePresenceConfidence`**) → `GateCalculator` with `ALLOW=pose_presence` (`:401-406`) blocks the tensors → no landmarks → `POSE_RECT_NEXT_FRAME` is not emitted (`:560-586`) → the vector is empty → the detector runs on the next frame. **The threshold that governs redetection is `minPosePresenceConfidence`, not `minTrackingConfidence`.**
+5. What the threshold actually does (`mediapipe/calculators/util/association_calculator.h`): IoU > `min_similarity_threshold` between rects from distinct streams → deduplication (the later stream's element replaces the earlier one) and `id` propagation — spatial association between rects from the previous frame and new detections, not "tracker confidence".
+6. Additional point for the app configuration: with `numPoses=1` (`pose.worker.ts:19`), `has_enough_poses = (prev.size ≥ 1)` — the detector runs only when `prev` is **empty**, so the two association inputs are never non-empty at the same time → **`minTrackingConfidence` is effectively inert in this configuration** (it only acts with `numPoses ≥ 2` and partial tracking). The suggestion "0.5→0.4 reduces redetections" (`pesquisa-pipeline-cv.md:187`) is wrong in two ways: wrong threshold and an inert option.
+7. Source of the confusion: in the legacy API (`mediapipe/python/solutions/pose.py`, v0.10.14), `min_tracking_confidence` mapped to `…ThresholdingCalculator.threshold` — a threshold on the landmark's own score, whose failure produced an empty frame → detection on the next frame. The "weak tracking → redetect" semantics existed there; the Tasks API reused the field name for association IoU.
+
+**Required fix:**
+- `pesquisa-pipeline-cv.md:187` — rewrite the item: "`minTrackingConfidence` is the minimum IoU (`min_similarity_threshold`) used by `AssociationNormRectCalculator` to match new detections with rects from the previous frame (deduplication/track ID inheritance — `pose_landmarker_graph.cc:376-379`); **the count** of previous-frame rects (`DisallowIf`/`has_enough_poses`), fed by presence, controls redetection — the effective threshold for 'lost tracking' is `minPosePresenceConfidence` (presence score inside the landmarker). With `numPoses=1`, `minTrackingConfidence` is effectively inert." The actual lever for "fewer redetections" is lowering `minPosePresenceConfidence`, with the trade-off of accepting poses with marginal presence scores.
+- `auditoria-mediapipe.md:155` — the description is correct; optionally add the note that the setting is inert for `numPoses=1`.
+
+---
+
+## Finding 9 — Warmup with an empty frame does not cover the landmarker stage
+
+**Verdict: partially confirmed** — the described mechanism is correct, but the audit document already partially mitigates it with the alternative "(or on the first bitmap)"; attributing "~8 frames" to the first detection remains an unmeasured hypothesis (connected to Finding 1).
+
+**Evidence:**
+- The upstream two-stage pipeline is confirmed (`pose_landmarker_graph.cc`): `PoseDetectorGraph` → rects → `MultiplePoseLandmarksDetectorGraph` (ROI loop through `BeginLoopNormalizedRectCalculator`, `pose_landmarks_detector_graph.cc:697`). With `pose_rects` **empty**, the begin-loop iterates zero times → `SinglePoseLandmarksDetectorGraph` is **never invoked** — the 256² warp/crop path, landmarker interpreter, `TensorsToLandmarks`, `RefineLandmarksFromHeatmap`, presence `ThresholdingCalculator`, `LandmarksToDetection` → `AlignmentPointsRects` → `RectTransformation` (emitter of `POSE_RECT_NEXT_FRAME`), and smoothing nodes never run.
+- Consequence: `detectForVideo` on a 1×1 `OffscreenCanvas` (suggested in `docs/auditoria-mediapipe.md:134`) warms the graph, input conversion, and **detector interpreter** — but leaves the landmarker stage's lazy costs *untouched*. Those costs would occur on the first frame **with a person**. In other words, an empty frame does not cover first-detection latency — confirmed.
+- Mitigation already present: the same line suggests "(or on the first bitmap)" — the camera's first real bitmap contains a person and covers both stages (with the caveat that the spike still occurs; it is only moved into the initialization window).
+- Consistency with the measurement: the first pose at about frame 8 (`pesquisa-pipeline-cv.md:223`) is *plausibly* a combination of first-detector + first-landmarker + tracking acquisition — but, as Finding 1 notes, the harness does not record `firstPoseIndex`, and the value matches `WARMUP = 8`; the hypothesis that "some of the ~8 frames are first-detection latency" cannot be confirmed or refuted without instrumenting the bench.
+
+**Required fix in `auditoria-mediapipe.md:134`:** qualify the suggestion — an **empty** frame warms only the detector stage; to also cover the landmarker stage's lazy costs (crop/warp + interpreter + presence + next-frame rect), warmup must use a frame **with a person** (the first bitmap itself, as already suggested in parentheses, or a synthetic image that passes the detector). Connect this observation to the instrumentation in Finding 1: `firstPoseIndex` in the bench would actually measure the frame cost of first detection.
+
+---
+
+## Requested low-cost checks (supporting facts)
+
+| Fact | Verified in | Result |
 |---|---|---|
-| `FRAME` pós-fallback atinge landmarker real | `pose.worker.ts:32-46,74-86` | Sim — `landmarker` reatribuído por `createTask('CPU')`; caminho `detectForVideo` idêntico |
-| `FALLBACK` precede `ERROR` não-fatal; bench resolve em `ERROR` | `pose.worker.ts:39,89-91`; `pose-bench.html:64,83-84` | Sim — `out.fellBack` já é setado; `delegate`/`requested` ficam 'GPU' |
-| Relógio monotônico ms do `PoseClient` | `poseClient.ts:29,155-156` | `Math.max(now, lastTimestamp+0.01)`; `lastTimestamp` nunca resetado fora de construção/dispose |
-| `stopCamera` preserva o worker/cliente | `App.tsx:76-90,115` | Sim — só `pauseCapture()` + `track.stop()`; `clientRef.current ??=` reutiliza; `dispose` só no unmount (`:43`) |
-| `captureTime` = SHOULD, campo opcional | wicg.github.io/video-rvfc §2.2 | Confirmado literal; doc :183 e :253 já dizem SHOULD — só a :34 diz "DEVE" |
-| `frame.timestamp` = PTS herdado, origem por fonte | webcodecs §9.4.2/9.4.6; mediacapture-extensions "Video timestamp concepts" | Confirmado — origem `source specific`, offset fixo por track |
-| URL `mediapipe-assets/pose.jpg` | HEAD `storage.googleapis.com/mediapipe-assets/pose.jpg` | HTTP 200, 44 100 B — existe |
-| `min_tracking_confidence` → `min_similarity_threshold` | upstream `pose_landmarker_graph.cc:376-379` | Confirmado — auditoria :155 correta |
-| Gate de re-detecção = contagem de rects anteriores | upstream `pose_landmarker_graph.cc:353-371` (`DisallowIf`/`has_enough_poses`) | Confirmado — não é score vs. tracking confidence |
-| Swing: divisão por largura do ombro antes da derivada | `swingDetector.ts:30-42`; `calibrator.ts:48` | Confirmado — unidades = larguras-de-ombro/s e larguras-de-ombro |
+| `FRAME` after fallback reaches real landmarker | `pose.worker.ts:32-46,74-86` | Yes — `landmarker` reassigned through `createTask('CPU')`; same `detectForVideo` path |
+| `FALLBACK` precedes non-fatal `ERROR`; bench resolves on `ERROR` | `pose.worker.ts:39,89-91`; `pose-bench.html:64,83-84` | Yes — `out.fellBack` is already set; `delegate`/`requested` remain 'GPU' |
+| `PoseClient` monotonic millisecond clock | `poseClient.ts:29,155-156` | `Math.max(now, lastTimestamp+0.01)`; `lastTimestamp` is never reset except at construction/dispose |
+| `stopCamera` preserves worker/client | `App.tsx:76-90,115` | Yes — only `pauseCapture()` + `track.stop()`; `clientRef.current ??=` reuses it; `dispose` only on unmount (`:43`) |
+| `captureTime` = SHOULD, optional field | wicg.github.io/video-rvfc §2.2 | Literally confirmed; doc lines :183 and :253 already say SHOULD — only :34 says "MUST" |
+| `frame.timestamp` = inherited PTS, source-specific origin | webcodecs §9.4.2/9.4.6; mediacapture-extensions "Video timestamp concepts" | Confirmed — `source specific` origin, fixed offset per track |
+| `mediapipe-assets/pose.jpg` URL | HEAD `storage.googleapis.com/mediapipe-assets/pose.jpg` | HTTP 200, 44,100 B — exists |
+| `min_tracking_confidence` → `min_similarity_threshold` | upstream `pose_landmarker_graph.cc:376-379` | Confirmed — audit line :155 is correct |
+| Redetection gate = count of prior rects | upstream `pose_landmarker_graph.cc:353-371` (`DisallowIf`/`has_enough_poses`) | Confirmed — not a score against tracking confidence |
+| Swing: divide by shoulder width before differentiation | `swingDetector.ts:30-42`; `calibrator.ts:48` | Confirmed — units = shoulder widths/s and shoulder widths |
 
 ---
 
-## Tabela resumo
+## Summary table
 
-| # | Local | Veredicto | Correção necessária |
+| # | Location | Verdict | Required fix |
 |---|---|---|---|
-| 1 | `pesquisa-pipeline-cv.md:223` / `pose-bench.html` | Confirmado | Script: registrar `firstPoseIndex` em `out` (2 linhas) |
-| 2 | `pesquisa-pipeline-cv.md:210` / `pose-bench.html:2-5` | Parcialmente confirmado | Doc (e header do script): URL completa + passo `curl -o dist/pose.jpg` |
-| 3 | `pose-bench.html:81` (worker `pose.worker.ts:87-93`) | Confirmado | Script: usar `fellBack` para separar `times` por delegate (atualizar `out.delegate` no FALLBACK) e/ou invalidar `perFrame`; warmup já aborta o run — documentar |
-| 4 | `pesquisa-pipeline-cv.md:227` | Parcialmente confirmado | Reescrever caveat: GPU-real não medida; expectativa externa sem bound rígido (desktop citado excede o model card) |
-| 5 | `pesquisa-pipeline-cv.md:63` | Confirmado | Qualificar: `frame.timestamp` é PTS real em µs, mas com origem por fonte (reinicia entre tracks); manter relógio ms do cliente p/ `timestampMs` ou rebasear por sessão |
-| 6 | `pesquisa-pipeline-cv.md:189` (código `swingDetector.ts:30-42`) | Confirmado | Corrigir "m/s reais" → "larguras-de-ombro/s (adimensional)"; idem `auditoria-mediapipe.md:62` |
-| 7 | `pesquisa-pipeline-cv.md:34` | Confirmado | "DEVE" → "SHOULD/deveria; ausente = `undefined`" (alinha com :183/:253) |
-| 8 | `pesquisa-pipeline-cv.md:187` vs `auditoria-mediapipe.md:155` | Confirmado | Pesquisa: reescrever com semântica tasks (IoU de associação; re-detecção governada por `minPosePresenceConfidence`/contagem de rects; inerte com `numPoses=1`). Auditoria: correta; opcional nota de inércia |
-| 9 | `auditoria-mediapipe.md:134` | Parcialmente confirmado | Qualificar: frame vazio só aquece o estágio do detector; warmup completo exige frame com pessoa ("primeiro bitmap" já cobre); ligar à instrumentação do achado 1 |
+| 1 | `pesquisa-pipeline-cv.md:223` / `pose-bench.html` | Confirmed | Script: record `firstPoseIndex` in `out` (2 lines) |
+| 2 | `pesquisa-pipeline-cv.md:210` / `pose-bench.html:2-5` | Partially confirmed | Doc (and script header): full URL + `curl -o dist/pose.jpg` step |
+| 3 | `pose-bench.html:81` (worker `pose.worker.ts:87-93`) | Confirmed | Script: use `fellBack` to separate `times` by delegate (update `out.delegate` on FALLBACK) and/or invalidate `perFrame`; warmup already aborts the run — document this |
+| 4 | `pesquisa-pipeline-cv.md:227` | Partially confirmed | Rewrite caveat: real GPU not measured; external expectation has no strict bound (cited desktop figures exceed the model card) |
+| 5 | `pesquisa-pipeline-cv.md:63` | Confirmed | Qualify: `frame.timestamp` is a real PTS in µs, but has a source-specific origin (resets between tracks); keep the client's ms clock for `timestampMs` or rebase per session |
+| 6 | `pesquisa-pipeline-cv.md:189` (`swingDetector.ts:30-42` code) | Confirmed | Replace "real m/s" with "shoulder widths/s (dimensionless)"; likewise in `auditoria-mediapipe.md:62` |
+| 7 | `pesquisa-pipeline-cv.md:34` | Confirmed | Replace "MUST" with "SHOULD/should; absent = `undefined`" (aligns with :183/:253) |
+| 8 | `pesquisa-pipeline-cv.md:187` vs `auditoria-mediapipe.md:155` | Confirmed | Research: rewrite with Tasks semantics (association IoU; redetection governed by `minPosePresenceConfidence`/rect count; inert with `numPoses=1`). Audit: correct; optional note about being inert |
+| 9 | `auditoria-mediapipe.md:134` | Partially confirmed | Qualify: an empty frame warms only the detector stage; full warmup requires a frame with a person (the "first bitmap" already covers this); connect to Finding 1 instrumentation |
 
 ---
 
-## Lista concreta de correções
+## Concrete list of fixes
 
 ### `docs/pesquisa-pipeline-cv.md`
-1. **L34**: `DEVE estar presente` → `deveria (SHOULD) estar presente … campo opcional; vem \`undefined\` quando ausente` (spec video-rvfc §2.2; alinha com L183/L253).
-2. **L63** (conclusão §2.2): qualificar `frame.timestamp` — PTS real em µs, origem **por fonte/track** (mediacapture-extensions): reinicia a cada novo `getUserMedia`; com o worker quente e `lastTimestamp` persistente (`poseClient.ts:29,155`), usar raw achataria os deltas após reabrir a câmera. Manter o relógio ms do `PoseClient` para `timestampMs`; `frame.timestamp` só com rebase por sessão ou como telemetria.
-3. **L187** (item 5 da §6): trocar a semântica de `minTrackingConfidence` — é `min_similarity_threshold` (IoU) do `AssociationNormRectCalculator` (`pose_landmarker_graph.cc:376-379`), inerte com `numPoses=1`; a alavanca real de re-detecção é `minPosePresenceConfidence` (presença → `POSE_RECT_NEXT_FRAME` → `has_enough_poses` → `DisallowIf` do detector).
-4. **L189** (item 7 da §6): "m/s reais" → velocidade em **larguras-de-ombro/s** (`swingDetector.ts:30-42`), consistente com `readyWristLocal`/`world.shoulderWidth`.
-5. **L210** (§7.5 metodologia): adicionar passo de obtenção da foto — `curl -sL -o dist/pose.jpg https://storage.googleapis.com/mediapipe-assets/pose.jpg` — antes de `npm run preview`.
-6. **L223** (leitura 3): condicionar a afirmação "~8 frames" à instrumentação (`firstPoseIndex`) ou rotulá-la como observação; notar que coincide com `WARMUP=8`.
-7. **L227** (caveats): remover a delimitação "entre o CPU medido e o model card" — GPU-real não medida; âncoras externas (model card Pixel 3; 92–160 fps desktop em §5) sugerem comparável/mais rápida que CPU, sem bound do benchmark.
+1. **L34**: `MUST be present` → `should (SHOULD) be present … optional field; is \`undefined\` when absent` (video-rvfc spec §2.2; aligns with L183/L253).
+2. **L63** (§2.2 conclusion): qualify `frame.timestamp` — real PTS in µs, **source/track-specific origin** (mediacapture-extensions): resets for each new `getUserMedia`; with a warm worker and persistent `lastTimestamp` (`poseClient.ts:29,155`), using the raw value would flatten deltas after restarting the camera. Keep `PoseClient`'s ms clock for `timestampMs`; use `frame.timestamp` only after per-session rebasing or as telemetry.
+3. **L187** (§6 item 5): correct the semantics of `minTrackingConfidence` — it is `min_similarity_threshold` (IoU) in `AssociationNormRectCalculator` (`pose_landmarker_graph.cc:376-379`), inert with `numPoses=1`; the actual redetection control is `minPosePresenceConfidence` (presence → `POSE_RECT_NEXT_FRAME` → `has_enough_poses` → detector `DisallowIf`).
+4. **L189** (§6 item 7): replace "real m/s" with speed in **shoulder widths/s** (`swingDetector.ts:30-42`), consistent with `readyWristLocal`/`world.shoulderWidth`.
+5. **L210** (§7.5 methodology): add the photo retrieval step — `curl -sL -o dist/pose.jpg https://storage.googleapis.com/mediapipe-assets/pose.jpg` — before `npm run preview`.
+6. **L223** (reading 3): make the "~8 frames" claim conditional on instrumentation (`firstPoseIndex`) or label it as an observation; note that it matches `WARMUP=8`.
+7. **L227** (caveats): remove the "between measured CPU and model card" bound — real GPU was not measured; external anchors (Pixel 3 model card; 92–160 fps desktop figures in §5) suggest performance comparable to or faster than CPU, without a benchmark bound.
 
 ### `docs/auditoria-mediapipe.md`
-8. **L62**: "velocidade 3D do punho — coordenadas métricas" → esclarecer que a velocidade é em larguras-de-ombro/s após normalização (`swingDetector.ts:30-34`).
-9. **L134**: especificar que `OffscreenCanvas 1×1` aquece só o estágio do detector (landmarker nunca roda sem ROI — `BeginLoopNormalizedRectCalculator` itera zero vezes); para warmup completo, frame com pessoa (o "primeiro bitmap" já citado).
-10. **L155** (opcional): acrescentar que, com `numPoses=1`, `min_tracking_confidence` é praticamente inerte (association só casa rects quando detector e rects anteriores coexistem — só com `numPoses>1`/tracking parcial).
+8. **L62**: "3D wrist speed — metric coordinates" → clarify that speed is measured in shoulder widths/s after normalization (`swingDetector.ts:30-34`).
+9. **L134**: specify that `OffscreenCanvas 1×1` warms only the detector stage (the landmarker never runs without an ROI — `BeginLoopNormalizedRectCalculator` iterates zero times); for full warmup, use a frame with a person (the already-mentioned "first bitmap").
+10. **L155** (optional): add that with `numPoses=1`, `min_tracking_confidence` is effectively inert (association matches rects only when detector output and previous rects coexist — only with `numPoses>1`/partial tracking).
 
 ### `scripts/pose-bench.html`
-11. Registrar a primeira pose: `if (out.firstPoseIndex === undefined && res.type === 'POSE' && res.landmarks?.length) out.firstPoseIndex = i;` dentro do loop (`:72-95`), e documentar no header/`out`.
-12. Fallback mid-run: no handler de `FALLBACK` (`:64`, `:84`), além de `out.fellBack = true`, atualizar `out.delegate = m.to` e separar/invalidar os timings — p.ex. `times` por delegate efetivo ou `perFrame` anotado com `mixed: true`/`invalid`. Nota: fallback no warmup já aborta o run (`:94`) — o misto só ocorre pós-warmup.
-13. Header (`:2-5`): incluir a URL concreta da foto de exemplo (`https://storage.googleapis.com/mediapipe-assets/pose.jpg`) para reprodução idêntica da §7.5.
+11. Record the first pose: add `if (out.firstPoseIndex === undefined && res.type === 'POSE' && res.landmarks?.length) out.firstPoseIndex = i;` inside the loop (`:72-95`), and document it in the header/`out`.
+12. Mid-run fallback: in the `FALLBACK` handler (`:64`, `:84`), in addition to `out.fellBack = true`, update `out.delegate = m.to` and separate/invalidate timings — e.g., timings by effective delegate or mark `perFrame` with `mixed: true`/`invalid`. Note: fallback during warmup already aborts the run (`:94`) — mixed results only occur after warmup.
+13. Header (`:2-5`): include the concrete sample photo URL (`https://storage.googleapis.com/mediapipe-assets/pose.jpg`) for reproduction matching §7.5.

@@ -55,7 +55,7 @@ self.onmessage = async ({ data }: MessageEvent<FaceWorkerRequest>) => {
         type: 'ERROR',
         requestId,
         code: 'WEBGL_UNAVAILABLE',
-        message: 'WebGL indisponível no contexto de worker para processar o rosto.',
+        message: 'WebGL is unavailable in the worker context for face processing.',
       } satisfies FaceWorkerReply);
       return;
     }
@@ -66,7 +66,7 @@ self.onmessage = async ({ data }: MessageEvent<FaceWorkerRequest>) => {
         type: 'ERROR',
         requestId,
         code: 'MODEL_MISSING',
-        message: `Modelo facial indisponível (${response.status}).`,
+        message: `Face model is unavailable (${response.status}).`,
       } satisfies FaceWorkerReply);
       return;
     }
@@ -116,7 +116,7 @@ self.onmessage = async ({ data }: MessageEvent<FaceWorkerRequest>) => {
         type: 'ERROR',
         requestId,
         code: 'NO_FACE_DETECTED',
-        message: 'Nenhum rosto detectado na imagem enviada.',
+        message: 'No face was detected in the submitted image.',
       } satisfies FaceWorkerReply);
       return;
     }

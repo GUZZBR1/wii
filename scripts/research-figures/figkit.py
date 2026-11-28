@@ -1,7 +1,7 @@
-"""Mini biblioteca para desenhar as figuras dos artigos em SVG (sem dependencias).
+"""Small standard-library helper for drawing article figures as SVG.
 
-Cada funcao devolve um trecho de SVG (str). Use `svg(...)` para montar o arquivo.
-Figuras de curva usam `curve_placeholder`: sao ILUSTRATIVAS, sem numeros nos eixos.
+Each function returns an SVG fragment (`str`). Use `svg(...)` to assemble the file.
+Curve figures use `curve_placeholder`: they are illustrative and have no axis values.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ TRANSLATIONS: dict[str, str] = {}
 
 
 def tr(s: str) -> str:
-    """Traduz `s` quando LANG == "en"; caso contrario devolve igual."""
+    """Translate `s` when LANG is `en`; otherwise return it unchanged."""
     return TRANSLATIONS.get(s, s) if LANG == "en" else s
 
 
@@ -84,7 +84,7 @@ def row(
     h: float = 64,
     gap: float = 50,
 ) -> str:
-    """Caixas em linha ligadas por setas."""
+    """Draw boxes in a row connected by arrows."""
     out, colors = [], [TEAL, CLAY, VIOLET]
     for i, lab in enumerate(labels):
         bx = x + i * (w + gap)
@@ -103,7 +103,7 @@ def curve_placeholder(
     ylabel: str,
     falling: bool = True,
 ) -> str:
-    """Eixos sem numeros e uma curva tracejada: forma esperada, NAO e dado."""
+    """Draw numberless axes and a dashed curve: an expected shape, not data."""
     y0, y1 = (y + 0.15 * h, y + 0.8 * h) if falling else (y + 0.8 * h, y + 0.15 * h)
     path = f"M{x} {y0} C{x + w * 0.4} {y0} {x + w * 0.6} {y1} {x + w} {y1}"
     return (
@@ -123,7 +123,7 @@ def curve_placeholder(
 def matrix(
     x: float, y: float, rows: list[str], cols: list[str], cell: float = 70
 ) -> str:
-    """Grade de condicoes (linhas x colunas), celulas vazias."""
+    """Draw a grid of conditions (rows by columns) with empty cells."""
     out = []
     for j, c in enumerate(cols):
         out.append(
@@ -142,7 +142,7 @@ def matrix(
 
 
 def timeline(x: float, y: float, w: float, events: list[tuple[float, str]]) -> str:
-    """Linha do tempo com marcos (posicao 0 a 1)."""
+    """Draw a timeline with milestones (positions from 0 to 1)."""
     out = [
         f'<line x1="{x}" y1="{y}" x2="{x + w}" y2="{y}" stroke="{INK}" stroke-width="2"/>'
     ]

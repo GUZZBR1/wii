@@ -1,6 +1,6 @@
 import type { Bilingual } from '../i18n';
 
-/** Um texto curto nas duas línguas: short/title/blurb em português e a tradução em `en`. */
+/** Short metadata in both languages: short/title/blurb contain Portuguese with an English translation in `en`. */
 export interface Draft {
   n: string;
   short: string;
@@ -10,8 +10,8 @@ export interface Draft {
 }
 
 /**
- * Artigos de outros autores que informam o projeto, mostrados em /papers. Título e resumo dizem só
- * o que a própria publicação diz.
+ * Papers by other authors that inform the project and appear on /papers. Titles and summaries only
+ * describe what each publication itself reports.
  */
 export interface Paper extends Draft {
   externalUrl: string;
@@ -92,7 +92,7 @@ export const papers: Paper[] = [
   },
 ];
 
-/** Frases do palco sobre as referências científicas que sustentam o projeto. */
+/** Stage lines about the scientific references that inform the project. */
 export const paperLines: Bilingual[] = [
   { pt: 'Seis leituras sobre visão computacional e jogos pelo corpo.', en: 'Six readings on computer vision and body-controlled games.' },
   { pt: 'Do BlazePose e Filtro 1€ à detecção de golpes e precisão 3D.', en: 'From BlazePose and the 1€ Filter to stroke detection and 3D accuracy.' },
@@ -100,7 +100,7 @@ export const paperLines: Bilingual[] = [
   { pt: 'Clique em qualquer cartão para abrir o resumo e ir direto ao artigo.', en: 'Click any card to open its summary and jump straight to the paper.' },
 ];
 
-/** Os rascunhos do projeto em docs/research, lidos em /papers/:n. Propostas, sem resultados validados. */
+/** Project research drafts in docs/research, shown on /papers/:n. These are proposals, not validated results. */
 export const drafts: Draft[] = [
   { n: '01', short: 'dados sintéticos', title: 'Simulação e dados sintéticos para avaliar sistemas de desenho por câmera', blurb: 'Cenários simulados como complemento às gravações reais, e até onde eles servem.', en: { short: 'synthetic data', title: 'Simulation and synthetic data for evaluating camera drawing systems', blurb: 'Simulated scenarios as a complement to real recordings, and how far they are useful.' } },
   { n: '02', short: 'tempo de resposta', title: 'Desempenho temporal em sistemas de desenho assistidos por visão computacional', blurb: 'A rapidez da resposta e a continuidade que a pessoa percebe enquanto desenha.', en: { short: 'response time', title: 'Temporal performance in computer-vision-assisted drawing systems', blurb: 'The speed of the response and the continuity the person perceives while drawing.' } },

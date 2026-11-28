@@ -36,7 +36,7 @@ export default function ProductPage() {
     document.body.classList.add('is-falling');
     stopWarp.current = runWarp(() => {
       navigate('/app');
-      // A arena ja nasce coberta pelo flash branco; so entao soltamos o tunel.
+      // The arena is already covered by the white flash on mount; release the tunnel only then.
       requestAnimationFrame(() => requestAnimationFrame(() => {
         stopWarp.current();
         document.body.classList.remove('is-falling');
@@ -77,8 +77,8 @@ export default function ProductPage() {
         </h1>
         <p className="product-description product-emerge" style={{ '--emerge': 1500 } as CSSProperties}>
           {tr(
-            'Estamos construindo uma arena arcade no navegador, controlada pelo corpo. Corrida de obstáculos e tênis começam no seu movimento; o que a arena pode se tornar ainda está sendo construído.',
-            'We are building an arcade arena in the browser, controlled by your body. Hurdle running and tennis start with your movement; what the arena can become is still being built.',
+            'Estamos construindo uma arena arcade no navegador, controlada pelo corpo. Atletismo, boxe e tênis começam no seu movimento; o que a arena pode se tornar ainda está sendo construído.',
+            'We are building an arcade arena in the browser, controlled by your body. Athletics, boxing and tennis start with your movement; what the arena can become is still being built.',
           )}
         </p>
 

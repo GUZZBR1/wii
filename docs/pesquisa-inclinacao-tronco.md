@@ -70,7 +70,7 @@ lean = atan2(t·l, t·u)                                        // + = toward su
 - Fallback when |ψ| is small or z is unreliable: image-plane lean with aspect correction, `atan2((Sx − Hx)·W, (Hy − Sy)·H)`. It uses no depth and is unaffected by rigid torso roll, but is foreshortened by yaw (roughly cos ψ for pure lateral lean) and contaminated by forward flexion × sin ψ.
 - Test fixtures worth adding: rigid roll of all torso points about the hip centre (expected lean = φ); the same under yaw ±30°; pure forward flexion under yaw (expected about 0); shoulder-only tilt/shrug (expected about 0); camera roll absorbed by calibration.
 
-### Observations from the local code (`/home/lucas_coimbra/projects/wii/src`, read 2026-11-25)
+### Observations from the local source tree (`src/`, read 2026-11-25)
 
 > Note (added on import): this section describes the pre-PR-#5 implementation. Lane lean now uses world landmarks measured against the leg-calibrated vertical (`legsVertical` in `bodyFrame.ts`, `leanUp0` in the calibration profile), and lane direction remains unverified on a real camera.
 - `kinematics/postureSignals.ts` (`torsoLeanDeltaRad`) and `cv/calibrator.ts` use IMAGE landmarks, not world landmarks: mid-hip to mid-shoulder against image vertical. This already survives rigid torso roll (it does not reference the shoulder line).

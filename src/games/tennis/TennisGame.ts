@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import type { Hand, SportActionEvent } from '../../cv/protocol';
+import type { Lang } from '../../i18n';
+import { localizedFramingAdvice } from '../../gameText';
 import type { ArmMotion } from '../../kinematics/armMotion';
 import type { SwingTracking } from '../../kinematics/actionPipeline';
 import type { ProceduralAudio } from '../audio';
@@ -69,6 +71,57 @@ const SERVE_CONTACT_HEIGHT = 2.4;
 /** Beyond this, a mistimed serve would leave the service box. */
 const SERVE_TIMING_SPREAD_MS = 150;
 const SWING_TRACKING_STALE_MS = 300;
+
+const TENNIS_TEXT_EN: Readonly<Record<string, string>> = {
+  'Faça uma raquetada para sacar': 'Swing the racket to serve',
+  Aquecimento: 'Warm-up',
+  'Agora bata com a raquete!': 'Now hit with the racket!',
+  'BATA!': 'HIT!',
+  '✔ LANÇAMENTO': '✔ TOSS',
+  '✔ SAQUE': '✔ SERVE',
+  'PRONTO! VAMOS JOGAR': "READY! LET'S PLAY",
+  'LANCE A BOLA COM A MÃO LIVRE': 'TOSS THE BALL WITH YOUR FREE HAND',
+  'BATA COM A RAQUETE': 'HIT WITH THE RACKET',
+  'CEDO DEMAIS': 'TOO EARLY',
+  'TARDE DEMAIS': 'TOO LATE',
+  'FORA DE ALCANCE': 'OUT OF REACH',
+  'BOLA MORTA': 'DEAD BALL',
+  'SMASH!': 'SMASH!',
+  'NO PONTO!': 'GREAT SHOT!',
+  'SAQUE FORTE!': 'POWERFUL SERVE!',
+  'Saque diagonal': 'Cross-court serve',
+  'Seu saque: lance com a mão livre e bata com a raquete': 'Your serve: toss with your free hand, then hit with the racket',
+  'Saque do adversário — prepare-se': "Opponent's serve — get ready",
+  'Saque do adversário…': "Opponent's serve…",
+  'NA REDE!': 'INTO THE NET!',
+  'FORA!': 'OUT!',
+  'SEGUNDO QUIQUE': 'SECOND BOUNCE',
+  'SEM DEVOLUÇÃO': 'NO RETURN',
+  'DUPLA FALTA': 'DOUBLE FAULT',
+  'FALTA · SEGUNDO SAQUE': 'FAULT · SECOND SERVE',
+  'VOCÊ VENCEU A PARTIDA!': 'YOU WON THE MATCH!',
+  'Adversário venceu a partida': 'Opponent won the match',
+  'GAME SEU!': 'GAME TO YOU!',
+  'Game do adversário': 'Game to the opponent',
+  'Ponto seu!': 'Point to you!',
+  'Ponto do adversário': 'Point to the opponent',
+  'Fim de jogo': 'Game over',
+  Game: 'Game',
+};
+
+function tennisText(text: string, language: Lang): string {
+  if (language === 'pt') return text;
+  const exact = TENNIS_TEXT_EN[text];
+  if (exact) return exact;
+  return text
+    .replaceAll('CRUZADA', 'CROSS-COURT')
+    .replaceAll('PARALELA', 'DOWN THE LINE')
+    .replaceAll('CENTRO', 'CENTER')
+    .replaceAll(' ALTO ↑', ' HIGH ↑')
+    .replaceAll(' RASANTE ↓', ' LOW ↓')
+    .replaceAll(' · ALTA', ' · HIGH')
+    .replaceAll(' · RASANTE', ' · LOW');
+}
 
 type Phase =
   | { kind: 'player-serve'; idealHitMs: number }
@@ -196,6 +249,7 @@ export class TennisGame {
   private servingFlight = false;
   private pendingPoint?: { deadAt: number; winner: PlayerSide; label: string };
   private readonly restart = new RestartGesture();
+  private language: Lang = 'pt';
 
   private get serveX(): number {
     return serviceSide(this.score.points) * (this.score.server === 'player' ? 1.65 : -1.65);
@@ -207,6 +261,7 @@ export class TennisGame {
     private readonly audio?: ProceduralAudio,
     private readonly options: {
       tutorial?: boolean;
+      language?: Lang;
       initialRacketHand?: Hand;
       onRacketHand?: (hand: Hand) => void;
       onStrokeTravel?: (travel: number) => void;
@@ -214,6 +269,7 @@ export class TennisGame {
       randomSeed?: number;
     } = {},
   ) {
+    this.language = options.language ?? 'pt';
     this.randomState = (options.randomSeed ?? Math.floor(Math.random() * 0x100000000)) >>> 0;
     this.racketHand = options.initialRacketHand ?? 'right';
     this.crowd = buildTennisStadium(this.scene).crowd;
@@ -229,7 +285,7 @@ export class TennisGame {
     // Lower the resolution if frames get slow; the pose worker shares the same machine.
     this.loop.onQualityChange = () => {};
     if (options.tutorial) {
-      this.tutorial = new TennisTutorial();
+      this.tutorial = new TennisTutorial(this.language);
       this.phase = { kind: 'tutorial' };
       this.status = 'Aquecimento';
       options.onStrokeTravel?.(LEARNING_TRAVEL);
@@ -238,6 +294,12 @@ export class TennisGame {
   }
 
   // ---------------------------------------------------------------- input
+
+  setLanguage(language: Lang): void {
+    this.language = language;
+    this.tutorial?.setLanguage(language);
+    this.publishHud();
+  }
 
   onAction(event: SportActionEvent): void {
     if (event.type === 'swing-start') {
@@ -995,11 +1057,13 @@ export class TennisGame {
   }
 
   private callScore(result: { gameWonBy?: unknown; matchWonBy?: unknown }): void {
-    if (result.matchWonBy) this.audio?.say('Fim de jogo');
+    if (result.matchWonBy) this.audio?.say(this.language === 'en' ? 'Match over' : 'Fim de jogo');
     else if (result.gameWonBy) this.audio?.say('Game');
     else {
       const labels = pointLabels(this.score);
-      this.audio?.say(`${labels.player} a ${labels.opponent}`.replace('AD', 'vantagem'));
+      const advantage = this.language === 'en' ? 'advantage' : 'vantagem';
+      const separator = this.language === 'en' ? ' to ' : ' a ';
+      this.audio?.say(`${labels.player}${separator}${labels.opponent}`.replaceAll('AD', advantage));
     }
   }
 
@@ -1106,15 +1170,16 @@ export class TennisGame {
   }
 
   private publishHud(): void {
+    const display = (text: string) => tennisText(text, this.language);
     if (this.tutorial) {
       const text = this.tutorial.text;
       this.emitHud({
         score: 0,
         label: '',
         speed01: 0,
-        status: this.status,
-        feedback: this.feedback,
-        banner: { title: text.title, detail: this.framingAdvice ?? text.detail },
+        status: display(this.status),
+        feedback: this.feedback ? { ...this.feedback, text: display(this.feedback.text) } : undefined,
+        banner: { title: text.title, detail: this.framingAdvice ? localizedFramingAdvice(this.language, this.framingAdvice) : text.detail },
       });
       return;
     }
@@ -1123,8 +1188,8 @@ export class TennisGame {
       score: this.score.games.player,
       label: `${labels.player} × ${labels.opponent}`,
       speed01: 0,
-      status: this.status,
-      feedback: this.feedback,
+      status: display(this.status),
+      feedback: this.feedback ? { ...this.feedback, text: display(this.feedback.text) } : undefined,
       tennis: {
         points: labels,
         games: this.score.games,

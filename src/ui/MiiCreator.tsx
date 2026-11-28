@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import * as THREE from 'three';
-import { FACE_STYLE_NAMES } from '../miis/faceLabels';
+import { FACE_SLIDERS, FACE_STYLES } from '../miis/faceLabels';
 import { createMiiFaceTexture } from '../mii/faceRenderer';
 import {
   createMiiFacePatch,
@@ -24,18 +24,31 @@ import {
 } from '../mii/miiSpec';
 import { disposeObjectTree } from '../games/core/GameLoop';
 import { createMiiStage } from '../miis/miiStage';
+import { useLang, type Lang } from '../i18n';
 
 type Tab = 'face' | 'hair' | 'eyes' | 'brows' | 'nose' | 'mouth' | 'glasses';
 
-const TABS: { id: Tab; label: string }[] = [
-  { id: 'face', label: 'Rosto' },
-  { id: 'hair', label: 'Cabelo' },
-  { id: 'eyes', label: 'Olhos' },
-  { id: 'brows', label: 'Sobrancelhas' },
-  { id: 'nose', label: 'Nariz' },
-  { id: 'mouth', label: 'Boca' },
-  { id: 'glasses', label: 'Óculos' },
+type FaceStyleKey = (typeof FACE_STYLES)[number][0];
+
+const TABS: { id: Tab; style: FaceStyleKey }[] = [
+  { id: 'face', style: 'head' },
+  { id: 'hair', style: 'hair' },
+  { id: 'eyes', style: 'eyes' },
+  { id: 'brows', style: 'brows' },
+  { id: 'nose', style: 'nose' },
+  { id: 'mouth', style: 'mouth' },
+  { id: 'glasses', style: 'glasses' },
 ];
+
+function faceStyleText(style: FaceStyleKey, language: Lang) {
+  const entry = FACE_STYLES.find(([key]) => key === style);
+  return entry ? { label: entry[1][language], names: entry[2].map((option) => option[language]) } : { label: '', names: [] };
+}
+
+function faceSliderLabel(key: string, language: Lang): string {
+  const slider = FACE_SLIDERS.find(([id]) => id === key);
+  return slider?.[1][language] ?? key;
+}
 interface PreviewModel {
   group: THREE.Group;
   mount: MiiFaceMount;
@@ -72,7 +85,7 @@ function disposePreviewModel(model: PreviewModel): void {
   disposeObjectTree(model.group);
 }
 
-function MiiPreview({ spec }: { spec: MiiFaceSpec }) {
+function MiiPreview({ spec, lang }: { spec: MiiFaceSpec; lang: Lang }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const [webglError, setWebglError] = useState(false);
   const specRef = useRef<(next: MiiFaceSpec) => void>(() => {});
@@ -121,11 +134,12 @@ function MiiPreview({ spec }: { spec: MiiFaceSpec }) {
 
   return (
     <>
-      <div ref={hostRef} className="mii-preview" role="img" aria-label="Prévia 3D do Mii" hidden={webglError} />
+      <div ref={hostRef} className="mii-preview" role="img" aria-label={lang === 'pt' ? 'Prévia 3D do Mii' : '3D Mii preview'} hidden={webglError} />
       {webglError && (
         <p role="alert" style={{ maxWidth: 320, padding: '0 16px', textAlign: 'center' }}>
-          Prévia 3D indisponível: o navegador não conseguiu iniciar o WebGL. Você ainda pode editar e salvar o Mii
-          normalmente.
+          {lang === 'pt'
+            ? 'Prévia 3D indisponível: o navegador não conseguiu iniciar o WebGL. Você ainda pode editar e salvar o Mii normalmente.'
+            : 'The 3D preview is unavailable because the browser could not start WebGL. You can still edit and save your Mii.'}
         </p>
       )}
     </>
@@ -217,6 +231,7 @@ function Slider({
 }
 
 export function MiiCreator({ onClose }: { onClose: () => void }) {
+  const { lang, tr } = useLang();
   const [spec, setSpec] = useState(loadPlayerMii);
   const [tab, setTab] = useState<Tab>('face');
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saved' | 'session'>('idle');
@@ -226,10 +241,10 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
   };
 
   return (
-    <section className="menu mii-editor" aria-label="Editor de Mii">
+    <section className="menu mii-editor" aria-label={tr('Editor de Mii', 'Mii editor')}>
       <header className="menu-header">
-        <h1>Editor de Mii</h1>
-        <button type="button" className="logo-btn" onClick={onClose} aria-label="Voltar ao menu de jogos">
+        <h1>{tr('Editor de Mii', 'Mii editor')}</h1>
+        <button type="button" className="logo-btn" onClick={onClose} aria-label={tr('Voltar ao menu de jogos', 'Return to the game menu')}>
           <span className="logo">
             <img className="brand-logo" src="/images/nevergear-logo.png" alt="Nevergear" width={1200} height={234} /> <i>Sports</i>
           </span>
@@ -237,8 +252,8 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
       </header>
       <div className="mii-workbench">
         <div className="mii-stage">
-          <MiiPreview spec={spec} />
-          <p>Arraste para girar</p>
+          <MiiPreview spec={spec} lang={lang} />
+          <p>{tr('Arraste para girar', 'Drag to rotate')}</p>
         </div>
         <div className="mii-panel">
           <div className="mii-tabs" role="tablist">
@@ -250,55 +265,55 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
                 aria-selected={tab === item.id}
                 onClick={() => setTab(item.id)}
               >
-                {item.label}
+                {faceStyleText(item.style, lang).label}
               </button>
             ))}
           </div>
           <div className="mii-options">
             {tab === 'face' && (
               <>
-                <Swatches label="Pele" palette={SKIN_PALETTE} value={spec.skin} onPick={(skin) => update({ skin })} />
-                <Styles label="Rosto" names={FACE_STYLE_NAMES.head} value={spec.head} onPick={(head) => update({ head })} />
-                <Styles label="Barba" names={FACE_STYLE_NAMES.beard} value={spec.beard} onPick={(beard) => update({ beard })} />
+                <Swatches label={tr('Pele', 'Skin')} palette={SKIN_PALETTE} value={spec.skin} onPick={(skin) => update({ skin })} />
+                <Styles label={faceStyleText('head', lang).label} names={faceStyleText('head', lang).names} value={spec.head} onPick={(head) => update({ head })} />
+                <Styles label={faceStyleText('beard', lang).label} names={faceStyleText('beard', lang).names} value={spec.beard} onPick={(beard) => update({ beard })} />
               </>
             )}
             {tab === 'hair' && (
               <>
                 <Swatches
-                  label="Cor do cabelo"
+                  label={tr('Cor do cabelo', 'Hair color')}
                   palette={HAIR_PALETTE}
                   value={spec.hairColor}
                   onPick={(hairColor) => update({ hairColor })}
                 />
-                <Styles label="Cabelo" names={FACE_STYLE_NAMES.hair} value={spec.hair} onPick={(hair) => update({ hair })} />
+                <Styles label={faceStyleText('hair', lang).label} names={faceStyleText('hair', lang).names} value={spec.hair} onPick={(hair) => update({ hair })} />
               </>
             )}
             {tab === 'eyes' && (
               <>
                 <Swatches
-                  label="Cor dos olhos"
+                  label={tr('Cor dos olhos', 'Eye color')}
                   palette={EYE_PALETTE}
                   value={spec.eyeColor}
                   onPick={(eyeColor) => update({ eyeColor })}
                 />
-                <Styles label="Olhos" names={FACE_STYLE_NAMES.eyes} value={spec.eyes} onPick={(eyes) => update({ eyes })} />
-                <Slider label="Altura" min={42} max={62} value={spec.eyeY} onChange={(eyeY) => update({ eyeY })} />
+                <Styles label={faceStyleText('eyes', lang).label} names={faceStyleText('eyes', lang).names} value={spec.eyes} onPick={(eyes) => update({ eyes })} />
+                <Slider label={faceSliderLabel('eyeY', lang)} min={42} max={62} value={spec.eyeY} onChange={(eyeY) => update({ eyeY })} />
                 <Slider
-                  label="Espaçamento"
+                  label={faceSliderLabel('eyeSpacing', lang)}
                   min={12}
                   max={26}
                   value={spec.eyeSpacing}
                   onChange={(eyeSpacing) => update({ eyeSpacing })}
                 />
                 <Slider
-                  label="Tamanho"
+                  label={faceSliderLabel('eyeScale', lang)}
                   min={7}
                   max={14}
                   value={spec.eyeScale}
                   onChange={(eyeScale) => update({ eyeScale })}
                 />
                 <Slider
-                  label="Inclinação"
+                  label={faceSliderLabel('eyeTilt', lang)}
                   min={-14}
                   max={14}
                   value={spec.eyeTilt}
@@ -308,10 +323,10 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
             )}
             {tab === 'brows' && (
               <>
-                <Styles label="Sobrancelhas" names={FACE_STYLE_NAMES.brows} value={spec.brows} onPick={(brows) => update({ brows })} />
-                <Slider label="Altura" min={54} max={78} value={spec.browY} onChange={(browY) => update({ browY })} />
+                <Styles label={faceStyleText('brows', lang).label} names={faceStyleText('brows', lang).names} value={spec.brows} onPick={(brows) => update({ brows })} />
+                <Slider label={faceSliderLabel('browY', lang)} min={54} max={78} value={spec.browY} onChange={(browY) => update({ browY })} />
                 <Slider
-                  label="Inclinação"
+                  label={faceSliderLabel('browTilt', lang)}
                   min={-16}
                   max={16}
                   value={spec.browTilt}
@@ -321,35 +336,35 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
             )}
             {tab === 'nose' && (
               <>
-                <Styles label="Nariz" names={FACE_STYLE_NAMES.nose} value={spec.nose} onPick={(nose) => update({ nose })} />
-                <Slider label="Altura" min={30} max={50} value={spec.noseY} onChange={(noseY) => update({ noseY })} />
+                <Styles label={faceStyleText('nose', lang).label} names={faceStyleText('nose', lang).names} value={spec.nose} onPick={(nose) => update({ nose })} />
+                <Slider label={faceSliderLabel('noseY', lang)} min={30} max={50} value={spec.noseY} onChange={(noseY) => update({ noseY })} />
               </>
             )}
             {tab === 'mouth' && (
               <>
                 <Swatches
-                  label="Lábios"
+                  label={tr('Cor dos lábios', 'Lip color')}
                   palette={LIP_PALETTE}
                   value={spec.lipColor}
                   onPick={(lipColor) => update({ lipColor })}
                 />
-                <Styles label="Boca" names={FACE_STYLE_NAMES.mouth} value={spec.mouth} onPick={(mouth) => update({ mouth })} />
+                <Styles label={faceStyleText('mouth', lang).label} names={faceStyleText('mouth', lang).names} value={spec.mouth} onPick={(mouth) => update({ mouth })} />
                 <Slider
-                  label="Altura"
+                  label={faceSliderLabel('mouthY', lang)}
                   min={18}
                   max={34}
                   value={spec.mouthY}
                   onChange={(mouthY) => update({ mouthY })}
                 />
                 <Slider
-                  label="Largura"
+                  label={faceSliderLabel('mouthWidth', lang)}
                   min={16}
                   max={36}
                   value={spec.mouthWidth}
                   onChange={(mouthWidth) => update({ mouthWidth })}
                 />
                 <Slider
-                  label="Curva"
+                  label={faceSliderLabel('mouthCurve', lang)}
                   min={-10}
                   max={10}
                   value={spec.mouthCurve}
@@ -360,14 +375,14 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
             {tab === 'glasses' && (
               <>
                 <Swatches
-                  label="Cor dos óculos"
+                  label={tr('Cor dos óculos', 'Glasses color')}
                   palette={GLASSES_PALETTE}
                   value={spec.glassesColor}
                   onPick={(glassesColor) => update({ glassesColor })}
                 />
                 <Styles
-                  label="Óculos"
-                  names={FACE_STYLE_NAMES.glasses}
+                  label={faceStyleText('glasses', lang).label}
+                  names={faceStyleText('glasses', lang).names}
                   value={spec.glasses}
                   onPick={(glasses) => update({ glasses })}
                 />
@@ -383,7 +398,7 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
                 setSpec(generateMiiFromSeed(`${Date.now()}-${Math.random()}`));
               }}
             >
-              Aleatório
+              {tr('Aleatório', 'Random')}
             </button>
             <button
               type="button"
@@ -392,15 +407,15 @@ export function MiiCreator({ onClose }: { onClose: () => void }) {
                 setSaveStatus(savePlayerMii(spec) ? 'saved' : 'session');
               }}
             >
-              Salvar
+              {tr('Salvar', 'Save')}
             </button>
             <button type="button" className="nevergear-btn" onClick={onClose}>
-              Voltar
+              {tr('Voltar', 'Back')}
             </button>
-            {saveStatus === 'saved' && <strong role="status">Salvo!</strong>}
+            {saveStatus === 'saved' && <strong role="status">{tr('Salvo!', 'Saved!')}</strong>}
             {saveStatus === 'session' && (
               <strong role="status" style={{ color: '#8a5a00' }}>
-                Salvo apenas nesta sessão: o armazenamento persistente não está disponível.
+                {tr('Salvo apenas nesta sessão: o armazenamento persistente não está disponível.', 'Saved for this session only: persistent storage is unavailable.')}
               </strong>
             )}
           </div>

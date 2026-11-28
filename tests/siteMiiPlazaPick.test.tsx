@@ -22,7 +22,7 @@ vi.mock('three', async (original) => ({
   },
 }));
 
-// A cara do Mii é rasterizada em canvas 2D, que o happy-dom não implementa; a geometria segue real.
+// The Mii face is rasterized on a 2D canvas, which happy-dom does not implement; the geometry remains real.
 vi.mock('../src/mii/faceRenderer', async (original) => {
   const THREE = await import('three');
   return {
@@ -46,7 +46,7 @@ const renderPlaza = async () => {
   });
 };
 
-// Com o Math.random fixo e sem movimento, todos começam no mesmo ponto, já na página.
+// With Math.random fixed and movement disabled, all walkers start at the same point already on the page.
 const spot = () => {
   const height = Math.max(document.body.scrollHeight, window.innerHeight);
   return {
@@ -70,7 +70,7 @@ beforeEach(() => {
       disconnect() {}
     },
   );
-  // Os quadros só rodam quando o teste pede; sem movimento, os walkers não saem do lugar.
+  // Frames advance only when requested by the test; walkers stay still otherwise.
   frames = [];
   vi.stubGlobal('requestAnimationFrame', (frame: FrameRequestCallback) => frames.push(frame));
   const matchMedia = window.matchMedia.bind(window);
@@ -92,8 +92,8 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-describe('SiteMiiPlaza pick pela mão', () => {
-  it('incomoda o Mii quando a pinça cai sobre ele, sem abrir cartão', async () => {
+describe('SiteMiiPlaza hand picking', () => {
+  it('startles the Mii when a pinch lands on it without opening a card', async () => {
     await renderPlaza();
     const { x, y } = spot();
     act(() => pickMiiAt(x, y, document.body));
@@ -102,14 +102,14 @@ describe('SiteMiiPlaza pick pela mão', () => {
     expect(document.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('não reage quando a pinça cai longe de qualquer Mii', async () => {
+  it('does not react when a pinch lands away from every Mii', async () => {
     await renderPlaza();
     act(() => pickMiiAt(-100, -100, document.body));
     paint();
     expect(bubbleHidden()).toBe(true);
   });
 
-  it('não reage quando há conteúdo da página na frente', async () => {
+  it('does not react when page content is in front', async () => {
     await renderPlaza();
     const { x, y } = spot();
     const button = document.createElement('button');

@@ -4,22 +4,22 @@ import GamesShowcase from '../components/GamesShowcase';
 import MiiCreator from '../components/MiiCreator';
 import { useLang } from '../i18n';
 
-// Tempo que cada cartao fica em destaque (igual ao hover) antes de passar ao proximo.
+// Time each card stays highlighted (as on hover) before advancing to the next one.
 const HIGHLIGHT_MS = 7000;
 
 const PENDING_SUFFIX = ' · pedido';
 
 export default function HomePage() {
   const { tr } = useLang();
-  // Datas de patente "1903 · pedido" viram "filed 1903"; as demais seguem como estão.
+  // Patent dates such as "1903 · filed" are rearranged for the English label; other dates stay as written.
   const yearLabel = (year: string) =>
     year.endsWith(PENDING_SUFFIX)
       ? tr(year, `filed ${year.slice(0, -PENDING_SUFFIX.length)}`)
       : year;
   const [active, setActive] = useState(-1);
   useEffect(() => {
-    // Com "reduzir movimento" nao ha destaque automatico (nenhum cartao fica
-    // marcado); so o hover reage. Acompanha mudancas da preferencia ao vivo.
+    // With reduced motion enabled, do not highlight cards automatically; only hover responds.
+    // Track preference changes while the page is open.
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)');
     let timer = 0;
     const sync = () => {

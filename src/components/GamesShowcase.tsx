@@ -40,13 +40,13 @@ export default function GamesShowcase() {
   const { tr } = useLang();
   const listRef = useRef<HTMLUListElement>(null);
 
-  // Cada jogo surge ao entrar na tela e some ao sair, subindo ou descendo. Sem a classe is-reveal tudo fica visivel.
+  // Each game appears as it enters the viewport and disappears when it leaves in either direction. Without is-reveal, all cards stay visible.
   useEffect(() => {
     const list = listRef.current;
     if (!list || !('IntersectionObserver' in window)) return;
     const observer = new IntersectionObserver((entries) => {
       for (const entry of entries) {
-        // Entre 0 e 20% mantem o estado, para nao piscar na borda.
+        // Between 0% and 20%, keep the current state to avoid flickering at the edge.
         if (entry.intersectionRatio >= 0.2) entry.target.classList.add('is-visible');
         else if (!entry.isIntersecting) entry.target.classList.remove('is-visible');
       }

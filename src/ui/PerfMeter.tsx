@@ -1,9 +1,10 @@
 import { type RefObject, useEffect, useState } from 'react';
+import { useLang } from '../i18n';
 
 /** Which chip draws WebGL; "SwiftShader" or "Basic Render" means the browser is drawing on the CPU. */
 function graphicsName(): string {
   const gl = document.createElement('canvas').getContext('webgl2');
-  if (!gl) return 'sem WebGL';
+  if (!gl) return 'no WebGL';
   const info = gl.getExtension('WEBGL_debug_renderer_info');
   const name = String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER));
   gl.getExtension('WEBGL_lose_context')?.loseContext();
@@ -15,7 +16,8 @@ function graphicsName(): string {
  * stuttering. Owns its counters; `poseFrames` is only read.
  */
 export function PerfMeter({ videoRef, poseFrames, poseDelay }: { videoRef: RefObject<HTMLVideoElement | null>; poseFrames: RefObject<number>; poseDelay: RefObject<number> }) {
-  const [text, setText] = useState('medindo…');
+  const { lang } = useLang();
+  const [text, setText] = useState(() => lang === 'pt' ? 'medindo…' : 'measuring…');
   useEffect(() => {
     const gpu = graphicsName();
     let screen = 0, camera = 0, worstMs = 0, last = performance.now(), since = last;
@@ -28,7 +30,9 @@ export function PerfMeter({ videoRef, poseFrames, poseDelay }: { videoRef: RefOb
       if (time !== lastTime) { camera += 1; lastTime = time; }
       if (now - since >= 1000) {
         const rate = (count: number) => Math.round((count * 1000) / (now - since));
-        setText(`tela ${rate(screen)} fps (pior ${Math.round(worstMs)} ms) · câmera ${rate(camera)} · pose ${rate(poseFrames.current - pose)} · atraso ${Math.round(poseDelay.current)} ms · ${gpu}`);
+        setText(lang === 'pt'
+          ? `tela ${rate(screen)} fps (pior ${Math.round(worstMs)} ms) · câmera ${rate(camera)} · pose ${rate(poseFrames.current - pose)} · atraso ${Math.round(poseDelay.current)} ms · ${gpu}`
+          : `screen ${rate(screen)} fps (worst ${Math.round(worstMs)} ms) · camera ${rate(camera)} · pose ${rate(poseFrames.current - pose)} · delay ${Math.round(poseDelay.current)} ms · ${gpu}`);
         screen = camera = worstMs = 0;
         pose = poseFrames.current;
         since = now;
@@ -37,6 +41,6 @@ export function PerfMeter({ videoRef, poseFrames, poseDelay }: { videoRef: RefOb
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [videoRef, poseFrames, poseDelay]);
+  }, [videoRef, poseFrames, poseDelay, lang]);
   return <div className="perf-meter">{text}</div>;
 }

@@ -1,7 +1,7 @@
-"""Gera as figuras dos artigos. Rode: python3 -I docs/research/figures/make_figures.py
+"""Generate the article figures. Run: python3 -I scripts/research-figures/make_figures.py
 
-Cada artigo ganha uma funcao `fig_NN_k` e uma linha em FIGURES. As duas abaixo sao
-exemplos do padrao: copie a forma, troque rotulos.
+Each article has a `fig_NN_k` function and an entry in FIGURES. The functions
+below demonstrate the pattern: copy a shape and replace its labels.
 """
 
 from __future__ import annotations
@@ -11,12 +11,13 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
+sys.dont_write_bytecode = True
 
 import figkit as k  # noqa: E402
 
 
 def fig_02_1() -> str:
-    """Cadeia de medicao como caixa-preta (artigo 08, F1)."""
+    """Black-box latency measurement chain (article 08, F1)."""
     parts = [
         k.text(
             40,
@@ -60,7 +61,7 @@ def fig_02_1() -> str:
 
 
 def fig_02_2() -> str:
-    """Forma esquematica de uma distribuicao acumulada, sem dados."""
+    """Schematic shape of a cumulative distribution, with no data."""
     parts = [
         k.text(40, 44, "Distribuição de latência: forma ilustrativa", 20, k.INK, True),
         k.curve_placeholder(
@@ -83,7 +84,7 @@ def fig_02_2() -> str:
 
 
 def fig_02_3() -> str:
-    """Desenho conceitual de uma condicao com atraso experimental."""
+    """Conceptual design for an experimental delay condition."""
     parts = [
         k.text(40, 44, "Condição opcional com atraso controlado", 20, k.INK, True),
         k.row(
@@ -114,7 +115,7 @@ def fig_02_3() -> str:
 
 
 def fig_01_1() -> str:
-    """Par esquematico entre cena real e cena simulada."""
+    """Schematic pair of a real scene and a simulated scene."""
     parts = [
         k.text(40, 44, "Par de condições para comparação", 20, k.INK, True),
         k.box(70, 105, 470, 180, "Captura real", k.TEAL, "exemplo esquemático"),
@@ -146,7 +147,7 @@ def fig_01_1() -> str:
 
 
 def fig_01_2() -> str:
-    """Fluxo externo de validacao e delimitacao da evidencia sintetica."""
+    """External validation flow and scope of synthetic evidence."""
     parts = [
         k.text(40, 44, "Comparação e delimitação da evidência", 20, k.INK, True),
         k.row(
@@ -182,7 +183,7 @@ def fig_01_2() -> str:
 
 
 def fig_01_3() -> str:
-    """Forma ilustrativa de concordancia entre dificuldade sim-real."""
+    """Illustrative shape of simulated-to-real difficulty agreement."""
     parts = [
         k.text(40, 44, "Concordância da dificuldade por condição", 20, k.INK, True),
         k.curve_placeholder(
@@ -205,7 +206,7 @@ def fig_01_3() -> str:
 
 
 def fig_04_1() -> str:
-    """Mapa de categorias de barreiras de acessibilidade."""
+    """Map of accessibility barrier categories."""
     labels = [
         (45, 110, "Motora", "alcance e controle"),
         (430, 110, "Visual", "percepção e contraste"),
@@ -227,7 +228,7 @@ def fig_04_1() -> str:
 
 
 def fig_04_2() -> str:
-    """Fluxo externo do estudo com participantes."""
+    """External flow for a study with participants."""
     parts = [
         k.text(40, 44, "Estudo de interação com participantes", 20, k.INK, True),
         k.row(
@@ -263,7 +264,7 @@ def fig_04_2() -> str:
 
 
 def fig_04_3() -> str:
-    """Perfil de amostra planejado, vazio e sem contagens."""
+    """Planned sample profile, empty and without counts."""
     parts = [
         k.text(40, 44, "Perfil planejado: campos a preencher", 20, k.INK, True),
         k.matrix(
@@ -293,7 +294,7 @@ def fig_04_3() -> str:
 
 
 def fig_03_1() -> str:
-    """Rastreabilidade conceitual entre planejamento, evidencias e relato."""
+    """Conceptual traceability across planning, evidence, and reporting."""
     parts = [
         k.text(40, 44, "Fluxo conceitual de rastreabilidade", 20, k.INK, True),
         k.row(
@@ -324,7 +325,7 @@ def fig_03_1() -> str:
 
 
 def fig_03_2() -> str:
-    """Distincao conceitual entre repetir, replicar e reproduzir."""
+    """Conceptual distinction between repeating, replicating, and reproducing."""
     parts = [
         k.text(40, 44, "Níveis de repetição de uma avaliação", 20, k.INK, True),
         k.row(
@@ -366,7 +367,7 @@ def fig_03_2() -> str:
 
 
 def fig_03_3() -> str:
-    """Forma ilustrativa de uma exibicao futura da variacao entre repeticoes."""
+    """Illustrative shape for a future display of variation across repetitions."""
     parts = [
         k.text(40, 44, "Variação entre repetições: esquema de relato", 20, k.INK, True),
         k.curve_placeholder(
@@ -389,7 +390,7 @@ def fig_03_3() -> str:
 
 
 def fig_05_1() -> str:
-    """Relação conceitual entre medida observável e percepção relatada."""
+    """Conceptual relation between observable measures and reported perception."""
     parts = [
         k.text(40, 44, "Medida externa e percepção relatada", 20, k.INK, True),
         k.row(
@@ -420,7 +421,7 @@ def fig_05_1() -> str:
 
 
 def fig_05_2() -> str:
-    """Sessao externa de estudo que combina tarefa, observacao e relatos."""
+    """External study session combining a task, observation, and reports."""
     parts = [
         k.text(40, 44, "Sessão de avaliação da experiência", 20, k.INK, True),
         k.row(
@@ -451,7 +452,7 @@ def fig_05_2() -> str:
 
 
 def fig_05_3() -> str:
-    """Forma esperada da associacao tecnica e percebida, sem dados."""
+    """Expected shape of the technical and perceived association, with no data."""
     parts = [
         k.text(
             40,
@@ -505,7 +506,8 @@ _PT_HINT = re.compile(
 
 
 def main() -> None:
-    out = Path(__file__).parent
+    out = Path(__file__).resolve().parents[2] / "src/data/articles-pt/figures"
+    out.mkdir(parents=True, exist_ok=True)
     for name, fn in FIGURES.items():
         (out / name).write_text(fn(), encoding="utf-8")
         print("ok", name)
@@ -524,7 +526,7 @@ def main() -> None:
         return r
 
     k.tr = checked
-    en_dir = out / "en"
+    en_dir = Path(__file__).resolve().parents[2] / "docs/research/figures/en"
     en_dir.mkdir(exist_ok=True)
     for name, fn in FIGURES.items():
         (en_dir / name).write_text(fn(), encoding="utf-8")

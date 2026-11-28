@@ -168,7 +168,7 @@ export function mapFaceToMii(input: MapFaceToMiiInput): MapFaceToMiiOutput {
     return {
       draft: { ...baseProfile },
       confidence: 0,
-      warnings: ['Nenhum rosto válido detectado na imagem.'],
+      warnings: ['No valid face was detected in the image.'],
     };
   }
 
@@ -178,7 +178,7 @@ export function mapFaceToMii(input: MapFaceToMiiInput): MapFaceToMiiOutput {
       return {
         draft: { ...baseProfile },
         confidence: 0,
-        warnings: ['Marcos faciais incompletos para gerar a sugestão.'],
+        warnings: ['Face landmarks are incomplete, so a suggestion could not be generated.'],
       };
     }
   }
@@ -224,7 +224,7 @@ export function mapFaceToMii(input: MapFaceToMiiInput): MapFaceToMiiOutput {
   const dRight = dist(168, 234);
   const yawBalance = Math.min(dLeft, dRight) / Math.max(dLeft, dRight, 1e-6);
   if (yawBalance < 0.6) {
-    warnings.push('Rosto inclinado lateralmente; precisão reduzida.');
+    warnings.push('The face is tilted sideways; accuracy may be reduced.');
   }
 
   // Head shape

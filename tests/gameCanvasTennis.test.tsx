@@ -1,21 +1,25 @@
 // @vitest-environment happy-dom
 import { act, createRef } from 'react';
 import { createRoot } from 'react-dom/client';
-import { expect, it, vi } from 'vitest';
+import { beforeEach, expect, it, vi } from 'vitest';
 import type { Hand } from '../src/cv/protocol';
 import type { GameHudState } from '../src/games/core/hud';
 import { GameCanvas } from '../src/ui/GameCanvas';
+import { LangProvider } from '../src/i18n';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
 interface TennisOptions {
   tutorial?: boolean;
+  language?: 'pt' | 'en';
   initialRacketHand?: Hand;
   onRacketHand?: (hand: Hand) => void;
   onStrokeTravel?: (travel: number) => void;
 }
 
 const tennisInstances = vi.hoisted(() => [] as { options?: TennisOptions; updateHud: (state: GameHudState) => void }[]);
+
+beforeEach(() => localStorage.setItem('nevergear-lang', 'pt'));
 
 vi.mock('../src/games/tennis/TennisGame', () => ({
   TennisGame: class {
@@ -38,7 +42,7 @@ it('polls the crossed-arms pose on the result screen until it exits play', async
 
   try {
     await act(async () => {
-      root.render(<GameCanvas sport="tennis" onEngine={() => {}} tracking="TRACKING" crossedPose={crossedPose} onExit={onExit} />);
+      root.render(<LangProvider><GameCanvas sport="tennis" onEngine={() => {}} tracking="TRACKING" crossedPose={crossedPose} onExit={onExit} /></LangProvider>);
     });
     await act(async () => {
       tennisInstances[0]!.updateHud({
@@ -85,7 +89,7 @@ it('carries the racket hand learned in one tennis match into the rematch engine'
 
   try {
     await act(async () => {
-      root.render(<GameCanvas sport="tennis" onEngine={onEngine} tracking="TRACKING" crossedPose={createRef()} />);
+      root.render(<LangProvider><GameCanvas sport="tennis" onEngine={onEngine} tracking="TRACKING" crossedPose={createRef()} /></LangProvider>);
     });
     expect(tennisInstances).toHaveLength(1);
     expect(tennisInstances[0]!.options?.tutorial).toBe(true);
@@ -133,7 +137,7 @@ it('shows the Iron Man result for ten seconds and advances once even after a los
   const onComplete = vi.fn();
   tennisInstances.length = 0;
   try {
-    await act(async () => root.render(<GameCanvas sport="tennis" onEngine={() => {}} tracking="TRACKING" ironMan={{ onComplete }} />));
+    await act(async () => root.render(<LangProvider><GameCanvas sport="tennis" onEngine={() => {}} tracking="TRACKING" ironMan={{ onComplete }} /></LangProvider>));
     await act(async () => tennisInstances[0]!.updateHud({
       score: 0, label: '', speed01: 0, status: 'Fim',
       tennis: { points: { player: '0', opponent: '0' }, games: { player: 0, opponent: 2 }, server: 'player', winner: 'opponent', secondServe: false, restart01: 1 },
@@ -161,7 +165,7 @@ it('cancels the Iron Man transition when the game unmounts', async () => {
   const onComplete = vi.fn();
   tennisInstances.length = 0;
   try {
-    await act(async () => root.render(<GameCanvas sport="tennis" onEngine={() => {}} tracking="TRACKING" ironMan={{ onComplete }} />));
+    await act(async () => root.render(<LangProvider><GameCanvas sport="tennis" onEngine={() => {}} tracking="TRACKING" ironMan={{ onComplete }} /></LangProvider>));
     await act(async () => tennisInstances[0]!.updateHud({
       score: 0, label: '', speed01: 0, status: 'Fim',
       tennis: { points: { player: '0', opponent: '0' }, games: { player: 2, opponent: 0 }, server: 'player', winner: 'player', secondServe: false, restart01: 0 },

@@ -1,4 +1,4 @@
-/** Qualidade adaptativa da abertura. Lógica pura: nada aqui sai do aparelho. */
+/** Adaptive intro quality. Pure logic: no data leaves the device. */
 import { readStored, writeStored } from './storage.ts';
 
 export type Tier = 'lite' | 'medium' | 'ultra';
@@ -10,7 +10,7 @@ export const TIERS: Record<Tier, { dpr: number; octaves: number; taps: number; b
   ultra: { dpr: 1.75, octaves: 5, taps: 20, bloom: true, warp: true, particles: 90 },
 };
 
-/** Degraus do mais leve ao mais pesado: primeiro muda a resolução, depois o perfil. */
+/** Quality steps from lightest to heaviest: resolution changes first, then the profile. */
 export const LADDER: ReadonlyArray<{ tier: Tier; scale: number }> = [
   { tier: 'lite', scale: .6 },
   { tier: 'lite', scale: .85 },
@@ -32,8 +32,8 @@ export interface Hardware {
 export const isSoftware = (renderer: string) => /swiftshader|llvmpipe|softpipe|software|basic render/i.test(renderer);
 
 /**
- * `frameMs` é o custo medido de um quadro do perfil médio. A medida decide;
- * o hardware declarado só impõe um teto em casos claramente fracos.
+ * `frameMs` is the measured frame cost for the medium profile. The measurement decides;
+ * declared hardware only imposes a cap in clearly weak cases.
  */
 export function classify(frameMs: number, hardware: Hardware): number {
   if (isSoftware(hardware.renderer)) return levelOf('lite');
@@ -52,8 +52,8 @@ export function percentile(values: number[], p: number): number {
 }
 
 /**
- * Ajusta o degrau pelo tempo real entre quadros. Contra oscilação: desce só após duas janelas
- * lentas, sobe só após quatro janelas fluidas, e nunca volta a um degrau que já falhou.
+ * Adjusts the quality step using real frame time. To prevent oscillation, step down only after two
+ * slow windows, step up only after four smooth windows, and never retry a failed step.
  */
 export function createGovernor(start: number) {
   let level = start;
@@ -62,13 +62,13 @@ export function createGovernor(start: number) {
   let elapsed = 0;
   let slow = 0;
   let smooth = 0;
-  let settle = 1000; // ignora o começo e o engasgo de cada troca
+  let settle = 1000; // Ignore startup and the stall caused by each switch.
   let fps = 0;
   return {
     get level() { return level; },
     get fps() { return fps; },
     sample(ms: number): number {
-      if (ms > 250) return level; // aba escondida ou pausa, não é desempenho
+      if (ms > 250) return level; // A hidden tab or pause is not a performance sample.
       if (settle > 0) { settle -= ms; return level; }
       samples.push(ms);
       elapsed += ms;
@@ -79,7 +79,7 @@ export function createGovernor(start: number) {
       elapsed = 0;
       slow = p75 > SLOW_MS ? slow + 1 : 0;
       smooth = p75 <= SMOOTH_MS ? smooth + 1 : 0;
-      // Muito lento não espera confirmação.
+      // Very slow performance does not wait for confirmation.
       if (level > 0 && (slow >= 2 || p75 > SLOW_MS * 2)) {
         ceiling = level - 1;
         level -= 1;
@@ -98,7 +98,7 @@ export function createGovernor(start: number) {
 export interface Saved {
   mode: Mode;
   level?: number;
-  /** GPU e tamanho de tela da medição: se mudarem, mede de novo. */
+  /** The measured GPU and screen size; changes trigger a new measurement. */
   signature?: string;
   at?: number;
 }
@@ -124,13 +124,13 @@ export function reusableLevel(saved: Saved, signature: string, now: number): num
 }
 
 export function loadQuality(): Saved {
-  // ?quality=auto|lite|medium|ultra força um modo; "auto" também mede de novo.
+  // ?quality=auto|lite|medium|ultra forces a mode; "auto" also reruns the measurement.
   const forced = new URLSearchParams(window.location.search).get('quality');
   if (isMode(forced)) return { mode: forced };
   return parseSaved(readStored(KEY));
 }
 
-/** Without storage the next visit simply measures again. */
+/** Without storage, the next visit simply measures again. */
 export function saveQuality(saved: Saved) {
   writeStored(KEY, JSON.stringify(saved));
 }

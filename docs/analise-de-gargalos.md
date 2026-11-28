@@ -1,211 +1,211 @@
-# Análise de gargalos — Nevergear Web Sports Arena
+# Bottleneck Analysis — Nevergear Web Sports Arena
 
-Data: 25 de novembro de 2026 · Commit analisado: `d455ebc` ("Make the game the whole site")
-
----
-
-## O que é este projeto
-
-**Nevergear Web Sports Arena** é um arcade de navegador ("seu corpo é o controle") com dois mini-jogos — **Hurdle Rush** (corrida com obstáculos, 3 raias) e **Baseline Rally** (tênis arcade) — controlados pela pose do corpo capturada via webcam, sem envio de vídeo ao servidor. Stack: Vite 8 + React 19 + TypeScript estrito + Three.js 0.187 + `@mediapipe/tasks-vision` 1.2.3 (`package.json`), deploy estático na Vercel (`vercel.json`).
-
-A pipeline de ponta a ponta, conforme o código:
-
-1. **Câmera** — `startCamera()` (`src/App.tsx:79-117`) pede `getUserMedia` a 640×480 @ 30 fps (`src/App.tsx:82-85`), liga o `<video>` do PiP (`src/ui/CameraPip.tsx:23`) e espera `loadeddata`.
-2. **Cliente de captura** — `PoseClient.start()` (`src/cv/poseClient.ts:20-89`) cria um **module worker** (`new Worker(..., { type: 'module' })`, `poseClient.ts:28`), envia `INIT` com as URLs do WASM local e do modelo Lite hospedado em `public/mediapipe/` (`poseClient.ts:56-60`) e agenda a captura por `requestVideoFrameCallback` (rVFC), com fallback para `requestAnimationFrame` + comparação de `video.currentTime` (`poseClient.ts:70-88`). A política é **um frame em trânsito**: enquanto `busy`, novos frames são descartados silenciosamente (`poseClient.ts:94-96`).
-3. **Worker de visão** — `pose.worker.ts` faz `FilesetResolver.forVisionTasks(wasmBaseUrl)` + `PoseLandmarker.createFromOptions` com `delegate: 'GPU'`, `runningMode: 'VIDEO'`, `numPoses: 1` (`src/cv/pose.worker.ts:11-24`), com fallback automático para CPU (`pose.worker.ts:32-46`). Cada mensagem `FRAME` carrega um `ImageBitmap` transferido por `postMessage` (`poseClient.ts:101-104`); o worker chama `detectForVideo(bitmap, timestampMs)`, mede `inferenceMs`, devolve 33+33 landmarks simplificados (`pose.worker.ts:80-88`) e fecha o bitmap no `finally` (`pose.worker.ts:98`).
-4. **Cinemática** — no main thread, `ActionPipeline.update()` (`src/kinematics/actionPipeline.ts:17-37`) aplica `TrackingGate` (3 frames bons → `tracked`, 4 ruins → `lost`, `trackingGate.ts:13-24`), depois detectores puros: `CadenceTracker` (passos/cadência → velocidade do corredor, `cadenceTracker.ts`), `JumpDetector` (salto por subida do quadril, `jumpDetector.ts`), `LaneLeanDetector` (troca de raia por inclinação de tronco, `postureSignals.ts:11-28`) e `SwingDetector` (raquetada por velocidade do punho em coordenadas de mundo, `swingDetector.ts`). Todos usam filtro 1-Euro (`src/cv/oneEuroFilter.ts`) e histerese (`schmittTrigger.ts`) — matemática barata e sem dependência de Three.js.
-5. **Jogos** — `GameCanvas` faz code-split por modalidade via `import()` dinâmico (`src/ui/GameCanvas.tsx:31-33`) e instancia `TrackGame`/`TennisGame`, que rodam num `GameLoop` de passo fixo 1/60 com acumulador limitado e `renderer.setAnimationLoop` (`src/games/core/GameLoop.ts:43-56`). Eventos CV viram `onAction` nos jogos; HUD é publicado a 5 Hz com detecção de mudança (`TrackGame.ts:125-131`, `TennisGame.ts:73-79`).
-6. **UI** — tela cheia: canvas do jogo, seletor de modalidade + mudo (`hud-dock`), e PiP de câmera com esqueleto sobre o vídeo (`drawPose`, `src/ui/PoseOverlay.ts`) e botões de calibração. A calibração grava 3 s de pose neutra e exige ≥12 amostras `tracked`, ≥2,8 s de span e ≥65% de frames válidos (`src/cv/calibrator.ts:22-51`).
-
-Testes: `tests/kinematics.test.ts` cobre os detectores com fixtures sintéticas (7 testes, todos passando nesta análise).
+Date: November 25, 2026 · Commit analyzed: `d455ebc` ("Make the game the whole site")
 
 ---
 
-## Resumo executivo
+## What this project is
 
-| # | Gargalo | Gravidade | Confiança |
-|---|---------|-----------|-----------|
-| 1 | **A câmera nunca inicializa**: `forVisionTasks` chamado sem `useModule` dentro de um module worker → `importScripts` lança `TypeError` → `await import` do loader clássico não define `self.ModuleFactory` → INIT falha em GPU e em CPU. Verificado ao vivo no build de produção em Chromium real. | **Crítica (funcionalidade morta)** | Certa (reproduzido) |
-| 2 | **~20 MB de ativos de CV + cadeia de inicialização serial** (clique → permissão → play → worker → fetch+compile WASM 14,7 MB → fetch modelo 5,8 MB → init de grafo → calibração 3 s). | Alta | Certa (medido em `dist/`) |
-| 3 | **Cache fraco na Vercel para `/mediapipe/*`**: arquivos sem hash no nome → `max-age=0, must-revalidate` por padrão; `.task` fora da lista de compressão → ~5,8 MB sem gzip. | Alta (visitas recorrentes) | Alta (docs oficiais) |
-| 4 | **Safari < 17 continua sem CV mesmo após o fix**: o GraphRunner do MediaPipe exige `OffscreenCanvas` em worker para Safari ≥ 17; abaixo disso cai num caminho que usa `document`, inexistente em worker. | Alta (iOS < 17) | Alta (código do bundle) |
-| 5 | **Respawn do worker a cada liga/desliga**: `stop()` termina o worker; cada `start()` refaz fetch do WASM, recompila 14,7 MB e refaz init do grafo. | Média | Certa (código) |
-| 6 | **Peso morto no deploy**: a segunda variante WASM (`vision_wasm_module_internal.*`, ~15 MB) é copiada e publicada sem nunca ser carregada na configuração atual (e a clássica se torna a morta após o fix). | Média (deploy) | Certa |
-| 7 | **Teto de throughput do CV por design**: um frame em trânsito + `detectForVideo` síncrono → fps efetivo ≈ min(30, 1000/round-trip); em fallback CPU ou GPU fraca o jogo passa a receber ~10–25 poses/s. | Média | Alta |
-| 8 | **`createImageBitmap` por frame** na thread principal antes do envio — cópia de 640×480 por quadro; hoje majoritariamente no-op de redimensionamento. | Baixa | Certa |
+**Nevergear Web Sports Arena** is a browser arcade ("your body is the controller") with two mini-games — **Hurdle Rush** (three-lane obstacle running) and **Baseline Rally** (arcade tennis) — controlled by body pose captured through a webcam, with no video sent to a server. Stack: Vite 8 + React 19 + strict TypeScript + Three.js 0.187 + `@mediapipe/tasks-vision` 1.2.3 (`package.json`), deployed as a static site on Vercel (`vercel.json`).
 
-> Nota de honestidade: o achado #1 é um **bug de correção**, não apenas desempenho — mas é de longe o maior "gargalo" do produto: 0% do pipeline CV funciona hoje.
+The end-to-end pipeline, as implemented in the code:
+
+1. **Camera** — `startCamera()` (`src/App.tsx:79-117`) requests `getUserMedia` at 640×480 @ 30 fps (`src/App.tsx:82-85`), connects the PiP's `<video>` (`src/ui/CameraPip.tsx:23`), and waits for `loadeddata`.
+2. **Capture client** — `PoseClient.start()` (`src/cv/poseClient.ts:20-89`) creates a **module worker** (`new Worker(..., { type: 'module' })`, `poseClient.ts:28`), sends `INIT` with the local WASM URLs and the Lite model hosted under `public/mediapipe/` (`poseClient.ts:56-60`), and schedules capture through `requestVideoFrameCallback` (rVFC), falling back to `requestAnimationFrame` plus a comparison of `video.currentTime` (`poseClient.ts:70-88`). The policy allows **one frame in flight**: while `busy`, new frames are silently dropped (`poseClient.ts:94-96`).
+3. **Vision worker** — `pose.worker.ts` calls `FilesetResolver.forVisionTasks(wasmBaseUrl)` + `PoseLandmarker.createFromOptions` with `delegate: 'GPU'`, `runningMode: 'VIDEO'`, `numPoses: 1` (`src/cv/pose.worker.ts:11-24`), with automatic fallback to CPU (`pose.worker.ts:32-46`). Each `FRAME` message carries an `ImageBitmap` transferred through `postMessage` (`poseClient.ts:101-104`); the worker calls `detectForVideo(bitmap, timestampMs)`, measures `inferenceMs`, returns 33+33 simplified landmarks (`pose.worker.ts:80-88`), and closes the bitmap in `finally` (`pose.worker.ts:98`).
+4. **Kinematics** — on the main thread, `ActionPipeline.update()` (`src/kinematics/actionPipeline.ts:17-37`) applies `TrackingGate` (3 good frames → `tracked`, 4 bad frames → `lost`, `trackingGate.ts:13-24`), then pure detectors: `CadenceTracker` (steps/cadence → runner speed, `cadenceTracker.ts`), `JumpDetector` (jump from hip rise, `jumpDetector.ts`), `LaneLeanDetector` (lane change from torso lean, `postureSignals.ts:11-28`), and `SwingDetector` (racket swing from wrist velocity in world coordinates, `swingDetector.ts`). All use a 1-Euro filter (`src/cv/oneEuroFilter.ts`) and hysteresis (`schmittTrigger.ts`) — inexpensive math with no Three.js dependency.
+5. **Games** — `GameCanvas` code-splits by sport through dynamic `import()` (`src/ui/GameCanvas.tsx:31-33`) and instantiates `TrackGame`/`TennisGame`, which run in a fixed-step 1/60 `GameLoop` with a capped accumulator and `renderer.setAnimationLoop` (`src/games/core/GameLoop.ts:43-56`). CV events become `onAction` callbacks in the games; the HUD is published at 5 Hz with change detection (`TrackGame.ts:125-131`, `TennisGame.ts:73-79`).
+6. **UI** — full screen: game canvas, sport selector + mute control (`hud-dock`), and camera PiP with a skeleton over the video (`drawPose`, `src/ui/PoseOverlay.ts`) and calibration buttons. Calibration records 3 s of neutral pose and requires ≥12 `tracked` samples, a span of ≥2.8 s, and ≥65% valid frames (`src/cv/calibrator.ts:22-51`).
+
+Tests: `tests/kinematics.test.ts` covers the detectors with synthetic fixtures (7 tests, all passing during this analysis).
 
 ---
 
-## Gargalos
+## Executive summary
 
-### 1. (BLOQUEIO TOTAL) `forVisionTasks` sem `useModule` dentro de module worker — a câmera nunca liga
+| # | Bottleneck | Severity | Confidence |
+|---|-----------|----------|------------|
+| 1 | **The camera never initializes**: `forVisionTasks` is called without `useModule` inside a module worker → `importScripts` throws `TypeError` → the classic loader's `await import` does not define `self.ModuleFactory` → INIT fails on both GPU and CPU. Reproduced live in a production build in real Chromium. | **Critical (feature is dead)** | Certain (reproduced) |
+| 2 | **~20 MB of CV assets + a serial startup chain** (click → permission → play → worker → fetch+compile 14.7 MB WASM → fetch 5.8 MB model → graph initialization → 3 s calibration). | High | Certain (measured in `dist/`) |
+| 3 | **Weak Vercel caching for `/mediapipe/*`**: files have no hashes in their names → default `max-age=0, must-revalidate`; `.task` is outside the compression list → ~5.8 MB without gzip. | High (return visits) | High (official docs) |
+| 4 | **Safari < 17 still has no CV after the fix**: MediaPipe's GraphRunner requires `OffscreenCanvas` in a worker on Safari ≥ 17; below that it falls back to a path that uses `document`, which does not exist in a worker. | High (iOS < 17) | High (bundle code) |
+| 5 | **Worker respawn on each camera toggle**: `stop()` terminates the worker; each `start()` fetches the WASM again, recompiles 14.7 MB, and initializes the graph again. | Medium | Certain (code) |
+| 6 | **Dead weight in the deployment**: the second WASM variant (`vision_wasm_module_internal.*`, ~15 MB) is copied and published without ever being loaded in the current configuration (and the classic variant becomes dead weight after the fix). | Medium (deployment) | Certain |
+| 7 | **CV throughput ceiling by design**: one frame in flight + synchronous `detectForVideo` → effective fps ≈ min(30, 1000/round-trip); on CPU fallback or weak GPU, the game receives ~10–25 poses/s. | Medium | High |
+| 8 | **`createImageBitmap` per frame** on the main thread before sending — a 640×480 copy per frame; currently mostly a no-op resize. | Low | Certain |
 
-**O que é.** `poseClient.ts:28` cria o worker com `{ type: 'module' }`. O worker chama `FilesetResolver.forVisionTasks(wasmBaseUrl)` com um único argumento (`src/cv/pose.worker.ts:12`). Em `node_modules/@mediapipe/tasks-vision/vision.d.ts:819`, a assinatura é `forVisionTasks(basePath?, useModule?)`. Com `useModule` omitido (`false`), o resolver aponta para `vision_wasm_internal.js` — a variante **clássica** do loader.
+> Note on accuracy: finding #1 is a **correctness bug**, not merely a performance issue — but it is by far the product's biggest "bottleneck": 0% of the CV pipeline works today.
 
-**Cadeia da falha (verificada no código do bundle `vision_bundle.mjs` e no build `dist/`):**
+---
 
-1. O loader chama `importScripts(url)` para carregar `vision_wasm_internal.js`. `importScripts` existe em todo `WorkerGlobalScope`, mas **lança `TypeError` em module workers** — MDN: "TypeError — Thrown if the current WorkerGlobalScope is a module"; HTML Standard: "the `importScripts()` method will automatically fail inside module workers".
-2. O `catch` do MediaPipe trata `TypeError` como "ambiente de módulo" e faz fallback para `await import(url)` do **mesmo arquivo**.
-3. `vision_wasm_internal.js` declara `var ModuleFactory = (() => { ... })()` + exports UMD (`module.exports`/`define`), **sem** `export` ESM. Importado como módulo, o `var` fica restrito ao escopo do módulo e o namespace retornado é vazio — `self.ModuleFactory` nunca é definido (verificado em Node 24: `await import(...)` → `globalThis.ModuleFactory === undefined`, namespace `{}`).
-4. O resolver então lança `Error("ModuleFactory not set.")` → `createTask('GPU')` falha → `fallback()` tenta `createTask('CPU')` → mesmo ponto de falha → `ERROR fatal init`.
+## Bottlenecks
 
-**Evidência empírica (Chromium headless real via Playwright, `dist/` servido por HTTP):** instanciando o `pose.worker` compilado com a mensagem `INIT` exata do app, a resposta é:
+### 1. (TOTAL BLOCKER) `forVisionTasks` without `useModule` inside a module worker — the camera never starts
+
+**What it is.** `poseClient.ts:28` creates the worker with `{ type: 'module' }`. The worker calls `FilesetResolver.forVisionTasks(wasmBaseUrl)` with one argument (`src/cv/pose.worker.ts:12`). In `node_modules/@mediapipe/tasks-vision/vision.d.ts:819`, the signature is `forVisionTasks(basePath?, useModule?)`. With `useModule` omitted (`false`), the resolver points to `vision_wasm_internal.js` — the **classic** loader variant.
+
+**Failure chain (verified in the `vision_bundle.mjs` code and the `dist/` build):**
+
+1. The loader calls `importScripts(url)` to load `vision_wasm_internal.js`. `importScripts` exists on every `WorkerGlobalScope`, but **throws `TypeError` in module workers** — MDN: "TypeError — Thrown if the current WorkerGlobalScope is a module"; HTML Standard: "the `importScripts()` method will automatically fail inside module workers".
+2. MediaPipe's `catch` handles `TypeError` as a "module environment" and falls back to `await import(url)` of the **same file**.
+3. `vision_wasm_internal.js` declares `var ModuleFactory = (() => { ... })()` + UMD exports (`module.exports`/`define`), with **no** ESM `export`. Imported as a module, `var` is scoped to the module and the returned namespace is empty — `self.ModuleFactory` is never defined (verified in Node 24: `await import(...)` → `globalThis.ModuleFactory === undefined`, namespace `{}`).
+4. The resolver then throws `Error("ModuleFactory not set.")` → `createTask('GPU')` fails → `fallback()` tries `createTask('CPU')` → the same failure point → `ERROR fatal init`.
+
+**Empirical evidence (real headless Chromium through Playwright, with `dist/` served over HTTP):** when the compiled `pose.worker` is instantiated with the exact `INIT` message used by the app, the response is:
 
 ```json
 { "type": "ERROR", "stage": "init", "fatal": true,
-  "message": "GPU falhou (ModuleFactory not set.); fallback CPU também falhou (ModuleFactory not set.)." }
+  "message": "GPU failed (ModuleFactory not set.); CPU fallback also failed (ModuleFactory not set.)." }
 ```
 
-e o probe confirma `importScripts` lançando `TypeError: Module scripts don't support importScripts()` no module worker. Na UI, `onStatus('error')` → `stopCamera()` (`src/App.tsx:102`) — o usuário vê a mensagem de erro e a câmera permanece desligada. O bug existe desde o primeiro commit (`git log`), em dev e em produção — o caminho de câmera provavelmente nunca foi exercitado de ponta a ponta.
+and the probe confirms that `importScripts` throws `TypeError: Module scripts don't support importScripts()` in the module worker. In the UI, `onStatus('error')` → `stopCamera()` (`src/App.tsx:102`) — the user sees an error message and the camera remains off. The bug has existed since the first commit (`git log`), in development and production — the camera path has probably never been exercised end to end.
 
-**Prova da correção:** no mesmo harness, um module worker executando `FilesetResolver.forVisionTasks(wasmBaseUrl, /* useModule */ true)` + `PoseLandmarker.createFromOptions` com `delegate: 'GPU'` inicializou com sucesso ("Graph successfully started running", ~228 ms após o fetch do modelo, WebGL2/SwiftShader). A variante `vision_wasm_module_internal.js` existe exatamente para isso: `async function ModuleFactory(...)`, `globalThis.ModuleFactory = ModuleFactory` e `export default` — verificado em `node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_module_internal.js` (cabeçalho e rodapé do arquivo).
+**Proof of the fix:** in the same harness, a module worker running `FilesetResolver.forVisionTasks(wasmBaseUrl, /* useModule */ true)` + `PoseLandmarker.createFromOptions` with `delegate: 'GPU'` initialized successfully ("Graph successfully started running", ~228 ms after the model fetch, WebGL2/SwiftShader). The `vision_wasm_module_internal.js` variant exists for exactly this purpose: `async function ModuleFactory(...)`, `globalThis.ModuleFactory = ModuleFactory`, and `export default` — verified in `node_modules/@mediapipe/tasks-vision/wasm/vision_wasm_module_internal.js` (file header and footer).
 
-**Impacto:** 100% da funcionalidade-carro-chefe (controle por corpo) indisponível; só o teclado funciona.
+**Impact:** 100% of the flagship feature (body control) is unavailable; only the keyboard works.
 
-**Direção de correção:** passar `true` como segundo argumento de `forVisionTasks` — um parâmetro resolve. Alternativa: instanciar o worker como clássico, mas o padrão `{ type: 'module' }` é o recomendado pelo Vite e mantém os `import` do bundle (vite.dev/guide/features → "Web Workers"). Vale também um teste de fumaça que envie `INIT` ao worker compilado para impedir regressão.
+**Fix direction:** pass `true` as the second argument to `forVisionTasks` — one parameter fixes it. Alternative: instantiate the worker as classic, but `{ type: 'module' }` is the pattern recommended by Vite and keeps the bundle's `import` statements (vite.dev/guide/features → "Web Workers"). A smoke test that sends `INIT` to the compiled worker would also prevent regression.
 
-### 2. Cadeia de inicialização serial + ~20 MB de ativos de CV por visita fria
+### 2. Serial startup chain + ~20 MB of CV assets on a cold visit
 
-**O que é.** O caminho até a primeira pose é estritamente serial (`src/App.tsx:81-99`, `src/cv/poseClient.ts:20-70`):
+**What it is.** The path to the first pose is strictly serial (`src/App.tsx:81-99`, `src/cv/poseClient.ts:20-70`):
 
-clique → `audio.unlock()` → `getUserMedia` (permissão + probe de dispositivo) → `video.play()` → espera `loadeddata` → `new Worker` (parse de 156 KB) → `importScripts`/import do loader WASM (337 KB) → **fetch do `.wasm` (14 665 716 B)** → compilação → **`fetch(modelUrl)` (5 777 746 B)** → `createFromOptions` → `READY` → gate de 3 frames → calibração de 3 s.
+click → `audio.unlock()` → `getUserMedia` (permission + device probe) → `video.play()` → wait for `loadeddata` → `new Worker` (parse 156 KB) → `importScripts`/import the WASM loader (337 KB) → **fetch `.wasm` (14 665 716 B)** → compile → **`fetch(modelUrl)` (5 777 746 B)** → `createFromOptions` → `READY` → 3-frame gate → 3 s calibration.
 
-**Números medidos no `dist/` e em `public/`:**
+**Measurements from `dist/` and `public/`:**
 
-| Ativo | Tamanho bruto | gzip -9 |
+| Asset | Raw size | gzip -9 |
 |---|---|---|
-| `mediapipe/wasm/vision_wasm_internal.wasm` | 14 665 716 B (14,0 MiB) | 4 147 452 B |
+| `mediapipe/wasm/vision_wasm_internal.wasm` | 14 665 716 B (14.0 MiB) | 4 147 452 B |
 | `mediapipe/wasm/vision_wasm_internal.js` | 336 624 B | 80 992 B |
-| `mediapipe/models/pose_landmarker_lite.task` | 5 777 746 B (5,5 MiB) | 4 969 689 B (~14% menor) |
-| `assets/pose.worker-*.js` | 155 905 B | ~45,4 KB |
-| `mediapipe/wasm/vision_wasm_module_internal.{js,wasm}` | 15 002 362 B | publicado, não usado |
+| `mediapipe/models/pose_landmarker_lite.task` | 5 777 746 B (5.5 MiB) | 4 969 689 B (~14% smaller) |
+| `assets/pose.worker-*.js` | 155 905 B | ~45.4 KB |
+| `mediapipe/wasm/vision_wasm_module_internal.{js,wasm}` | 15 002 362 B | published, unused |
 
-Total a buscar para ativar a câmera (visitante frio): ~9,3 MB comprimidos / ~20,7 MB brutos — só começando depois que o usuário autoriza a câmera. Em conexão móvel mediana (~10 Mb/s), são ~7–8 s de rede + ~0,5–2 s de compilação WASM + init de grafo + 3 s de calibração. Nada disso é paralelizado com a espera de permissão de câmera, que normalmente já é a parte mais lenta e não depende dos arquivos.
+Total fetched to activate the camera on a cold visit: ~9.3 MB compressed / ~20.7 MB raw — and only after the user grants camera access. On a typical mobile connection (~10 Mb/s), that is ~7–8 s of network time + ~0.5–2 s of WASM compilation + graph initialization + 3 s of calibration. None of this is parallelized with waiting for camera permission, which is usually the slowest part and does not depend on the files.
 
-**Por que é gargalo:** tempo até o primeiro input jogável facilmente passa de 5–10 s; cada segundo extra de espera no fluxo de "ativar câmera" é abandono puro em demo de hackathon.
+**Why this is a bottleneck:** time to the first playable input easily exceeds 5–10 s; every extra second of waiting in the "activate camera" flow is pure abandonment in a hackathon demo.
 
-**Direção de correção:**
-- Iniciar o worker (fetch + compile WASM + fetch do modelo) **em paralelo ao `getUserMedia`** — a inicialização do MediaPipe não precisa de frames de câmera.
-- Pré-aquecer o cache com `<link rel="preload" as="fetch">` ou `fetch()` ocioso após o primeiro paint para `vision_wasm_internal.wasm` e o `.task` — a compressão streaming de WASM (`compileStreaming`) depende de MIME `application/wasm` (Vercel serve corretamente).
-- O modelo pode ser buscado pelo próprio MediaPipe via `modelAssetPath` (o bundle já implementa `fetch` interno, `vision_bundle.mjs`) — permite descartar a cópia manual para `Uint8Array` + `FS_createDataFile` (~5,8 MB de memcpy), ou manter `modelAssetBuffer` para controle — custo baixo de qualquer forma.
+**Fix direction:**
+- Start the worker (fetch + compile WASM + fetch the model) **in parallel with `getUserMedia`** — MediaPipe initialization does not need camera frames.
+- Warm the cache with `<link rel="preload" as="fetch">` or an idle `fetch()` after first paint for `vision_wasm_internal.wasm` and the `.task` model — streaming WASM compilation (`compileStreaming`) depends on the `application/wasm` MIME type (Vercel serves it correctly).
+- The model can be fetched by MediaPipe itself through `modelAssetPath` (the bundle already implements an internal `fetch`, `vision_bundle.mjs`) — this lets us discard the manual copy to `Uint8Array` + `FS_createDataFile` (~5.8 MB memcpy), or retain `modelAssetBuffer` for control — either way, the cost is low.
 
-### 3. Cache e compressão na Vercel para `/mediapipe/*`
+### 3. Vercel caching and compression for `/mediapipe/*`
 
-**O que é.** `vercel.json` (`vercel.json:1-5`) define só framework/build/output — nenhum `headers`. Os ativos de CV vivem em `public/mediapipe/` e são copiados sem hash no nome para `dist/`.
+**What it is.** `vercel.json` (`vercel.json:1-5`) defines only the framework/build/output — no `headers`. CV assets live in `public/mediapipe/` and are copied to `dist/` without hashes in their names.
 
-**Evidência externa (docs oficiais da Vercel, lidas nesta análise):**
+**External evidence (official Vercel docs read during this analysis):**
 
-- `vercel.com/docs/caching/cache-control-headers`: **"The default value is `cache-control: public, max-age=0, must-revalidate`"** — navegador e CDN não retêm o recurso; cada visita revalida (304 com sorte, download frio com azar).
-- `vercel.com/docs/edge-network/caching` (canonical `/docs/caching/cdn-cache`): arquivos estáticos são cacheados na CDN "for the lifetime of the deployment after the first request" — ou seja, o primeiro usuário de cada POP paga o custo total de origem.
-- `vercel.com/docs/how-vercel-cdn-works/compression`: a lista de MIME comprimíveis inclui **`application/wasm`** → o `.wasm` de 14,7 MB viaja a ~4,1 MB (gzip medido localmente; brotli tende a ser menor). Arquivos `.task` não constam na lista → `pose_landmarker_lite.task` provavelmente vai **sem compressão** nos 5,78 MB brutos (marcação: provável, não verificado num deploy real — ver seção de perguntas abertas).
+- `vercel.com/docs/caching/cache-control-headers`: **"The default value is `cache-control: public, max-age=0, must-revalidate`"** — browsers and the CDN do not retain the resource; each visit revalidates it (a 304 if lucky, a cold download otherwise).
+- `vercel.com/docs/edge-network/caching` (canonical `/docs/caching/cdn-cache`): static files are cached on the CDN "for the lifetime of the deployment after the first request" — in other words, the first user at each POP pays the full origin cost.
+- `vercel.com/docs/how-vercel-cdn-works/compression`: the compressible MIME list includes **`application/wasm`** → the 14.7 MB `.wasm` travels at ~4.1 MB (gzip measured locally; Brotli tends to be smaller). `.task` files are not on the list → `pose_landmarker_lite.task` probably travels **uncompressed** at its 5.78 MB raw size (marked as probable, not verified on a real deployment — see open questions).
 
-**Impacto:** toda visita paga pelo menos uma revalidação de ~20 MB de binários; e o modelo viaja ~16% maior do que poderia.
+**Impact:** each visit pays at least one revalidation for ~20 MB of binaries, and the model travels ~16% larger than it could.
 
-**Direção de correção:**
-- Adicionar `headers` no `vercel.json`: `Cache-Control: public, max-age=31536000, immutable` para `/mediapipe/(.*)` — é seguro porque o conteúdo é versionado de fato: o `prebuild` pinha a versão do pacote e valida o SHA-256 do modelo (`scripts/copy-mediapipe-wasm.mjs`), ou seja, mudança de conteúdo implica mudança de deploy.
-- Alternativa/robustez: nomear o modelo com o hash (`pose_landmarker_lite.59929e1d.task`) — conteúdo endereçado como os assets do Vite.
-- O `.task` comprime pouco (~14%); se quiser otimizar, avalie servir `.task.br`/`gzip` com `Content-Encoding` via headers — provavelmente não vale o esforço.
+**Fix direction:**
+- Add `headers` to `vercel.json`: `Cache-Control: public, max-age=31536000, immutable` for `/mediapipe/(.*)` — safe because the content is effectively versioned: `prebuild` pins the package version and validates the model SHA-256 (`scripts/copy-mediapipe-wasm.mjs`), so a content change implies a deployment change.
+- Alternative/robustness: name the model with its hash (`pose_landmarker_lite.59929e1d.task`) — content-address it like Vite assets.
+- `.task` compresses little (~14%); if optimization is needed, evaluate serving `.task.br`/`gzip` with `Content-Encoding` headers — probably not worth the effort.
 
-### 4. Safari < 17 continua sem CV mesmo após o fix do `useModule`
+### 4. Safari < 17 still has no CV after the `useModule` fix
 
-**O que é.** O `GraphRunner` do MediaPipe (dentro de `vision_bundle.mjs`, função `Oh()` + construtor `Gh`) decide o canvas GL assim: se `OffscreenCanvas` existe **e** (não é Safari **ou** versão ≥ 17) → `new OffscreenCanvas(1,1)`; senão → `document.createElement("canvas")`. Dentro de um worker, `document` não existe → `ReferenceError` → `createFromOptions` falha → e o fallback CPU passa pelo **mesmo** construtor → também falha.
+**What it is.** MediaPipe's `GraphRunner` (inside `vision_bundle.mjs`, function `Oh()` + constructor `Gh`) selects a GL canvas as follows: if `OffscreenCanvas` exists **and** (the browser is not Safari **or** the version is ≥ 17) → `new OffscreenCanvas(1,1)`; otherwise → `document.createElement("canvas")`. Inside a worker, `document` does not exist → `ReferenceError` → `createFromOptions` fails → CPU fallback goes through the **same** constructor → it also fails.
 
-**Evidência:** código do bundle `node_modules/@mediapipe/tasks-vision/vision_bundle.mjs` (função `Oh` = gate explícito `Version >= 17` para Safari; construtor `Gh` com o fallback para `document`). `OffscreenCanvas` é baseline desde mar/2023 (MDN), mas o WebGL dentro de OffscreenCanvas só chegou ao Safari 17 — daí o gate deles. Somado ao achado #1, a matriz hoje é: Chrome/Edge/Firefox → falha (bug do `useModule`); Safari ≥ 17 → falha (mesmo bug); Safari < 17 → falha dupla (bug + OffscreenCanvas ausente).
+**Evidence:** bundle code in `node_modules/@mediapipe/tasks-vision/vision_bundle.mjs` (`Oh` function = explicit Safari ≥ 17 gate; `Gh` constructor with fallback to `document`). `OffscreenCanvas` has been baseline since March 2023 (MDN), but WebGL inside `OffscreenCanvas` only arrived in Safari 17 — hence their gate. Combined with finding #1, the current matrix is: Chrome/Edge/Firefox → fail (the `useModule` bug); Safari ≥ 17 → fail (same bug); Safari < 17 → double failure (bug + no `OffscreenCanvas`).
 
-**Impacto:** iPhone com iOS < 17 (parcela relevante da base instalada) não tem caminho de correção por parâmetro — precisaria de um fallback que rode o landmarker na thread principal (onde `document` existe) ou de um alerta de compatibilidade.
+**Impact:** iPhones with iOS < 17 (a meaningful share of the installed base) have no parameter-only fix path — they would need a fallback that runs the landmarker on the main thread (where `document` exists) or a compatibility warning.
 
-**Direção de correção:** após o fix #1, detectar `OffscreenCanvas`/versão antes de spawnar o worker; se indisponível, rodar `PoseLandmarker` no main thread (a API aceita isso — `document.createElement("canvas")` funciona lá) ou exibir mensagem de requisito (Safari 17+/Chromium). O WASM em si é single-thread e não exige `SharedArrayBuffer`/COOP-COEP — verificado: a seção de memória do `.wasm` tem flag `0x01` (não-compartilhada) e o loader JS não contém caminho de pthread.
+**Fix direction:** after fix #1, detect `OffscreenCanvas`/version before spawning the worker; if unavailable, run `PoseLandmarker` on the main thread (the API supports this — `document.createElement("canvas")` works there) or show a requirements message (Safari 17+/Chromium). The WASM itself is single-threaded and does not require `SharedArrayBuffer`/COOP-COEP — verified: the `.wasm` memory section has flag `0x01` (not shared), and the loader JS has no pthread path.
 
-### 5. Worker recriado do zero a cada liga/desliga de câmera
+### 5. Worker recreated from scratch on every camera toggle
 
-**O que é.** `PoseClient.stop()` (`src/cv/poseClient.ts:111-118`) manda `DISPOSE` e chama `worker.terminate()` no mesmo tick — o `DISPOSE` quase certamente nunca é processado (irrelevante: o teardown do worker libera tudo). O custo real está no caminho de volta: `startCamera` → `new Worker` → `INIT` completo — refetch do loader + do `.wasm` de 14,7 MB (cache HTTP, mas ainda revalida/parseia), **recompilação WASM**, refetch + recópia do modelo (5,8 MB) e recriação do grafo — alguns segundos a cada toggle, e uma pausa perceptível na UI.
+**What it is.** `PoseClient.stop()` (`src/cv/poseClient.ts:111-118`) sends `DISPOSE` and calls `worker.terminate()` in the same tick — `DISPOSE` is almost certainly never processed (irrelevant: worker teardown releases everything). The real cost is the return path: `startCamera` → `new Worker` → full `INIT` — refetch the loader and 14.7 MB `.wasm` (HTTP cache, but still revalidated/parsed), **recompile WASM**, refetch + recopy the model (5.8 MB), and recreate the graph — a few seconds on every toggle and a noticeable UI pause.
 
-**Impacto:** usuário que desliga a câmera (bateria/privacidade) e religa paga o boot inteiro de novo; numa demo ao vivo isso é ruim.
+**Impact:** a user who turns off the camera (battery/privacy) and turns it back on pays the entire startup cost again; that is bad during a live demo.
 
-**Direção de correção:** manter o worker quente — separar "ciclo de vida do landmarker" de "ciclo de vida da captura": `stop()` cancela o rVFC/rAF e pausa a câmera, mas o worker (e o grafo) permanece pronto; religar vira custo ~0. Também vale considerar desligar o landmarker só por inatividade longa (ex.: > 2 min).
+**Fix direction:** keep the worker warm — separate the "landmarker lifecycle" from the "capture lifecycle": `stop()` cancels rVFC/rAF and pauses the camera, while the worker (and graph) stays ready; turning it back on then costs ~0. Also consider shutting down the landmarker only after a long idle period (e.g. > 2 min).
 
-### 6. Teto de throughput do CV: um frame em trânsito + inferência síncrona
+### 6. CV throughput ceiling: one frame in flight + synchronous inference
 
-**O que é.** O design "um frame em trânsito" (`busy`, `poseClient.ts:10,94-96`) + `detectForVideo` **síncrono** no worker (`pose.worker.ts:82`) impõe o teto:
+**What it is.** The "one frame in flight" design (`busy`, `poseClient.ts:10,94-96`) + synchronous `detectForVideo` in the worker (`pose.worker.ts:82`) imposes this ceiling:
 
-```
-fps_efetivo ≤ min(30 (câmera), 1000 / (t_bitmap + t_postMessage + t_inferência + t_retorno))
-```
+````
+fps_effective ≤ min(30 (camera), 1000 / (t_bitmap + t_postMessage + t_inference + t_return))
+````
 
-Cada `FRAME` faz `createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'low' })` (`poseClient.ts:101`) — uma cópia do quadro — e o MediaPipe sobe o bitmap para a GPU via `texImage2D` no caminho GPU (verificado no bundle: `addGpuBufferToStream` → `texImage2D` → `_addBoundTextureAsImageToStream`) e, no caminho CPU, faz `drawImage` + `getImageData` + cópia para o heap WASM (~1,2 MB por quadro a 640×480).
+Each `FRAME` runs `createImageBitmap(video, { resizeWidth: 640, resizeQuality: 'low' })` (`poseClient.ts:101`) — a copy of the frame — and MediaPipe uploads the bitmap to the GPU through `texImage2D` on the GPU path (verified in the bundle: `addGpuBufferToStream` → `texImage2D` → `_addBoundTextureAsImageToStream`); on the CPU path, it uses `drawImage` + `getImageData` + a copy to the WASM heap (~1.2 MB per frame at 640×480).
 
-**Números de referência (fontes primárias):** a model card oficial `litert-community/MediaPipe-PoseLandmarker-Lite` (Hugging Face, SHA-256 idêntico ao do `SHA256SUMS` do repo — `59929e1d…574a`) cita do model card BlazePose **≈44 FPS em CPU (XNNPACK) e ≈49 FPS em GPU num Pixel 3** — ~20–23 ms/frame num telefone de 2018. O WASM do pacote usa SIMD (≈150 mil instruções `0xFD` contadas na seção de código) e é single-threaded (memória não-compartilhada). As docs oficiais (`ai.google.dev/mediapipe/solutions/vision/pose_landmarker`) descrevem o modo `VIDEO` como "processes every frame in order and never drops frames" e recomendam exatamente o padrão adotado aqui para livestream (processar só o frame mais recente).
+**Reference figures (primary sources):** the official model card for `litert-community/MediaPipe-PoseLandmarker-Lite` (Hugging Face, SHA-256 identical to the repo's `SHA256SUMS` — `59929e1d…574a`) cites the BlazePose model card: **≈44 FPS on CPU (XNNPACK) and ≈49 FPS on GPU on a Pixel 3** — ~20–23 ms/frame on a 2018 phone. The package WASM uses SIMD (~150,000 `0xFD` instructions counted in the code section) and is single-threaded (non-shared memory). Official docs (`ai.google.dev/mediapipe/solutions/vision/pose_landmarker`) describe `VIDEO` mode as "processes every frame in order and never drops frames" and recommend exactly the pattern used here for livestream (process only the latest frame).
 
-**Impacto:** em desktop com GPU discreta/integrada moderna, 30 fps de CV é atingível; em fallback CPU ou GPU integrada fraca, a cadência efetiva cai para ~10–25 poses/s — ainda jogável (cadência de corrida ~120–180 spm = 2–3 Hz pede só ~6+ fps pelo critério de Nyquist), mas saltos/raquetadas rápidos ficam mais grossos. **Isso é trade-off intencional correto** — melhor frame fresco atrasando do que fila crescente — mas é o gargalo estrutural do produto.
+**Impact:** 30 fps CV is achievable on modern desktop discrete/integrated GPUs; on CPU fallback or a weak integrated GPU, the effective cadence drops to ~10–25 poses/s — still playable (running cadence ~120–180 spm = 2–3 Hz needs only ~6+ fps by the Nyquist criterion), but fast jumps/swings become coarser. **This is the right intentional trade-off** — a fresh frame arriving late is better than a growing queue — but it is the product's structural bottleneck.
 
-**Direção de correção (se precisar de mais throughput/latência):**
-- Reduzir `resizeWidth` no modo CPU (ex.: 320 px) — o modelo recebe 224²/256² internamente de qualquer forma; menos upload/leitura por quadro.
-- `VideoFrame` (WebCodecs) em vez de `ImageBitmap` — também transferível e mais barato de produzir — mas `detectForVideo` aceita os dois; ganho pequeno.
-- Aceitar timestamp do `rVFC` `metadata.captureTime` para medir latência fim-a-fim real (hoje `capturedAtMs` usa o `now` do rVFC = instante de submissão ao compositor, que **subestima** a latência fóton→ação; MDN lista `captureTime` para fontes locais).
-- Aumentar para 2 frames em trânsito trocaria latência por throughput — não recomendo: frescor importa mais neste jogo.
+**Fix direction (if more throughput/less latency is needed):**
+- Reduce `resizeWidth` in CPU mode (e.g. 320 px) — the model receives 224²/256² internally either way; this reduces per-frame upload/readback.
+- Use `VideoFrame` (WebCodecs) instead of `ImageBitmap` — it is also transferable and cheaper to produce — but `detectForVideo` accepts both; the gain is small.
+- Use rVFC's `metadata.captureTime` as the timestamp to measure true end-to-end latency (today `capturedAtMs` uses the rVFC `now` = the compositor submission time, which **underestimates** photon-to-action latency; MDN lists `captureTime` for local sources).
+- Allowing 2 frames in flight would trade latency for throughput — not recommended: freshness matters more in this game.
 
-### 7. Cópia `createImageBitmap` por frame na thread principal
+### 7. Per-frame `createImageBitmap` copy on the main thread
 
-**O que é.** `poseClient.ts:101` gera um `ImageBitmap` novo por quadro capturado. `createImageBitmap` é baseline (MDN, set/2021) e `ImageBitmap` é transferível — o `postMessage(..., [bitmap])` é zero-copy na fronteira do worker (MDN "Transferable objects"). O custo é a produção do bitmap em si (conversão/cópia, alguns ms assíncronos), somada ao `texImage2D` interno do MediaPipe.
+**What it is.** `poseClient.ts:101` creates a new `ImageBitmap` for every captured frame. `createImageBitmap` is baseline (MDN, September 2021) and `ImageBitmap` is transferable — `postMessage(..., [bitmap])` is zero-copy across the worker boundary (MDN, "Transferable objects"). The cost is creating the bitmap itself (conversion/copy, a few asynchronous milliseconds), plus MediaPipe's internal `texImage2D`.
 
-**Impacto:** ~1–4 ms por frame na prática — pequeno, mas está no caminho crítico do round-trip. `resizeWidth: 640` hoje é quase sempre no-op (a constraint `ideal: 640` tende a ser atendida); se a câmera entregar 1080p, o resize na GPU é a coisa certa a fazer.
+**Impact:** ~1–4 ms per frame in practice — small, but on the critical round-trip path. `resizeWidth: 640` is almost always a no-op today (the `ideal: 640` constraint tends to be met); if the camera delivers 1080p, resizing on the GPU is the right thing to do.
 
-**Direção de correção:** nada urgente. Se otimizar: `VideoFrame` direto ou enviar o bitmap sem resize quando `videoWidth === 640`. Manter o `bitmap.close()` — já feito no worker (`pose.worker.ts:98`) e no caminho de descarte (`poseClient.ts:76,102`).
-
----
-
-## Descartados ou menores
-
-- **Loop do jogo** — passo fixo 1/60 com acumulador limitado a 0,1 s e teto de 5 substeps (`GameLoop.ts:46-55`), `setAnimationLoop` (loop compatível com XR), `setPixelRatio ≤ 1,5` (`GameLoop.ts:35`), resize via `ResizeObserver`. Correto e sem churn por frame — descartado como gargalo.
-- **Alocações Three.js** — cenas montadas uma vez; hurdles reciclados com `disposeObjectTree` no despawn (`TrackGame.ts:114-117`), materiais compartilhados com dedupe por `Set` (`GameLoop.ts:4-18`); `TennisGame` reusa `Vector3` (`addScaledVector`, `TennisGame.ts:62`). A doc do three.js confirma que dispose explícito é a prática correta — cumprida. Descartado.
-- **React a ~30 Hz** — `setTracking` e `setCameraStatus` são chamados por frame de pose (`App.tsx:107`), mas React pula o re-render quando o valor é `Object.is`-idêntico (react.dev/reference/react/useState). Os demais setState são ≤5 Hz (calibração 200 ms, HUD 200 ms com comparação de string). Descartado — não há re-render a 60 Hz.
-- **Overlay de pose (canvas 2D)** — ~26 linhas/círculos por frame a 640×480 (`PoseOverlay.ts:18-27`); `getContext('2d')` por chamada retorna contexto cacheado. Espelho por CSS (`scaleX(-1)`) é grátis. Descartado.
-- **Code splitting** — Three.js isolado no chunk lazy `GameLoop-*.js` (538 KB / ~132 KB gz) carregado só pelo `import()` do `GameCanvas`; worker isolado (156 KB) só no "Ativar câmera"; bundle principal 243 KB / ~77 KB gz (React + app). Saudável — descartado. Oportunidade cosmética: `modulepreload` do chunk do jogo no `index.html`.
-- **Structured clone do resultado** — 66 objetos pequenos por frame (`simplify`, `pose.worker.ts:28-30`) — desprezível. Descartado.
-- **Single-threaded WASM, sem COOP/COEP** — verificado na seção de memória do `.wasm` (flag não-compartilhada) e ausência de pthreads no loader → nenhum header de isolamento necessário. Descartado.
-- **SIMD** — ~150 mil opcodes `0xFD` na seção de código: build SIMD confirmado; bom para CPU fallback. Browsers pré-2021 não rodam, mas o gate do item #4 já os exclui.
-- **DISPOSE + terminate imediato** (`poseClient.ts:115-116`) — `landmarker.close()` provavelmente não roda, mas o kill do worker libera memória/GL de qualquer forma. Cosmético.
-- **Código morto pós-telemetria** — `inferenceMs`/`receivedAtMs`/`bodyConfidence`/`capturedAtById`/`frameId` continuam sendo computados e transportados sem consumidor (`poseClient.ts:17,44-48`, `pose.worker.ts:83`); `CalibrationProfile.swing` nunca é preenchido (`protocol.ts:37`) e `SwingDetector.setPowerAnchors` só é chamado em teste — os anchors de potência são sempre os defaults 2/7 (`swingDetector.ts:15-16`). Pequena limpeza pendente.
-- **Quirk de score** — `this.score += Math.round(dt * (5 + speed01 * 45))` (`TrackGame.ts:95`): a dt = 1/60 s o termo é 0,08–0,83 → arredonda para 0 na maioria dos frames; o placar quase só anda pelos bônus de hurdle (+100/−35). Provável bug de gameplay (acumular fração), não de perf.
-- **Beacon do MediaPipe** — o bundle envia métricas para `https://odml.pa.googleapis.com/v1/log` (string encontrada em `vision_bundle.mjs`), coerente com o aviso de privacidade do README — tráfego minúsculo, mas é uma chamada externa que os headers de CSP (se vierem a existir) precisam permitir.
-- **Remount do `GameCanvas` por modalidade** (`key={sport}`, `App.tsx:140`) — destrói e recria contexto WebGL a cada troca; disposal correto, custo de dezenas de ms — aceitável.
-- **StrictMode** (`main.tsx:5`) — double-mount só em dev; o flag `disposed` em `GameCanvas` lida corretamente com a corrida do `import()` assíncrono (`GameCanvas.tsx:23,35-38`).
-- **`frameRate: { max: 30 }`** — limita a câmera a 30 fps por decisão consciente (CV não acompanha mais que isso); `ideal` em vez de `exact` tolera câmeras que entregam outra resolução. Descartado.
-- **Pausa em aba oculta** — rAF/rVFC pausam naturalmente; o clamp de 0,1 s do acumulador evita salto de simulação no retorno. Descartado.
+**Fix direction:** nothing urgent. If optimizing: use `VideoFrame` directly or send the bitmap without resizing when `videoWidth === 640`. Keep `bitmap.close()` — already done in the worker (`pose.worker.ts:98`) and in the discard path (`poseClient.ts:76,102`).
 
 ---
 
-## Perguntas em aberto / não verificado
+## Ruled out or minor
 
-- **MIME e compressão do `.task` na Vercel** — a allowlist oficial de compressão não cita `application/octet-stream` nem `.task`; provável que vá sem gzip (5,78 MB brutos). Não medido num deploy real — verificar `curl -H 'Accept-Encoding: br' -I` na URL de produção.
-- **`Cache-Control` efetivo para `/assets/*-hash.js` no deploy Vite** — as docs cobrem `_next/static`/`/_vercel/immutable` e o default `max-age=0`; para assets hasheados do Vite há persistência na CDN, mas o header para o navegador depende do preset — confirmar no deploy real.
-- **Latência real fóton→tela da câmera** — `getUserMedia` entrega frames com ~30–80 ms de atraso de pipeline (sensor/ISP/compositor), não medido aqui; `metadata.captureTime` do rVFC é o instrumento correto (MDN) caso a telemetria volte.
-- **Ms/frame de inferência em GPU real** — só inicialização foi exercida (228 ms, SwiftShader); latência de `detectForVideo` em hardware real não medida. Referência externa: ≈20–23 ms/frame no Pixel 3 (model card).
-- **`resizeWidth`/`resizeQuality` de `createImageBitmap` no Safari** — MDN marca suporte variável para as opções; se ignoradas, o bitmap sai em resolução cheia (mais upload, ainda funcional).
-- **Se `worker.terminate()` antes do DISPOSE deixa recursos WASM** — teardown do worker deve liberar tudo; não instrumentado.
+- **Game loop** — fixed 1/60 step with an accumulator capped at 0.1 s and a maximum of 5 substeps (`GameLoop.ts:46-55`), `setAnimationLoop` (XR-compatible loop), `setPixelRatio ≤ 1.5` (`GameLoop.ts:35`), resize through `ResizeObserver`. Correct and no per-frame churn — ruled out as a bottleneck.
+- **Three.js allocations** — scenes are built once; hurdles are recycled with `disposeObjectTree` on despawn (`TrackGame.ts:114-117`), materials are shared with deduplication via `Set` (`GameLoop.ts:4-18`); `TennisGame` reuses `Vector3` (`addScaledVector`, `TennisGame.ts:62`). The Three.js docs confirm explicit disposal is the correct practice — done. Ruled out.
+- **React at ~30 Hz** — `setTracking` and `setCameraStatus` are called per pose frame (`App.tsx:107`), but React skips re-rendering when the value is `Object.is`-identical (react.dev/reference/react/useState). Other `setState` calls are ≤5 Hz (calibration 200 ms, HUD 200 ms with string comparison). Ruled out — no re-render at 60 Hz.
+- **Pose overlay (2D canvas)** — ~26 lines/circles per frame at 640×480 (`PoseOverlay.ts:18-27`); `getContext('2d')` per call returns a cached context. CSS mirroring (`scaleX(-1)`) is free. Ruled out.
+- **Code splitting** — Three.js is isolated in the lazy `GameLoop-*.js` chunk (538 KB / ~132 KB gz), loaded only through `GameCanvas`'s `import()`; the worker is isolated (156 KB) and loaded only on "Activate camera"; main bundle 243 KB / ~77 KB gz (React + app). Healthy — ruled out. Cosmetic opportunity: `modulepreload` the game chunk in `index.html`.
+- **Structured clone of results** — 66 small objects per frame (`simplify`, `pose.worker.ts:28-30`) — negligible. Ruled out.
+- **Single-threaded WASM, no COOP/COEP** — verified in the `.wasm` memory section (non-shared flag) and the loader has no pthreads → no isolation headers needed. Ruled out.
+- **SIMD** — ~150,000 `0xFD` opcodes in the code section: SIMD build confirmed; good for CPU fallback. Browsers before 2021 cannot run it, but the gate in item #4 already excludes them.
+- **`DISPOSE` + immediate `terminate`** (`poseClient.ts:115-116`) — `landmarker.close()` probably does not run, but killing the worker releases memory/GL either way. Cosmetic.
+- **Dead code after telemetry** — `inferenceMs`/`receivedAtMs`/`bodyConfidence`/`capturedAtById`/`frameId` are still computed and transported with no consumer (`poseClient.ts:17,44-48`, `pose.worker.ts:83`); `CalibrationProfile.swing` is never populated (`protocol.ts:37`) and `SwingDetector.setPowerAnchors` is only called in tests — power anchors are always the defaults 2/7 (`swingDetector.ts:15-16`). Minor cleanup pending.
+- **Score quirk** — `this.score += Math.round(dt * (5 + speed01 * 45))` (`TrackGame.ts:95`): with dt = 1/60 s, the term is 0.08–0.83 → rounds to 0 on most frames; the score almost only changes through hurdle bonuses (+100/−35). Probably a gameplay bug (fractional accumulation), not a performance issue.
+- **MediaPipe beacon** — the bundle sends metrics to `https://odml.pa.googleapis.com/v1/log` (string found in `vision_bundle.mjs`), consistent with the README privacy notice — tiny traffic, but this is an external request that CSP headers (if added) need to allow.
+- **`GameCanvas` remount by sport** (`key={sport}`, `App.tsx:140`) — destroys and recreates the WebGL context on every switch; disposal is correct, cost is tens of milliseconds — acceptable.
+- **StrictMode** (`main.tsx:5`) — double mount only in development; the `disposed` flag in `GameCanvas` correctly handles the asynchronous `import()` race (`GameCanvas.tsx:23,35-38`).
+- **`frameRate: { max: 30 }`** — intentionally caps the camera at 30 fps (CV cannot keep up beyond that); `ideal` rather than `exact` tolerates cameras that deliver another resolution. Ruled out.
+- **Pause in a hidden tab** — rAF/rVFC pause naturally; the accumulator's 0.1 s clamp prevents a simulation jump on return. Ruled out.
 
 ---
 
-## Fontes
+## Open questions / unverified
 
-Código (citações `path:line` neste repo): `src/App.tsx`, `src/cv/{poseClient,pose.worker,protocol,calibrator,oneEuroFilter}.ts`, `src/kinematics/*`, `src/games/{core/GameLoop,track/TrackGame,tennis/TennisGame,audio}.ts`, `src/ui/{CameraPip,GameCanvas,PoseOverlay}.{tsx,ts}`, `scripts/copy-mediapipe-wasm.mjs`, `vite.config.ts`, `vercel.json`, `index.html`, `package.json`, `tests/kinematics.test.ts`, `public/mediapipe/models/SHA256SUMS`. Código-fonte de terceiros lido em `node_modules/@mediapipe/tasks-vision/`: `vision.d.ts:819` (assinatura `useModule`), `vision_bundle.mjs` (`importScripts`+fallback `await import`, gate `Oh()` Safari ≥ 17, caminho `texImage2D` GPU, `getImageData` CPU, endpoint de telemetria), `wasm/vision_wasm_{internal,module_internal}.{js,wasm}` (cabeçalhos/footers, seção de memória, contagem SIMD). Build medido em `dist/` após `npm run build`. Reprodução em Chromium headless (Playwright) com o worker compilado e com o `INIT` real do app.
+- **MIME and compression of `.task` on Vercel** — the official compression allowlist does not mention `application/octet-stream` or `.task`; it probably travels uncompressed (5.78 MB raw). Not measured on a real deployment — check with `curl -H 'Accept-Encoding: br' -I` against the production URL.
+- **Effective `Cache-Control` for `/assets/*-hash.js` in a Vite deployment** — docs cover `_next/static`/`/_vercel/immutable` and the `max-age=0` default; Vite hashed assets persist on the CDN, but the browser header depends on the preset — confirm on a real deployment.
+- **Actual camera photon-to-screen latency** — `getUserMedia` delivers frames with ~30–80 ms of pipeline delay (sensor/ISP/compositor), not measured here; rVFC's `metadata.captureTime` is the correct instrument (MDN) if telemetry returns.
+- **Inference ms/frame on real GPU** — only initialization was exercised (228 ms, SwiftShader); `detectForVideo` latency on real hardware was not measured. External reference: ≈20–23 ms/frame on Pixel 3 (model card).
+- **`resizeWidth`/`resizeQuality` of `createImageBitmap` in Safari** — MDN marks support for these options as variable; if ignored, the bitmap remains at full resolution (more upload, still functional).
+- **Whether `worker.terminate()` before `DISPOSE` leaks WASM resources** — worker teardown should release everything; not instrumented.
 
-Documentos (todos lidos nesta análise):
+---
 
-- https://ai.google.dev/mediapipe/solutions/vision/pose_landmarker — running modes, monotonic timestamps, padrão livestream "latest frame", inputs 224×224/256×256 fp16.
-- https://ai.google.dev/mediapipe/solutions/vision/pose_landmarker/web_js — exemplo oficial de livestream `VIDEO` + rAF.
-- https://huggingface.co/litert-community/MediaPipe-PoseLandmarker-Lite — tamanho/SHA-256 do `.task` (bate com o repo), ≈44 FPS CPU / ≈49 FPS GPU no Pixel 3, sub-modelos detector 224² / landmarker 256².
-- https://developer.mozilla.org/en-US/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback — dispara por frame em min(fps do vídeo, refresh), pode chegar um vsync atrasado, metadados `captureTime`/`mediaTime`.
-- https://developer.mozilla.org/en-US/docs/Web/API/WorkerGlobalScope/importScripts — `TypeError` em module workers.
+## Sources
+
+Code (citations in this repo use `path:line`): `src/App.tsx`, `src/cv/{poseClient,pose.worker,protocol,calibrator,oneEuroFilter}.ts`, `src/kinematics/*`, `src/games/{core/GameLoop,track/TrackGame,tennis/TennisGame,audio}.ts`, `src/ui/{CameraPip,GameCanvas,PoseOverlay}.{tsx,ts}`, `scripts/copy-mediapipe-wasm.mjs`, `vite.config.ts`, `vercel.json`, `index.html`, `package.json`, `tests/kinematics.test.ts`, `public/mediapipe/models/SHA256SUMS`. Third-party source read under `node_modules/@mediapipe/tasks-vision/`: `vision.d.ts:819` (`useModule` signature), `vision_bundle.mjs` (`importScripts` + `await import` fallback, Safari ≥ 17 gate in `Oh()`, GPU `texImage2D` path, CPU `getImageData` path, telemetry endpoint), `wasm/vision_wasm_{internal,module_internal}.{js,wasm}` (headers/footers, memory section, SIMD count). Build measured in `dist/` after `npm run build`. Reproduced in headless Chromium (Playwright) using the compiled worker and the app's actual `INIT`.
+
+Documents (all read during this analysis):
+
+- https://ai.google.dev/mediapipe/solutions/vision/pose_landmarker — running modes, monotonic timestamps, livestream "latest frame" pattern, 224×224/256×256 fp16 inputs.
+- https://ai.google.dev/mediapipe/solutions/vision/pose_landmarker/web_js — official `VIDEO` livestream + rAF example.
+- https://huggingface.co/litert-community/MediaPipe-PoseLandmarker-Lite — `.task` size/SHA-256 (matches the repo), ≈44 FPS CPU / ≈49 FPS GPU on Pixel 3, 224² detector / 256² landmarker submodels.
+- https://developer.mozilla.org/en-US/docs/Web/API/HTMLVideoElement/requestVideoFrameCallback — fires per frame at min(video fps, refresh), may arrive one vsync late, `captureTime`/`mediaTime` metadata.
+- https://developer.mozilla.org/en-US/docs/Web/API/WorkerGlobalScope/importScripts — `TypeError` in module workers.
 - https://html.spec.whatwg.org/multipage/workers.html — "importScripts() will automatically fail inside module workers".
-- https://developer.mozilla.org/en-US/docs/Web/API/createImageBitmap — baseline 2021, opções `resizeWidth`/`resizeQuality`.
-- https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects — `ImageBitmap`/`VideoFrame` transferíveis, transferência zero-copy.
-- https://developer.mozilla.org/en-US/docs/Web/API/OffscreenCanvas — baseline mar/2023.
-- https://react.dev/reference/react/useState — bail-out por `Object.is`.
-- https://vite.dev/guide/features — Web Workers, `type: 'module'` como padrão recomendado.
+- https://developer.mozilla.org/en-US/docs/Web/API/createImageBitmap — baseline 2021, `resizeWidth`/`resizeQuality` options.
+- https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Transferable_objects — `ImageBitmap`/`VideoFrame` are transferable, zero-copy transfer.
+- https://developer.mozilla.org/en-US/docs/Web/API/OffscreenCanvas — baseline March 2023.
+- https://react.dev/reference/react/useState — `Object.is` bail-out.
+- https://vite.dev/guide/features — Web Workers, `type: 'module'` as the recommended default.
 - https://vercel.com/docs/caching/cache-control-headers — default `public, max-age=0, must-revalidate`.
-- https://vercel.com/docs/edge-network/caching — cache de estáticos na CDN por deployment.
-- https://vercel.com/docs/how-vercel-cdn-works/compression — `application/wasm` na lista de comprimíveis.
-- https://threejs.org/manual/pages/how-to-dispose-of-objects.html — dispose explícito de geometria/material/textura é responsabilidade da aplicação.
+- https://vercel.com/docs/edge-network/caching — static asset CDN cache for the lifetime of a deployment.
+- https://vercel.com/docs/how-vercel-cdn-works/compression — `application/wasm` on the compressible list.
+- https://threejs.org/manual/pages/how-to-dispose-of-objects.html — explicit disposal of geometry/material/texture is the application's responsibility.

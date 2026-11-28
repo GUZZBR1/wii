@@ -1,138 +1,138 @@
-# Centro neutro sob histerese e sensibilidade projetiva — calibração online e normalização lateral
+# Hysteresis-Aware Neutral Center and Projective Sensitivity — Online Calibration and Lateral Normalization
 
-Data da pesquisa: novembro de 2026.
-Escopo: controle de raia por deslocamento lateral do centro dos ombros em coordenadas de imagem, com centro neutro adaptativo. Complementa `docs/pesquisa-inclinacao-tronco.md` e `docs/auditoria-mediapipe.md`; não repete a auditoria do pipeline nem a análise completa de inclinação do tronco.
+Research date: November 2026.
+Scope: lane control through the lateral displacement of the shoulder center in image coordinates, with an adaptive neutral center. This complements `docs/pesquisa-inclinacao-tronco.md` and `docs/auditoria-mediapipe.md`; it does not repeat the pipeline audit or the full torso-lean analysis.
 
-**Perguntas.**
+**Questions.**
 
-- **A.** Quando o jogador está fora do centro, mas dentro da banda de histerese (`0.05 ≤ |u| < 0.12`), esse deslocamento é postura de repouso ou entrada de controle? É seguro usar o estado da zona de raia para admitir evidência de calibração?
-- **B.** Qual denominador de normalização é mais robusto: largura projetada dos ombros em x, comprimento euclidiano da linha dos ombros, altura/comprimento do tronco, ou um híbrido? O limiar de entrada na raia deveria depender da orientação corporal projetada?
+- **A.** When the player is off-center but still inside the hysteresis band (`0.05 ≤ |u| < 0.12`), is that displacement a resting posture or a control input? Is it safe to use the lane-zone state to admit calibration evidence?
+- **B.** Which normalization denominator is more robust: projected shoulder width along x, the Euclidean length of the shoulder line, torso height/length, or a hybrid? Should the lane-entry threshold depend on projected body orientation?
 
-## 0. Relação com as notas existentes e correções de precisão
+## 0. Relation to existing notes and precision corrections
 
-As notas anteriores já estabelecem o essencial sobre `worldLandmarks`: eles têm origem no ponto médio dos quadris, são estimados em metros a partir de ajustes GHUM, não formam um referencial fixo do mundo nem um referencial alinhado à gravidade, e sua profundidade é a componente mais fraca. Esta pesquisa confirma essas conclusões nas fontes primárias citadas abaixo.
+Earlier notes already establish the essentials about `worldLandmarks`: they are centered at the midpoint of the hips, estimated in meters from GHUM fits, and do not form a fixed world frame or a gravity-aligned frame; depth is their weakest component. This research confirms those conclusions in the primary sources cited below.
 
-Três precisões importantes:
+Three important clarifications:
 
-1. **O sinal de z dos `worldLandmarks` não é documentado de forma consistente entre as superfícies oficiais.** A documentação do Pose Landmarker diz apenas que os world landmarks estão em metros com origem no quadril; para os landmarks normalizados, z menor significa mais próximo da câmera. Um mantenedor do MediaPipe afirmou na issue #4205 que a relação de z também valeria para world coordinates, com valores negativos entre quadril e câmera. Já o blog oficial do TensorFlow sobre BlazePose GHUM descreve `keypoints3D` com z positivo ao se aproximar da câmera. Pode haver diferença de wrapper/legado ou simplesmente inconsistência de documentação. **Não se deve depender do sinal de z sem verificação em runtime na API exata usada pelo app.** Fontes: [Pose Landmarker guide](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker), [issue #4205](https://github.com/google/mediapipe/issues/4205), [TensorFlow Blog — BlazePose GHUM](https://blog.tensorflow.org/2021/08/3d-pose-detection-with-mediapipe-blazepose-ghum-tfjs.html).
+1. **The z-sign convention for `worldLandmarks` is not documented consistently across official sources.** The Pose Landmarker documentation says only that world landmarks are in meters with an origin at the hips; for normalized landmarks, smaller z means closer to the camera. A MediaPipe maintainer stated in issue #4205 that the same z relationship applies to world coordinates, with negative values between the hips and the camera. The official TensorFlow blog post about BlazePose GHUM, however, describes `keypoints3D` with positive z as points approach the camera. This may reflect wrapper or legacy differences, or simply inconsistent documentation. **Do not depend on the z sign without checking it at runtime in the exact API used by the app.** Sources: [Pose Landmarker guide](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker), [issue #4205](https://github.com/google/mediapipe/issues/4205), [TensorFlow Blog — BlazePose GHUM](https://blog.tensorflow.org/2021/08/3d-pose-detection-with-mediapipe-blazepose-ghum-tfjs.html).
 
-2. **Uma rotação puramente planar da linha dos ombros não "infla" o comprimento euclidiano real da linha.** Se uma linha rígida horizontal de comprimento `sW` gira por φ dentro do plano da imagem, suas componentes passam a ser `sW cos φ` em x e `sW sin φ` em y; o comprimento euclidiano permanece `sW`. O problema prático do `Math.hypot(dx, dy)` no código atual é outro: `x` e `y` dos landmarks foram normalizados separadamente por largura e altura da imagem, portanto `hypot` em coordenadas normalizadas mistura unidades diferentes e superpondera a componente vertical em frames de vídeo em paisagem. A documentação oficial diz explicitamente que x é normalizado pela largura e y pela altura. Fonte: [Pose Landmarker guide for Web](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker/web_js). A matemática acima é derivação própria, não uma afirmação da literatura.
+2. **A purely planar rotation of the shoulder line does not “inflate” its true Euclidean length.** If a rigid horizontal line of length `sW` rotates by φ within the image plane, its components become `sW cos φ` along x and `sW sin φ` along y; its Euclidean length remains `sW`. The practical problem with the current code’s `Math.hypot(dx, dy)` is different: landmark `x` and `y` values are normalized separately by the image width and height, so `hypot` mixes different units and overweights the vertical component in landscape video frames. The official documentation explicitly says that x is normalized by width and y by height. Source: [Pose Landmarker guide for Web](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker/web_js). The mathematics above is our own derivation, not a claim from the literature.
 
-3. **`worldLandmarks` não medem deslocamento lateral do corpo no ambiente.** Como a origem é o centro do quadril a cada frame, um passo inteiro para o lado desloca quadril e origem juntos; a translação desaparece. O issue #5444 confirma que a origem muda frame a frame com o quadril. Portanto world landmarks não são substituto direto da coordenada de imagem para controle de raia por posição corporal. Fonte: [issue #5444](https://github.com/google-ai-edge/mediapipe/issues/5444).
+3. **`worldLandmarks` do not measure the body’s lateral displacement in the environment.** Because the origin is at the hip center in every frame, a full step to the side moves the hips and the origin together; the translation disappears. Issue #5444 confirms that the origin changes frame by frame with the hips. Therefore, world landmarks are not a direct substitute for image coordinates when controlling lanes by body position. Source: [issue #5444](https://github.com/google-ai-edge/mediapipe/issues/5444).
 
 ---
 
-# Parte A — postura de repouso versus entrada intencional durante calibração online
+# Part A — Resting posture versus intentional input during online calibration
 
-## A1. O que os sistemas de controle fazem em problemas análogos
+## A1. What analogous control systems do
 
-### A1.1 IMUs: só estimar bias quando há evidência independente de repouso
+### A1.1 IMUs: estimate bias only when there is independent evidence of rest
 
-A analogia mais forte é a estimativa de bias de giroscópio/acelerômetro em navegação inercial. Nesses sistemas, uma medida artificial de velocidade zero ou taxa angular zero só é aplicada quando um detector independente decide que o sensor está parado.
+The closest analogy is gyroscope and accelerometer bias estimation in inertial navigation. These systems apply an artificial zero-velocity or zero-angular-rate measurement only after an independent detector decides that the sensor is stationary.
 
-- O artigo **"Inertial Navigation Aiding by Stationary Updates"** resume o princípio: quando o veículo é conhecido como estacionário, medidas artificiais de velocidade zero e/ou taxa angular zero corrigem velocidade, atitude e biases da IMU; a implementação exige testes automáticos confiáveis para detectar os períodos estacionários. Fonte: [IEEE T-ITS, DOI 10.1109/TITS.2011.2168818](https://doi.org/10.1109/tits.2011.2168818).
+- The paper **“Inertial Navigation Aiding by Stationary Updates”** summarizes the principle: when a vehicle is known to be stationary, artificial zero-velocity and/or zero-angular-rate measurements correct velocity, attitude, and IMU biases; implementation requires reliable automatic tests to detect stationary periods. Source: [IEEE T-ITS, DOI 10.1109/TITS.2011.2168818](https://doi.org/10.1109/tits.2011.2168818).
 
-- O filtro **VQF** implementa exatamente essa separação. Durante repouso, o bias do giroscópio é estimado diretamente das leituras filtradas; durante movimento, a atualização é menos confiável. O artigo descreve um único filtro de Kalman que executa atualizações diferentes conforme o estado repouso/movimento e atribui "much larger trust" às atualizações em repouso. Fonte: [Laidig & Seel, VQF, arXiv:2203.17024](https://arxiv.org/pdf/2203.17024), publicado como [Information Fusion 91, 187–204, DOI 10.1016/j.inffus.2022.10.014](https://doi.org/10.1016/j.inffus.2022.10.014).
+- The **VQF** filter implements this separation directly. At rest, gyroscope bias is estimated from filtered readings; during movement, the update is less reliable. The paper describes one Kalman filter that performs different updates depending on the rest/motion state and assigns “much larger trust” to updates at rest. Source: [Laidig & Seel, VQF, arXiv:2203.17024](https://arxiv.org/pdf/2203.17024), published as [Information Fusion 91, 187–204, DOI 10.1016/j.inffus.2022.10.014](https://doi.org/10.1016/j.inffus.2022.10.014).
 
-- O detalhe mais relevante para o nosso feedback é que a detecção de repouso do VQF **não usa o sinal já corrigido pelo bias estimado**. O algoritmo filtra as medidas brutas de giroscópio e acelerômetro, calcula o desvio entre a medida instantânea e a referência passa-baixas e só declara repouso se esse desvio permanecer abaixo dos limiares por cerca de 1,5 s; a implementação também rejeita repouso quando a própria referência filtrada excede o maior bias plausível (`biasClip`). Fonte: [apêndice C do paper VQF](https://arxiv.org/pdf/2203.17024) e [implementação Python de referência](https://vqf.readthedocs.io/en/stable/_modules/vqf/pyvqf.html).
+- The detail most relevant to our feedback loop is that VQF’s rest detector **does not use the signal after correction by the estimated bias**. The algorithm filters raw gyroscope and accelerometer measurements, computes the deviation between the instantaneous measurement and the low-pass reference, and declares rest only if that deviation remains below the thresholds for about 1.5 seconds. The implementation also rejects rest when the filtered reference itself exceeds the largest plausible bias (`biasClip`). Source: [VQF paper, Appendix C](https://arxiv.org/pdf/2203.17024) and the [reference Python implementation](https://vqf.readthedocs.io/en/stable/_modules/vqf/pyvqf.html).
 
-- A revisão **"Fifteen Years of Progress at Zero Velocity"** adverte que aplicar ZUPT quando a hipótese de velocidade zero é falsa introduz erros sistemáticos: os erros deixam de ser brancos/de média zero, e passos podem ser encurtados ou verticalmente distorcidos. O limiar de detecção representa um compromisso entre erro do sensor e erro de modelo. Fonte: [Nilsson et al., arXiv:2008.09208](https://arxiv.org/html/2008.09208v1), publicado como [IEEE Sensors Journal, DOI 10.1109/JSEN.2020.3018880](https://doi.org/10.1109/jsen.2020.3018880).
+- The review **“Fifteen Years of Progress at Zero Velocity”** warns that applying ZUPT when the zero-velocity assumption is false introduces systematic errors: errors cease to be white or zero-mean, and steps can become shorter or vertically distorted. The detection threshold is a trade-off between sensor error and model error. Source: [Nilsson et al., arXiv:2008.09208](https://arxiv.org/html/2008.09208v1), published as [IEEE Sensors Journal, DOI 10.1109/JSEN.2020.3018880](https://doi.org/10.1109/jsen.2020.3018880).
 
-**Lição para o jogo.** "Zona central" não deve ser tratada como prova suficiente de repouso/neutralidade, da mesma forma que "valor pequeno de giroscópio" não basta para provar IMU parada. É preciso um detector de repouso que use grandezas independentes do centro calibrado — por exemplo velocidade/variância do centro dos ombros, que não depende de `x0` — e é preciso aceitar que falsos positivos de repouso introduzem viés sistemático no neutro.
+**Lesson for the game.** The “center zone” should not be treated as sufficient proof of rest or neutrality, just as a “small gyroscope value” is not enough to prove that an IMU is stationary. We need a rest detector that uses quantities independent of the calibrated center — for example, shoulder-center velocity or variance, which do not depend on `x0` — and we must accept that false-positive rest detections introduce systematic bias into the neutral estimate.
 
-### A1.2 Joysticks: centros adaptativos usam pontos de repouso qualificados, não todas as amostras próximas do centro
+### A1.2 Joysticks: adaptive centers use qualified resting points, not every sample near the center
 
-A patente da Microsoft **US10463954B2 — "Mechanical center calibration of control sticks in user input devices"** descreve calibração do centro mecânico a partir de uma sequência de "qualified resting points". Os pontos só se qualificam quando o controle:
+Microsoft patent **US10463954B2 — “Mechanical center calibration of control sticks in user input devices”** describes mechanical-center calibration from a sequence of “qualified resting points.” A point qualifies only when the control:
 
-- retorna para uma zona de qualificação central depois de ter saído dela;
-- para de mudar dentro de certo tempo após entrar na zona;
-- permanece com variação abaixo de um limiar por um tempo mínimo;
-- e, em uma das formas descritas, produz no máximo um ponto de repouso por entrada na zona, sendo necessário sair e reentrar para qualificar outro.
+- returns to a central qualification zone after leaving it;
+- stops changing within a certain time after entering the zone;
+- remains below a variation threshold for a minimum duration;
+- and, in one described implementation, produces at most one resting point per entry into the zone, requiring an exit and re-entry to qualify another.
 
-A estimativa usa uma média móvel ponderada desses pontos. Fonte primária: [US10463954B2](https://patents.google.com/patent/US10463954B2/en).
+The estimate uses a weighted moving average of these points. Primary source: [US10463954B2](https://patents.google.com/patent/US10463954B2/en).
 
-**Lição para o jogo.** A unidade natural de evidência não é "cada frame dentro da banda", mas um **episódio de repouso qualificado**: o corpo entra na zona neutra, estabiliza, permanece tempo suficiente, e só então contribui — idealmente com uma mediana do episódio, não com centenas de frames correlacionados. A exigência de sair e reentrar evita que uma única retenção longa domine a referência.
+**Lesson for the game.** The natural unit of evidence is not “every frame inside the band,” but a **qualified resting episode**: the body enters the neutral zone, stabilizes, remains there long enough, and only then contributes — ideally through one median for the episode rather than hundreds of correlated frames. Requiring the player to leave and re-enter prevents one long hold from dominating the reference.
 
-### A1.3 Calibração implícita em HCI: atualizar só com amostras validadas por evidência comportamental
+### A1.3 Implicit calibration in HCI: update only from samples validated by behavioral evidence
 
-A literatura de eye tracking é útil porque também lida com drift de calibração durante uso.
+Eye-tracking research is useful because it also addresses calibration drift during use.
 
-- **PACE — Personalized, Auto-Calibrating Eye Tracking** coleta dados de interação sem calibração explícita, mas não aceita tudo: usa validação informada por comportamento e validação orientada por dados para identificar boas amostras de treinamento; amostras rejeitadas são retidas e reavaliadas após atualizações do modelo. Fonte: [Huang et al., CHI 2016, DOI 10.1145/2858036.2858404](https://dl.acm.org/doi/pdf/10.1145/2858036.2858404).
+- **PACE — Personalized, Auto-Calibrating Eye Tracking** collects interaction data without explicit calibration, but does not accept every sample: it uses behavior-informed and data-driven validation to identify good training samples; rejected samples are retained and reconsidered after model updates. Source: [Huang et al., CHI 2016, DOI 10.1145/2858036.2858404](https://dl.acm.org/doi/pdf/10.1145/2858036.2858404).
 
-**Lição para o jogo.** A pergunta não é apenas "a amostra está perto do centro atual?", mas "existe uma razão comportamental independente para acreditar que este é um estado neutro?". No nosso caso, os melhores substitutos disponíveis são repouso/dwell, recorrência de episódios e ausência de transição recente de raia — não o valor de `u` sozinho.
+**Lesson for the game.** The question is not only “is the sample near the current center?” but “is there independent behavioral evidence that this is a neutral state?” In our case, the best available substitutes are rest/dwell, recurring episodes, and the absence of a recent lane transition — not the value of `u` alone.
 
-### A1.4 Controle adaptativo robusto: dead zone, adaptação lenta e limites são proteções clássicas contra drift
+### A1.4 Robust adaptive control: dead zones, slow adaptation, and bounds are standard protections against drift
 
-Em controle adaptativo, atualizar parâmetros continuamente a partir de erro pequeno ou contaminado por perturbação produz "parameter drift". Ioannou e Sun dedicam o capítulo 8 de *Robust Adaptive Control* a instabilidades de adaptação e às modificações robustas: leakage, projeção de parâmetros, normalização dinâmica e dead zone. O princípio do dead zone é adaptar somente quando o erro é grande em relação ao erro de modelo/perturbação; caso contrário, a adaptação é desligada ou atenuada. Fonte primária: [Ioannou & Sun, *Robust Adaptive Control*, capítulo 8](https://flyingv.ucsd.edu/krstic/teaching/282/ioannousun.pdf).
+In adaptive control, continuously updating parameters from small errors or errors contaminated by disturbances causes “parameter drift.” Ioannou and Sun devote Chapter 8 of *Robust Adaptive Control* to adaptation instabilities and robust modifications: leakage, parameter projection, dynamic normalization, and dead zones. The dead-zone principle is to adapt only when the error is large relative to model error or disturbance; otherwise, adaptation is disabled or attenuated. Primary source: [Ioannou & Sun, *Robust Adaptive Control*, Chapter 8](https://flyingv.ucsd.edu/krstic/teaching/282/ioannousun.pdf).
 
-**Lição para o jogo.** O centro neutro é um parâmetro adaptativo. O design correto não é um integrador que sempre corrige o erro observado; é um estimador com admissão condicionada, atualização lenta, agregação robusta, limites de taxa, congelamento quando o canal de controle está saturado/em uma raia, e mecanismo de recuperação quando a hipótese de observabilidade deixa de valer.
+**Lesson for the game.** The neutral center is an adaptive parameter. The right design is not an integrator that always corrects the observed error; it is an estimator with conditional admission, slow updates, robust aggregation, rate limits, freezing while the control channel is saturated or in a lane, and a recovery mechanism for when the observability assumption no longer holds.
 
-## A2. O que jogos/exergames controlados por pose fazem
+## A2. What pose-controlled games and exergames do
 
-### A2.1 Documentação oficial de pose: histerese, EMA e normalização por torso
+### A2.1 Official pose-classification guidance: hysteresis, EMA, and torso normalization
 
-O guia oficial de classificação de poses do Google/ML Kit recomenda EMA para ruído frame a frame e histerese de limiar duplo: o limiar de saída é mais baixo que o de entrada, criando um intervalo em que o estado não muda. O mesmo guia diz que, antes de converter poses em vetores de características, as poses foram normalizadas para ter **o mesmo tamanho de torso e orientação vertical do torso**. Fonte: [Pose classification options — ML Kit](https://developers.google.com/ml-kit/vision/pose-detection/classifying-poses).
+Google’s official pose-classification guide for ML Kit recommends EMA to reduce frame-to-frame noise and double-threshold hysteresis: the exit threshold is lower than the entry threshold, creating a band in which the state does not change. The same guide says that, before pose features are extracted, poses were normalized to have **the same torso size and upright torso orientation**. Source: [Pose classification options — ML Kit](https://developers.google.com/ml-kit/vision/pose-detection/classifying-poses).
 
-### A2.2 Projetos MediaPipe de controle corporal em browser: prática convergente, validação fraca
+### A2.2 MediaPipe browser projects for body control: convergent practice, weak validation
 
-Estes artefatos são fontes primárias de engenharia, não evidência científica controlada:
+These artifacts are primary engineering sources, not controlled scientific evidence:
 
-- **Expressway** usa MediaPipe Face/Pose no browser, calibra neutro e extremos, define limiares como fração da amplitude com piso de ruído, aplica One Euro, deadzone e Schmitt trigger, e informa que o baseline neutro "keeps drifting slowly while you play". Fonte: [Expressway — how it works](https://automationoptimization.github.io/expressway/).
-- **ROY SPEED — Body-Tracking AR Running Game** usa calibração inicial adaptada à altura/distância, suavização exponencial, histerese e cooldowns; o README também menciona adaptação lenta de baseline enquanto o jogador está parado. Fonte: [GitHub — anupomroy111/Body-Tracking-AR-Running-Game](https://github.com/anupomroy111/Body-Tracking-AR-Running-Game).
-- **SurfCam** divide medidas verticais pelo comprimento do torso para independência da distância e usa três faixas de posição lateral com histerese. Fonte: [GitHub — Blueturboguy07/surfcam](https://github.com/Blueturboguy07/surfcam).
+- **Expressway** uses MediaPipe Face/Pose in the browser, calibrates neutral and extremes, defines thresholds as a fraction of the range with a noise floor, applies One Euro filtering, a dead zone, and a Schmitt trigger, and reports that its neutral baseline “keeps drifting slowly while you play.” Source: [Expressway — how it works](https://automationoptimization.github.io/expressway/).
+- **ROY SPEED — Body-Tracking AR Running Game** uses initial calibration adjusted for player height/distance, exponential smoothing, hysteresis, and cooldowns; its README also mentions slow baseline adaptation while the player is standing still. Source: [GitHub — anupomroy111/Body-Tracking-AR-Running-Game](https://github.com/anupomroy111/Body-Tracking-AR-Running-Game).
+- **SurfCam** divides vertical measurements by torso length to reduce distance dependence and uses three lateral position bands with hysteresis. Source: [GitHub — Blueturboguy07/surfcam](https://github.com/Blueturboguy07/surfcam).
 
-A convergência prática é: calibração explícita ou lenta, histerese, normalização corporal e proteção contra drift. Nenhum desses projetos oferece análise formal de estabilidade do loop zona→calibração→zona.
+The practical consensus is explicit or slow calibration, hysteresis, body normalization, and protection against drift. None of these projects provides a formal stability analysis of the zone → calibration → zone loop.
 
-## A3. Análise do feedback loop — derivação própria
+## A3. Feedback-loop analysis — our own derivation
 
-Seja `p` a posição postural real do centro dos ombros, `x0` o centro neutro estimado e `e = x0 - p` o erro de calibração. Ignorando ruído e escala, uma atualização admitida do tipo
+Let `p` be the true postural position of the shoulder center, `x0` the estimated neutral center, and `e = x0 - p` the calibration error. Ignoring noise and scale, an admitted update of the form
 
 ```
 x0 ← x0 + α(x - x0),   0 < α < 1
 ```
 
-produz `e ← (1 - α)e`. Ou seja, **enquanto evidência correta continua sendo admitida, o loop é contrativo, não explosivo**. O problema não é instabilidade exponencial clássica; é perda de observabilidade por gating.
+produces `e ← (1 - α)e`. In other words, **while correct evidence continues to be admitted, the loop is contractive, not explosive**. The problem is not classical exponential instability; it is loss of observability caused by gating.
 
-A zona depende do mesmo `e`: se o erro for grande o bastante para fazer a postura verdadeiramente central parecer uma raia (`|u| ≥ 0.12`), a zona sai do centro, amostras deixam de ser admitidas, `x0` não corrige, a zona continua lateral — deadlock de calibração mesmo com o jogador parado no centro físico. A defesa prática é que erros menores que o limiar de entrada são autocorrigíveis (a evidência centrada continua admitida), e erros grandes dependem do escape hatch temporal.
+The zone depends on the same `e`: if the error is large enough to make a truly centered posture appear to be in a lane (`|u| ≥ 0.12`), the zone leaves the center, samples stop being admitted, `x0` is not corrected, and the zone remains lateral — a calibration deadlock even though the player is physically standing at center. In practice, errors smaller than the entry threshold are self-correcting because centered evidence remains admissible; larger errors depend on the time-based escape hatch.
 
-## A4. Recomendação de design para o Problema A
+## A4. Design recommendation for Problem A
 
-**A zona é veto/contexto, não prova.** Quando a zona é centro, um deslocamento dentro da banda não está comandando raia e pode ser postura; idealmente entraria na calibração depois de passar por um detector independente de repouso, agregação episódica e adaptação lenta. Em zona lateral, nenhuma amostra da banda é evidência de neutro. O risco principal não é oscilação exponencial, mas deadlock por perda de observabilidade.
+**The zone is a veto/context signal, not proof.** When the zone is centered, a displacement inside the band is not commanding a lane and could be posture; ideally, it would enter calibration only after passing an independent rest detector, episode aggregation, and slow adaptation. In a lateral zone, no sample from the band is evidence of neutral. The main risk is not exponential oscillation, but deadlock from loss of observability.
 
-> **Status (implementado neste PR):** o veto por zona está aplicado com a zona gravada por amostra no momento da coleta — admitir com a zona atual reabriria retroativamente as amostras de lane segurada ainda na janela. A qualificação independente de repouso e a agregação episódica abaixo continuam como trabalho futuro.
+> **Status (implemented in this PR):** the zone veto is applied using the zone recorded per sample at collection time — admitting samples based on the current zone would retroactively reopen samples from a held lane that are still in the window. Independent rest qualification and episode aggregation described below remain future work.
 
-Refinamento documentado para trabalho futuro (não implementado no PR do controle por posição): episódios de repouso qualificados — zona central contínua, velocidade do centro dos ombros (independente de `x0`, pois derivada temporal cancela o offset) abaixo de limiar por 0,7–1,5 s, uma mediana por episódio, recorrência antes de mover o centro, reentrada obrigatória como na patente de joystick US10463954B2. Os valores são hipóteses de engenharia a medir com sessões reais, não constantes validadas.
+Future refinement documented for later work (not implemented in the position-control PR): qualified resting episodes — a continuously centered zone, shoulder-center velocity (independent of `x0` because the temporal derivative cancels the offset) below a threshold for 0.7–1.5 seconds, one median per episode, recurrence before moving the center, and mandatory re-entry as in joystick patent US10463954B2. These values are engineering hypotheses to measure in real sessions, not validated constants.
 
-**Testes mínimos recomendados pela pesquisa** — parcialmente já cobertos no PR: postura deslocada estável a ±0,07 converge sem entrar em raia ✔; retenções longas a ±0,13/±0,20 não são perseguidas ✔; sway periódico dentro da banda não adapta (simétrico — a moda é consenso); erro artificial de `x0` autocorrige abaixo do limiar de entrada.
+**Minimum tests recommended by the research** — partially covered already in the PR: stable offset posture at ±0.07 converges without entering a lane ✔; long holds at ±0.13/±0.20 are not tracked ✔; periodic sway within the band does not adapt (symmetric — the mode is the consensus); an artificially incorrect `x0` self-corrects below the entry threshold.
 
 ---
 
-# Parte B — semântica do MediaPipe e geometria projetiva da normalização
+# Part B — MediaPipe semantics and projective geometry for normalization
 
-## B1. O que `landmarks` e `worldLandmarks` realmente significam
+## B1. What `landmarks` and `worldLandmarks` actually mean
 
-A documentação oficial do Pose Landmarker define `landmarks.x/y` normalizados pela largura e altura da imagem **respectivamente** — denominadores diferentes. `worldLandmarks` são coordenadas 3D em metros com origem no ponto médio dos quadris, estimados por fitting do modelo estatístico GHUM a evidência 2D. Fontes: [Pose Landmarker guide](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker), [model card BlazePose GHUM 3D](https://developers.google.com/static/ml-kit/images/vision/pose-detection/pose_model_card.pdf), [BlazePose GHUM Holistic, arXiv:2206.11678](https://arxiv.org/abs/2206.11678).
+The official Pose Landmarker documentation defines `landmarks.x/y` as normalized by image width and height **respectively** — different denominators. `worldLandmarks` are 3D coordinates in meters, with an origin at the midpoint of the hips, estimated by fitting the GHUM statistical model to 2D evidence. Sources: [Pose Landmarker guide](https://developers.google.com/edge/mediapipe/solutions/vision/pose_landmarker), [BlazePose GHUM 3D model card](https://developers.google.com/static/ml-kit/images/vision/pose-detection/pose_model_card.pdf), [BlazePose GHUM Holistic, arXiv:2206.11678](https://arxiv.org/abs/2206.11678).
 
-Consequência imediata: qualquer comprimento euclidiano calculado diretamente como `hypot(dx_norm, dy_norm)` **não é um comprimento consistente no plano da imagem**, porque x e y foram escalados por denominadores diferentes. Em frame 16:9, a componente vertical é superponderada por (W/H)² ≈ 3,16 no quadrado — uma linha de ombros inclinada mede mais largura que a mesma linha horizontal, e a medida varia com a inclinação exatamente durante o desvio.
+Immediate consequence: any Euclidean length computed directly as `hypot(dx_norm, dy_norm)` **is not a consistent length in the image plane**, because x and y were scaled by different denominators. In a 16:9 frame, the vertical component is overweighted by approximately (W/H)² ≈ 3.16 in the squared distance — a tilted shoulder line measures wider than the same horizontal line, and the measurement changes with tilt precisely during the deviation.
 
-**Consequência para raia.** Não usar `worldLandmarks.x` do centro dos ombros como sinal de posição lateral do jogador: a origem no quadril apaga a translação do corpo inteiro — exatamente o que o controle precisa medir.
+**Consequence for lane control.** Do not use `worldLandmarks.x` of the shoulder center as the player’s lateral position signal: the origin at the hips removes translation of the whole body — exactly the quantity lane control needs to measure.
 
-## B2. Geometria projetiva — derivação própria sob weak perspective
+## B2. Projective geometry — our own derivation under weak perspective
 
-Seja `s = f/Z` a escala imagem/mundo, `W` a largura física dos ombros, `θ` o yaw em torno do eixo vertical. Para yaw puro e ombros horizontais: largura projetada `w ≈ sW cos θ`; altura vertical do tronco não muda.
+Let `s = f/Z` be the image/world scale, `W` the physical shoulder width, and `θ` the yaw around the vertical axis. For pure yaw and horizontal shoulders, projected width is `w ≈ sW cos θ`; the torso’s vertical height does not change.
 
-**Passo paralelo à câmera** por distância física `D`: `Δx ≈ sD`, razão normalizada `u ≈ (D/W) sec θ` — a sensibilidade infla por `1/cos θ` (×1,15 a 30°, ×1,41 a 45°). **Passo lateral ao próprio corpo**: numerador e denominador contraem juntos — razão invariante. Jogadores reais assistindo à tela desviam majoritariamente ao longo do eixo-x da câmera, então a inflação é o caso relevante — mas só se torna grande em yaw degenerado (>30°), onde a qualidade da pose já cai por outras razões.
+**Step parallel to the camera** over physical distance `D`: `Δx ≈ sD`, so the normalized ratio is `u ≈ (D/W) sec θ` — sensitivity increases by `1/cos θ` (×1.15 at 30°, ×1.41 at 45°). **Step sideways relative to the body:** numerator and denominator contract together, so the ratio is invariant. Real players facing the screen move mostly along the camera’s x-axis, so the inflation case is the relevant one — but it becomes large only at degenerate yaw (>30°), where pose quality already degrades for other reasons.
 
-**Rotação planar (tilt de ombros em lean):** em pixels, `hypot` é invariante à rotação; x-only encolhe com `cos φ` e criaria reforço positivo — denominador caindo enquanto o numerador do desvio sobe. Em coordenadas normalizadas, porém, o `hypot` ingênuo mistura unidades e deixa de ser invariante. A forma correta em unidades de fração da largura:
+**Planar rotation (shoulder tilt during a lean):** in pixels, `hypot` is rotation-invariant; x-only shrinks by `cos φ` and would create positive feedback — the denominator falls while the deviation numerator rises. In normalized coordinates, however, naive `hypot` mixes units and is no longer invariant. The correct form in units of image-width fractions is:
 
 ```
 w = hypot(x11 - x12, (y11 - y12) * imageHeight / imageWidth)
 ```
 
-## B3. Veredicto do Problema B
+## B3. Verdict for Problem B
 
-> **Status (implementado neste PR):** a correção de aspect ratio recomendada abaixo já está aplicada — `LanePositionTracker` e `AdaptiveCalibrator` medem a largura dos ombros com `dy × frameHeight/frameWidth`, e as dimensões do frame viajam no `PoseSnapshot` desde o bitmap do worker. Gravações de pose ganharam schema v2 com as dimensões por frame; arquivos v1 migram pela geometria de input gravada no source. O que permanece como trabalho futuro é a escala frontal equivalente híbrida para yaw extremo, condicionada ao benchmark descrito.
+> **Status (implemented in this PR):** the recommended aspect-ratio correction below has already been applied — `LanePositionTracker` and `AdaptiveCalibrator` measure shoulder width using `dy × frameHeight/frameWidth`, and frame dimensions travel in `PoseSnapshot` from the worker bitmap. Pose recordings gained schema v2 with per-frame dimensions; v1 files migrate using the input geometry recorded in the source. What remains future work is a hybrid equivalent frontal scale for extreme yaw, subject to the benchmark described below.
 
-Nenhum denominador único é robusto em todas as condições. O `hypot` atual precisa primeiro ser corrigido para aspect ratio — correção geométrica direta, sem tuning. Entre as opções simples, largura euclidiana aspect-corrected dos ombros é melhor que x-only para jogadores frontais. Para yaw extremo, torso é geometricamente mais invariante, mas a literatura favorece comprimento euclidiano/transformação de torso, não altura vertical simples — uma **escala frontal equivalente híbrida e lentamente filtrada** é o caminho documentado para trabalho futuro, com benchmark dedicado (yaw 0/15/30/45°, passos nos dois eixos, lean, corrida com sway, câmeras 4:3 e 16:9) antes de qualquer troca de denominador. O limiar de raia permanece fixo se a escala estiver corrigida; adaptar limiar por yaw sem decompor passo/lean mistura duas semânticas de controle incompatíveis.
+No single denominator is robust in every condition. The current `hypot` must first be corrected for aspect ratio — a direct geometric correction that requires no tuning. Among the simple options, aspect-corrected Euclidean shoulder width is better than x-only for front-facing players. At extreme yaw, the torso is geometrically more invariant, but the literature favors Euclidean length or torso transformation rather than simple vertical height — a **slowly filtered hybrid equivalent frontal scale** is the documented path for future work, with a dedicated benchmark (yaw 0/15/30/45°, steps along both axes, leaning, running with sway, 4:3 and 16:9 cameras) before changing the denominator. The lane threshold remains fixed if scale is corrected; adapting the threshold by yaw without decomposing step and lean mixes two incompatible control semantics.
 
-**Referências de normalização em literatura de pose:** ML Kit normaliza poses para o mesmo tamanho de torso e orientação vertical antes de extrair features — [Pose classification options](https://developers.google.com/ml-kit/vision/pose-detection/classifying-poses). Pose Trainer normaliza pelo comprimento do torso — [arXiv:2006.11718](https://arxiv.org/html/2006.11718v1). Gesture recognition com OpenPose adverte que normalizar pela distância ombro–ombro falha fora da frontalidade — [link](https://link.springer.com/chapter/10.1007/978-3-030-35699-6_22). Uso de world landmarks para estimar yaw/frontalidade é recomendado com cautela (componente z fraca); mantenedores relatam que world landmarks não são garantidamente reprojetáveis — [issue #1895](https://github.com/google-ai-edge/mediapipe/issues/1895).
+**Pose-normalization references in the literature:** ML Kit normalizes poses to the same torso size and upright orientation before extracting features — [Pose classification options](https://developers.google.com/ml-kit/vision/pose-detection/classifying-poses). Pose Trainer normalizes by torso length — [arXiv:2006.11718](https://arxiv.org/html/2006.11718v1). OpenPose gesture recognition warns that normalization by shoulder-to-shoulder distance fails away from a frontal view — [link](https://link.springer.com/chapter/10.1007/978-3-030-35699-6_22). Using world landmarks to estimate yaw/frontal orientation is recommended with caution (the z component is weak); maintainers report that world landmarks are not guaranteed to be reprojectable — [issue #1895](https://github.com/google-ai-edge/mediapipe/issues/1895).

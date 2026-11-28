@@ -6,27 +6,27 @@ import { orbitRadii } from './papersOrbit';
 
 const LINE_MS = 4800;
 
-/** Os artigos (propostas de pesquisa) giram numa elipse em volta do título; clicar abre o resumo e a figura. */
+/** The research proposals orbit the title; clicking one opens its summary and figure. */
 export default function PapersPage() {
   const { lang, tr } = useLang();
-  // Texto do artigo no idioma atual (PT nos campos base, EN em p.en).
+  // Article text in the current language (Portuguese in the base fields, English in p.en).
   const copyOf = (p: Paper) => ({ short: tr(p.short, p.en.short), title: tr(p.title, p.en.title), blurb: tr(p.blurb, p.en.blurb) });
   const ringRef = useRef<HTMLDivElement>(null);
-  const rotateRef = useRef<((index: number, done: () => void) => void) | null>(null); // gira o anel ate um cartao ficar na frente
-  const busy = useRef(false); // enquanto o anel gira, novos cliques esperam
+  const rotateRef = useRef<((index: number, done: () => void) => void) | null>(null); // Rotate the ring until a card reaches the front.
+  const busy = useRef(false); // Queue new clicks while the ring is moving.
   const openRef = useRef(false); // com um resumo aberto o carrossel desacelera ate parar, sem corte seco
   const focusRef = useRef(false); // idem enquanto o foco do teclado esta num cartao (o alvo nao pode fugir)
   const [open, setOpen] = useState<Paper | null>(null);
-  const [shown, setShown] = useState<Paper | null>(null); // mantem o painel montado enquanto ele recolhe
+  const [shown, setShown] = useState<Paper | null>(null); // Keep the panel mounted while it collapses.
   useEffect(() => { if (open) setShown(open); }, [open]);
   const [line, setLine] = useState(0);
   const reduce = useRef(window.matchMedia('(prefers-reduced-motion: reduce)').matches);
 
   useEffect(() => { openRef.current = open !== null; }, [open]);
 
-  // Carrossel elíptico: o que passa à frente fica maior e mais nítido, o de trás menor e apagado.
-  // Por quadro so se escrevem transform/opacity (nenhuma leitura de layout): medidas ficam em cache e
-  // so mudam num ResizeObserver; o ponteiro nunca pausa a rotacao; so abrir um resumo ou focar um cartao a desacelera.
+  // Elliptical carousel: items in front grow sharper; items behind become smaller and fainter.
+  // Each frame writes only transform/opacity and performs no layout reads. Cache measurements and
+  // update them only in ResizeObserver; the pointer never pauses rotation, while opening or focusing a summary slows it.
   useEffect(() => {
     const ring = ringRef.current;
     if (!ring) return;
@@ -50,7 +50,7 @@ export default function PapersPage() {
     let raf = 0;
     let tween: { from: number; to: number; t0: number; dur: number; done: () => void } | null = null;
     const TAU = Math.PI * 2;
-    // Gira pelo menor caminho ate o cartao i chegar na frente (parte de baixo da elipse), depois chama done.
+    // Rotate along the shortest path until card i reaches the front (bottom of the ellipse), then call done.
     const rotateTo = (i: number, done: () => void) => {
       if (compact.matches) { done(); return; }
       if (reduce.current) {
@@ -60,7 +60,7 @@ export default function PapersPage() {
         return;
       }
       const base = Math.PI / 2 - (i / cards.length) * TAU;
-      // Menor caminho: vai para o lado (horario ou anti-horario) em que o cartao chega mais perto da frente.
+      // Take the shorter clockwise or counterclockwise path to bring the card closer to the front.
       const delta = ((((base - angle) % TAU) + TAU + Math.PI) % TAU) - Math.PI;
       if (Math.abs(delta) < 0.02) { done(); return; }
       tween = { from: angle, to: angle + delta, t0: performance.now(), dur: Math.min(2400, 900 + Math.abs(delta) * 350), done };
@@ -99,7 +99,7 @@ export default function PapersPage() {
       });
     };
     const tick = (now: number) => {
-      const dt = Math.min((now - last) / 1000, 0.05); // aba em segundo plano nao da salto
+      const dt = Math.min((now - last) / 1000, 0.05); // Clamp the elapsed time after a background tab pause.
       last = now;
       if (tween) {
         const t = tween;
@@ -154,9 +154,9 @@ export default function PapersPage() {
     return () => document.removeEventListener('keydown', onKey);
   }, [open]);
 
-  // Clicar em outro artigo: fecha o atual, gira o anel ate ele e so depois o abre.
+  // When another article is clicked, close the current one, rotate the ring to it, and then open it.
   const pick = (p: Paper) => {
-    // Mesmo com a pagina rolada para baixo, leva o foco ao centro, onde ficam os papers.
+    // Bring focus to the center, where the papers sit, even if the page has been scrolled down.
     ringRef.current?.scrollIntoView({ behavior: reduce.current ? 'auto' : 'smooth', block: 'center' });
     if (open?.n === p.n) { setOpen(null); return; }
     if (busy.current) return;

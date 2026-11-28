@@ -1,6 +1,6 @@
 import { LADDER, TIERS, type Tier } from './quality';
 
-/** Cena WebGL da abertura: névoa de luz, obras em profundidade, foco, bloom, vinheta e grão. */
+/** WebGL intro scene: light haze, artwork in depth, focus, bloom, vignette, and grain. */
 
 const QUAD_VS = `
 attribute vec2 p;
@@ -23,7 +23,7 @@ float noise(vec2 p) {
 }
 float fbm(vec2 p) { float v = 0., a = .5; for (int i = 0; i < OCTAVES; i++) { v += a * noise(p); p *= 2.03; a *= .5; } return v; }`;
 
-// Luz difusa: duas manchas distorcidas por ruído, sem contorno perceptível.
+// Diffuse light: two noise-distorted patches with no visible outline.
 const SKY_FS = `${NOISE}
 uniform vec2 view; uniform float time; uniform float travel; uniform vec2 light; uniform float glow;
 void main() {
@@ -41,7 +41,7 @@ void main() {
   gl_FragColor = vec4(color, 1.);
 }`;
 
-// Obra sem moldura: bordas dissolvidas por ruído, desfoque de lente e bloom nas altas luzes.
+// Unframed artwork: edges dissolve through noise, lens blur, and highlight bloom.
 const ART_FS = `${NOISE}
 uniform sampler2D tex; uniform float alpha; uniform float blur; uniform float gain; uniform float seed; uniform float feather;
 varying vec2 uv;
@@ -64,14 +64,14 @@ void main() {
   lum = smoothstep(.02, 1.05, lum) * gain;
   vec2 c = (uv - .5) * 2.;
   float edge = max(abs(c.x), abs(c.y)) * .55 + length(c) * .45 + (fbm(uv * 5. + seed) - .5) * .3;
-  // some antes da borda do quadro, para nunca aparecer um corte reto
+  // Fade out before the frame edge so a straight cut never appears.
   float inside = 1. - smoothstep(.72, 1., max(abs(c.x), abs(c.y)));
   float mask = mix(1., (1. - smoothstep(.55, 1.08, edge)) * inside, feather);
   vec3 bloom = halo / float(TAPS) * .7 * mask;
   float a = sum.a * mask * alpha;
-  // obras em tom azulado; a marca (sem bordas dissolvidas) nas cores do próprio logo
+  // Artwork uses a blue tint; the wordmark keeps its own colors without dissolved edges.
   vec3 color = mix(sum.rgb, mix(vec3(.04, .15, .25), vec3(.98, .995, 1.), clamp(lum, 0., 1.)), step(.5, feather));
-  gl_FragColor = vec4(color * a + bloom * alpha, a); // alfa pré-multiplicado
+  gl_FragColor = vec4(color * a + bloom * alpha, a); // Premultiplied alpha.
 }`;
 
 const DUST_VS = `
@@ -110,7 +110,7 @@ void main() {
 }`;
 
 export interface Layer {
-  /** Índice da textura: 0..n-1 são as obras; n é a marca. */
+  /** Texture index: 0..n-1 are the artworks; n is the wordmark. */
   texture: number;
   /** Centro e meia largura/altura em pixels CSS. */
   x: number; y: number; w: number; h: number;
@@ -123,7 +123,7 @@ export interface Layer {
 export interface Frame {
   time: number;
   travel: number;
-  /** Posição da luz em unidades da altura da tela, a partir do centro. */
+  /** Light position in screen-height units, measured from the center. */
   lightX: number; lightY: number; glow: number;
   fade: number;
   layers: Layer[];
@@ -155,7 +155,7 @@ export function createIntroScene(canvas: HTMLCanvasElement, sources: string[], m
     gl.bindAttribLocation(p, 0, 'seed');
     gl.linkProgram(p);
     if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
-      console.warn('Abertura: shader não compilou', gl.getProgramInfoLog(p));
+      console.warn('Intro: shader compilation failed', gl.getProgramInfoLog(p));
       return null;
     }
     const cache = new Map<string, WebGLUniformLocation | null>();
@@ -167,7 +167,7 @@ export function createIntroScene(canvas: HTMLCanvasElement, sources: string[], m
   };
 
   type Program = NonNullable<ReturnType<typeof program>>;
-  // Céu e obra são compilados por perfil, sob demanda.
+  // Compile the sky and artwork shaders on demand for each quality profile.
   const variants = new Map<Tier, { sky: Program; art: Program } | null>();
   const variant = (tier: Tier) => {
     let found = variants.get(tier);
@@ -196,7 +196,7 @@ export function createIntroScene(canvas: HTMLCanvasElement, sources: string[], m
 
   let disposed = false;
   const textures: Array<{ texture: WebGLTexture; aspect: number } | undefined> = [];
-  // A fonte é esticada para um quadrado potência de dois (mipmaps); a proporção volta no retângulo.
+  // Stretch the source into a power-of-two square for mipmaps; restore its aspect ratio in the rectangle.
   const upload = (index: number, source: CanvasImageSource, aspect: number) => {
     const square = document.createElement('canvas');
     square.width = square.height = SIZE;
@@ -231,12 +231,12 @@ export function createIntroScene(canvas: HTMLCanvasElement, sources: string[], m
   return {
     renderer,
     aspect: (index: number) => textures[index]?.aspect,
-    /** Espera a GPU terminar: só o benchmark usa. */
+    /** Wait for the GPU to finish; used only by the benchmark. */
     sync: () => gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel),
     render(frame: Frame, level: number) {
       const { tier, scale } = LADDER[level];
       const { sky, art } = variant(tier) ?? base;
-      // Só a resolução interna muda: a composição é calculada em pixels CSS.
+      // Only internal resolution changes; composition is calculated in CSS pixels.
       const dpr = Math.min(window.devicePixelRatio || 1, TIERS[tier].dpr) * scale;
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
@@ -258,7 +258,7 @@ export function createIntroScene(canvas: HTMLCanvasElement, sources: string[], m
       gl.disable(gl.BLEND);
       full(sky);
       gl.uniform2f(sky.at('view'), canvas.width, canvas.height); // o fragmento mede em pixels reais
-      // o vértice usa a mesma uniforme: o retângulo acompanha a escala
+      // The vertex shader uses the same uniform, so the rectangle follows the scale.
       gl.uniform4f(sky.at('rect'), canvas.width / 2, canvas.height / 2, canvas.width / 2, canvas.height / 2);
       gl.uniform1f(sky.at('time'), frame.time);
       gl.uniform1f(sky.at('travel'), frame.travel);

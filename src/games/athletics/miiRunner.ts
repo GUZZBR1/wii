@@ -60,7 +60,7 @@ export function createMiiRunner(shirtColor = 0xffffff, face: MiiFaceSpec = DEFAU
   const hair = createMiiHairGeometry(face);
   if (hair) part(hair, miiHairColor(face), 2.04, body);
   part(createMiiNoseGeometry(face), skin, 2.04, body);
-  // A faixa acompanha os formatos mais largos, senão a cabeça atravessa o boné.
+  // The headband follows wider head shapes so the head does not clip through the cap.
   const [headX, , headZ] = miiHeadScale(face);
   const band = new THREE.CylinderGeometry(0.41, 0.41, 0.11, 24, 1, true).scale(Math.max(1, headX), 1, Math.max(1, headZ));
   part(band, accent, 2.2, body);

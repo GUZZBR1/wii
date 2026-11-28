@@ -7,42 +7,42 @@ import type {
 
 export { rotationBlocksHandInput } from '../kinematics/handCursor';
 
-/** Contrato de entrada do cursor de mão. Quem o preenche é o pipeline de CV; a UI só consome. */
+/** Hand-cursor input contract. The CV pipeline writes it; the UI only reads it. */
 export type HandCursorInput = {
-  /** Há mão rastreada e o modo 'hand' está ativo. */
+  /** A hand is tracked and 'hand' mode is active. */
   visible: boolean;
-  /** Posição do ponteiro, em px da viewport. */
+  /** Pointer position in viewport pixels. */
   x: number;
   y: number;
-  /** 0..1 durante a sincronização. */
+  /** 0..1 while synchronizing. */
   syncProgress: number;
   synced: boolean;
-  /** Pinça pressionada neste frame. */
+  /** Pinch is held in this frame. */
   pinching: boolean;
-  /** Estado da pinça no detector; candidate ainda não congela nem clica. */
+  /** Detector pinch state; candidate does not freeze or click yet. */
   pinchState: 'idle' | 'candidate' | 'active';
-  /** Motivo do cursor estar congelado nesta amostra. */
+  /** Why the cursor is frozen in this sample. */
   freezeReason?: 'pinch' | 'fist' | 'rotation';
-  /** A pinça acabou de confirmar o clique. */
+  /** The pinch just confirmed a click. */
   pinchRelease: boolean;
-  /** 0..1 do gesto sustentado de voltar/fechar. */
+  /** 0..1 progress for the sustained back/close gesture. */
   backProgress: number;
-  /** A mão está em deslocamento lateral rápido, antes ou durante um pulso de swipe. */
+  /** The hand is moving quickly sideways, before or during a swipe pulse. */
   swipeMoving: boolean;
-  /** Latência captura→entrega da amostra de mão, em ms, quando medida pelo pipeline. */
+  /** Capture-to-delivery latency for the hand sample, in ms, when measured by the pipeline. */
   handInferenceMs?: number;
-  /** Taxa efetiva de entregas do worker de mão, em fps, quando medida pelo pipeline. */
+  /** Effective hand-worker delivery rate, in fps, when measured by the pipeline. */
   workerFps?: number;
-  /** Timestamp de captura no relógio de alta resolução do navegador; usado para expirar amostras paradas. */
+  /** Capture timestamp from the browser's high-resolution clock; used to expire stale samples. */
   capturedAtMs?: number;
-  /** Fase da máquina rotacional; IDLE quando o gesto está desligado ou ausente. */
+  /** Rotation state-machine phase; IDLE when the gesture is disabled or absent. */
   rotationPhase: RotationalFlickPhase;
-  /** Velocidade arbitrada pronta para o carrossel, em deg/s. */
+  /** Resolved velocity ready for the carousel, in deg/s. */
   rotationAngularVelocity: number;
   rotationDirection: -1 | 0 | 1;
-  /** Pulso de uma amostra: passo da roda pedido por um aceno lateral. */
+  /** Single-sample pulse: wheel step requested by a sideways wave. */
   swipeDirection: -1 | 0 | 1;
-  /** Diagnóstico opcional: velocidade filtrada/bruta, curvatura, base 3D e qualidade temporal. */
+  /** Optional diagnostics: filtered/raw speed, curvature, 3D basis, and temporal quality. */
   rotationFilteredAngularVelocity?: number;
   rotationRawAngularVelocity?: number;
   rotationCurvature?: number;
@@ -52,7 +52,7 @@ export type HandCursorInput = {
   rotationOrientation?: PalmBasis;
 };
 
-/** Sem dados de mão: nada é desenhado nem acionado. */
+/** Without hand data, draw and activate nothing. */
 export const HAND_IDLE: HandCursorInput = {
   visible: false,
   x: 0,

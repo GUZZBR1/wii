@@ -12,10 +12,10 @@ function stubStorage() {
   });
 }
 
-describe('Mii único entre o site e os jogos', () => {
+describe('Mii shared between the site and games', () => {
   afterEach(() => vi.unstubAllGlobals());
 
-  it('o que o site salva é o rosto que os jogos carregam, e vice-versa', () => {
+  it('the face saved by the site is the one loaded by the games, and vice versa', () => {
     stubStorage();
     const mii = { ...siteMiiFromProfile(CPU_MIIS[3]), name: 'Ana' };
     saveSiteMii(mii);
@@ -24,14 +24,14 @@ describe('Mii único entre o site e os jogos', () => {
     expect(loadSiteMii()).toMatchObject({ name: 'Ana', shirtColor: mii.shirtColor, face: { hair: 11 } });
   });
 
-  it('converte o elenco inteiro em rostos válidos', () => {
+  it('converts the entire cast into valid faces', () => {
     for (const profile of CPU_MIIS) {
       const { face } = siteMiiFromProfile(profile);
       expect(normalizeMiiFaceSpec(face)).toEqual(face);
     }
   });
 
-  it('tem um nome para cada estilo e usa só controles existentes', () => {
+  it('has a name for every style and uses only existing controls', () => {
     for (const [key, , names] of FACE_STYLES) expect(names).toHaveLength(MII_STYLE_COUNT[key]);
     const face = siteMiiFromProfile(CPU_MIIS[0]).face;
     for (const [key, , min, max] of FACE_SLIDERS) {

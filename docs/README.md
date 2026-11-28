@@ -1,33 +1,32 @@
-# Documentação
+# Documentation
 
-## Vale hoje
+## Current reference
 
-| Documento | Sobre |
+| Document | About |
 | --- | --- |
-| [jogos-pelo-corpo.md](jogos-pelo-corpo.md) | **Comece aqui.** Os jogos do menu, do quadro da câmera ao jogo, o que foi medido, ferramentas de diagnóstico e o que falta. |
-| [design-tenis.md](design-tenis.md) | Regras e decisões do tênis estilo Nevergear Sports: direção pelo momento da raquetada, julgamento retroativo do contato. |
-| [plano-boxe.md](plano-boxe.md) | Plano do boxe: tracking de tipos e alvos de soco, defesas, validação em datasets externos e tutorial adaptativo. |
-| [pesquisa-pipeline-cv.md](pesquisa-pipeline-cv.md) e [auditoria-mediapipe.md](auditoria-mediapipe.md) | Como o MediaPipe é usado no navegador. Leia antes de mexer no worker de pose. |
-| [website-design.md](website-design.md) | Sistema visual do site. |
-| [mii-photo-feasibility.md](mii-photo-feasibility.md) | Pesquisa técnica: criação manual vs. sugestão single-shot por foto/webcam com `FaceLandmarker`. |
-| [research/](research/) | Artigos PT/EN publicados no site. |
+| [jogos-pelo-corpo.md](jogos-pelo-corpo.md) | **Start here.** Current menu sports and the Iron Man challenge: camera framing, gameplay, measured evidence, diagnostic tools and remaining work. |
+| [design-tenis.md](design-tenis.md) | Nevergear Sports-style tennis rules and decisions: direction from swing timing and retrospective contact adjudication. |
+| [plano-boxe.md](plano-boxe.md) | Boxing plan: punch type and target tracking, defense, validation on external datasets and adaptive tutorial. |
+| [pesquisa-pipeline-cv.md](pesquisa-pipeline-cv.md) and [auditoria-mediapipe.md](auditoria-mediapipe.md) | How MediaPipe is used in the browser. Read before changing the pose worker. |
+| [website-design.md](website-design.md) | The website's visual system. |
+| [mii-photo-feasibility.md](mii-photo-feasibility.md) | Technical research: manual creation versus one-shot suggestions from a photo or webcam using `FaceLandmarker`. |
+| [research/](research/) | Articles published on the website. |
 
-## Pesquisa de fundo
+## Background research
 
-Ainda úteis como referência, mas escritas para a corrida com obstáculos, que saiu do menu:
+These studies began with the legacy obstacle-course game. Some findings still apply to the current pose pipeline and detectors:
 [pesquisa-deteccao-pelo-torso.md](pesquisa-deteccao-pelo-torso.md),
 [pesquisa-robustez-gestos.md](pesquisa-robustez-gestos.md),
 [pesquisa-tracking-robusto.md](pesquisa-tracking-robusto.md),
 [pesquisa-inclinacao-tronco.md](pesquisa-inclinacao-tronco.md),
 [pesquisa-neutro-e-projecao.md](pesquisa-neutro-e-projecao.md),
-[pesquisa-calibracao-corpo-parcial.md](pesquisa-calibracao-corpo-parcial.md),
-[pesquisa-exposicao-minima-calibracao.md](pesquisa-exposicao-minima-calibracao.md).
+[pesquisa-calibracao-corpo-parcial.md](pesquisa-calibracao-corpo-parcial.md).
 
-## Registro histórico
+## Historical record
 
-Descrevem decisões e estados anteriores do código e podem não refletir o comportamento atual.
+These documents describe earlier decisions and code states and may not reflect current behavior.
 
-- Análises: [analise-de-gargalos.md](analise-de-gargalos.md), [analise-gargalos-corrida.md](analise-gargalos-corrida.md).
-- Calibração: [calibracao-adaptativa-continua.md](calibracao-adaptativa-continua.md), [autocalibracao-tolerancia-perda.md](autocalibracao-tolerancia-perda.md).
-- Revisões de PR: [revisao-pr-1-ciclo-de-vida-cv.md](revisao-pr-1-ciclo-de-vida-cv.md), [revisao-pr-2-cache-versionado.md](revisao-pr-2-cache-versionado.md), [revisao-pr2-verificacao.md](revisao-pr2-verificacao.md), [revisao-pr-3-teste-de-score.md](revisao-pr-3-teste-de-score.md).
-- Integração do site: [plano-integracao-guzzbr1-santleme.md](plano-integracao-guzzbr1-santleme.md).
+- Analyses: [analise-de-gargalos.md](analise-de-gargalos.md), [analise-gargalos-corrida.md](analise-gargalos-corrida.md).
+- Calibration: [calibracao-adaptativa-continua.md](calibracao-adaptativa-continua.md), [autocalibracao-tolerancia-perda.md](autocalibracao-tolerancia-perda.md), [pesquisa-exposicao-minima-calibracao.md](pesquisa-exposicao-minima-calibracao.md) (prior implementation snapshot).
+- PR reviews: [revisao-pr-1-ciclo-de-vida-cv.md](revisao-pr-1-ciclo-de-vida-cv.md), [revisao-pr-2-cache-versionado.md](revisao-pr-2-cache-versionado.md), [revisao-pr2-verificacao.md](revisao-pr2-verificacao.md), [revisao-pr-3-teste-de-score.md](revisao-pr-3-teste-de-score.md).
+- Website integration: [plano-integracao-guzzbr1-santleme.md](plano-integracao-guzzbr1-santleme.md).

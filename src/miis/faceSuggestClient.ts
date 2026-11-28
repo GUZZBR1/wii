@@ -73,10 +73,10 @@ function rasterizeSource(source: FaceSource): {
 } {
   const { width: srcW, height: srcH } = readSourceDimensions(source);
   if (!Number.isFinite(srcW) || !Number.isFinite(srcH) || srcW <= 0 || srcH <= 0) {
-    throw new FaceSuggestError('INVALID_SOURCE', 'Imagem ou frame de vídeo com dimensões inválidas.');
+    throw new FaceSuggestError('INVALID_SOURCE', 'Image or video frame dimensions are invalid.');
   }
   if (typeof document === 'undefined') {
-    throw new FaceSuggestError('DETECTION_FAILED', 'Ambiente DOM indisponível para preparar a imagem.');
+    throw new FaceSuggestError('DETECTION_FAILED', 'The DOM is unavailable to prepare the image.');
   }
 
   const scale = Math.min(1, MAX_EDGE_PX / Math.max(srcW, srcH));
@@ -88,7 +88,7 @@ function rasterizeSource(source: FaceSource): {
   canvas.height = height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) {
-    throw new FaceSuggestError('DETECTION_FAILED', 'Não foi possível criar contexto 2D para leitura da imagem.');
+    throw new FaceSuggestError('DETECTION_FAILED', 'Could not create a 2D context to read the image.');
   }
   ctx.drawImage(source, 0, 0, width, height);
   const imageData = ctx.getImageData(0, 0, width, height);
@@ -120,7 +120,7 @@ function runWorkerDetection(
     };
 
     const timer = setTimeout(() => {
-      fail(new FaceSuggestError('DETECTION_FAILED', 'Tempo esgotado ao analisar o rosto na imagem.'));
+      fail(new FaceSuggestError('DETECTION_FAILED', 'Timed out while analyzing the face in the image.'));
     }, WORKER_TIMEOUT_MS);
 
     worker.onmessage = ({ data }: MessageEvent<FaceWorkerReply>) => {
@@ -136,7 +136,7 @@ function runWorkerDetection(
     };
 
     worker.onerror = (event) => {
-      const msg = event instanceof ErrorEvent && event.message ? event.message : 'Falha no worker de detecção facial.';
+      const msg = event instanceof ErrorEvent && event.message ? event.message : 'Face detection worker failed.';
       fail(new FaceSuggestError('DETECTION_FAILED', msg));
     };
 
@@ -168,12 +168,12 @@ async function runMainThreadFallback(
 ): Promise<readonly FacePoint[]> {
   const probe = document.createElement('canvas');
   if (!(probe.getContext('webgl2') ?? probe.getContext('webgl'))) {
-    throw new FaceSuggestError('WEBGL_UNAVAILABLE', 'WebGL indisponível neste navegador para detecção facial.');
+    throw new FaceSuggestError('WEBGL_UNAVAILABLE', 'WebGL is unavailable in this browser for face detection.');
   }
 
   const response = await fetch(assets.modelUrl);
   if (!response.ok) {
-    throw new FaceSuggestError('MODEL_MISSING', `Modelo facial indisponível (${response.status}).`);
+    throw new FaceSuggestError('MODEL_MISSING', `Face model is unavailable (${response.status}).`);
   }
   const modelAssetBuffer = new Uint8Array(await response.arrayBuffer());
   const { FilesetResolver, FaceLandmarker } = await import('@mediapipe/tasks-vision');
@@ -243,7 +243,7 @@ export async function suggestMiiFromImage(
   let landmarks: readonly FacePoint[];
   if (canUseFaceWorker()) {
     if (typeof createImageBitmap !== 'function') {
-      throw new FaceSuggestError('DETECTION_FAILED', 'createImageBitmap indisponível neste navegador.');
+      throw new FaceSuggestError('DETECTION_FAILED', 'createImageBitmap is unavailable in this browser.');
     }
     const bitmap = await createImageBitmap(canvas);
     landmarks = await runWorkerDetection(bitmap, assets, delegate);

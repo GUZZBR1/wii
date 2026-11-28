@@ -18,15 +18,15 @@ export interface MenuHandSnapshot {
   timestampMs: number;
   landmarks: readonly Point3[];
   handedness?: Hand | 'Left' | 'Right';
-  /** bitmap.height / bitmap.width; corrige distâncias normalizadas fora do quadrado. */
+  /** bitmap.height / bitmap.width; corrects normalized distances for non-square frames. */
   aspectY?: number;
-  /** Métricas 3D da mão no espaço da câmera, necessárias apenas para o flick rotacional. */
+  /** 3D hand metrics in camera space, needed only for rotational flicks. */
   worldLandmarks?: readonly Point3[];
-  /** O gesto rotacional só é alimentado quando a HomeMenu expõe a roda interativa. */
+  /** Feed the rotational gesture only when HomeMenu exposes the interactive wheel. */
   rotationEnabled?: boolean;
-  /** Diagnóstico de captura→entrega calculado por quem publica a amostra, em ms. */
+  /** Capture-to-delivery diagnostic calculated by the sample publisher, in ms. */
   handInferenceMs?: number;
-  /** Diagnóstico da taxa efetiva de entregas do worker, calculado por quem publica a amostra. */
+  /** Effective worker delivery-rate diagnostic calculated by the sample publisher. */
   workerFps?: number;
 }
 
@@ -47,11 +47,11 @@ export interface HandCursorOptions {
   pinchOnRatio?: number;
   pinchOffRatio?: number;
   pinchCooldownMs?: number;
-  /** Tempo mínimo com os dedos juntos antes de confirmar um clique. */
+  /** Minimum time with fingers together before confirming a click. */
   pinchPressMs?: number;
-  /** Também clica ao flexionar só o indicador, como um gatilho. Desligado por padrão (arena). */
+  /** Also click when only the index finger bends, like a trigger. Disabled by default (arena). */
   indexTapClick?: boolean;
-  /** Tempo mínimo com o indicador dobrado antes de confirmar o clique. */
+  /** Minimum time with the index finger bent before confirming a click. */
   tapPressMs?: number;
   backHoldMs?: number;
   fistEnterStraightness?: number;
@@ -61,35 +61,35 @@ export interface HandCursorOptions {
 
 export interface HandCursorState {
   visible: boolean;
-  /** Posição horizontal normalizada da tela; a UI multiplica pela largura da viewport. */
+  /** Normalized horizontal screen position; the UI multiplies it by the viewport width. */
   x: number;
-  /** Posição vertical normalizada da tela; a UI multiplica pela altura da viewport. */
+  /** Normalized vertical screen position; the UI multiplies it by the viewport height. */
   y: number;
   syncProgress: number;
   synced: boolean;
   pinching: boolean;
-  /** Estado interno da pinça, para diagnosticar a espera de confirmação sem expor contadores. */
+  /** Internal pinch state, used to diagnose confirmation waits without exposing counters. */
   pinchState: 'idle' | 'candidate' | 'active';
-  /** Motivo do cursor estar congelado nesta amostra; ausente quando ele acompanha a mão. */
+  /** Why the cursor is frozen in this sample; absent when it follows the hand. */
   freezeReason?: 'pinch' | 'fist' | 'rotation';
-  /** Pulso de clique confirmado na ativação da pinça; não indica a soltura física dos dedos. */
+  /** Confirmed click pulse on pinch activation; it does not indicate that the fingers physically opened. */
   pinchRelease: boolean;
   backProgress: number;
-  /** A mão está em deslocamento lateral rápido, antes ou durante um pulso de swipe. */
+  /** The hand is moving quickly sideways, before or during a swipe pulse. */
   swipeMoving: boolean;
-  /** Diagnóstico de captura→entrega repassado da amostra de entrada. */
+  /** Capture-to-delivery diagnostic forwarded from the input sample. */
   handInferenceMs?: number;
-  /** Diagnóstico da taxa efetiva de entregas repassado da amostra de entrada. */
+  /** Effective delivery-rate diagnostic forwarded from the input sample. */
   workerFps?: number;
   activeZone: HandCursorZone;
   rotationPhase: RotationalFlickPhase;
-  /** Velocidade sanitizada que o carrossel pode consumir, em deg/s. */
+  /** Sanitized velocity the carousel can consume, in deg/s. */
   rotationAngularVelocity: number;
-  /** Velocidade física filtrada após sensibilidade, em deg/s; diagnóstico apenas. */
+  /** Filtered physical speed after sensitivity, in deg/s; diagnostic only. */
   rotationFilteredAngularVelocity: number;
   rotationRawAngularVelocity: number;
   rotationDirection: -1 | 0 | 1;
-  /** Pulso de uma amostra: passo da roda pedido por um aceno lateral. */
+  /** Single-sample pulse: wheel step requested by a sideways wave. */
   swipeDirection: -1 | 0 | 1;
   rotationCurvature: number;
   rotationHandShape: RotationalHandShape;
@@ -126,23 +126,23 @@ const FILTER_RESET_GAP_MS = 500;
 /** A sync survives missing frames this short: they neither hide the cursor nor stop its count. */
 const PRESENCE_GAP_MS = 150;
 
-// Retidão do indicador no clique por flexão: arma esticado, dispara dobrado, rearma quase esticado.
+// Index-finger flex-click straightness: arm when straight, fire when bent, rearm when nearly straight.
 const TAP_ARM = 0.86;
 const TAP_REARM = 0.83;
 const TAP_FIRE = 0.78;
-/** Queda do cosseno com a palma que conta como toque pela base do dedo, e a folga para rearmar. */
+/** Palm cosine drop that counts as a tap at the base of the finger, plus the rearm margin. */
 const TAP_DROP_FIRE = 0.25;
 const TAP_DROP_REARM = 0.1;
-/** Esticado por este tempo noutra direção depois de um toque, a referência passa a ser a nova. */
+/** After a touch, a finger held straight in another direction for this long establishes a new reference. */
 const TAP_REBASE_MS = 600;
-/** Queda de médio/anelar durante a flexão que indica a mão toda fechando, não um toque. */
+/** Middle/ring finger drop during a bend that indicates a closing fist rather than a tap. */
 const TAP_OTHERS_DROP = 0.14;
-/** Tempo na pose de apontar até a flexão do indicador deixar de contar como punho. */
+/** Time spent pointing before an index bend stops counting as a fist. */
 const TAP_POINTING_MS = 150;
 const TAP_COOLDOWN_MS = 300;
-/** Flexão parcial que não chega a disparar solta a mira depois disto. */
+/** Release the aim after this duration if a partial bend never fires. */
 const TAP_ABANDON_MS = 400;
-/** Velocidade do pulso, em palmas por segundo, acima da qual a flexão é tida como acidental. */
+/** Wrist speed, in palm widths per second, above which a bend is considered accidental. */
 const TAP_MAX_WRIST_SPEED = 2.8;
 
 /**
@@ -198,7 +198,7 @@ function fingerStraightness(
   return distance(points[mcp]!, points[tip]!, aspectY) / segments;
 }
 
-/** Pontos e métrica para medir os dedos: 3D quando há worldLandmarks, pois a imagem encurta o dedo apontado. */
+/** Points and metric for measuring fingers: use 3D worldLandmarks because the image foreshortens a pointing finger. */
 interface FingerShape {
   points: readonly Point3[];
   aspectY: number;
@@ -235,12 +235,12 @@ function closedFist(
 }
 
 /**
- * Retidão de indicador, médio e anelar, e quanto o indicador acompanha o eixo da palma (cosseno entre
- * MCP→ponta e pulso→MCP do médio): abaixar o dedo reto pela base muda só o segundo.
+ * Straightness of the index, middle, and ring fingers, and how closely the index follows the palm axis
+ * (cosine between MCP-to-tip and wrist-to-middle-MCP): lowering a straight finger at its base changes only the latter.
  */
 function tapFingers({ points, aspectY, distance }: FingerShape) {
   const [index, middle, ring] = FINGERS.slice(0, 3).map((chain) => fingerStraightness(points, chain, aspectY, distance));
-  // Só o mundo tem profundidade comparável; na imagem o z é ignorado.
+  // Only world landmarks have comparable depth; ignore image-space z.
   const depth = distance === worldDistance ? 1 : 0;
   const direction = (from: number, to: number) => {
     const a = points[from]!;
@@ -294,7 +294,7 @@ export class HandCursorDetector {
   private tapNeedsRelease = false;
   private tapFlexSinceMs?: number;
   private tapDownSinceMs?: number;
-  /** Médio/anelar no último quadro com o indicador esticado. */
+  /** Middle/ring finger values from the last frame with the index finger extended. */
   private tapArmOthers = 0;
   private tapArmDot = 0;
   private tapStraightSinceMs?: number;
@@ -341,8 +341,8 @@ export class HandCursorDetector {
     this.tapPressMs = options.tapPressMs ?? 35;
     this.xFilter = new OneEuroFilter(options.smoothing ?? DEFAULT_HAND_SMOOTHING);
     this.yFilter = new OneEuroFilter(options.smoothing ?? DEFAULT_HAND_SMOOTHING);
-    // A imagem inferida não é espelhada, mas a prévia e o cursor são. O sinal negativo faz
-    // velocidade positiva significar rotação horária na experiência visual do usuário.
+    // The inferred image is not mirrored, but the preview and cursor are. The negative sign makes
+    // positive velocity mean clockwise rotation from the user's visual perspective.
     this.rotationDetector = new RotationalFlickDetector({ sensitivity: -1, ...(options.rotation ?? {}) });
   }
 
@@ -423,7 +423,7 @@ export class HandCursorDetector {
     );
     const rotationBlocking = rotationBlocksHandInput(rotation.phase);
 
-    // A arena segue na imagem; com o toque ligado, o punho é medido em 3D.
+    // The arena follows the image; with tap enabled, measure the wrist in 3D.
     const shape = this.indexTapClick ? bestShape(snapshot, aspectY) : imageShape(points, aspectY);
     const straightness = maxFingerStraightness(shape);
     if (straightness !== undefined && straightness >= this.fistReleaseStraightness) this.fistNeedsOpen = false;
@@ -433,7 +433,7 @@ export class HandCursorDetector {
     let pinchRelease = false;
     let backProgress = 0;
     let fist = false;
-    // Apontando com os outros já recolhidos, dobrar o indicador fecharia um "punho": ali o gesto é o toque.
+    // When the other fingers are already folded, bending the index would look like a fist; treat that pose as a tap.
     const pointing =
       this.tapArmed &&
       this.tapPointingSinceMs !== undefined &&
@@ -558,7 +558,7 @@ export class HandCursorDetector {
       tapping = tap.active;
       tapCandidate = tap.candidate;
       if (tap.click) pinchRelease = true;
-      // O mesmo movimento não vira também gesto de voltar nem uma segunda pinça.
+      // Do not also treat the same movement as a back gesture or a second pinch.
       if (tap.active) {
         this.fistNeedsOpen = true;
         this.pinchNeedsRelease = true;
@@ -638,7 +638,7 @@ export class HandCursorDetector {
     return imageDistance(previous.point, points[WRIST]!, aspectY) / palm / (elapsed / 1000);
   }
 
-  /** Clique ao dobrar o indicador ou abaixá-lo reto pela base. `active` dura do disparo até o dedo voltar. */
+  /** Click by bending the index finger or lowering it straight at the base. `active` lasts from firing until the finger returns. */
   private updateTap(timestampMs: number, shape: FingerShape, blocked: boolean) {
     const { index, others, dot } = tapFingers(shape);
     const idle = { active: false, candidate: false, click: false };
@@ -670,7 +670,7 @@ export class HandCursorDetector {
     }
 
     if (index >= TAP_REARM && this.tapArmDot - dot <= TAP_DROP_REARM) {
-      // A referência só sobe: um abaixar gradual continua contando a partir de onde o dedo apontava.
+      // The reference only moves upward: gradually lowering the finger continues from its pointing direction.
       this.tapArmDot = Math.max(this.tapArmDot, dot);
       this.tapArmOthers = others;
       if (others >= this.fistEnterStraightness) this.tapPointingSinceMs = undefined;

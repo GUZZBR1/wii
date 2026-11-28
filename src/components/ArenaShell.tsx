@@ -4,9 +4,9 @@ import { useLang } from '../i18n';
 
 const ArenaApp = lazy(() => import('../App'));
 
-/** Moldura de `/app`: a arena esportiva e a transição de saída. */
+/** `/app` frame for the sports arena and its exit transition. */
 export default function ArenaShell() {
-  const { tr } = useLang();
+  const { lang, setLang, tr } = useLang();
   const navigate = useNavigate();
   const [leaving, setLeaving] = useState(false);
   const leaveTimer = useRef(0);
@@ -18,7 +18,7 @@ export default function ArenaShell() {
     return () => { document.title = siteTitle; };
   }, []);
 
-  // Saida = entrada ao contrario: a tela estoura em branco, e o site volta de longe, encolhendo ate o tamanho normal.
+  // Leaving reverses arrival: the arena flashes white while the site returns from far away to its normal size.
   const leave = (event: React.MouseEvent) => {
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
     event.preventDefault();
@@ -40,9 +40,14 @@ export default function ArenaShell() {
   );
 
   return (
-    <main className={`arena-page${leaving ? ' is-leaving' : ''}`} id="page-content">
+    <main className={`arena-page${leaving ? ' is-leaving' : ''}`} id="page-content" lang={lang === 'pt' ? 'pt-BR' : 'en'}>
       <div className="arena-flash" aria-hidden="true" />
       {leaving && <div className="arena-leave" aria-hidden="true" />}
+      <fieldset className="arena-language">
+        <legend className="sr-only">{tr('Idioma do jogo', 'Game language')}</legend>
+        <button type="button" aria-pressed={lang === 'pt'} onClick={() => setLang('pt')}>PT</button>
+        <button type="button" aria-pressed={lang === 'en'} onClick={() => setLang('en')}>EN</button>
+      </fieldset>
       <div className="arena">
         <Suspense fallback={null}><ArenaApp exit={exitLink} /></Suspense>
       </div>

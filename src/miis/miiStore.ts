@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from 'react';
 import { loadSiteMii, type SiteMii, saveSiteMii } from './siteMii';
 
-// O criador (na home) e a praça (no App) leem o mesmo Mii do jogador.
+// The home-page creator and the app plaza read the same player Mii.
 const listeners = new Set<() => void>();
 let current: SiteMii | null = null;
 
@@ -19,7 +19,7 @@ function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => {
     listeners.delete(listener);
-    // Sem ninguém lendo (arena), o editor de lá pode mudar o rosto: relê na volta.
+    // While nobody is reading it (in the arena), that editor can change the face; read it again on return.
     if (listeners.size === 0) current = null;
   };
 }

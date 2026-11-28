@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CarouselStepResult } from '../src/ui/carouselController';
 import { HAND_IDLE, type HandCursorInput } from '../src/ui/handCursorTypes';
 import { createHandInputStore } from '../src/ui/handInputStore';
+import { LangProvider } from '../src/i18n';
 import { HomeMenu } from '../src/ui/NevergearMenu';
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -42,6 +43,7 @@ function mockRaf() {
 }
 
 function renderHome(input: HandCursorInput, onPick = vi.fn(), onIronMan = vi.fn()) {
+  localStorage.setItem('nevergear-lang', 'pt');
   const container = document.createElement('div');
   document.body.appendChild(container);
   const root = createRoot(container);
@@ -49,14 +51,14 @@ function renderHome(input: HandCursorInput, onPick = vi.fn(), onIronMan = vi.fn(
   const rotationGateRef = { current: false };
   const carouselDebugRef: { current: CarouselStepResult | undefined } = { current: undefined };
   act(() => {
-    root.render(createElement(HomeMenu, {
+    root.render(createElement(LangProvider, null, createElement(HomeMenu, {
       onPick,
       onIronMan,
       exit: null,
       handStore,
       rotationGateRef,
       carouselDebugRef,
-    }));
+    })));
   });
   return { container, root, handStore, rotationGateRef, carouselDebugRef };
 }
@@ -66,6 +68,7 @@ describe('HomeMenu rotational carousel integration', () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     document.body.innerHTML = '';
+    localStorage.removeItem('nevergear-lang');
   });
 
   it('selects games on the wheel and opens athletics without a distance dialog', () => {

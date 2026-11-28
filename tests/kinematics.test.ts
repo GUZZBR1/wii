@@ -379,8 +379,8 @@ describe('action pipeline tracking gate', () => {
   });
 });
 
-describe('mão da raquete', () => {
-  it.each(['wristLateral', 'leftWristLateral'] as const)('reconhece o golpe sem escolher a mão (%s)', (wrist) => {
+describe('racket hand', () => {
+  it.each(['wristLateral', 'leftWristLateral'] as const)('recognizes the stroke without choosing a hand (%s)', (wrist) => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
     const frames = [pose(0), pose(33), pose(66), pose(99), pose(132, { [wrist]: -0.3 }), pose(165, { [wrist]: 0.2 }), pose(198, { [wrist]: 0.2 })];
@@ -388,7 +388,7 @@ describe('mão da raquete', () => {
     expect(swings).toHaveLength(1);
   });
 
-  it('segura a confirmação enquanto a outra mão ainda voa e deixa o golpe mais forte vencer', () => {
+  it('holds confirmation while the other hand is still in flight and lets the stronger stroke win', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
     [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
@@ -406,7 +406,7 @@ describe('mão da raquete', () => {
     expect(swings[0]!.type === 'swing' && swings[0]!.power01).toBeGreaterThan(0.5);
   });
 
-  it('descarta o golpe segurado quando a escala deixa de ser confiável antes da liberação', () => {
+  it('discards a held stroke when scale becomes unreliable before release', () => {
     const pipeline = new ActionPipeline();
     const ready = { ...calibration(), readiness: { scale01: 1, neutral01: 1 } };
     const unready = { ...calibration(), readiness: { scale01: 0, neutral01: 1 } };
@@ -421,7 +421,7 @@ describe('mão da raquete', () => {
     expect(recovered.events.filter((event) => event.type === 'swing')).toHaveLength(0);
   });
 
-  it('solta o golpe segurado quando a mão rival perde o rastreamento sem confirmar', () => {
+  it('releases a held stroke when the rival hand loses tracking without confirming', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
     [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
@@ -438,7 +438,7 @@ describe('mão da raquete', () => {
     expect(swings).toHaveLength(1);
   });
 
-  it('desiste de esperar quando o rival fica degradado sem confirmar nem perder o rastreamento', () => {
+  it('stops waiting when the opponent becomes degraded without confirming or losing tracking', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
     [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
@@ -455,7 +455,7 @@ describe('mão da raquete', () => {
     expect(swings).toHaveLength(1);
   });
 
-  it('descarta a confirmação dentro do bloqueio em vez de deixá-la disputar depois', () => {
+  it('discards confirmation during the cooldown instead of letting it compete later', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
     [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });
@@ -470,7 +470,7 @@ describe('mão da raquete', () => {
     expect(later.filter((event) => event.type === 'swing')).toHaveLength(0);
   });
 
-  it('descarta o golpe segurado quando o próprio pulso perde o rastreamento', () => {
+  it('discards a held stroke when its own wrist loses tracking', () => {
     const pipeline = new ActionPipeline();
     const profile = calibration();
     [0, 33, 66].forEach((time) => { pipeline.update(pose(time), profile); });

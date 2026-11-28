@@ -1,7 +1,7 @@
 /**
- * Canal do cursor de mão para o picker da praça. Os Miis andam num canvas click-through e são
- * escolhidos por coordenadas, não por alvo DOM: a praça registra o picker e a mão repassa as
- * pinças que não caíram em controle nenhum. Sem praça montada (arena), o repasse não faz nada.
+ * Hand-cursor channel for the plaza picker. Miis move on a click-through canvas and are selected
+ * by coordinates rather than DOM targets: the plaza registers the picker, and the hand cursor
+ * forwards pinches that did not hit a control. Without a mounted plaza (in the arena), forwarding does nothing.
  */
 export type MiiPicker = (x: number, y: number, hit: Element | undefined) => void;
 

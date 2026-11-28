@@ -1,184 +1,163 @@
-# Jogos pelo corpo: Atletismo e Tênis
+# Body-controlled sports: Athletics, Tennis, and Boxing
 
-Data: 27 de novembro de 2026. **Estado: jogável, ainda não testado com outras pessoas.**
+Date: November 28, 2026. **Status: playable; validation across people and real-world setups remains incomplete.**
 
-O menu tem dois jogos, os dois controlados só pelo corpo, sem teclado nem mouse: **Atletismo**
-(100, 200 ou 400 m) e **Tênis**. A corrida com obstáculos continua no código, fora do menu.
+The menu offers **Athletics** (100, 200, or 400 m), **Tennis**, and **Boxing**, plus the three-sport **Iron Man** challenge. Athletics and Tennis use body input; Boxing also supports keyboard controls. The legacy obstacle course remains in the code, outside the menu.
 
-> **Ressalva principal.** Todos os limites de detecção foram escolhidos em gravações de **uma única
-> pessoa**, na mesma sala e webcam. Na primeira gravação nunca usada em ajuste, a corrida caiu para
-> 42% de detecção. Antes de confiar em qualquer número abaixo, é preciso ver outras pessoas jogando.
+> **Main caveat.** Evidence varies by sport. Athletics and Tennis thresholds come from a small number of webcam recordings, including one early running recording with 42% detection. Boxing has offline dataset results and an initial real recording, but punch type and target still need validation on frontal webcam recordings, and all three sports need broader player testing. These results do not establish performance for other people or setups.
 
-## 1. O que o jogador faz
+## 1. What the player does
 
-1. No menu, escolhe com a **mão** (cursor da mão): Atletismo e a distância, ou Tênis.
-2. O jogo prepara a pessoa:
-   - **Atletismo:** enquadramento e um aquecimento de 5 s correndo com tudo.
-   - **Tênis:** um aquecimento guiado na quadra, sem adversário: raquetadas, o outro lado, lançamento e saque.
-3. Joga.
-4. No fim, **levanta as duas mãos** por 1,5 s para jogar de novo.
+1. In the menu, use the **hand** (hand cursor) to choose a sport or the Iron Man challenge.
+2. The game prepares the player:
+   - **Athletics:** framing and a 5-second running warm-up.
+   - **Tennis:** a guided warm-up on court, without an opponent: swings, the other side, a toss, and a serve.
+   - **Boxing:** choose a fight, tutorial, punching bag, or dodge challenge; the tutorial demonstrates guard, punches, dodges, ducking, and a short closing test.
+3. Play.
+4. At the end, **raise both hands** for 1.5 seconds to play again.
 
-Para voltar ao menu pela tela de resultado, **cruza os antebraços em X** diante do peito por 1,5 s
-(`armsCrossed`, em `framing.ts`). No meio de uma partida, ainda é preciso clicar em "‹ Jogos".
+To return to the menu from the results screen, **cross your forearms into an X** in front of your chest for 1.5 seconds (`armsCrossed` in `framing.ts`). During a match, use the “‹ Games” control. Boxing can also be played with the keyboard; see its controls on the lobby screen.
 
-## 2. Do quadro da câmera ao jogo
+## 2. From camera frame to game
 
 ```
-webcam ─▶ PoseClient (Worker, MediaPipe Pose Lite na CPU) ─▶ App.onPose
+webcam ─▶ PoseClient (Worker, MediaPipe Pose Lite on CPU) ─▶ App.onPose
             └─ ActionPipeline (src/kinematics/actionPipeline.ts)
-                 ├─ TorsoVerticalChannel: ombros, cabeça e pulsos no mesmo quadro
-                 │    ├─ IntensityMeter  ─▶ rawEffort   ─▶ Atletismo
-                 │    └─ (obstáculos: corrida, caminhada, pulo, raia)
-                 └─ SwingDetector (um por pulso) ─▶ swing ─▶ Tênis
-            framingAdvice / handsHidden / handsRaised (src/kinematics/framing.ts) ─▶ os dois jogos
+                 ├─ TorsoVerticalChannel: shared upper-body signal
+                 │    ├─ IntensityMeter ─▶ effort ─▶ Athletics
+                 │    ├─ Dodge / guard / duck / footwork ─▶ Boxing
+                 │    └─ Legacy obstacle-course detectors ─▶ Track
+                 ├─ SwingDetector (one per wrist) ─▶ swing ─▶ Tennis
+                 └─ PunchDetector (one per arm) ─▶ punch ─▶ Boxing
+            framingAdvice / handsHidden / handsRaised (src/kinematics/framing.ts) ─▶ games
 ```
 
-- **Visão na CPU por padrão** (`src/cv/delegate.ts`): numa GPU integrada, o modelo Full disputava com o
-  jogo 3D e a câmera travava. `?delegate=gpu` volta à GPU com o modelo Full.
-- **Só os ombros são obrigatórios** (`torsoVertical.ts`). O quadril costuma ficar fora de uma webcam de
-  notebook ou atrás dos braços. Tudo é medido em **larguras de ombro**, o que cancela a distância.
-- **Quadros quebrados são descartados:** em movimento rápido o rastreador às vezes cola um ombro no
-  outro (largura de 0,28 para 0,01). Esqueleto de cabeça para baixo também é descartado.
-- **O detector precisa ver a cabeça:** o BlazePose acha a pessoa pelo rosto
-  ([artigo](https://arxiv.org/abs/2006.10204)). Com a cabeça cortada, perdia-se o corpo na corrida.
+- **CPU vision by default** (`src/cv/delegate.ts`): on an integrated GPU, the Full model competed with the
+  3D game and made the camera stutter. `?delegate=gpu` switches back to the GPU with the Full model.
+- **The shared torso channel only requires the shoulders** (`torsoVertical.ts`), which is enough for Athletics and Tennis. Boxing’s dodge, duck, and footwork signals add framing requirements and may ask the player to bring their hips into view. Many movement measurements are normalized in **shoulder widths**, reducing sensitivity to camera distance.
+- **Broken frames are discarded:** during fast movement, the tracker sometimes collapses one shoulder onto
+  the other (width changes from 0.28 to 0.01). An upside-down skeleton is also discarded.
+- **The detector needs to see the head:** BlazePose finds the person through the face
+  ([paper](https://arxiv.org/abs/2006.10204)). When the head was cropped, the body was lost during a run.
 
-## 3. Atletismo
+## 3. Athletics
 
-Estádio de 400 m, Mii, abertura e câmera de perseguição vêm do PR 41 (GUZZBR1). As regras são de
-`src/games/athletics/race.ts` (puras, testadas em `tests/race.test.ts`); a cena é `AthleticsGame.ts`.
+The 400 m stadium, Mii, opening, and follow camera come from PR 41 (GUZZBR1). Rules are in
+`src/games/athletics/race.ts` (pure and tested in `tests/race.test.ts`); the scene is `AthleticsGame.ts`.
 
-| Fase | O que acontece |
+| Phase | What happens |
 | --- | --- |
-| Enquadramento | Pede para inclinar a câmera, afastar, chegar perto ou centralizar. Segue com 1 s de imagem boa, ou após 15 s com o corpo visível. |
-| Aquecimento | 5 s "corra com tudo". O Mii corre no lugar. A barra enche quando o sinal atinge o mínimo para calibrar. A calibração exige 1,5 s de sinal válido entre quadros recentes nos últimos 3 s. Um valor alto desse intervalo define a referência daquela pessoa e câmera. Se quase nada for lido, repete até duas vezes dizendo "mostre as mãos" ou "mexa mais os braços"; depois usa um padrão. |
-| Contagem | 3, 2, 1 com som. |
-| Prova | Três rivais (Bia, Caio, Davi) de ritmo fixo, um pouco mais lento nas distâncias maiores. Parcial com som a cada 100 m. |
-| Chegada | Colocação, tempos de todos, recorde pessoal por distância (no navegador). |
+| Framing | Asks the player to tilt the camera, move farther away or closer, or center themselves. Continues after 1 s of good image, or after 15 s with the body visible. |
+| Warm-up | “Run all out” for 5 s. The Mii runs in place. The bar fills when the signal reaches the minimum needed for calibration. Calibration requires 1.5 s of valid signal across recent frames in the last 3 s. A high value from this interval defines the reference for that person and camera. If almost nothing is detected, it repeats up to twice with “show your hands” or “move your arms more,” then uses a default. |
+| Countdown | 3, 2, 1 with sound. |
+| Race | Three rivals (Bia, Caio, Davi) run at a fixed pace, slightly slower over longer distances. A split is announced with sound every 100 m. |
+| Finish | Placement, everyone’s times, and a personal record for each distance (in the browser). |
 
-**Velocidade:** a intensidade dividida pelo percentil 80 das leituras dos últimos 3 s do aquecimento, com 15% de folga. Igualar o
-aquecimento dá cerca de 7,4 m/s (100 m em uns 14 s); passar dele ainda rende. Ganha velocidade em
-0,5 s e perde em 1,4 s, então uma leitura falha custa pouco.
+**Speed:** intensity divided by the 80th percentile of readings from the last 3 seconds of the warm-up, with a 15% margin. Matching the warm-up yields about 7.4 m/s (100 m in roughly 14 s); going beyond it still helps. Speed builds over 0.5 s and decays over 1.4 s, so a missed reading costs little.
 
-**Câmera congelada:** uma leitura com mais de 0,5 s não vale; o boneco desacelera em vez de seguir
-correndo com o último valor.
+**Frozen camera:** a reading older than 0.5 s is invalid; the character slows down instead of continuing to run at the last value.
 
-### Medidor de intensidade (`src/kinematics/intensity.ts`)
+### Intensity meter (`src/kinematics/intensity.ts`)
 
-Uma medida só: **o quanto a pessoa se move por segundo**. Soma a velocidade vertical dos pulsos (em
-relação aos ombros) e a da cabeça, em larguras de ombro. Cresce com o ritmo **e** com o tamanho do
-movimento. Se cabeça e ombros se movem na mesma direção, o balanço comum também conta, inclusive
-quando o movimento dos braços é pequeno ou os pulsos saem do quadro.
+One measurement: **how much the person moves per second**. It adds vertical wrist speed (relative to the shoulders) and head speed, in shoulder widths. It increases with both **pace and movement size**. If the head and shoulders move in the same direction, their shared sway also counts, including when arm movement is small or the wrists leave the frame.
 
-Nas gravações, em larguras de ombro por segundo: parado 0,02–0,3; andando até 0,7; correndo 1,2–2,8.
+In the recordings, in shoulder widths per second: standing still 0.02–0.3; walking up to 0.7; running 1.2–2.8.
 
-Substituiu duas versões medidas e descartadas:
-- balanço da cabeça, que ignorava quem trota "deslizando" (0,1–0,35 correndo);
-- contagem de alternâncias dos pulsos, que travava em 100% num bombeio forte e ignorava braços curtos.
+It replaced two measured and discarded versions:
 
-Limitações: mexer só os braços rende velocidade (aceito nesta prova); andar rende pouco; o ângulo da
-câmera muda o valor bruto, compensado pelo aquecimento.
+- Head sway, which ignored people who jog with a “gliding” motion (0.1–0.35 while running).
+- Wrist-alternation counting, which saturated at 100% during strong pumping and ignored short arm movements.
 
-## 4. Tênis
+Limitations: moving only the arms generates speed (accepted for this event); walking yields little; camera angle changes the raw value, compensated for by the warm-up.
 
-Regras e decisões de jogo estão em [design-tenis.md](design-tenis.md): o Mii corre sozinho até a bola,
-a direção sai do **momento** da raquetada (cedo cruza, tarde vai reto) e o contato é julgado no instante
-físico do golpe, não quando o evento chega.
+## 4. Tennis
 
-Neste estado:
-- quadra com áreas de saque e segundo saque, placar de games e pontos, melhor de 3 games;
-- abre com um **aquecimento na quadra** (`tutorial.ts`): 3 raquetadas, 2 do outro lado, 2 lançamentos e 2
-  saques. Cada um avança quando é reconhecido; sem progresso, explica aos 10 s e segue aos 22 s; as duas
-  mãos levantadas pulam. Ele aprende a **mão da raquete** e o **tamanho do golpe** da pessoa (entre 1,6 e
-  1,9 largura de ombro, nunca mais rígido que o padrão). Só no primeiro jogo; "jogar de novo" vai direto;
-- estádio de grama com arquibancadas, torcida e árvores (`stadium.ts`), e câmera baixa atrás do jogador;
-- tenistas no estilo Mii, com mãos soltas e raquete grande (`athlete.ts`);
-- janela de acerto generosa (±0,5 s) e bola lenta, com um **anel no chão que fecha** quando é hora de bater;
-- golpe com arco e rastro, clarão e tremida no impacto, som de raquete, torcida que pula e aplaude e placar
-  falado pelo navegador (`effects.ts`, `audio.ts`);
-- **o saque não se erra**: qualquer raquetada durante o lançamento entra na área certa; o momento só muda
-  força e ângulo;
-- forehand e backhand **aparecem diferentes**: o boneco fica ao lado da bola e recua a raquete para o lado
-  dela, o golpe sai do lado reconhecido, o rastro é amarelo (forehand) ou azul (backhand) e o nome aparece;
-- **saque em dois gestos**: levantar a **mão livre** lança a bola na hora, e a raquete saca. A mão da
-  raquete é aprendida nas rebatidas (destro até prova em contrário) e nunca lança. A bola espera 2,6 s.
-  Medido numa gravação: o lançamento natural dura de 0,4 a 0,7 s, curto demais para exigir mão parada.
-- a **altura** em que o golpe termina muda a bola: acima da cabeça sai alta, abaixo do peito sai rasante;
-- um quadro borrado no meio do golpe é pulado. Antes ele apagava o golpe, e a volta do braço era lida
-  como backhand;
-- o adversário **devolve sempre as 3 primeiras bolas** do ponto; depois pode errar, mais sob pressão, e
-  fica visivelmente longe da bola quando erra;
-- `?fps` mostra o atraso entre a captura do quadro e a chegada ao jogo;
-- a altura final é **prevista** pela velocidade com que o braço sobe, sem esperar o braço chegar.
-  Antecipar a animação foi medido e descartado: ganhava uns 60 ms e criava 41 movimentos falsos para 63
-  golpes;
-- **ajuda de último instante** (`armMotion.ts`): se nenhum golpe foi lido e a bola está passando,
-  qualquer movimento claro do braço (1 largura de ombro em 0,5 s) devolve, fraco e no meio. Veio da
-  gravação de uma segunda pessoa, vista pela câmera em 727 de 742 quadros e com **um** golpe lido: essa pessoa bate mais
-  devagar, mais para cima e menos de lado. Um golpe reconhecido sempre vem antes e é o que dá força e direção;
-- reinício pelas mãos.
+Rules and game decisions are in [design-tenis.md](design-tenis.md): the Mii runs to the ball automatically,
+shot direction comes from the **timing** of the swing (early crosses the court, late goes straight), and contact is judged at the physical instant of the hit, not when the event arrives.
 
-### Detector de raquetada (`src/kinematics/swingDetector.ts`)
+Current state:
 
-Um golpe é o pulso **percorrer muito em pouco tempo**: 1,9 largura de ombro em 270 ms, de lado ou de
-lado e subindo (pelo menos 0,8 de lado), medido na imagem em relação ao meio dos ombros. A largura usada
-como régua só diminui devagar, porque o tronco girando faz os ombros "encolherem". Descer o braço não
-conta, e a volta no sentido contrário é ignorada por 0,8 s.
+- Court with service boxes and second-serve rules, games-and-points scoreboard, best of 3 games.
+- Starts with a **court warm-up** (`tutorial.ts`): 3 swings, 2 from the other side, 2 tosses, and 2 serves. Each step advances when recognized; with no progress, it explains the step at 10 s and moves on at 22 s; raising both hands skips. It learns the player’s **racket hand** and **swing size** (between 1.6 and 1.9 shoulder widths, never stricter than the default). Only on the first game; “play again” skips the warm-up.
+- Grass stadium with stands, crowd, and trees (`stadium.ts`), and a low camera behind the player.
+- Mii-style tennis players, with loose hands and oversized rackets (`athlete.ts`).
+- Generous hit window (±0.5 s) and a slow ball, with a **closing ground ring** to signal when to hit.
+- Swing arc and trail, flash and shake on impact, racket sound, a crowd that jumps and applauds, and score announcements spoken by the browser (`effects.ts`, `audio.ts`).
+- **Serves cannot be missed**: any swing during the toss lands in the correct box; timing only changes power and angle.
+- Forehand and backhand **look different**: the character stands beside the ball and draws the racket back on that side, the swing comes from the recognized side, the trail is yellow (forehand) or blue (backhand), and the shot name appears.
+- **Two-gesture serve**: raising the **free hand** tosses the ball immediately, and the racket hand serves. The racket hand is learned from returns (right-handed until evidence says otherwise) and never tosses. The ball waits 2.6 s. One recording measured a natural toss of 0.4–0.7 s, too short to require the hand to remain still.
+- The **height** where the swing finishes changes the ball: above the head sends it high; below the chest sends it low.
+- A blurred frame in the middle of a swing is skipped. Previously it erased the swing, and the return movement was read as a backhand.
+- The opponent **returns the first 3 balls of every point**; after that, it can miss more often under pressure and visibly end up far from the ball when it does.
+- `?fps` shows the delay between frame capture and arrival in the game.
+- Final ball height is **predicted** from how quickly the arm is rising, without waiting for it to arrive. Predicting the animation in advance was measured and discarded: it saved about 60 ms but created 41 false movements for 63 shots.
+- **Last-second assist** (`armMotion.ts`): if no swing was detected and the ball is passing, any clear arm movement (1 shoulder width in 0.5 s) returns it weakly toward the middle. This came from a second person’s recording: the camera saw them in 727 of 742 frames, but only **one** swing was detected. This person hits more slowly, more upward, and less sideways. A recognized swing always takes precedence and determines power and direction.
+- Restart with both hands.
 
-Medido em duas gravações de uma pessoa:
-- **golpes exagerados:** os 12 visíveis são lidos, mais uma leitura com o pulso saindo do quadro;
-- **golpes compactos, jogando:** 5 de 8 visíveis (um dos perdidos vem antes de a calibração ficar pronta).
-  A regra anterior não lia nenhum.
+### Swing detector (`src/kinematics/swingDetector.ts`)
 
-Quem bate mais curto ou devagar ainda pode não ser reconhecido.
+A swing means the wrist **travels a long way in a short time**: 1.9 shoulder widths in 270 ms, sideways or sideways-and-upward (at least 0.8 sideways), measured in the image relative to the midpoint between the shoulders. The scale used as a ruler only shrinks slowly because torso rotation makes the shoulders “shrink.” Lowering the arm does not count, and the return in the opposite direction is ignored for 0.8 s.
 
-## 5. Peças compartilhadas
+Measured in two recordings of one person:
 
-| Peça | Arquivo |
+- **Exaggerated swings:** all 12 visible swings are detected, plus one detection as the wrist leaves the frame.
+- **Compact swings during play:** 5 of 8 visible swings (one miss occurs before calibration is ready). The previous rule detected none.
+
+People who swing shorter or more slowly may still not be detected.
+
+## 5. Boxing
+
+The lobby offers four modes: **Tutorial**, **Fight**, **Punching Bag**, and **Dodge**. Fight mode also lets the player choose an opponent profile. The tutorial demonstrates guarding, straight punches, leaning left and right, ducking, and a short dodge test. Its instructions can be skipped with the raise-both-hands gesture. Training modes and the fight use the same pose pipeline.
+
+Body input detects punches from wrist travel and reads guard, lateral dodges, ducks, and torso movement for footwork. Boxing also accepts keyboard input: **E** punches, **Q** blocks while held, **← / →** dodge, and **W / A / S / D** move. The lobby displays mode-specific controls. Detailed behavior and limitations are in [the boxing plan](plano-boxe.md).
+
+The offline UTD-MHAD replay floor reports a confirmed punch in **23 of 32** frontal-boxing clips, with at least three of four clips accepted for **6 of 8** participants. Its negative-control set reports no confirmed punches in six non-boxing action classes across 56 clips, although jumping jacks produced two readings in one clip. These are offline dataset measurements, not a guarantee of webcam performance. Punch type and target still need validation with frontal recordings that label known punches; testing with more people in the actual game is also outstanding. Recordings are ignored by Git and must not be committed.
+
+### Punch detection and classification
+
+`PunchDetector` emits a punch event from wrist movement; `punchClassifier.ts` assigns a tentative punch type and target from the measured trajectory. The current `BoxingGame` uses those values in the damage rules. A guided recording script is available with **G** in Boxing mode; it asks for known punches and defensive movements, and `tests/recordedBoxing.test.ts` evaluates the windows when a local recording is present. The validation caveats and replay commands are in `plano-boxe.md`.
+
+## 6. Shared components
+
+| Component | File |
 | --- | --- |
-| Enquadramento e mãos visíveis/levantadas | `src/kinematics/framing.ts` |
-| Reinício pelas duas mãos (só depois de baixá-las) | `src/games/core/restartGesture.ts` |
-| Aviso de cabeça fora do quadro (após 1,5 s) | `HeadWarning`, em `framing.ts` |
-| Resolução que cai se o quadro pesar | `src/games/core/qualityGovernor.ts` (PR 41) |
+| Framing and visible/raised hands | `src/kinematics/framing.ts` |
+| Restart with both hands (only after lowering them) | `src/games/core/restartGesture.ts` |
+| Warning when the head is out of frame (after 1.5 s) | `HeadWarning` in `framing.ts` |
+| Reduce resolution when frame processing is too slow | `src/games/core/qualityGovernor.ts` (PR 41) |
 
-## 6. Corrida com obstáculos (fora do menu)
+## 7. Obstacle course (outside the menu)
 
-Ficou no código, sem manutenção. Os detectores abaixo só servem a ela:
+It remains in the code without maintenance. The detectors below are used only by this mode:
 
-| Ação | Técnica | Arquivo |
+| Action | Technique | File |
 | --- | --- | --- |
-| Correr | quanto os dois ombros e a cabeça sobem e descem juntos em 1 s | `bounce.ts` |
-| Andar | vai e vem lateral dos ombros, um por passo, com a cabeça quase parada | `walk.ts` |
-| Pular | ombros e cabeça ≥ 0,45 largura acima de onde estavam; em pulos seguidos, medidos do chão | `jumpDetector.ts` |
-| Raia | centro medido quando a pessoa fica 1 s parada | `postureSignals.ts` |
+| Run | How much both shoulders and the head rise and fall together over 1 s | `bounce.ts` |
+| Walk | Side-to-side shoulder movement, one per step, with the head nearly still | `walk.ts` |
+| Jump | Shoulders and head ≥ 0.45 widths above their previous position; consecutive jumps are measured from the floor | `jumpDetector.ts` |
+| Lane | Center measured after the person stands still for 1 s | `postureSignals.ts` |
 
-## 7. Como medir (ferramentas de desenvolvimento)
+## 8. How to measure (development tools)
 
-Ficam em `src/cv/diagnostics/` e só ligam em desenvolvimento ou com `?debug`/`?fotos`, para um visitante
-não reiniciar nada sem querer.
+Tools live in `src/cv/diagnostics/` and are enabled only in development or with `?debug`/`?fotos`, so a visitor cannot restart a recording accidentally.
 
-- **G**: grava um roteiro guiado de pontos do corpo (corrida ou tênis).
-- **E**: salva os últimos 20 s depois de um erro.
-- `?fotos`: o **E** inclui pequenas imagens da câmera. São imagens da pessoa: não commitar e só
-  compartilhar com o consentimento dela.
-- `?fps`: taxas de tela, câmera e pose, e o chip que desenha o WebGL.
-- Gravações em `tests/recordings/` e trechos em `tests/recordings/errors/` (ignorados pelo git).
-  `tests/recordedTrack.test.ts` falha se uma gravação piorar; **sem as gravações locais, nada disso
-  roda**, inclusive no CI.
-- `scripts/pose-replay.html` gera o mesmo formato a partir de um vídeo, a 30 quadros por segundo.
+- **G**: records a guided sequence for running, tennis, or boxing, depending on the active game.
+- **E**: saves the last 20 s after an error.
+- `?fotos`: **E** includes small camera images. These show the person: do not commit them and share them only with that person’s consent.
+- `?fps`: display, camera, and pose rates, plus the chip drawing WebGL.
+- Recordings in `tests/recordings/` and clips in `tests/recordings/errors/` are ignored by Git. `tests/recordedTrack.test.ts` fails if a recording regresses; **without local recordings, none of this runs**, including in CI.
+- `scripts/pose-replay.html` generates the same format from a video at 30 frames per second.
 
-## 8. Outras ressalvas
+## 9. Other caveats
 
-- A confiança mínima do modelo caiu de 0,5 para 0,38 sem comparação isolada.
-- A calibração contínua ainda calcula um centro de raia que nenhum dos dois jogos usa.
+- Webcam measurements are limited to a small number of recordings and do not represent a player population. The separate boxing dataset floor does not replace real-camera evaluation.
 
-## 9. Falta fazer
+## 10. Remaining work
 
-1. Uma prova e uma partida completas na câmera, sem tocar no computador.
-2. Mais gravações de tênis (outra pessoa, golpes suaves, canhoto).
-3. Pelo menos três outras pessoas, com critério definido antes: a barra enche correndo, fica vazia
-   parado, correr forte é claramente mais rápido que correr leve, e as rebatidas são reconhecidas.
-4. Sair de uma partida em andamento sem mouse.
-5. Ajustar o ritmo dos rivais e a escala de velocidade, hoje um primeiro chute.
-6. Diagnosticar travamentos de câmera com `?fps`.
-7. Opcional: avaliar em [UTD-MHAD](https://personal.utdallas.edu/~kehtar/UTD-MHAD.html) (8 pessoas
-   correndo no lugar; câmera e distância diferentes; a página não declara licença).
+1. Complete an Athletics race and Tennis match using the camera without keyboard or mouse, then complete a Boxing bout with body controls.
+2. Record more tennis examples (another person, soft swings, and a left-handed player).
+3. Validate boxing punch types and targets with labelled frontal recordings, then test the current build with more people.
+4. Test all three sports with at least three other people using criteria defined in advance: the effort bar fills while running and stays empty while standing still; hard running is clearly faster than light running; tennis swings are recognized; and boxing punches and defensive movements are legible.
+5. Exit an in-progress match without a mouse in Athletics and Tennis; separately evaluate the keyboard and body-control flows in Boxing.
+6. Tune rival pace and the Athletics speed scale, which are currently first estimates.
+7. Diagnose camera stutters with `?fps`.

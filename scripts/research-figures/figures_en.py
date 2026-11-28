@@ -1,4 +1,4 @@
-"""Traducoes EN das figuras: texto PT exato -> ingles."""
+"""English translations for the figures: exact Portuguese source text to English."""
 
 from __future__ import annotations
 

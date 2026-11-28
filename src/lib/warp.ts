@@ -1,9 +1,9 @@
-// Entrada na arena: túnel de dobra radial. Riscos coloridos em perspectiva avançam para a câmera,
-// o rastro (quadro anterior só parcialmente apagado) faz o desfoque de movimento, e tudo termina
-// em branco, emendando no flash da arena.
+// Arena entry: a radial warp tunnel. Colored perspective streaks move toward the camera;
+// the trail (the previous frame is only partially cleared) creates motion blur, and everything ends
+// in white, joining the arena flash.
 const DURATION = 2300;
 const STREAKS = 620;
-// Paleta do projeto (design.md): azuis do site, com o laranja do Nevergear em poucos riscos.
+// Project palette (website-design.md): site blues with a few Nevergear-orange streaks.
 const COLORS = ['#34beed', '#34beed', '#34beed', '#1a8fc4', '#1a8fc4', '#ade4f8', '#0b6f9e', '#f59b3c'];
 const FAR = 3;
 const NEAR = .06;
@@ -14,7 +14,7 @@ const clamp = (v: number) => Math.min(1, Math.max(0, v));
 
 const spawn = (z: number): Streak => ({
   angle: Math.random() * Math.PI * 2,
-  radius: .12 + Math.random() ** .7 * .9, // miolo vazio: é o fundo do túnel
+  radius: .12 + Math.random() ** .7 * .9, // Empty center: the tunnel's vanishing point.
   z,
   color: COLORS[Math.floor(Math.random() * COLORS.length)],
   width: .6 + Math.random() * 1.8,
@@ -53,13 +53,13 @@ export function runWarp(onCovered: () => void): () => void {
     last = now;
     const t = clamp((now - start) / DURATION);
     canvas.style.opacity = String(clamp(t / .14));
-    const speed = .25 + 5.5 * t ** 2.4; // acelera até o salto
+    const speed = .25 + 5.5 * t ** 2.4; // Accelerate into the jump.
     twist += dt * (.15 + t * .5);
 
     if (ctx) {
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.globalCompositeOperation = 'source-over';
-      // apaga só em parte: o que sobra do quadro anterior é o borrão
+      // Clear only partially; the previous frame creates the blur.
       ctx.fillStyle = `rgba(244, 248, 250, ${1 - Math.exp(-dt * (22 - 12 * t))})`;
       ctx.fillRect(0, 0, w, h);
       ctx.lineCap = 'round';
@@ -80,7 +80,7 @@ export function runWarp(onCovered: () => void): () => void {
       }
       ctx.globalAlpha = 1;
 
-      // clarão no fim do túnel, que cresce até tomar a tela
+      // Flash at the end of the tunnel, growing to fill the screen.
       const flare = clamp((t - .72) / .28) ** 2;
       const radius = 40 + t * 90 + flare * Math.hypot(w, h);
       const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);

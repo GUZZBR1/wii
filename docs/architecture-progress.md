@@ -1,18 +1,18 @@
-# Progresso da refatoração arquitetural
+# Architectural Refactoring Progress
 
-Este é o registro vivo das rodadas de melhoria arquitetural solicitadas para o produto. O trabalho preserva o comportamento e os contratos existentes, migra os chamadores no mesmo lote e remove a implementação substituída quando a compatibilidade permite.
+This is the living record of the product's requested architectural improvement rounds. The work preserves existing behavior and contracts, migrates callers in the same batch, and removes replaced implementations when compatibility allows.
 
-## Estado da iniciativa
+## Initiative status
 
-- **Base atual da branch:** `origin/main` em `241a8c3`, com PR42 (#42), boxe (#44), rotação do menu (#46) e polimento do menu (#47) já integrados; trabalho na worktree isolada `refactor/canonical-frame-capture`.
-- **Levantamento do estado ativo:** PR42 e worktrees/orquestrações locais foram comparados; mudanças locais não revisadas foram preservadas e não copiadas.
-- **Estado do checkout compartilhado:** alterações locais fora desta worktree são preservadas e não fazem parte desta rodada.
-- **Skills aplicadas:** `codebase-design` e `domain-modeling`.
-- **Glossário/ADRs anteriores:** não existem nesta base. Criar o glossário quando um termo de domínio precisar ser resolvido; registrar decisões arquiteturais com trade-offs duradouros em `docs/adr/`.
+- **Current branch base:** `origin/main` at `241a8c3`, with PR42 (#42), boxing (#44), menu rotation (#46) and menu polish (#47) integrated; work is in the isolated `refactor/canonical-frame-capture` worktree.
+- **Active-state survey:** PR42 and local worktrees/orchestrations were compared; unreviewed local changes were preserved and not copied.
+- **Shared checkout state:** local changes outside this worktree are preserved and are not part of this round.
+- **Applied skills:** `codebase-design` and `domain-modeling`.
+- **Existing glossary/ADRs:** none exist on this base. Create a glossary when a domain term needs clarification; record architectural decisions with lasting trade-offs in `docs/adr/`.
 
-## Mapa de arquitetura — base `origin/main`
+## Architecture map — `origin/main` base
 
-### Fluxo principal
+### Main flow
 
 ```mermaid
 flowchart LR
@@ -59,157 +59,157 @@ flowchart LR
 - CI (`.github/workflows/ci.yml`) runs `npm ci`, tests, Biome lint, production build and article validation. A scoped Biome override now enforces the purity/import direction of `src/kinematics`; other ownership and dependency rules remain in the backlog.
 - There is no shared theme package: site and arena styling have separate CSS entry points. The design system and accessibility contracts remain to be audited before any visual consolidation.
 
-## Rodada 1 — captura de quadros
+## Round 1 — frame capture
 
-### Checklist de estado e concorrência
+### State and concurrency checklist
 
-| Item | Decisão/estado observado para a migração |
+| Item | Migration decision/observed state |
 | --- | --- |
-| Donos | `App` continua dono do `MediaStream` e da modalidade. Cada provider continua dono do Worker, dos IDs de requisição e do protocolo. O novo pump é dono apenas do agendamento e do backpressure de captura. `SpatialRuntime` continua dono da geração de provider. |
-| Leitores/escritores | `PoseClient`, o adaptador de `HandClient` e `SpatialRuntime` iniciam/param captura. Apenas o pump registra/cancela rVFC/rAF e mantém o slot de processamento agendado. |
-| Vida útil | Um pump vive com cada cliente, ou com uma ativação de adaptador legado do runtime. `pauseCapture` cancela callbacks agendados; `dispose` também encerra o cliente/worker. Pausar e retomar no mesmo worker não zera a sequência temporal. |
-| Buffers | O pump não cria nem retém `ImageBitmap`. O provider/adaptador cria a cópia, fecha-a se a sessão ficar obsoleta e transfere a propriedade ao Worker no `postMessage`; após transferência, o buffer não é mutável nem fechável pelo chamador. |
-| Invalidação | O pump usa uma geração privada para callbacks de scheduler. `cameraAttemptRef`, `PoseClient.captureEpoch`, o contador de sessão da mão e `SpatialRuntime.generation` mantêm seus significados atuais; cada ativação legada recebe um pump próprio, então trabalho pendente de um adapter não bloqueia o seguinte. |
-| Ponto de commit | O frame é aceito pelo Worker quando `postMessage(FRAME, [bitmap])` retorna. O slot do pump só fica livre quando o resultado/erro desse frame foi resolvido ou quando o cliente é descartado. |
-| Ordenação/progresso | Um frame em processamento por pump; não há fila. O próximo frame de vídeo é agendado, mas descartado enquanto o slot estiver ocupado. Erro de cópia/processamento reporta erro e libera o slot para quadros futuros. |
-| Exceções | Falhas de `createImageBitmap` e de processamento chegam ao callback de erro. Erros fatais do Worker continuam sendo tratados pelo cliente. O pump não converte erro fatal em retry silencioso. |
+| Owners | `App` remains the owner of the `MediaStream` and sport. Each provider remains the owner of its Worker, request IDs and protocol. The new pump owns only capture scheduling and backpressure. `SpatialRuntime` remains the owner of provider generation. |
+| Readers/writers | `PoseClient`, the `HandClient` adapter and `SpatialRuntime` start/stop capture. Only the pump registers/cancels rVFC/rAF and holds the scheduled processing slot. |
+| Lifetime | Each client, or each activation of a legacy runtime adapter, owns one pump. `pauseCapture` cancels scheduled callbacks; `dispose` also shuts down the client/worker. Pausing and resuming the same worker does not reset the temporal sequence. |
+| Buffers | The pump does not create or retain an `ImageBitmap`. The provider/adapter creates the copy, closes it if the session becomes stale, and transfers ownership to the Worker through `postMessage`; after transfer, the caller cannot mutate or close the buffer. |
+| Invalidation | The pump uses a private generation for scheduler callbacks. `cameraAttemptRef`, `PoseClient.captureEpoch`, the hand session counter and `SpatialRuntime.generation` keep their existing meanings. Each legacy activation gets its own pump, so pending work from one adapter cannot block the next. |
+| Commit point | The Worker accepts the frame when `postMessage(FRAME, [bitmap])` returns. The pump slot is released only when that frame's result/error settles or the client is disposed. |
+| Ordering/progress | One frame is processed per pump; there is no queue. The next video frame is scheduled but dropped while the slot is busy. A copy/processing error is reported and releases the slot for future frames. |
+| Exceptions | `createImageBitmap` and processing failures reach the error callback. The client continues to handle fatal Worker errors. The pump does not silently retry a fatal error. |
 
-### Trabalho e evidência
+### Work and evidence
 
-- [x] Linha de base determinística antes da migração: `npm test -- tests/poseClient.test.ts tests/handClient.test.ts tests/handCapture.test.ts tests/spatialRuntime.test.ts` — 4 arquivos, 17 testes passaram; os 5 testes de qualidade também passaram.
-- [x] Revisão independente de três interfaces: captura pelo callback mínimo, pump genérico configurável e interface otimizada para o chamador comum.
-- [x] Implementar o pump único e migrar os três caminhos de agendamento.
-- [x] Preservar o método público `HandClient.processFrame` e o contrato de adaptadores de `SpatialRuntime` que só implementam `processFrame`.
-- [x] Acrescentar testes determinísticos de backpressure, troca de sessão, fallback rAF, erros, pausa reentrante e lançamento síncrono.
-- [x] Remover os loops duplicados já substituídos e revisar os chamadores pelo teste de exclusão; a busca confirmou que rVFC/rAF dos três caminhos agora aparece apenas no pump.
-- [x] Executar suíte completa, lint e build; a revisão independente dos dois riscos encontrados foi concluída após as correções.
+- [x] Deterministic pre-migration baseline: `npm test -- tests/poseClient.test.ts tests/handClient.test.ts tests/handCapture.test.ts tests/spatialRuntime.test.ts` — 4 files and 17 tests passed; the 5 quality tests passed as well.
+- [x] Independent review of three interfaces: capture through a minimal callback, configurable generic pump and interface optimized for the common caller.
+- [x] Implement one pump and migrate all three scheduling paths.
+- [x] Preserve the public `HandClient.processFrame` method and the `SpatialRuntime` adapter contract for implementations that only provide `processFrame`.
+- [x] Add deterministic tests for backpressure, session changes, rAF fallback, errors, reentrant pause and synchronous throws.
+- [x] Remove superseded duplicate loops and review callers with a deletion test; the search confirmed that rVFC/rAF for all three paths now appears only in the pump.
+- [x] Run the full suite, lint and build; after fixes, the independent review of the two identified risks was complete.
 
-### Verificação e resultado
+### Verification and result
 
-- Suíte completa com gravações locais existentes ligadas temporariamente à worktree (sem copiá-las): `npm test` — 54 arquivos, 440 testes aprovados; link removido depois da execução.
-- Build de produção: `npm run build` — aprovado. Vite ainda informa o aviso preexistente de chunks acima de 500 kB.
-- Lint: `npm run lint` — exit 0, com 28 avisos de CSS existentes. Os oito arquivos alterados passaram sem avisos em execução isolada do Biome.
-- Artigos: `npm run check:articles` — aprovado (5 artigos PT, 5 EN e figuras no bundle).
-- `git diff --check` — aprovado.
-- Revisão independente encontrou e levou à correção de duas regressões: reentrância em `PoseClient.beginCapture` e fechamento de bitmap se um adaptador do runtime lança sincronamente. A segunda revisão não encontrou outros problemas concretos.
+- Full suite with existing local recordings temporarily linked into the worktree (without copying them): `npm test` — 54 files and 440 tests passed; the link was removed afterward.
+- Production build: `npm run build` — passed. Vite still reports the pre-existing warning about chunks over 500 kB.
+- Lint: `npm run lint` — exit 0, with 28 existing CSS warnings. The eight changed files passed an isolated Biome run without warnings.
+- Articles: `npm run check:articles` — passed (5 PT articles, 5 EN articles and figures in the bundle).
+- `git diff --check` — passed.
+- An independent review found and led to fixes for two regressions: reentrancy in `PoseClient.beginCapture` and bitmap closure when a runtime adapter throws synchronously. The second review found no other concrete issues.
 
-## Rodada 2 — limite de dependências da cinemática
+## Round 2 — kinematics dependency boundary
 
-### Mudança
+### Change
 
-- Os módulos de `src/kinematics` importam contratos de pose/calibração diretamente de `@nevergear/spatial-core`, removendo a dependência de tipos no re-export da camada `src/cv/protocol.ts` e, com ela, o ciclo de fonte com `src/cv/adaptiveCalibrator.ts`.
-- Um override Biome aplicado somente a `src/kinematics/**` rejeita imports de CV/adapters, UI, jogos, páginas, React, Three.js e MediaPipe. Ele também bloqueia globais de DOM, vídeo, canvas, worker e animação.
-- Imports do core são limitados a contratos de dados, `OneEuroFilter` e detectores puros já canônicos no pacote (como `RotationalFlickDetector`); o barrel misto não fica aberto para providers e runtime de browser.
-- Imports internos proibidos usam padrões que cobrem profundidades diferentes. A regra também bloqueia leitura do relógio global: `kinematicsMs` não tinha consumidores e foi removido; `ActionPipeline.reset(timestampMs)` agora recebe o instante do coordenador.
-- A regra usa os parsers AST do Biome já instalado e o lint que o CI executa; não foi adicionada dependência ou uma segunda ferramenta de verificação.
+- Modules in `src/kinematics` import pose/calibration contracts directly from `@nevergear/spatial-core`, removing their type dependency on the `src/cv/protocol.ts` re-export and, with it, the source cycle with `src/cv/adaptiveCalibrator.ts`.
+- A Biome override scoped to `src/kinematics/**` rejects imports from CV/adapters, UI, games, pages, React, Three.js and MediaPipe. It also blocks DOM, video, canvas, worker and animation globals.
+- Core imports are limited to data contracts, `OneEuroFilter` and pure detectors already canonical in the package (such as `RotationalFlickDetector`); the mixed barrel is not open to providers and browser runtime code.
+- Restricted internal imports use patterns that cover different nesting depths. The rule also blocks reads of the global clock: `kinematicsMs` had no consumers and was removed; `ActionPipeline.reset(timestampMs)` now receives the timestamp from its coordinator.
+- The rule uses the installed Biome AST parsers and the lint command run by CI; no dependency or second checking tool was added.
 
-### Verificação
+### Verification
 
-- [x] `npx biome lint src/kinematics` passou sem avisos.
-- [x] Fixtures temporárias confirmaram que Three.js, imports relativos da CV em diretórios atuais e aninhados, jogos, globais DOM e o export `PoseClient` do core são rejeitados; as fixtures foram removidas.
-- [x] Suíte completa com gravações locais existentes: `npm test` — 54 arquivos, 440 testes aprovados; links temporários removidos após os testes.
-- [x] `npm run build` e `npm run check:articles` passaram; Biome passou com 28 avisos CSS existentes e nenhum aviso na pasta de cinemática; `git diff --check` passou.
-- [x] Revisão independente confirmou os padrões aninhados, o relógio explícito e ausência de novos achados ou falsos positivos.
+- [x] `npx biome lint src/kinematics` passed without warnings.
+- [x] Temporary fixtures confirmed that Three.js, relative CV imports at current and nested directory depths, games, DOM globals and the core `PoseClient` export are rejected; the fixtures were removed.
+- [x] Full suite with existing local recordings: `npm test` — 54 files and 440 tests passed; temporary links were removed after testing.
+- [x] `npm run build` and `npm run check:articles` passed; Biome passed with 28 existing CSS warnings and no warnings in the kinematics folder; `git diff --check` passed.
+- [x] Independent review confirmed the nested patterns and explicit clock, with no new findings or false positives.
 
-## Rodada 3 — erro fatal tardio dos Workers
+## Round 3 — late fatal Worker errors
 
-### Invariantes de estado e ordenação
+### State and ordering invariants
 
-| Item | Decisão/estado observado |
+| Item | Decision/observed state |
 | --- | --- |
-| Donos | Cada `PoseClient`/`HandClient` possui seu Worker e estado `inFlight`; o Worker possui o Landmarker e decide quando a inferência/fallback deixou o Worker inutilizável. |
-| Leitores/escritores | Os Workers enviam resposta de quadro e podem, depois, enviar o resultado da tentativa de fallback. Os clientes leem ambos na mesma fila de mensagens; uma resposta de quadro não encerra o ciclo de vida do Worker. |
-| Vida útil | O Worker só é considerado atual quando ainda coincide com `this.worker`; `dispose()` invalida o cliente, fecha o worker e libera qualquer pedido ainda pendente. |
-| Buffers | O bitmap é transferido no `postMessage(FRAME)` e fechado pelo Worker. Um erro posterior de fallback não devolve nem altera a posse do bitmap. |
-| Invalidação | Erros recuperáveis continuam exigindo o pedido atual (`requestId` e `captureEpoch` para pose, `requestId` para mão). Erro fatal do Worker não é rejeitado por correlação de quadro, pois descreve a saúde global do Worker. |
-| Ponto de commit | Receber erro fatal do Worker ainda ativo encerra o provider e reporta erro, mesmo se `POSE`/`HAND` já tiver liberado o quadro ou um quadro posterior estiver em voo. |
-| Progresso | Ao encerrar, o cliente resolve o pedido pendente e interrompe captura; erros recuperáveis liberam somente o pedido correlacionado e deixam quadros futuros prosseguirem. |
-| Exceções | A mensagem fatal preserva o status para a UI; o callback é capturado antes do `dispose()`, que limpa os callbacks internos. |
+| Owners | Each `PoseClient`/`HandClient` owns its Worker and `inFlight` state; the Worker owns the Landmarker and decides when inference/fallback has made the Worker unusable. |
+| Readers/writers | Workers send frame replies and may later send the fallback-attempt result. Clients read both from the same message queue; a frame reply does not end the Worker's lifecycle. |
+| Lifetime | A Worker is considered current only while it still matches `this.worker`; `dispose()` invalidates the client, closes the Worker and releases any pending request. |
+| Buffers | The bitmap is transferred through `postMessage(FRAME)` and closed by the Worker. A later fallback error does not return or change bitmap ownership. |
+| Invalidation | Recoverable errors still require the current request (`requestId` and `captureEpoch` for pose, `requestId` for hand). A fatal Worker error is not rejected by frame correlation because it describes the Worker's overall health. |
+| Commit point | Receiving a fatal error from the still-active Worker shuts down the provider and reports the error, even if `POSE`/`HAND` already released the frame or a later frame is in flight. |
+| Progress | On shutdown, the client settles the pending request and stops capture; recoverable errors release only the correlated request and allow future frames to continue. |
+| Exceptions | The fatal message preserves status for the UI; the callback is captured before `dispose()`, which clears the internal callbacks. |
 
-### Mudança e verificação
+### Change and verification
 
-- O fallback por latência posta o resultado (`POSE`/`HAND`) e pode falhar depois ao inicializar CPU. A auditoria confirmou que os dois clientes descartavam o erro fatal atrasado por exigir que seu pedido ainda estivesse `inFlight`. Ao rebasear sobre a main atual, `PoseClient` já continha a invalidação do Worker ativo; essa semântica foi preservada e ganhou regressão explícita. `HandClient` ainda descartava o erro fatal atrasado.
-- Foram adicionados testes determinísticos que primeiro reproduzem o resultado, iniciam outro quadro em voo e então entregam o erro fatal antigo. Ambos falhavam no pai original do lote; na main atual, o caso de pose já passa e o de mão exige a correção.
-- `PoseClient` preserva o tratamento existente na main e sua nova regressão; `HandClient` agora trata erro fatal como condição do Worker ativo, liberando qualquer pedido restante. Erros não fatais mantêm a validação por ID/epoch.
-- Os workers continuam com protocolos e configuração específicos. A auditoria não recomenda uma abstração genérica de Worker; a decisão de extrair somente a máquina de fallback fica pendente até comparar custos e transições.
-- Suíte completa: 54 arquivos e 442 testes Vitest passaram; os cinco testes Node de qualidade também passaram. Os replays usaram somente os JSON locais existentes, ligados temporariamente e removidos do worktree após a execução.
-- `npm run build`, `npm run check:articles`, `npx biome lint src/kinematics` e `git diff --check` passaram. `npm run lint` passou com 28 avisos CSS já existentes; nenhum aviso novo apareceu em kinematics.
-- Revisão independente do caso com frame mais novo pendente não encontrou achados concretos.
+- The latency fallback posts a result (`POSE`/`HAND`) and may fail later while initializing CPU. The audit confirmed that both clients discarded the late fatal error because they required its request to remain `inFlight`. When rebased onto current main, `PoseClient` already invalidated the active Worker; that behavior was preserved and gained an explicit regression test. `HandClient` still discarded the late fatal error.
+- Deterministic tests were added that first reproduce the result, start another frame in flight, and then deliver the old fatal error. Both failed on the original batch parent; on current main, the pose case already passed and the hand case required the fix.
+- `PoseClient` preserves main's existing behavior and its new regression test; `HandClient` now treats a fatal error as a condition of the active Worker and releases any remaining request. Non-fatal errors retain ID/epoch validation.
+- Workers retain their specific protocols and configuration. The audit does not recommend a generic Worker abstraction; whether to extract only the fallback state machine remains open until costs and transitions are compared.
+- Full suite: 54 files and 442 Vitest tests passed; the five Node quality tests passed as well. Replays used only existing local JSON files, temporarily linked and removed from the worktree after the run.
+- `npm run build`, `npm run check:articles`, `npx biome lint src/kinematics` and `git diff --check` passed. `npm run lint` passed with 28 existing CSS warnings; no new warnings appeared in kinematics.
+- Independent review of the case with a newer frame pending found no concrete issues.
 
-## Rodada 4 — ativações de visão e ciclo de vida da câmera
+## Round 4 — vision activations and camera lifecycle
 
-### Invariantes antes da implementação
+### Invariants before implementation
 
-| Item | Decisão/estado observado |
+| Item | Decision/observed state |
 | --- | --- |
-| Donos | `App` possui a stream/câmera e escolhe a modalidade; cada cliente possui seu Worker e pode continuar inicializando depois de `pauseCapture()`. |
-| Leitores/escritores | `startCamera`, o efeito de troca de tela e os callbacks/promises de Pose/Hand leem ou atualizam estado da câmera. `HandClient` pode notificar erro e rejeitar a inicialização em sequência. |
-| Vida útil | A stream permanece viva ao trocar hand↔pose; os clients/Workers são reutilizados, e pausar captura não cancela uma inicialização pendente. |
-| Buffers | A troca de ativação não altera posse nem transferência dos `ImageBitmap`; cada provider conserva seu contrato atual. |
-| Invalidação | `cameraAttemptRef` continua invalidando a sessão física. `activateVisionMode` avança `visionActivationRef` nas transições e invalida callbacks, catches e inícios de captura anteriores, inclusive no ciclo hand→pose→hand. `screenRef` fecha o intervalo antes do efeito React. |
-| Ponto de commit | Só callbacks e falhas pertencentes à ativação ainda atual podem mudar estado da câmera; falha de stream continua encerrando a sessão independentemente da modalidade. |
-| Progresso | A ativação corrente inicia seu provider uma vez quando há stream, mesmo se a inicialização iniciada para uma modalidade anterior terminar com falha. O efeito React é a autoridade de início para o par sessão/ativação atual. |
-| Exceções | Erro do provider ativo encerra câmera conforme o comportamento existente; erro obsoleto de provider é ignorado sem parar tracks ou captura ativa. Falhas de `getUserMedia`/vídeo continuam reportadas. |
+| Owners | `App` owns the camera stream and selects the sport; each client owns its Worker and may still be initializing after `pauseCapture()`. |
+| Readers/writers | `startCamera`, the screen-change effect and Pose/Hand callbacks/promises read or update camera state. `HandClient` may report an error and then reject initialization. |
+| Lifetime | The stream stays live when switching hand↔pose; clients/Workers are reused, and pausing capture does not cancel pending initialization. |
+| Buffers | Switching activations does not change `ImageBitmap` ownership or transfer; each provider keeps its current contract. |
+| Invalidation | `cameraAttemptRef` continues to invalidate the physical session. `activateVisionMode` advances `visionActivationRef` during transitions and invalidates prior callbacks, catches and capture starts, including the hand→pose→hand cycle. `screenRef` closes the gap before the React effect runs. |
+| Commit point | Only callbacks and failures belonging to the still-current activation may change camera state; stream failure still ends the session regardless of sport. |
+| Progress | The current activation starts its provider once a stream exists, even if initialization started for a previous sport fails. The React effect is the authority for starting the current session/activation pair. |
+| Exceptions | An error from the active provider ends the camera as before; a stale provider error is ignored without stopping tracks or active capture. `getUserMedia`/video failures continue to be reported. |
 
-### Mudança e verificação
+### Change and verification
 
-- `activateVisionMode` centraliza a troca do modo ativo; `isCurrentVisionActivation` confere tentativa da câmera, geração da visão, modalidade ativa e tela solicitada. A sessão de câmera fica ligada à modalidade nova; falhas de provider antigo ficam isoladas.
-- `captureStartedRef` faz o efeito React iniciar captura uma vez por par `{cameraAttempt, visionActivation}`. O efeito roda também quando `cameraOn` muda, então uma troca de tela durante `getUserMedia` ainda inicia o provider da tela atual quando a stream fica pronta.
-- `startCamera` inicia o provider em paralelo com `getUserMedia`, mas observa a rejeição imediatamente. Só falhas do provider da ativação atual encerram a câmera; erros de stream e vídeo continuam encerrando a tentativa física.
-- Falhas assíncronas de `startHandCapture`/`startPoseCapture` da ativação atual também encerram a câmera. Isso cobre a rejeição de `PoseClient.init()` sem callback de status; sem essa regra, a câmera ficava ligada sem tracking e sem nova tentativa.
-- Removidos `observeEarlyRejection.ts` e seu teste: o único chamador agora anexa diretamente o tratamento da Promise na criação, sem precisar preservar uma Promise para um `await` posterior.
-- Cinco testes determinísticos cobrem: erro de init de mão depois da troca para pose; fatal tardio do Worker de mão; erro de mão enquanto `getUserMedia` está pendente e início posterior de pose; ciclo hand→pose→hand com frame antigo; e rejeição do init de pose sem callback de status.
-- O primeiro teste de interleaving e o teste da rejeição silenciosa de Pose foram executados antes da correção e falharam na asserção de stream/captura, confirmando o sinal vermelho específico.
-- Suíte completa com gravações locais existentes: `npm test` — 54 arquivos e 446 testes Vitest aprovados; os cinco testes Node de qualidade também passaram. Os JSON foram ligados temporariamente à worktree e o link foi removido ao terminar.
-- `npm run build`, `npm run lint`, `npm run check:articles`, `npx biome lint src/App.tsx tests/appVisionMode.test.tsx src/kinematics` e `git diff --check` passaram. O lint global mantém 28 avisos CSS existentes; os arquivos alterados não geram avisos isolados. O build mantém o aviso de chunks acima de 500 kB.
-- Revisão independente final não encontrou achados após a correção do caso em que o init de Pose rejeita sem publicar status.
+- `activateVisionMode` centralizes active-mode changes; `isCurrentVisionActivation` checks the camera attempt, vision generation, active sport and requested screen. The camera session remains attached to the new sport; failures from the old provider are isolated.
+- `captureStartedRef` makes the React effect start capture once per `{cameraAttempt, visionActivation}` pair. The effect also runs when `cameraOn` changes, so a screen change during `getUserMedia` still starts the provider for the current screen once the stream is ready.
+- `startCamera` starts the provider in parallel with `getUserMedia` but observes its rejection immediately. Only provider failures from the current activation end the camera; stream and video errors continue to end the physical attempt.
+- Asynchronous `startHandCapture`/`startPoseCapture` failures from the current activation also end the camera. This covers `PoseClient.init()` rejecting without a status callback; without this rule, the camera stayed on without tracking and no retry.
+- Removed `observeEarlyRejection.ts` and its test: the only caller now attaches Promise handling directly when creating it, without retaining a Promise for a later `await`.
+- Five deterministic tests cover: hand init error after switching to pose; late fatal hand Worker error; hand error while `getUserMedia` is pending followed by pose startup; hand→pose→hand with an old frame; and pose init rejection without a status callback.
+- The first interleaving test and the silent Pose rejection test were run before the fix and failed on the stream/capture assertion, confirming the specific regression signal.
+- Full suite with existing local recordings: `npm test` — 54 files and 446 Vitest tests passed; the five Node quality tests passed as well. JSON files were temporarily linked into the worktree, and the link was removed afterward.
+- `npm run build`, `npm run lint`, `npm run check:articles`, `npx biome lint src/App.tsx tests/appVisionMode.test.tsx src/kinematics` and `git diff --check` passed. Global lint retains 28 existing CSS warnings; the changed files produce no isolated warnings. The build still reports the chunk warning above 500 kB.
+- Final independent review found no issues after fixing the case where Pose initialization rejects without publishing a status.
 
-## Rodada 5 — isolamento de trabalho legado por geração
+## Round 5 — isolate legacy work by generation
 
-### Invariantes
+### Invariants
 
-| Item | Decisão/estado observado |
+| Item | Decision/observed state |
 | --- | --- |
-| Donos | `SpatialRuntime` escolhe e invalida providers por `generation`; cada pump serializa o trabalho de uma única ativação de adaptador legado. |
-| Trabalho em voo | Adaptadores `processFrame` antigos não têm contrato de cancelamento. O runtime ignora seu resultado depois da troca e não espera a Promise antiga para avançar uma geração nova. |
-| Commit | Cada ativação hand que usa somente `processFrame` cria um pump novo; `disposeActive()` para e solta a referência ao pump corrente. Uma conclusão antiga só libera o slot de seu próprio pump. |
-| Buffer | A cópia criada pelo runtime continua sob o contrato de posse de `processFrame`; se a geração ficar obsoleta antes da chamada, o bitmap é fechado pelo runtime. |
+| Owners | `SpatialRuntime` selects and invalidates providers by `generation`; each pump serializes work for a single legacy-adapter activation. |
+| In-flight work | Legacy `processFrame` adapters have no cancellation contract. The runtime ignores their result after a switch and does not wait for the old Promise before advancing to a new generation. |
+| Commit | Each hand activation that only uses `processFrame` creates a new pump; `disposeActive()` stops and releases the current pump reference. An old completion releases only its own pump slot. |
+| Buffer | The copy created by the runtime remains under the `processFrame` ownership contract; if the generation becomes stale before the call, the runtime closes the bitmap. |
 
-### Mudança e verificação
+### Change and verification
 
-- A revisão independente encontrou que o pump compartilhado mantinha `inFlight` depois de `stop()`. Um adapter antigo com Promise pendente bloqueava para sempre o adapter da próxima geração.
-- O teste determinístico reproduziu a falha sem sleeps: mantém `processFrame` antigo pendente, troca hand→pose→hand e confirma que o novo adapter recebe seu primeiro quadro. O resultado antigo é resolvido depois e continua sem ser publicado.
-- O teste falhou antes da correção e passou após criar um pump por ativação legada. `npm test -- tests/spatialRuntime.test.ts tests/videoFramePump.test.ts`: 12 testes passaram; os cinco testes Node de qualidade passaram.
-- A garantia de um único quadro em voo continua dentro de cada pump, inclusive ao reiniciar o mesmo pump; gerações diferentes deixam de compartilhar o slot.
+- Independent review found that the shared pump kept `inFlight` after `stop()`. A legacy adapter with a pending Promise permanently blocked the next generation's adapter.
+- The deterministic test reproduced the failure without sleeps: it keeps old `processFrame` pending, switches hand→pose→hand and confirms that the new adapter receives its first frame. The old result is resolved later and remains unpublished.
+- The test failed before the fix and passed after creating one pump per legacy activation. `npm test -- tests/spatialRuntime.test.ts tests/videoFramePump.test.ts`: 12 tests passed; the five Node quality tests passed.
+- The one-frame-in-flight guarantee remains within each pump, including when restarting the same pump; different generations no longer share a slot.
 
-## Rodada 6 — propriedade da cena compartilhada
+## Round 6 — ownership of shared scenery
 
-### Mudança
+### Change
 
-- `createSkyDome` era implementado em `games/track/scenery.ts` e chamado por Track, Athletics e Tennis. A localização fazia os outros jogos dependerem do módulo do curso legado.
-- A implementação passou para `games/core/scenery.ts`; os três jogos usam o helper compartilhado, e `games/track/scenery.ts` mantém somente objetos específicos do Track.
-- Os outros imports cruzados permanecem no backlog para revisão individual: `Feedback`, `RunGate` e `MiiRunner` têm semânticas e proprietários diferentes e não foram movidos por semelhança textual.
+- `createSkyDome` was implemented in `games/track/scenery.ts` and called by Track, Athletics and Tennis. Its location made the other games depend on the legacy obstacle-course module.
+- The implementation moved to `games/core/scenery.ts`; all three games use the shared helper, and `games/track/scenery.ts` keeps only Track-specific objects.
+- The other cross-imports remain in the backlog for individual review: `Feedback`, `RunGate` and `MiiRunner` have different semantics and owners, and were not moved based on similar names alone.
 
-### Verificação
+### Verification
 
-- `npm test`: 97 arquivos Vitest e 926 testes passaram; os cinco testes Node de qualidade também passaram. Os replays usaram as 14 gravações locais existentes via symlink temporário, removido ao fim da execução.
-- `npm run build`, `npm run check:articles`, lint focado dos arquivos alterados e `git diff --check` passaram. `npm run lint` passou com 35 avisos CSS em arquivos sem alteração; o build mantém o aviso de chunks acima de 500 kB.
-- Duas revisões independentes do diff completo não encontraram achados concretos; verificaram lifecycle de câmera, captura por geração e a extração do helper de cena.
+- `npm test`: 97 Vitest files and 926 tests passed; the five Node quality tests passed as well. Replays used the 14 existing local recordings through a temporary symlink, removed after the run.
+- `npm run build`, `npm run check:articles`, focused lint of changed files and `git diff --check` passed. `npm run lint` passed with 35 CSS warnings in unchanged files; the build still reports the chunk warning above 500 kB.
+- Two independent reviews of the full diff found no concrete issues; they checked camera lifecycle, generation-based capture and extraction of the scenery helper.
 
-## Rodada 7 — fechar brechas apontadas na revisão do PR #49
+## Round 7 — close gaps found in the PR #49 review
 
-### Mudanças
+### Changes
 
-- Callbacks de rVFC e rAF verificam a geração antes de limpar o handle ou atualizar `lastVideoTime`. O teste de captura inclui restart durante a entrega em lote de callbacks e exige que `stop()` cancele o handle novo.
-- A regra `noRestrictedImports` agora bloqueia tanto subpaths privados do pacote quanto imports relativos para `packages/core/**` em kinematics. O barrel `@nevergear/spatial-core` continua permitindo somente os contratos listados.
-- Probe com arquivo temporário confirmou que o import relativo privado falha e o import público de `PoseSnapshot` passa; o fixture temporário foi removido.
+- rVFC and rAF callbacks check the generation before clearing a handle or updating `lastVideoTime`. The capture test includes a restart during batched callback delivery and requires `stop()` to cancel the new handle.
+- The `noRestrictedImports` rule now blocks both private package subpaths and relative imports into `packages/core/**` from kinematics. The `@nevergear/spatial-core` barrel still allows only the listed contracts.
+- A probe with a temporary file confirmed that the private relative import fails and the public `PoseSnapshot` import passes; the temporary fixture was removed.
 
-### Verificação e limite
+### Verification and limitation
 
-- O teste de scheduler foi vermelho antes da correção e verde depois. `npm test` passou com 97 arquivos Vitest, 928 testes e cinco testes Node, usando somente as gravações locais existentes por symlink temporário removido ao final.
-- `npm run build`, `npm run lint`, `npm run check:articles`, lint focado e `git diff --check` passaram. O lint global mantém 35 avisos CSS em arquivos não alterados; o build mantém avisos de chunks acima de 500 kB.
-- A checagem manual real da webcam exigida no `AGENTS.md` ainda não foi feita: este ambiente não tem browser instalado nem `/dev/video*`. O PR declara essa pendência; precisa ser verificada numa máquina com webcam.
+- The scheduler test failed before the fix and passed afterward. `npm test` passed with 97 Vitest files, 928 tests and five Node tests, using only existing local recordings through a temporary symlink removed at the end.
+- `npm run build`, `npm run lint`, `npm run check:articles`, focused lint and `git diff --check` passed. Global lint retains 35 CSS warnings in unchanged files; the build still reports chunks above 500 kB.
+- The real webcam check required by `AGENTS.md` has not been done: this environment has no browser installed and no `/dev/video*`. The PR reports this limitation; it needs verification on a machine with a webcam.
 
-## Ciclo de melhoria
+## Improvement cycle
 
-Cada lote termina com código migrado, teste na interface apropriada, exclusão segura da implementação substituída, restrição contra regressão quando aplicável e commit próprio. A lista ordenada e as decisões pendentes ficam em [architecture-backlog.md](architecture-backlog.md); decisões que passem o critério ADR ficam em `docs/adr/`.
+Each batch ends with migrated code, a test at the appropriate interface, safe removal of the replaced implementation, regression guardrails where applicable and its own commit. The ordered list and pending decisions live in [architecture-backlog.md](architecture-backlog.md); decisions that meet the ADR criteria belong in `docs/adr/`.

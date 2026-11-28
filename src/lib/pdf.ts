@@ -1,6 +1,6 @@
 /**
- * Gerador de PDF minimo, sem dependencias: texto em fontes padrao (Helvetica / Courier, WinAnsi),
- * quebra de linha, paginas A4 e rodape com numero da pagina.
+ * Minimal PDF generator with no dependencies: text in standard fonts (Helvetica / Courier, WinAnsi),
+ * line wrapping, A4 pages, and numbered footers.
  */
 
 export type PdfFont = 'regular' | 'bold' | 'mono';
@@ -13,17 +13,17 @@ const FOOTER_Y = 40;
 const LINE = 1.45;
 const FONT_KEY: Record<PdfFont, string> = { regular: 'F1', bold: 'F2', mono: 'F3' };
 const FONT_NAME: Record<PdfFont, string> = { regular: 'Helvetica', bold: 'Helvetica-Bold', mono: 'Courier' };
-// Largura media por caractere, em multiplos do tamanho da fonte (suficiente para quebrar linhas).
+// Average character width, as a multiple of font size (enough for line wrapping).
 const CHAR_EM: Record<PdfFont, number> = { regular: 0.5, bold: 0.56, mono: 0.6 };
 
-// Caracteres do WinAnsi acima de 0x7F que nao ficam no mesmo codigo do Unicode.
+// WinAnsi characters above 0x7F that do not share their Unicode code point.
 const WIN_ANSI: Record<string, number> = {
   '€': 0x80, '‚': 0x82, 'ƒ': 0x83, '„': 0x84, '…': 0x85, '†': 0x86, '‡': 0x87, 'ˆ': 0x88, '‰': 0x89,
   'Š': 0x8a, '‹': 0x8b, 'Œ': 0x8c, 'Ž': 0x8e, '‘': 0x91, '’': 0x92, '“': 0x93, '”': 0x94, '•': 0x95,
   '–': 0x96, '—': 0x97, '˜': 0x98, '™': 0x99, 'š': 0x9a, '›': 0x9b, 'œ': 0x9c, 'ž': 0x9e, 'Ÿ': 0x9f,
 };
 
-/** Texto em codigos de 1 byte (WinAnsi); o que nao cabe vira '?'. */
+/** Encode text as 1-byte WinAnsi; characters that do not fit become '?'. */
 function encode(text: string): string {
   text = text.replace(/−/g, '-').replace(/≥/g, '>=').replace(/ᵢ/g, '_i').replace(/ᵣ/g, '_r').replace(/𝓰/g, '_g').replace(/ₒ/g, '_o').replace(/ₚ/g, '_p');
   let out = '';
@@ -53,7 +53,7 @@ function wrap(text: string, size: number, font: PdfFont, width: number): string[
       current = candidate;
     } else {
       if (current) lines.push(current);
-      // Palavra maior que a linha: quebra em pedacos.
+      // Break words that are longer than the line into chunks.
       let rest = word;
       while (rest.length > maxChars) {
         lines.push(rest.slice(0, maxChars));
@@ -66,7 +66,7 @@ function wrap(text: string, size: number, font: PdfFont, width: number): string[
   return lines.length ? lines : [''];
 }
 
-/** Monta o PDF a partir de blocos de texto ja prontos. */
+/** Build a PDF from prepared text blocks. */
 export function buildPdf(title: string, blocks: PdfBlock[]): Blob {
   const pages: string[][] = [[]];
   const contentWidth = PAGE_W - MARGIN * 2;
@@ -91,7 +91,7 @@ export function buildPdf(title: string, blocks: PdfBlock[]): Blob {
     }
   }
 
-  // Rodape com numero da pagina.
+  // Add a numbered footer to each page.
   const total = pages.length;
   pages.forEach((content, index) => {
     content.push(
@@ -99,7 +99,7 @@ export function buildPdf(title: string, blocks: PdfBlock[]): Blob {
     );
   });
 
-  // Objetos: 1 catalogo, 2 paginas, 3-5 fontes, depois pagina + conteudo em pares, depois info.
+  // Objects: 1 catalog, 2 page tree, 3-5 fonts, then page/content pairs, followed by document info.
   const objects: string[] = [];
   const fontObjects = [3, 4, 5];
   const pageObjects: number[] = [];
@@ -122,7 +122,7 @@ export function buildPdf(title: string, blocks: PdfBlock[]): Blob {
   const infoNo = firstPageObj + pages.length * 2;
   objects[infoNo] = `<< /Title (${escapePdf(encode(title))}) /Producer (Nevergear) >>`;
 
-  // Monta o arquivo; cada caractere e um byte (tudo esta em Latin-1).
+  // Assemble the file; each character is one byte (the content is Latin-1).
   let body = '%PDF-1.4\n%âãÏÓ\n';
   const offsets: number[] = [];
   for (let n = 1; n < objects.length; n += 1) {
@@ -146,13 +146,13 @@ export function buildPdf(title: string, blocks: PdfBlock[]): Blob {
 
 const clean = (text: string) => text.replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1').replace(/`/g, '');
 
-/** Converte o Markdown dos artigos (mesmo subconjunto da leitura na pagina) em blocos de PDF. */
+/** Convert article Markdown (the same subset supported by the page reader) into PDF blocks. */
 export function markdownToPdfBlocks(md: string): PdfBlock[] {
   const blocks: PdfBlock[] = [];
   md.trim().split(/\n{2,}/).forEach((raw) => {
     const lines = raw.split('\n').map((l) => l.replace(/\s+$/, '')).filter(Boolean);
     if (lines.length === 0) return;
-    if (lines.every((l) => /^!\[[^\]]*\]\([^)]*\)$/.test(l))) return; // figuras ficam de fora
+    if (lines.every((l) => /^!\[[^\]]*\]\([^)]*\)$/.test(l))) return; // Figures are omitted.
     if (raw.startsWith('# ')) blocks.push({ text: clean(raw.slice(2)), size: 20, font: 'bold', gapBefore: 4 });
     else if (raw.startsWith('## ')) blocks.push({ text: clean(raw.slice(3)), size: 14, font: 'bold', gapBefore: 18 });
     else if (raw.startsWith('### ')) blocks.push({ text: clean(raw.slice(4)), size: 12, font: 'bold', gapBefore: 12 });

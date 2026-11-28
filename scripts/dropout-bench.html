@@ -1,10 +1,10 @@
 <!doctype html>
-<!-- Benchmark de dropout temporal com webcam real: mede frames vazios/baixa-confiança por
-     minuto e blackouts (sequências ruins) por duração — a métrica que decide Lite vs Full.
-     Uso: `npm run build && cp scripts/dropout-bench.html dist/dropout.html && npm run preview`,
-     depois abra http://localhost:4173/dropout.html?model=lite (ou ?model=full).
-     Protocolo guiado de 60 s na tela: parado → correndo → pulando → agachando → livre.
-     Compare os dois modelos com o MESMO protocolo e cole o JSON final nos dois cenários. -->
+<!-- Temporal dropout benchmark with a real webcam: measures empty/low-confidence frames per
+     minute and blackout duration — the metric used to choose Lite versus Full.
+     Usage: `npm run build && cp scripts/dropout-bench.html dist/dropout.html && npm run preview`,
+     then open http://localhost:4173/dropout.html?model=lite (or ?model=full).
+     The on-screen 60 s protocol is: stand still → run in place → jump → squat → move freely.
+     Compare the models with the same protocol and save the final JSON from both runs. -->
 <meta charset="utf-8">
 <title>dropout bench</title>
 <style>
@@ -15,7 +15,7 @@
   #report { white-space: pre-wrap; background: #1a2027; padding: 16px; border-radius: 8px; max-width: 900px; }
   button { font: inherit; padding: 8px 16px; margin-right: 8px; }
 </style>
-<div id="phase">aguardando câmera…</div>
+<div id="phase">Waiting for camera…</div>
 <div id="live"></div>
 <video id="cam" autoplay muted playsinline></video>
 <div id="report"></div>
@@ -24,7 +24,7 @@ const params = new URLSearchParams(location.search);
 const MODEL_KIND = params.get('model') ?? 'lite';
 const SECS = Number(params.get('secs') ?? 60);
 
-// Descobre o chunk do worker e o wasm versionado a partir do bundle principal (mesmo truque do pose-bench).
+// Find the worker chunk and versioned WASM from the main bundle (the same method as pose-bench).
 const indexHtml = await (await fetch('/')).text();
 const mainJs = indexHtml.match(/src="([^"]*index-[^"]+\.js)"/)[1];
 const mainSrc = await (await fetch(mainJs)).text();
@@ -36,18 +36,18 @@ for (const v of semvers) {
   const res = await fetch(probe, { method: 'HEAD' });
   if (res.ok && (res.headers.get('content-type') ?? '').includes('javascript')) { WASM = `${location.origin}/mediapipe/wasm-${v}`; break; }
 }
-if (!WASM) throw new Error('dir wasm versionado não encontrado');
+if (!WASM) throw new Error('Versioned WASM directory not found');
 const sums = await (await fetch('/mediapipe/models/SHA256SUMS')).text();
 const sha8Of = (prefix) => sums.match(new RegExp(`([0-9a-f]{64})  ${prefix}\\.`))[1].slice(0, 8);
 const MODEL = `${location.origin}/mediapipe/models/pose_landmarker_${MODEL_KIND}.${sha8Of(`pose_landmarker_${MODEL_KIND}`)}.task`;
 
-// Protocolo guiado: mesmo estímulo nas duas rodadas, para a comparação ser honesta.
+// Guided protocol: use the same stimulus in both runs for a fair comparison.
 const PROTOCOL = [
-  [0, 'PARADO em pé (10 s)'],
-  [10, 'CORRA no lugar! (20 s)'],
-  [30, 'PULE! (10 s)'],
-  [40, 'AGACHE e levante (10 s)'],
-  [50, 'livre — balance os braços (10 s)'],
+  [0, 'STAND STILL (10 s)'],
+  [10, 'RUN IN PLACE! (20 s)'],
+  [30, 'JUMP! (10 s)'],
+  [40, 'SQUAT AND STAND (10 s)'],
+  [50, 'MOVE FREELY — SWING YOUR ARMS (10 s)'],
 ];
 
 const phaseEl = document.getElementById('phase');
@@ -126,12 +126,12 @@ video.requestVideoFrameCallback(function loop() {
 const tick = setInterval(() => {
   const elapsed = (performance.now() - start) / 1000;
   const phase = [...PROTOCOL].reverse().find(([at]) => elapsed >= at);
-  phaseEl.textContent = elapsed >= SECS ? 'fim!' : `${phase?.[1] ?? ''} — ${Math.max(0, SECS - elapsed).toFixed(0)}s`;
+  phaseEl.textContent = elapsed >= SECS ? 'Done!' : `${phase?.[1] ?? ''} — ${Math.max(0, SECS - elapsed).toFixed(0)}s`;
   const bad = frames.filter((f) => f.empty || f.torsoConf < 0.5).length;
   const span = frames.length > 1 ? (frames.at(-1).ts - frames[0].ts) / 1000 : 1;
   liveEl.textContent = invalidReason
-    ? `benchmark inválido: ${invalidReason}`
-    : `poses/s: ${(frames.length / Math.max(1, span)).toFixed(1)}  frames: ${frames.length}  ruins: ${bad} (${(100 * bad / Math.max(1, frames.length)).toFixed(1)}%)`;
+    ? `Invalid benchmark: ${invalidReason}`
+    : `poses/s: ${(frames.length / Math.max(1, span)).toFixed(1)}  frames: ${frames.length}  low-confidence: ${bad} (${(100 * bad / Math.max(1, frames.length)).toFixed(1)}%)`;
   if (elapsed >= SECS) clearInterval(tick);
 }, 250);
 
@@ -139,8 +139,8 @@ await new Promise((r) => setTimeout(r, SECS * 1000 + 500));
 worker.terminate();
 video.srcObject?.getTracks().forEach((track) => { track.stop(); });
 
-// Blackout cru fecha no primeiro frame bom; recuperação fecha depois de três frames bons
-// consecutivos; perda sustentada segue a regra de 800 ms sem nenhum frame bom do TrackingGate.
+// A raw blackout closes on the first good frame; a recovery blackout closes after three
+// consecutive good frames; sustained loss follows TrackingGate's 800 ms no-good-frame rule.
 const bad = (f) => f.empty || f.torsoConf < 0.5;
 const rawBlackouts = [];
 let rawOpenAt = null;
@@ -221,9 +221,9 @@ const report = {
 };
 phaseEl.textContent = `fim — ${MODEL_KIND}`;
 liveEl.textContent = '';
-reportEl.textContent = `${report.valid ? '' : `BENCHMARK INVÁLIDO — NÃO COMPARAR: ${invalidReason}\n`}` +
-  `recuperações/min: ${report.recoveryBlackoutsPerMin}  perdas sustentadas/min: ${report.sustainedLossesPerMin}\n` +
-  `frames vazios/min: ${report.emptyPerMin}  ruins: ${report.badPct}%  poses/s: ${report.posesPerS}  delegate: ${delegate}\n\n` +
+reportEl.textContent = `${report.valid ? '' : `INVALID BENCHMARK — DO NOT COMPARE: ${invalidReason}\n`}` +
+  `recoveries/min: ${report.recoveryBlackoutsPerMin}  sustained losses/min: ${report.sustainedLossesPerMin}\n` +
+  `empty frames/min: ${report.emptyPerMin}  low-confidence: ${report.badPct}%  poses/s: ${report.posesPerS}  delegate: ${delegate}\n\n` +
   JSON.stringify(report, null, 2);
 window.DROPOUT_BENCH = report;
 console.log('DROPOUT_BENCH', JSON.stringify(report));

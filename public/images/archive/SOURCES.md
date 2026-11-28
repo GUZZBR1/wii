@@ -11,7 +11,7 @@ its source record.
 | `theremin-termen.jpg` | Léon Theremin playing the theremin, c. 1927 | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Lev_Termen_playing_-_cropped.jpg), public domain. |
 | `power-glove.jpg` | Nintendo / Mattel, Power Glove, 1989 | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Power_Glove.jpg), marked public domain. |
 | `eyetoy.jpg` | Sony, EyeToy camera for PlayStation 2, 2003 | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:EyeToy_camera_2.jpg), marked public domain. |
-| `nevergear-remote.jpg` | Nintendo, Wii Remote with Nunchuk, 2006 | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Nintendo-Wii-Remote-wNunchuk.jpg), marked public domain. |
+| `wii-remote.jpg` | Nintendo, Wii Remote with Nunchuk, 2006 | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Nintendo-Wii-Remote-wNunchuk.jpg), marked public domain. |
 | `kinect.jpg` | Microsoft, Kinect sensor at E3 2010 | [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Kinect_Sensor_at_E3_2010_(front).jpg), CC BY 2.0. Credit the photographer named on the file page. |
 
 ## Rights status

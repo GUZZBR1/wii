@@ -29,7 +29,7 @@ export function createMiiHeadGeometry(spec: MiiFaceSpec): THREE.BufferGeometry {
 function mergeRaw(parts: THREE.BufferGeometry[]): THREE.BufferGeometry {
   const merged = mergeGeometries(parts);
   for (const part of parts) part.dispose();
-  if (!merged) throw new Error('Não foi possível mesclar a geometria do Mii');
+  if (!merged) throw new Error('Could not merge the Mii geometry');
   return merged;
 }
 

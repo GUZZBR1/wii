@@ -6,7 +6,7 @@
 
 **A Nevergear experiment: your body is the controller.**
 
-Run, swing, punch, dodge, and play directly in the browser with nothing but a webcam. Nevergear Web Sports Arena turns real-time pose and hand tracking into arcade sports — no dedicated motion controller, no wearable, no backend, and no installation.
+Run, swing, punch, and dodge directly in the browser with a webcam; Boxing also offers keyboard controls. Nevergear Web Sports Arena turns real-time pose and hand tracking into arcade sports — no dedicated motion controller, no wearable, no backend, and no installation.
 
 <img src="assets/caution-tape.svg" alt="Nevergear Web Sports Arena under active construction" width="680" />
 
@@ -19,6 +19,12 @@ Run, swing, punch, dodge, and play directly in the browser with nothing but a we
 Nevergear Web Sports Arena is a body-controlled web arcade that explores how close a normal browser camera can get to the immediacy of motion-controlled console sports. The current build includes stadium athletics over 100, 200, and 400 meters, timing-based tennis, camera-driven boxing, a three-sport Iron Man challenge, and a Mii creator whose avatar is stored locally in the browser.
 
 The project is part game, part computer-vision research platform, and part love letter to playful interaction. Video is processed locally in the browser, movement becomes game intent through calibrated pose and hand tracking, and the sports scenes are rendered in Three.js.
+
+## Language
+
+The website and game interface support Portuguese and English. On first launch, the app follows the browser's first supported language preference and falls back to English; a manual choice is saved in the browser. It uses browser language preferences, not a direct operating-system lookup. See [docs/language-support.md](docs/language-support.md) for the selection rules and implementation details. The documentation is written in English, while the website's research articles remain available in Portuguese and English.
+
+Start with the [documentation index](docs/README.md) for gameplay, research, architecture, and historical reviews.
 
 ## The arena
 

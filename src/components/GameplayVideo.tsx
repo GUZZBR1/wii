@@ -28,11 +28,10 @@ type GameplayVideoProps = {
   name: Bilingual;
 };
 
-// Clipe de gameplay em loop dentro da moldura de um cartao da vitrine. Dono do
-// proprio estado de reproducao: o observador escreve inView, a aba escreve
-// pageVisible, o botao e a preferencia de movimento escrevem pausedByUser, e um
-// unico efeito confirma play/pause no elemento. Os clipes tem emenda de loop
-// frame-exata, entao o atributo loop basta — nao ha rotacao nem crossfade.
+// Looping gameplay clip inside a showcase card. Owns its playback state:
+// the observer writes inView, the tab writes pageVisible, and the button and motion preference write pausedByUser.
+// One effect commits play/pause to the element. Clips have a frame-exact loop seam,
+// so the loop attribute is enough; there is no rotation or crossfade.
 export default function GameplayVideo({ sport, name }: GameplayVideoProps) {
   const { tr } = useLang();
   const reducedMotion = useReducedMotion();
@@ -53,8 +52,7 @@ export default function GameplayVideo({ sport, name }: GameplayVideoProps) {
     try {
       const playing = video.play();
       playing?.catch((error: unknown) => {
-        // Autoplay bloqueado pelo navegador: o cartao acorda pausado e o
-        // visitante assume o controle pelo botao.
+        // If the browser blocks autoplay, keep the card paused until the visitor uses the button.
         if (error instanceof DOMException && error.name === 'NotAllowedError') setPausedByUser(true);
       });
     } catch {
@@ -62,8 +60,8 @@ export default function GameplayVideo({ sport, name }: GameplayVideoProps) {
     }
   }, []);
 
-  // A preferencia de reduzir movimento pausa o clipe ao aparecer; desligar a
-  // preferencia nao retoma sozinho, pois a pausa ja virou escolha do usuario.
+  // Reduced motion pauses the clip when it appears. Turning the preference off does not resume it
+  // because the pause has become an explicit user choice.
   useEffect(() => {
     if (reducedMotion) setPausedByUser(true);
   }, [reducedMotion]);
@@ -84,9 +82,9 @@ export default function GameplayVideo({ sport, name }: GameplayVideoProps) {
     const observer = new IntersectionObserver(
       (entries) => {
         for (const entry of entries) {
-          // isIntersecting vale ja no primeiro pixel — o threshold nao filtra.
-          // Entra aos 20% e sai so ao sumir por completo, como o reveal dos
-          // cartoes: entre os dois extremos mantem o estado, sem piscar na borda.
+          // isIntersecting is true from the first visible pixel; the threshold does not filter it.
+          // Enter at 20% and exit only when fully hidden, like the card reveal: between those bounds,
+          // keep the current state to avoid flicker at the edge.
           if (entry.target !== frame) continue;
           if (entry.intersectionRatio >= 0.2) setInView(true);
           else if (!entry.isIntersecting) setInView(false);
@@ -101,14 +99,14 @@ export default function GameplayVideo({ sport, name }: GameplayVideoProps) {
   useEffect(() => {
     const video = videoRef.current;
     if (!video || failed) return;
-    // preload="none" segura o download ate aqui: o play() que dispara na
-    // primeira entrada na viewport e o que inicia o carregamento do clipe.
+    // preload="none" delays the download until this point: play() on the first viewport entry
+    // is what starts loading the clip.
     if (inView && pageVisible && !pausedByUser) requestPlay(video);
     else video.pause();
   }, [failed, inView, pageVisible, pausedByUser, requestPlay]);
 
-  // O botao so registra a escolha; o efeito acima e o unico ponto que confirma
-  // play/pause no elemento, respeitando viewport e visibilidade da aba.
+  // The button records the choice; the effect above is the only place that commits
+  // play/pause to the element, respecting the viewport and tab visibility.
   const togglePlayback = () => setPausedByUser((current) => !current);
 
   const title = tr(name.pt, name.en);
@@ -134,8 +132,8 @@ export default function GameplayVideo({ sport, name }: GameplayVideoProps) {
             poster={sources.poster}
             preload="none"
             ref={(element) => {
-              // React escreve muted como atributo, mas o elemento so silencia de
-              // verdade com a propriedade — sem isso o autoplay e bloqueado.
+              // React writes muted as an attribute, but the element is actually silenced by
+              // its property; without it, autoplay is blocked.
               if (element) element.muted = true;
               videoRef.current = element;
             }}

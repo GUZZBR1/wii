@@ -1,3 +1,5 @@
+import type { Lang } from '../i18n';
+
 function clamp01(value: number): number {
   if (Number.isNaN(value)) return 0;
   return Math.min(1, Math.max(0, value));
@@ -6,7 +8,10 @@ function clamp01(value: number): number {
 export class ProceduralAudio {
   private context?: AudioContext;
   private muted = false;
+  private language: Lang = 'pt';
   private noiseBuffers = new WeakMap<AudioContext, AudioBuffer>();
+
+  setLanguage(language: Lang): void { this.language = language; }
 
   async unlock(): Promise<void> {
     try {
@@ -59,7 +64,7 @@ export class ProceduralAudio {
     if (this.muted || typeof speechSynthesis === 'undefined') return;
     speechSynthesis.cancel();
     const call = new SpeechSynthesisUtterance(text);
-    call.lang = 'pt-BR';
+    call.lang = this.language === 'pt' ? 'pt-BR' : 'en-US';
     call.rate = 1.1;
     speechSynthesis.speak(call);
   }

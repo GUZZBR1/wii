@@ -10,6 +10,8 @@ import { createMiiRunner, type MiiRunner } from './miiRunner';
 import { formatTime, type Goal, NO_BODY_ADVICE, parseRecords, Race, recordTime, type Split, TOP_SPEED } from './race';
 import { buildStadium, type Stadium } from './stadiumScene';
 import { LANE_WIDTH, R_RUN, sampleTrack, type TrackSample } from './trackCurve';
+import type { Lang } from '../../i18n';
+import { gameText, placeLabel } from '../../gameText';
 
 export interface AthleticsHudState {
   score: number;
@@ -49,6 +51,7 @@ const strideStep = (dt: number, speedMps: number) => (dt * Math.PI * (1.4 + spee
  * player runs in front of the camera (`setEffort`). Rules live in `Race`; this class draws them.
  */
 export class AthleticsGame {
+  private language: Lang;
   private readonly scene = new THREE.Scene();
   private readonly camera = new THREE.PerspectiveCamera(54, 1, 0.1, 350);
   private readonly faceCache = new FaceCache();
@@ -75,8 +78,10 @@ export class AthleticsGame {
     private readonly onHud: (state: AthleticsHudState) => void,
     private readonly audio?: ProceduralAudio,
     goal: Goal = 100,
+    language: Lang = 'pt',
   ) {
-    this.race = new Race(goal, Math.random);
+    this.language = language;
+    this.race = new Race(goal, Math.random, language);
     this.loop = new GameLoop(canvas, this.scene, this.camera, (dt, _simulationTimeMs, wallTimeMs) => this.update(dt, wallTimeMs));
     this.stadium = buildStadium(this.scene, this.loop.renderer);
     this.loop.onQualityChange = (tier) => this.stadium.setShadows(tier === 0);
@@ -114,6 +119,12 @@ export class AthleticsGame {
   }
 
   onAction(): void {}
+
+  setLanguage(language: Lang): void {
+    this.language = language;
+    this.race.setLanguage(language);
+    this.publishHud();
+  }
 
   /** Played with the body only. */
   onKey(): void {}
@@ -218,16 +229,18 @@ export class AthleticsGame {
       ? undefined
       : race.phase === 'framing'
         ? race.advice === undefined
-          ? { title: 'Ótimo!', detail: 'Fique aí' }
-          : { title: 'Ajuste a câmera', detail: race.advice ?? 'Ligue a câmera para correr' }
+          ? { title: gameText(this.language, 'Ótimo!', 'Great!'), detail: gameText(this.language, 'Fique aí', 'Stay there') }
+          : { title: gameText(this.language, 'Ajuste a câmera', 'Adjust the camera'), detail: race.displayAdvice ?? gameText(this.language, 'Ligue a câmera para correr', 'Turn on the camera to race') }
         : race.phase === 'warmup'
-          ? { title: 'CORRA COM TUDO!', detail: `${race.retries ? 'Não senti você correr. De novo' : 'Aquecimento: mantenha o ritmo até o fim'} · ${Math.ceil(race.warmupLeft)}` }
-          : race.phase === 'countdown' ? { title: String(Math.ceil(race.countdown)), detail: 'Pare. Corra quando zerar' } : undefined;
-    const record = this.record?.isNew ? 'Novo recorde pessoal!' : this.record ? `Recorde pessoal: ${formatTime(this.record.best)}` : '';
+          ? { title: gameText(this.language, 'CORRA COM TUDO!', 'RUN YOUR BEST!'), detail: `${race.retries ? gameText(this.language, 'Não senti você correr. De novo', 'I did not detect your run. Try again') : gameText(this.language, 'Aquecimento: mantenha o ritmo até o fim', 'Warm-up: keep your pace until the end')} · ${Math.ceil(race.warmupLeft)}` }
+          : race.phase === 'countdown' ? { title: String(Math.ceil(race.countdown)), detail: gameText(this.language, 'Pare. Corra quando zerar', 'Stop. Run when the countdown ends') } : undefined;
+    const record = this.record?.isNew
+      ? gameText(this.language, 'Novo recorde pessoal!', 'New personal record!')
+      : this.record ? `${gameText(this.language, 'Recorde pessoal', 'Personal record')}: ${formatTime(this.record.best)}` : '';
     const finished = race.finishS !== undefined
       ? {
-        title: !race.standingsFinal ? 'PROVA EM ANDAMENTO' : race.place === 1 ? 'VOCÊ VENCEU!' : `${race.place}º lugar`,
-        detail: [`${formatTime(race.finishS)} nos ${race.goal} m`, record].filter(Boolean).join(' · '),
+        title: !race.standingsFinal ? gameText(this.language, 'PROVA EM ANDAMENTO', 'RACE IN PROGRESS') : race.place === 1 ? gameText(this.language, 'VOCÊ VENCEU!', 'YOU WIN!') : placeLabel(race.place, this.language),
+        detail: [`${formatTime(race.finishS)} ${gameText(this.language, 'nos', 'in the')} ${race.goal} m`, record].filter(Boolean).join(' · '),
         standings: race.standings.map((runner) => ({ name: runner.name, time: formatTime(runner.timeS), you: runner.you, status: runner.status, place: runner.place })),
         standingsFinal: race.standingsFinal,
         restart01: Math.floor(race.restart01 * 20) / 20,
@@ -238,12 +251,12 @@ export class AthleticsGame {
       label: formatTime(race.elapsedS),
       speed01: Math.round(race.effort01 * 100) / 100,
       // Coarse steps, so a steady run does not republish the HUD every tick.
-      energy: finished ? undefined : { value01: Math.round(race.energy01 * 20) / 20, label: race.phase === 'warmup' || race.phase === 'framing' ? 'SINAL DA CORRIDA' : 'SUA ENERGIA', coaching: race.coaching },
+      energy: finished ? undefined : { value01: Math.round(race.energy01 * 20) / 20, label: race.phase === 'warmup' || race.phase === 'framing' ? gameText(this.language, 'SINAL DA CORRIDA', 'RUN SIGNAL') : gameText(this.language, 'SUA ENERGIA', 'YOUR ENERGY'), coaching: race.coaching },
       runners: race.phase === 'racing' ? [
-        { name: 'Você', progress01: metres / race.goal, you: true },
+        { name: gameText(this.language, 'Você', 'You'), progress01: metres / race.goal, you: true },
         ...race.rivals.map((rival) => ({ name: rival.name, progress01: Math.min(1, Math.floor(rival.distance) / race.goal), you: false })),
       ] : undefined,
-      status: race.phase === 'racing' ? `${race.place}º lugar · ${metres} / ${race.goal} m` : race.phase === 'finished' ? 'Chegada!' : 'Corra no lugar, mexendo os braços',
+      status: race.phase === 'racing' ? `${placeLabel(race.place, this.language)} · ${metres} / ${race.goal} m` : race.phase === 'finished' ? gameText(this.language, 'Chegada!', 'Finish!') : gameText(this.language, 'Corra no lugar, mexendo os braços', 'Run in place and swing your arms'),
       banner,
       feedback: this.feedback,
       finished,
