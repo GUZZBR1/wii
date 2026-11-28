@@ -28,11 +28,11 @@
   .channel.empty:hover, .channel.empty:focus-visible { box-shadow: 0 0 0 5px #34beed66, var(--shadow); }
   .channel.sport-channel { overflow: hidden; padding: 0; display: flex; flex-direction: column; background: #fff; border-color: #fff; color: var(--ink); }
   .sport-channel:hover, .sport-channel:focus-visible { box-shadow: 0 0 0 5px #34beed88, var(--shadow); }
-  .channel-scene { flex: 1; width: 100%; }
+  .channel-scene { flex: 1; width: 100%; min-height: 0; background: center / cover no-repeat; }
+  .sport-channel.athletics .channel-scene { background-image: url(/images/menu/athletics.jpg); }
+  .sport-channel.tennis .channel-scene { background-image: url(/images/menu/tennis.jpg); }
+  .sport-channel.boxing .channel-scene { background-image: url(/images/menu/boxing.jpg); }
   .channel-name { width: 100%; padding: 5px; background: var(--gloss); font-size: clamp(14px, 1.8vw, 24px); font-weight: 800; }
-  .sport-channel.athletics .channel-scene { background: linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #4e9e52 42% 52%, #0000 52%), repeating-linear-gradient(#c8603f 0 13%, #fff 13% 14%); }
-  .sport-channel.tennis .channel-scene { background: linear-gradient(90deg, #0000 49.6%, #fff 49.6% 50.4%, #0000 50.4%) 50% 100% / 100% 40% no-repeat, linear-gradient(#0000 68%, #fff 68% 70%, #0000 70%), linear-gradient(#8cc9f2 0%, #dcf0fb 42%, #3f8f4b 42% 48%, #3f78b5 48%); }
-  .sport-channel.boxing .channel-scene { background: radial-gradient(circle at 38% 58%, #d64545 0 9%, #0000 9.5%), radial-gradient(circle at 62% 58%, #2f6fd0 0 9%, #0000 9.5%), repeating-linear-gradient(#0000 0 8%, #fff 8% 9.5%, #0000 9.5% 14%) 50% 70% / 100% 40% no-repeat, linear-gradient(#26313b 0 52%, #d9c9a3 52%); }
   .ring-arrow { position: absolute; z-index: 25; top: 50%; width: 52px; height: 52px; translate: 0 -50%; border: 3px solid var(--blue); border-radius: 50%; color: var(--blue-deep); background: linear-gradient(#fff 0 46%, #d9f2fd 54%, #ade4f8); box-shadow: 0 5px 14px rgba(26, 110, 168, .35), inset 0 1px #fff; }
   .ring-arrow.left { left: 3%; }
   .ring-arrow.right { right: 3%; }
