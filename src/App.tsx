@@ -535,7 +535,10 @@ export default function App({ exit }: { exit?: ReactNode }) {
   };
 
   const menuBackRef = useRef<(() => void) | undefined>(undefined);
-  const handBack = useCallback(() => menuBackRef.current?.(), []);
+  const handBack = useCallback(() => {
+    if (screenRef.current === 'home') menuBackRef.current?.();
+    else if (screenRef.current === 'mii') setScreen('home');
+  }, []);
 
   const menu = inHandMenu(screen);
 

@@ -253,7 +253,12 @@
 
 
   /* editor de Mii */
-  .wii-mii-button { position: absolute; right: clamp(12px, 4vw, 70px); bottom: 12%; z-index: 2; padding: 7px 18px; font-size: 13px; }
+  /* fora do PiP da câmera (230px de largura + 14px de margem + 14px de respiro), sem precisar subir o z-index */
+  .wii-mii-button { position: absolute; right: calc(230px + 28px); bottom: 18%; z-index: 2; padding: 7px 18px; font-size: 13px; }
+  /* no mobile o botão sobe para cima do "sair", na lateral oposta ao PiP — depois da regra base para vencer a cascata */
+  @media (max-width: 640px) {
+    .wii-mii-button { left: 4%; right: auto; bottom: calc(18% + 46px); }
+  }
   .mii-editor { background: repeating-linear-gradient(#0000 0 3px, #ffffff80 3px 4px), #d5dbe0; }
   .mii-workbench { flex: 1; display: grid; grid-template-columns: minmax(280px, 42%) 1fr; gap: 22px; min-height: 0; padding: 22px 4vw 28px; }
   .mii-stage { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 360px; border: 3px solid var(--blue); border-radius: 24px; background: radial-gradient(circle at 50% 34%, #fff 0 20%, #d9f2fd 58%, #8fd6f3); box-shadow: var(--shadow); }
