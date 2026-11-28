@@ -34,7 +34,7 @@ const BOXING_TRAINING_CONTROLS = {
   bag: 'E ou socos no ritmo  ·  W A S D mover',
   dodge: '← → esquivar  ·  A / D circular para sair da linha  ·  W / S ajustar distância',
 } as const;
-export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setSwingTracking?(tracking: SwingTracking): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; setDodgeZone?(zone: -1 | 0 | 1 | undefined): void; setGuard?(guard: boolean | undefined): void; setDuck?(ducked: boolean | undefined): void; setDepthMove?(move: -1 | 0 | 1 | undefined): void; setDepthSpeed?(speed: number | undefined): void; setLateralDash?(dash: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
+export interface GameEngineHandle { onAction(event: SportActionEvent): void; onKey(key: string): void; setTracking?(tracking: string): void; setPoseTracking?(tracking: string, atMs: number): void; setLaneZone?(zone: -1 | 0 | 1 | undefined): void; setEffort?(effort: number, sampleAtMs?: number | null): void; setHandsRaised?(raised: boolean, atMs: number | null): void; setTossHand?(hand: Hand | undefined, atMs: number): void; setArmMotions?(motions: readonly ArmMotion[]): void; setSwingTracking?(tracking: SwingTracking): void; setFraming?(advice: string | undefined, handsHidden?: boolean): void; resetLaneZone?(): void; setDodgeZone?(zone: -1 | 0 | 1 | undefined, atMs?: number | null): void; setGuard?(guard: boolean | undefined, atMs?: number | null): void; setDuck?(ducked: boolean | undefined, atMs?: number | null): void; setDepthMove?(move: -1 | 0 | 1 | undefined, atMs?: number | null): void; setDepthSpeed?(speed: number | undefined, atMs?: number | null): void; setLateralDash?(dash: -1 | 0 | 1 | undefined): void; onKeyUp?(key: string): void; dispose(): void }
 
 interface Props {
   sport: Sport;
@@ -91,7 +91,10 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
   const trackingRef = useRef(tracking);
   trackingRef.current = tracking;
 
-  useEffect(() => { engineRef.current?.setTracking?.(tracking); }, [tracking]);
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine?.setPoseTracking) engine?.setTracking?.(tracking);
+  }, [tracking]);
 
   // The 100 m asks for a new run with the body: both hands held up.
   const restartByBody = Math.max(hud.finished?.restart01 ?? 0, hud.tennis?.winner ? hud.tennis.restart01 : 0) >= 1;
@@ -239,8 +242,9 @@ function GameRun({ sport, onEngine, tracking, audio, goal = 100, crossedPose, on
     {hud.finished && <div className="game-over" role="dialog" aria-label="Fim da prova">
       <h2>{hud.finished.title}</h2>
       <p><strong>{hud.finished.detail}</strong></p>
-      <ol>{hud.finished.standings.map((runner, index) => (
-        <li key={runner.name} className={runner.you ? 'current' : ''}><span>{index + 1}º {runner.name}</span><span>{runner.time}</span></li>
+      {!hud.finished.standingsFinal && <p>Classificação em andamento · tempos estimados podem mudar</p>}
+      <ol>{hud.finished.standings.map((runner) => (
+        <li key={runner.name} className={runner.you ? 'current' : ''}><span>{runner.place}º {runner.name}</span><span>{runner.time}{runner.status === 'estimated' ? ' (estimado)' : ''}</span></li>
       ))}</ol>
       <div className="restart-gesture"><b style={{ width: `${hud.finished.restart01 * 100}%` }} /><span>Levante as duas mãos para correr de novo</span></div>
       {leaveBar}

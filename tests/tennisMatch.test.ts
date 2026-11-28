@@ -391,3 +391,66 @@ it('returns an arriving ball on plain arm movement when no stroke was read, and 
     }
   }
 });
+
+it('keeps an out point reversible until the late-swing window closes and commits once', () => {
+  const { game, state } = match();
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(1200);
+  const scoring = state as unknown as {
+    finishFlight(winner: 'player' | 'opponent', label: string, now: number, deadAt?: number): void;
+  };
+  try {
+    const incoming = { ...createBall({ x: 0, y: 0.8, z: 7.2 }, { x: 0, y: 0, z: 5 }, 'opponent'), bounces: 1 };
+    state.phase = { kind: 'rally' };
+    state.ball = incoming;
+    state.tape = [{ tMs: 1000, ball: incoming }];
+    scoring.finishFlight('player', 'FORA!', 1200, 1200);
+    expect(state.score.points.player).toBe(0);
+    expect(state.pendingPoint).toBeDefined();
+    state.stepBall(0, 1849);
+    expect(state.score.points.player).toBe(0);
+    state.stepBall(0, 1850);
+    expect(state.score.points.player).toBe(1);
+    state.stepBall(0, 1900);
+    expect(state.score.points.player).toBe(1);
+    state.resolveSwing({ side: 'forehand', power01: 0.5, verticalSpeed: 0, contactY: 0, peakTimestampMs: 1000 });
+    expect(state.score.points.player).toBe(1);
+  } finally {
+    clock.mockRestore();
+    game.dispose();
+  }
+});
+
+it('accepts a valid pre-out swing before the point is committed', () => {
+  const { game, state } = match();
+  const clock = vi.spyOn(performance, 'now').mockReturnValue(1200);
+  const scoring = state as unknown as {
+    finishFlight(winner: 'player' | 'opponent', label: string, now: number, deadAt?: number): void;
+  };
+  try {
+    const incoming = { ...createBall({ x: 0, y: 0.8, z: 7.2 }, { x: 0, y: 0, z: 5 }, 'opponent'), bounces: 1 };
+    state.phase = { kind: 'rally' };
+    state.ball = incoming;
+    state.tape = [{ tMs: 1000, ball: incoming }];
+    scoring.finishFlight('player', 'FORA!', 1100, 1100);
+    state.resolveSwing({ side: 'forehand', power01: 0.5, verticalSpeed: 0, contactY: 0, peakTimestampMs: 1000 });
+    expect(state.pendingPoint).toBeUndefined();
+    expect(state.ball.lastHitter).toBe('player');
+    expect(state.score.points.player).toBe(0);
+  } finally {
+    clock.mockRestore();
+    game.dispose();
+  }
+});
+
+it('uses the net impact instant as the cutoff, rather than the end of its tick', () => {
+  const { game, state } = match();
+  try {
+    state.phase = { kind: 'rally' };
+    state.ball = createBall({ x: 0, y: 0.4, z: -0.01 }, { x: 0, y: 0, z: 1 }, 'opponent');
+    state.stepBall(0.02, 1020);
+    expect(state.pendingPoint?.deadAt).toBeCloseTo(1010, 3);
+    expect(state.score.points.player).toBe(0);
+    state.stepBall(0, 1660);
+    expect(state.score.points.player).toBe(1);
+  } finally { game.dispose(); }
+});

@@ -115,11 +115,14 @@ function decide({ playerHp, opponentHp }: BoxingState): BoxingWinner {
  * A player punch thrown before a bell but confirmed after it. On a match the clock already
  * decided, it can knock out or change the decision; a knockout is never reopened.
  */
-export function applyLatePunch(state: BoxingState, power01: number, opening: BoxingOpening, counter = false): PunchResult {
+export function applyLatePunch(
+  state: BoxingState, power01: number, opening: BoxingOpening, counter = false,
+  kind: PlayerPunchKind = 'unknown', target: PlayerPunchTarget = 'unknown',
+): PunchResult {
   const onTime = state.winner !== undefined && state.roundMsLeft === 0 && state.playerHp > 0 && state.opponentHp > 0;
-  if (!onTime) return applyPlayerPunch(state, power01, opening, counter);
+  if (!onTime) return applyPlayerPunch(state, power01, opening, counter, kind, target);
   const { winner: _decision, ...open } = state;
-  const result = applyPlayerPunch(open, power01, opening, counter);
+  const result = applyPlayerPunch(open, power01, opening, counter, kind, target);
   if (result.ko) return result;
   return { ...result, state: Object.freeze({ ...result.state, winner: decide(result.state) }) };
 }
