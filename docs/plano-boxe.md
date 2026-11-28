@@ -595,6 +595,6 @@ A banda de altura antiga (-0,35..+0,9) lia positivo até parado. O discriminante
 
 O veto de distância ao nariz no contato foi implementado e medido: o phantom da guarda tem contato a 1,00 sw do nariz — dentro da faixa dos socos reais (0,75-2,07). Não discrimina. O phantom é movimento genuinamente punch-like (item 4 segue aberto); o floor codifica o teto de 1 phantom por gravação, mesma convenção do onset-race de duck.
 
-### Esquiva lateral (slip): segue aberto
+### Esquiva lateral (slip): segue aberto — mecanismo medido
 
-Slips disparam mais em cross (23) e uppercut (18) que nos segmentos de slip (0-15) — o canal lê rotação de soco como esquiva. Calibração pendente, item 3 do plano.
+Slips disparam mais em cross (23) e uppercut (18) que nos segmentos de slip (0-15). Testada a hipótese da rotação do próprio soco (freeze da zona durante punch-in-flight — mantido por correção semântica: preserva crédito de slip-counter e custa zero nos negativos): **não reduziu o ruído** — o deslocamento persiste além do voo do soco. O mecanismo real é drift de centro: a zona mede deslocamento contra o centro calibrado fixo, e o usuário genuine muda de base entre socos. Slip é deslocamento transitório de ida-e-volta; mudança de base é persistente — a máquina de zonas com histerese não distingue os dois. A correção é o item 3: referência de centro rolling + exigência de retorno para caracterizar slip, ou canal de tilt/rotação de ombros em vez de posição.

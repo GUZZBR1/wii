@@ -138,8 +138,12 @@ export class DodgeZoneTracker {
   private zone: -1 | 0 | 1 = 0;
   private readonly unit = new ShoulderUnit();
 
-  /** The dodge zone the body currently occupies, or undefined when the shoulders are unreadable. */
-  update(snapshot: PoseSnapshot, calibration: CalibrationProfile): -1 | 0 | 1 | undefined {
+  /** The dodge zone the body currently occupies, or undefined when the shoulders are unreadable.
+   *  While `punching` the zone holds: the torso rotation of your own punch genuinely displaces
+   *  the shoulder center, but that displacement is committed attack motion, not defense — and a
+   *  slip already in progress when the punch starts keeps its credit through it (slip-counter). */
+  update(snapshot: PoseSnapshot, calibration: CalibrationProfile, punching = false): -1 | 0 | 1 | undefined {
+    if (punching) return this.zone;
     const leftShoulder = snapshot.landmarks[11];
     const rightShoulder = snapshot.landmarks[12];
     const unit = this.unit.update(snapshot);

@@ -253,10 +253,10 @@ export class ActionPipeline {
 
     // Boxing's footwork signals need the calibrated neutral, and read the torso the vertical channel does.
     if (calibration && (calibration.readiness?.neutral01 ?? 1) >= 0.65 && footworkTracked) {
-      const dodge = this.dodge.update(current, calibration);
-      if (dodge !== undefined) controls = { ...controls, dodgeZone: dodge };
       // Read after the punch detectors, so the frame of a punch onset is already frozen.
       const punching = this.punchInFlight.active(snapshot.timestampMs);
+      const dodge = this.dodge.update(current, calibration, punching);
+      if (dodge !== undefined) controls = { ...controls, dodgeZone: dodge };
       const depth = this.ringDepth.update(current, calibration, punching);
       if (depth !== undefined) controls = { ...controls, ringDepthMove: depth, ringDepth01: this.ringDepth.approach01 };
       const dash = this.lateralDash.update(current, punching);
