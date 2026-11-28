@@ -4,6 +4,20 @@ Data: 27 de novembro de 2026 · Base estudada: `origin/main` `94ffaaa`. Document
 
 ---
 
+## 0. Status de implementação (27/11/2026, branch `research/boxing-tracking-plan`)
+
+Implementado e com testes verdes (`npm test && npm run lint && npm run build`):
+
+- **Replay parametrizável por fps** (`f4bef05`): `pose-replay.html?fps=15` amostra no ritmo do clipe — pré-requisito da avaliação UTD.
+- **Medição e classificação de trajetória** (`e39196d`): `PunchMeasurement` (amostras corpo-locais em larguras de ombro, contato, pico de velocidade, deslocamentos) sai no evento `punch` confirmado; `punchClassifier.ts` puro classifica `straight/hook/uppercut/unknown` e alvo `head/body/unknown`; `PunchDetector.diagnostics` conta motivos de falha (onsets, confirmações, extensão/travel perdidos) e `ActionPipeline.punchDiagnostics` agrega por mão.
+- **Socos tipados, defesa de duck e ataques tipados do oponente** (`37f7055`): `DuckTracker` em espaço de imagem (world landmarks são centrados no quadril e não servem); matriz de defesa `isDodgedTyped` — direto na cabeça: slip/duck; direto no corpo: só recuo/guarda; gancho: duck; uppercut: slip, duck nunca ajuda. Regras de dano do jogador: uppercut +25% em abertura, gancho penetra metade da guarda, soco no corpo faz 75% de dano mas ignora a guarda alta. Oponente sorteia mão, tipo e alvo em ordem fixa de rng.
+- **Tutorial adaptativo** (`580f67c`): `BoxingTutorial` puro (guarda 1 s → 3 jabs → 3 cruzados → 2 ganchos → 2 uppercuts → 2 no corpo → 2 slips → 2 ducks), aprende mão da frente e alcance mediano por tipo na memória; modo `tutorial` no jogo com oponente passivo, hint após 10 s, desiste da etapa após 22 s, gesto de mãos erguidas pula.
+
+Pendente, nesta ordem: baseline formal UTD com os contadores (em andamento), robustecimento do detector guiado pelos motivos de falha, validação de tipo no BoxingVI e de alvo no Zenodo, e validação com pessoas reais.
+
+
+---
+
 ## 1. Resumo executivo
 
 O boxe já existe na `main`: há detector de soco, guarda, esquiva lateral, aproximação/afastamento, dash, treino de saco, treino de esquiva e luta em primeira pessoa. O problema agora não é “criar boxe do zero”; é tornar o boxe **corporalmente legível e validado**:
