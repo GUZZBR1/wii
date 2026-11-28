@@ -682,6 +682,8 @@ body:not(.dark) .construction-art::before {
 .hand-stage-controls { @apply flex flex-col items-center gap-2; }
 .hand-stage-controls .product-status { @apply cursor-pointer; }
 .hand-stage-status { @apply m-0 font-mono text-[11px] text-muted; }
+.hand-stage-fallback { display: grid; align-content: center; justify-items: center; gap: 10px; width: 100%; aspect-ratio: 3 / 2; color: var(--muted); font: 400 13px 'DM Mono', monospace; text-align: center; }
+.hand-stage-fallback p { margin: 0; }
 .product-headline { @apply mb-0 mt-8 font-sans text-[clamp(41px,6.9vw,71px)] font-medium leading-[1.02] tracking-[-.07em] text-ink; }
 .product-description { @apply mb-0 mt-4 max-w-[600px] text-[15px] leading-[1.75] text-muted sm:text-[16px]; }
 .vision-cta { @apply mt-7 inline-flex items-center gap-3 border-b border-ink/20 pb-1 font-mono text-[13px] text-ink transition-colors duration-200 hover:border-accent hover:text-muted; }
@@ -938,6 +940,8 @@ body:not(.dark) .article-meta { color: #1f2a32; }
 .article-term { padding: 0; border: 0; border-bottom: 1px dotted var(--muted); background: transparent; color: inherit; font: inherit; cursor: help; }
 .article-explainer-card { display: none; position: absolute; z-index: 12; left: 0; bottom: 100%; width: min(280px, 75vw); padding: 12px; border: 1px solid color-mix(in srgb, var(--ink) 20%, transparent); border-radius: 12px; background: var(--paper); box-shadow: 0 8px 24px rgba(26, 110, 168, .16); font: 400 13px/1.5 Manrope, system-ui, sans-serif; }
 .article-explainer:hover .article-explainer-card, .article-explainer:focus-within .article-explainer-card { display: block; }
+.article-explainer[data-hand-within="true"] .article-explainer-card,
+.article-explainer:has([data-hand-hover="true"]) .article-explainer-card { display: block; }
 .article-figure-wrap { position: relative; margin: 24px 0; }
 .article-figure-image { position: relative; }
 .article-figure-wrap .article-figure { margin: 0; }
@@ -987,7 +991,9 @@ body:not(.dark) .article-meta { color: #1f2a32; }
   transition: opacity .2s ease;
 }
 .lang-anchor:hover .lang-menu,
-.lang-anchor:focus-within .lang-menu { opacity: 1; pointer-events: auto; }
+.lang-anchor:focus-within .lang-menu,
+.lang-anchor:has([data-hand-hover="true"]) .lang-menu,
+.lang-anchor[data-hand-within="true"] .lang-menu { opacity: 1; pointer-events: auto; }
 @media (max-width: 640px) {
   .lang-menu { z-index: 40; top: 100%; right: 0; left: auto; transform: none; flex-direction: column; align-items: flex-end; gap: 4px; padding: 8px 10px; border: 1px solid color-mix(in srgb, var(--ink) 18%, transparent); border-radius: 12px; background: var(--paper); font-size: 12px; }
 }
@@ -1070,6 +1076,7 @@ body:not(.dark) .sketch-toolbar { border-color: #34beed80; box-shadow: 0 6px 18p
 .hand-layer canvas { position: absolute; inset: 0; width: 100%; height: 100%; opacity: .94; pointer-events: none; }
 /* Anel na ponta do indicador: so aparece na pinca e no punho de voltar. */
 .site-tip { --tip-accent: color-mix(in srgb, var(--accent) 45%, var(--ink)); position: absolute; top: 0; left: 0; width: 0; height: 0; }
+.site-tip-cross { position: absolute; left: 0; top: 0; transform: translate(-50%, -50%); color: var(--tip-accent); font: 500 18px/1 'DM Mono', monospace; user-select: none; }
 .site-tip-ring { position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; rotate: -90deg; fill: none; stroke: var(--tip-accent); stroke-width: 2.5; }
 .site-tip-pulse, .site-tip-flash { position: absolute; left: -16px; top: -16px; width: 32px; height: 32px; border: 2px solid var(--tip-accent); border-radius: 999px; }
 .site-tip-pulse { animation: site-tip-pulse .8s ease-out infinite; }
@@ -1082,7 +1089,6 @@ body:not(.dark) .sketch-toolbar { border-color: #34beed80; box-shadow: 0 6px 18p
 .nav-link[data-hand-hover="true"]::after, .product-label:has([data-hand-hover="true"]) .product-word::after, .wordmark[data-hand-hover="true"]::before { transform: scaleX(1); }
 .nav-link.vision-link[data-hand-hover="true"], .product-label:has([data-hand-hover="true"]) .product-word { background-position: 0 0; }
 .theme-toggle[data-hand-hover="true"] { opacity: .7; }
-.lang-anchor:has([data-hand-hover="true"]) .lang-menu { opacity: 1; pointer-events: auto; }
 .lang-menu button[data-hand-hover="true"] { color: var(--ink, inherit); text-decoration: underline; }
 .product-status[data-hand-hover="true"] { @apply -translate-y-px border-ink/35 bg-paper/75 text-ink; }
 .product-status[data-hand-hover="true"] .status-arrow { transform: translate(2px,-2px); }

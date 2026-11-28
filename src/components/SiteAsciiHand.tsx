@@ -32,10 +32,15 @@ export default function SiteAsciiHand({ onProduct, onBack }: Props) {
   const input = useSiteHandInput();
   const live = camera === 'on';
   const backProgress = onProduct ? 0 : input.backProgress;
-  useHandHitTest({ ...input, backProgress }, live, onBack);
+  const [settled, setSettled] = useState(false);
+  const [webglFailed, setWebglFailed] = useState(false);
+  useHandHitTest({ ...input, backProgress }, live && settled, onBack);
 
   const hostRef = useRef<HTMLDivElement>(null);
-  const smootherRef = useRef(new HandRigSmoother());
+  const smootherRef = useRef<HandRigSmoother | null>(null);
+  smootherRef.current ??= new HandRigSmoother();
+  const smoother = smootherRef.current;
+  const settledRef = useRef(false);
   const pointerRef = useRef<{ x: number; y: number } | undefined>(undefined);
   const stateRef = useRef({ live, onProduct });
   stateRef.current = { live, onProduct };
@@ -52,9 +57,9 @@ export default function SiteAsciiHand({ onProduct, onBack }: Props) {
       subscribe((snapshot, aspectY) => {
         const hand = snapshot.hands[0];
         const pose = hand && mapObservationToRig(hand, aspectY);
-        if (pose) smootherRef.current.observe(pose, performance.now());
+        if (pose) smoother.observe(pose, performance.now());
       }),
-    [subscribe],
+    [subscribe, smoother],
   );
 
   useEffect(() => {
@@ -66,6 +71,9 @@ export default function SiteAsciiHand({ onProduct, onBack }: Props) {
     try {
       renderer = new THREE.WebGLRenderer({ canvas, antialias: false, alpha: true, powerPreference: 'high-performance' });
     } catch {
+      settledRef.current = true;
+      setSettled(true);
+      setWebglFailed(true);
       return; // Without WebGL the pointer still works, it is just not drawn.
     }
     host.prepend(canvas);
@@ -97,9 +105,14 @@ export default function SiteAsciiHand({ onProduct, onBack }: Props) {
       const { live, onProduct } = stateRef.current;
       const idle = sampleIdleHand(reducedMotion.matches ? 0 : now / 1000);
       const clock = performance.now();
-      const pose = smootherRef.current.sample(clock, idle);
+      const pose = smoother.sample(clock, idle);
       const pointer = pointerRef.current;
-      const presence = pointer ? smootherRef.current.presence(clock) : 0;
+      const presence = pointer ? smoother.presence(clock) : 0;
+      const nextSettled = presence >= 0.98;
+      if (settledRef.current !== nextSettled) {
+        settledRef.current = nextSettled;
+        setSettled(nextSettled);
+      }
       const raised = presence * presence * (3 - 2 * presence);
       const stageCanvas = onProduct ? document.querySelector('.hand-stage-canvas') : null;
       const stage = stageCanvas ? stageProjection(stageCanvas.getBoundingClientRect()) : undefined;
@@ -186,7 +199,7 @@ export default function SiteAsciiHand({ onProduct, onBack }: Props) {
       renderer.forceContextLoss();
       canvas.remove();
     };
-  }, []);
+  }, [smoother]);
 
   const acting = live && input.visible && input.synced && !rotationBlocksHandInput(input.rotationPhase);
 
@@ -194,6 +207,7 @@ export default function SiteAsciiHand({ onProduct, onBack }: Props) {
     <div ref={hostRef} className="hand-layer" aria-hidden="true">
       {pointerRef.current && (
         <div className="site-tip" style={{ transform: `translate3d(${pointerRef.current.x}px, ${pointerRef.current.y}px, 0)` }}>
+          {webglFailed && live && input.visible && <span className="site-tip-cross">+</span>}
           {acting && input.pinching && <span className="site-tip-pulse" />}
           {acting && backProgress > 0 && (
             <svg className="site-tip-ring" viewBox="0 0 32 32" aria-hidden="true">
