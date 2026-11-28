@@ -3,6 +3,9 @@ import { rotationBlocksHandInput, type HandCursorInput } from './handCursorTypes
 import type { HandInputStore } from './handInputStore';
 
 const HOVER = 'data-hand-hover';
+const WITHIN = 'data-hand-within';
+/** Panels that stay open while the hand is anywhere inside them. */
+const HAND_CONTAINER = '.lang-anchor, .article-explainer';
 /** Time constant of the glide between camera samples, tuned for CPU hand rates around 15–25 fps. */
 const FOLLOW_TAU_MS = 40;
 /** Hit-testing forces layout, so it waits for real movement... */
@@ -10,11 +13,11 @@ const HIT_TEST_MIN_MOVE_PX = 2;
 /** ...or for this long, since the DOM can change under a still cursor. */
 const HIT_TEST_REFRESH_MS = 150;
 
-const INTERACTIVE_TARGET = 'button, [role="button"], a, input[type="range"]';
+const INTERACTIVE_TARGET = 'button, [role="button"], a, summary, input[type="range"]';
 
 /** Só o elemento do topo conta: o cursor não atravessa painéis para clicar no que está atrás. */
-function targetAt(x: number, y: number): HTMLElement | null {
-  const target = document.elementFromPoint(x, y)?.closest<HTMLElement>(INTERACTIVE_TARGET) ?? null;
+function targetAt(hit: Element | null): HTMLElement | null {
+  const target = hit?.closest<HTMLElement>(INTERACTIVE_TARGET) ?? null;
   return target?.matches(':disabled') ? null : target;
 }
 
@@ -54,16 +57,28 @@ export function useHandHitTest(
   active: boolean,
   onBack: () => void,
   cursorRef: RefObject<HTMLElement | null>,
+  /** A click on nothing interactive: coordinates and the top element, for picking by position (Miis). */
+  onEmptyClick?: (x: number, y: number, hit: Element | undefined) => void,
 ) {
   const activeRef = useRef(active);
   activeRef.current = active;
   const onBackRef = useRef(onBack);
   onBackRef.current = onBack;
+  const onEmptyClickRef = useRef(onEmptyClick);
+  onEmptyClickRef.current = onEmptyClick;
+  const within = useRef<HTMLElement | null>(null);
   const hovered = useRef<HTMLElement | null>(null);
   const released = useRef(false);
   const backDone = useRef(false);
 
-  const hover = useCallback((target: HTMLElement | null) => {
+  const hover = useCallback((hit: Element | null) => {
+    const container = hit?.closest<HTMLElement>(HAND_CONTAINER) ?? null;
+    if (container !== within.current) {
+      within.current?.removeAttribute(WITHIN);
+      within.current = container;
+      container?.setAttribute(WITHIN, 'true');
+    }
+    const target = targetAt(hit);
     if (target === hovered.current) return;
     hovered.current?.removeAttribute(HOVER);
     hovered.current = target;
@@ -88,9 +103,11 @@ export function useHandHitTest(
       if (!enabled) return;
       if (click) {
         // The sample position, not the glided one: that is where the pinch froze the cursor.
-        const target = targetAt(input.x, input.y);
-        hover(target);
+        const hit = document.elementFromPoint(input.x, input.y);
+        hover(hit);
+        const target = targetAt(hit);
         if (target) activate(target, input.x);
+        else onEmptyClickRef.current?.(input.x, input.y, hit ?? undefined);
       }
       if (back) onBackRef.current();
     };
@@ -131,7 +148,7 @@ export function useHandHitTest(
         Math.hypot(shown.x - tested.x, shown.y - tested.y) >= HIT_TEST_MIN_MOVE_PX
       ) {
         tested = { x: shown.x, y: shown.y, atMs: now };
-        hover(targetAt(shown.x, shown.y));
+        hover(document.elementFromPoint(shown.x, shown.y));
       }
 
       const element = cursorRef.current;

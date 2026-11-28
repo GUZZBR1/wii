@@ -218,3 +218,96 @@ describe('useHandHitTest range sliders', () => {
     });
   });
 });
+
+function SiteProbe({ store, onEmptyClick }: { store: HandInputStore; onEmptyClick: () => void }) {
+  const cursor = useRef<HTMLElement | null>(null);
+  useHandHitTest(store, true, () => undefined, cursor, onEmptyClick);
+  return null;
+}
+
+describe('hit test for the site hand', () => {
+  let hit: Element;
+  let store: HandInputStore;
+  let frames: FrameRequestCallback[];
+  let unmount: () => void;
+
+  function mount(onEmptyClick = vi.fn()) {
+    const root = createRoot(document.body.appendChild(document.createElement('div')));
+    act(() => root.render(createElement(SiteProbe, { store, onEmptyClick })));
+    unmount = () => act(() => root.unmount());
+    return onEmptyClick;
+  }
+  /** One camera sample followed by one display frame, late enough to hit-test again. */
+  let now = 0;
+  const sample = (next: Partial<HandCursorInput> = {}) => act(() => {
+    store.publish({ ...tracked, ...next });
+    now += 200;
+    for (const callback of frames.splice(0)) callback(now);
+  });
+
+  beforeEach(() => {
+    frames = [];
+    store = createHandInputStore();
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => frames.push(callback));
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => { frames.length = 0; });
+    document.elementFromPoint = (() => hit) as typeof document.elementFromPoint;
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  it.each(['lang-anchor', 'article-explainer'])('keeps a %s marked across its padding, without clicking', (name) => {
+    const panel = document.body.appendChild(document.createElement('span'));
+    panel.className = name;
+    const button = panel.appendChild(document.createElement('button'));
+    const padding = panel.appendChild(document.createElement('span'));
+    const click = vi.spyOn(button, 'click');
+    hit = button;
+    mount();
+    sample();
+    expect(panel.getAttribute('data-hand-within')).toBe('true');
+    expect(button.getAttribute('data-hand-hover')).toBe('true');
+    hit = padding;
+    sample({ x: 40 });
+    expect(button.hasAttribute('data-hand-hover')).toBe(false);
+    expect(panel.getAttribute('data-hand-within')).toBe('true');
+    sample({ x: 41, pinchRelease: true });
+    expect(click).not.toHaveBeenCalled();
+    unmount();
+    expect(panel.hasAttribute('data-hand-within')).toBe(false);
+  });
+
+  it('forwards only pinches with nothing clickable under them', () => {
+    const plain = document.body.appendChild(document.createElement('div'));
+    const button = document.body.appendChild(document.createElement('button'));
+    const click = vi.spyOn(button, 'click');
+    hit = plain;
+    const onEmptyClick = mount();
+    sample({ y: 30, pinchRelease: true });
+    expect(onEmptyClick).toHaveBeenCalledExactlyOnceWith(20, 30, plain);
+    hit = button;
+    sample();
+    sample({ pinchRelease: true });
+    expect(click).toHaveBeenCalledTimes(1);
+    hit = plain;
+    sample();
+    sample({ visible: false, pinchRelease: true });
+    expect(onEmptyClick).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it('toggles details when the pinch target is a summary', () => {
+    const details = document.body.appendChild(document.createElement('details'));
+    const summary = details.appendChild(document.createElement('summary'));
+    hit = summary;
+    mount();
+    sample({ pinchRelease: true });
+    expect(details.open).toBe(true);
+    sample();
+    sample({ pinchRelease: true });
+    expect(details.open).toBe(false);
+    unmount();
+  });
+});
