@@ -238,7 +238,7 @@ function gamePlacement(index: number, turn: number): CSSProperties {
   };
 }
 
-export function GamesMenu({ onPick, onHome }: { onPick: (sport: Sport, goal?: Goal) => void; onHome: () => void }) {
+export function GamesMenu({ onPick, onHome, onMii }: { onPick: (sport: Sport, goal?: Goal) => void; onHome: () => void; onMii?: () => void }) {
   const [turn, setTurn] = useState(0); // Atletismo começa à frente, como na seleção anterior.
   const [choosingGoal, setChoosingGoal] = useState(false);
   const n = SPORTS.length;
@@ -285,6 +285,7 @@ export function GamesMenu({ onPick, onHome }: { onPick: (sport: Sport, goal?: Go
           {choosingGoal ? '‹ Modalidades' : 'Voltar'}
         </button>
         <p className="games-hint" aria-live="polite">{hint}</p>
+        {onMii && <button type="button" className="wii-btn games-mii" onClick={onMii}>Mii</button>}
       </div>
     </div>
   </section>;

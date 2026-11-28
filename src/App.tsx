@@ -26,10 +26,11 @@ import type { CarouselStepResult } from './ui/carouselController';
 import { drawPose } from './ui/PoseOverlay';
 import { EXIT_DODGE_SW } from './kinematics/postureSignals';
 import { GamesMenu, HomeMenu } from './ui/WiiMenu';
+import { MiiCreator } from './ui/MiiCreator';
 import { WiiSplash } from './ui/WiiSplash';
 import './arena.css';
 
-type Screen = 'home' | 'games' | 'play';
+type Screen = 'home' | 'games' | 'mii' | 'play';
 type VisionMode = 'hand' | 'pose';
 
 const ACTIVITY_LABEL: Record<ActivityKind, string> = {
@@ -40,7 +41,7 @@ const ACTIVITY_LABEL: Record<ActivityKind, string> = {
 };
 const MUTE_STORAGE_KEY = 'wii-web-sports.muted.v1';
 
-const inHandMenu = (screen: Screen) => screen === 'home' || screen === 'games';
+const inHandMenu = (screen: Screen) => screen === 'home' || screen === 'games' || screen === 'mii';
 const modeForScreen = (screen: Screen): VisionMode => (inHandMenu(screen) ? 'hand' : 'pose');
 
 function readMutedPreference(): boolean {
@@ -529,7 +530,8 @@ export default function App({ exit }: { exit?: ReactNode }) {
         carouselDebugRef={carouselDebugRef}
       />
     )}
-    {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} />}
+    {screen === 'games' && <GamesMenu onHome={() => setScreen('home')} onPick={play} onMii={() => setScreen('mii')} />}
+    {screen === 'mii' && <MiiCreator onClose={() => setScreen('games')} />}
 
     {screen === 'play' && headCut && <div className="framing-hint" role="alert">Sua cabeça saiu do quadro · incline a câmera para cima ou afaste-se</div>}
     {screen === 'play' && keepPhotos && <div className="photo-notice">● guardando fotos dos últimos 20 s · E salva</div>}
