@@ -9,6 +9,7 @@
 | [plano-boxe.md](plano-boxe.md) | Plano do boxe: tracking de tipos e alvos de soco, defesas, validação em datasets externos e tutorial adaptativo. |
 | [pesquisa-pipeline-cv.md](pesquisa-pipeline-cv.md) e [auditoria-mediapipe.md](auditoria-mediapipe.md) | Como o MediaPipe é usado no navegador. Leia antes de mexer no worker de pose. |
 | [website-design.md](website-design.md) | Sistema visual do site. |
+| [mii-photo-feasibility.md](mii-photo-feasibility.md) | Pesquisa técnica: criação manual vs. sugestão single-shot por foto/webcam com `FaceLandmarker`. |
 | [research/](research/) | Artigos PT/EN publicados no site. |
 
 ## Pesquisa de fundo
