@@ -86,19 +86,20 @@ export interface MiiBoxer {
   root: THREE.Group;
   facePatch: MiiFaceMount;
   /**
-   * Selects the next animation state. The transition starts at the boxer's internal clock: the
-   * latest time passed to `animate`, or zero for a newly created boxer. Re-selecting the current
-   * state and hand is a no-op, so per-frame state broadcasts do not restart one-shot motions. `punch`
-   * extends and retracts over 0.34 s, `hit` settles over 0.5 s, `knockdown` falls over 0.55 s and
-   * `getup` recovers over about 1.35 s, all measured from state entry; the other states loop until
-   * replaced. `hand` picks the arm for `windup` and `punch`.
+   * Selects the next animation target at the boxer's internal clock: the latest time passed to
+   * `animate`, or zero for a newly created boxer. Re-selecting the current state and hand is a
+   * no-op, so per-frame state broadcasts do not restart one-shot motions. `punch` follows through
+   * and returns over 0.34 s, `hit` settles over 0.5 s, `knockdown` falls over 0.55 s and `getup`
+   * recovers over about 1.35 s, all measured from state entry; the other states loop until replaced.
+   * `hand` picks the arm for `windup` and `punch`.
    */
   setState(state: MiiBoxerState, hand?: MiiBoxerHand): void;
   /**
    * Poses the boxer for an explicit, normally monotonic clock in seconds. No wall-clock timers
-   * are read; repeating the same sequence of `setState`/`animate` calls gives the same pose.
-   * Footwork adds a small leg/trunk stride. It starts at once and, when the input slows or stops,
-   * fades out over the time between `animate` calls instead of snapping the legs.
+   * are read; repeating the same sequence of `setState`/`animate` calls gives the same pose. Joints
+   * move with critically damped springs, so interrupted state changes keep their momentum. Footwork
+   * adds a small leg/trunk stride whose speed and direction ramp over elapsed animation time and,
+   * when the input slows or stops, fade out instead of snapping the legs.
    * @throws TypeError when `timeSeconds` is not finite.
    */
   animate(timeSeconds: number, footwork?: MiiBoxerFootwork): void;
@@ -337,16 +338,21 @@ const GETUP_LOW_POSE: BoxerPose = {
   rightElbowZ: -0.08,
 };
 
-const TRANSITION_SECONDS: Record<MiiBoxerState, number> = {
-  idle: 0.22,
-  guard: 0.16,
-  windup: 0.14,
-  punch: 0.05,
-  recover: 0.18,
-  hit: 0.08,
-  dizzy: 0.22,
-  knockdown: 0.1,
-  getup: 0.16,
+/**
+ * Angular frequency of the per-state critically damped joint springs, preserving the approximate
+ * timing of the old fixed transition durations: punches snap, one-shot reactions bite quickly and
+ * the loose states lean slower.
+ */
+const STATE_OMEGA: Record<MiiBoxerState, number> = {
+  idle: 16,
+  guard: 24,
+  windup: 28,
+  punch: 48,
+  recover: 20,
+  hit: 38,
+  dizzy: 16,
+  knockdown: 30,
+  getup: 22,
 };
 
 function clamp01(value: number): number {
@@ -400,31 +406,51 @@ function clampSignedUnit(value: number | undefined): number {
   return Math.max(-1, Math.min(1, value));
 }
 
-/** Time constant of the footwork fade-out. */
+/** Time constants of the footwork envelope; release stays slightly softer than acceleration. */
+const FOOTWORK_ATTACK_S = 0.075;
 const FOOTWORK_RELEASE_S = 0.09;
+const FOOTWORK_DIRECTION_S = 0.085;
+const FOOTWORK_EPSILON = 1e-3;
+const STRIDE_RATE_RAD_S = 8.4;
+const STRIDE_CYCLE_RAD = Math.PI * 2;
 
 interface Stride {
   speed01: number;
   forward: number;
   strafe: number;
+  phase: number;
 }
 
-/** Rises with the input at once; fades toward a slower input, keeping the last heading once stopped. */
+function approachExponential(current: number, target: number, dtS: number, timeConstantS: number): number {
+  if (dtS <= 0 || current === target) return current;
+  const next = target + (current - target) * Math.exp(-dtS / timeConstantS);
+  return Math.abs(next - target) < FOOTWORK_EPSILON ? target : next;
+}
+
+/** Speed and heading are control envelopes: they ramp continuously and keep the last heading once stopped. */
 function stepStride(stride: Stride, dtS: number, footwork: MiiBoxerFootwork | undefined): Stride {
-  const speed01 = footwork?.speed01 === undefined || !Number.isFinite(footwork.speed01) ? 0 : clamp01(footwork.speed01);
-  let amount = speed01;
-  if (speed01 < stride.speed01) {
-    amount = speed01 + (stride.speed01 - speed01) * Math.exp(-dtS / FOOTWORK_RELEASE_S);
-    if (amount < 1e-3) amount = 0;
+  const targetSpeed =
+    footwork?.speed01 === undefined || !Number.isFinite(footwork.speed01) ? 0 : clamp01(footwork.speed01);
+  const speed01 = approachExponential(
+    stride.speed01,
+    targetSpeed,
+    dtS,
+    targetSpeed > stride.speed01 ? FOOTWORK_ATTACK_S : FOOTWORK_RELEASE_S,
+  );
+  let { forward, strafe } = stride;
+  if (targetSpeed > 0) {
+    forward = approachExponential(forward, clampSignedUnit(footwork?.forward), dtS, FOOTWORK_DIRECTION_S);
+    strafe = approachExponential(strafe, clampSignedUnit(footwork?.strafe), dtS, FOOTWORK_DIRECTION_S);
   }
-  if (speed01 === 0) return { ...stride, speed01: amount };
-  return { speed01: amount, forward: clampSignedUnit(footwork?.forward), strafe: clampSignedUnit(footwork?.strafe) };
+  let phase = stride.phase;
+  if (speed01 > 0) phase = (phase + dtS * STRIDE_RATE_RAD_S) % STRIDE_CYCLE_RAD;
+  return { speed01, forward, strafe, phase };
 }
 
-function withFootwork(pose: BoxerPose, timeSeconds: number, { speed01, forward, strafe }: Stride): BoxerPose {
+function withFootwork(pose: BoxerPose, { speed01, forward, strafe, phase }: Stride): BoxerPose {
   if (speed01 === 0) return pose;
-  const stride = Math.sin(timeSeconds * 8.4) * speed01;
-  const lift = Math.abs(Math.cos(timeSeconds * 8.4)) * speed01;
+  const stride = Math.sin(phase) * speed01;
+  const lift = Math.abs(Math.cos(phase)) * speed01;
   return addPoseOffsets(copyPose(pose), {
     bodyY: lift * 0.015,
     bodyRotX: forward * speed01 * 0.045,
@@ -436,14 +462,27 @@ function withFootwork(pose: BoxerPose, timeSeconds: number, { speed01, forward, 
   });
 }
 
-function pulse01(time: number, attackEnd: number, holdEnd: number, releaseEnd: number): number {
-  if (time < attackEnd) return smooth01(time / attackEnd);
-  if (time < holdEnd) return 1;
-  if (time < releaseEnd) return 1 - smooth01((time - holdEnd) / (releaseEnd - holdEnd));
-  return 0;
+/** The attack peaks here, fast; the return then glides back to an exact rest at `PUNCH_END_S`. */
+const PUNCH_ATTACK_S = 0.085;
+const PUNCH_END_S = 0.34;
+
+/**
+ * Single-peak punch extension: a fast smoothstep attack, then immediately a smoothstep return
+ * whose zero slope at the peak reads as a slight follow-through. There is no hold plateau and the
+ * curve rests at exactly zero from `PUNCH_END_S` on.
+ */
+function punchExtensionAmount(ageS: number): number {
+  if (ageS <= 0 || ageS >= PUNCH_END_S) return 0;
+  if (ageS < PUNCH_ATTACK_S) return smooth01(ageS / PUNCH_ATTACK_S);
+  return 1 - smooth01((ageS - PUNCH_ATTACK_S) / (PUNCH_END_S - PUNCH_ATTACK_S));
 }
 
-function poseForState(state: MiiBoxerState, stateTime: number, hand: MiiBoxerHand): BoxerPose {
+function poseForState(
+  state: MiiBoxerState,
+  stateTime: number,
+  hand: MiiBoxerHand,
+  entryPose: BoxerPose = GUARD_POSE,
+): BoxerPose {
   if (state === 'idle') {
     return addPoseOffsets(copyPose(IDLE_POSE), {
       bodyY: Math.sin(stateTime * 2.1) * 0.012,
@@ -468,8 +507,12 @@ function poseForState(state: MiiBoxerState, stateTime: number, hand: MiiBoxerHan
     return hand === 'left' ? mirrorUpperBody(pose) : pose;
   }
   if (state === 'punch') {
-    const extension = pulse01(stateTime, 0.09, 0.16, 0.34);
-    return mixPose(GUARD_POSE, hand === 'left' ? mirrorUpperBody(PUNCH_EXTENDED_POSE) : PUNCH_EXTENDED_POSE, extension);
+    // The base is the captured entry pose blending back to guard over the return, so the punch
+    // launches from wherever the boxer actually was instead of snapping the target to guard.
+    const extended = hand === 'left' ? mirrorUpperBody(PUNCH_EXTENDED_POSE) : PUNCH_EXTENDED_POSE;
+    const baseBlend = smooth01((stateTime - PUNCH_ATTACK_S) / (PUNCH_END_S - PUNCH_ATTACK_S));
+    const base = mixPose(entryPose, GUARD_POSE, baseBlend);
+    return mixPose(base, extended, punchExtensionAmount(stateTime));
   }
   if (state === 'recover') {
     const balance = Math.sin(stateTime * 5.2);
@@ -513,6 +556,36 @@ function poseForState(state: MiiBoxerState, stateTime: number, hand: MiiBoxerHan
 
 function requireFiniteTime(timeSeconds: number): void {
   if (!Number.isFinite(timeSeconds)) throw new TypeError('timeSeconds must be finite');
+}
+
+function zeroPose(): BoxerPose {
+  const pose = {} as BoxerPose;
+  for (const key of POSE_KEYS) pose[key] = 0;
+  return pose;
+}
+
+function positiveFiniteDt(fromS: number, toS: number): number {
+  const dtS = toS - fromS;
+  return dtS > 0 && Number.isFinite(dtS) ? dtS : 0;
+}
+
+/** Exact critically damped spring step for every joint, stable for any positive finite `dtS`. */
+function stepPoseSpring(pose: BoxerPose, velocity: BoxerPose, target: BoxerPose, dtS: number, omega: number): void {
+  if (dtS <= 0) return;
+  const decay = Math.exp(-omega * dtS);
+  if (decay === 0) {
+    for (const key of POSE_KEYS) {
+      pose[key] = target[key];
+      velocity[key] = 0;
+    }
+    return;
+  }
+  for (const key of POSE_KEYS) {
+    const offset = pose[key] - target[key];
+    const drive = velocity[key] + omega * offset;
+    pose[key] = target[key] + (offset + drive * dtS) * decay;
+    velocity[key] = (velocity[key] - omega * drive * dtS) * decay;
+  }
 }
 
 /**
@@ -624,13 +697,13 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
   let currentTime = 0;
   let state: MiiBoxerState = 'idle';
   let stateHand: MiiBoxerHand = 'right';
-  let stride: Stride = { speed01: 0, forward: 0, strafe: 0 };
-  let animatedAt: number | undefined;
+  let stride: Stride = { speed01: 0, forward: 0, strafe: 0, phase: 0 };
   let stateStartedAt = 0;
-  let transitionStartedAt = 0;
   const initialPose = poseForState('idle', 0, 'right');
-  let transitionFrom = copyPose(initialPose);
-  let currentPose = copyPose(initialPose);
+  let stateEntryPose = copyPose(initialPose);
+  // Mutated in place by the spring step, so the binding itself never changes.
+  const currentPose = copyPose(initialPose);
+  const poseVelocity = zeroPose();
 
   const applyPose = (pose: BoxerPose): void => {
     body.position.y = pose.bodyY;
@@ -651,20 +724,19 @@ export function createMiiBoxer(options: MiiBoxerOptions = {}): MiiBoxer {
     setState(nextState, hand = 'right') {
       if (nextState === state && hand === stateHand) return;
       stateHand = hand;
-      transitionFrom = copyPose(currentPose);
-      transitionStartedAt = currentTime;
+      stateEntryPose = copyPose(currentPose);
       state = nextState;
       stateStartedAt = currentTime;
     },
     animate(timeSeconds, footwork) {
       requireFiniteTime(timeSeconds);
+      // The clock starts at zero for a new boxer, so the first step covers everything since then.
+      const dtS = positiveFiniteDt(currentTime, timeSeconds);
       currentTime = timeSeconds;
-      const target = poseForState(state, Math.max(0, timeSeconds - stateStartedAt), stateHand);
-      const transition = smooth01((timeSeconds - transitionStartedAt) / TRANSITION_SECONDS[state]);
-      currentPose = mixPose(transitionFrom, target, transition);
-      stride = stepStride(stride, Math.max(0, timeSeconds - (animatedAt ?? timeSeconds)), footwork);
-      animatedAt = timeSeconds;
-      applyPose(withFootwork(currentPose, timeSeconds, stride));
+      const target = poseForState(state, Math.max(0, timeSeconds - stateStartedAt), stateHand, stateEntryPose);
+      stepPoseSpring(currentPose, poseVelocity, target, dtS, STATE_OMEGA[state]);
+      stride = stepStride(stride, dtS, footwork);
+      applyPose(withFootwork(currentPose, stride));
     },
   };
 }

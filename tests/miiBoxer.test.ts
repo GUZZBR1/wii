@@ -4,6 +4,7 @@ import {
   createFirstPersonGloves,
   createMiiBoxer,
   type MiiBoxer,
+  type MiiBoxerFootwork,
   type MiiBoxerState,
 } from '../src/games/boxing/miiBoxer';
 import { disposeObjectTree } from '../src/games/core/GameLoop';
@@ -52,6 +53,12 @@ function boxerIn(state: MiiBoxerState, timeSeconds: number): MiiBoxer {
   boxer.setState(state);
   boxer.animate(timeSeconds);
   return boxer;
+}
+
+const FRAME_S = 1 / 60;
+
+function animateFrames(boxer: MiiBoxer, startS: number, frames: number, footwork?: MiiBoxerFootwork): void {
+  for (let frame = 1; frame <= frames; frame += 1) boxer.animate(startS + frame * FRAME_S, footwork);
 }
 
 function expectTreeDisposable(root: THREE.Object3D): void {
@@ -222,53 +229,202 @@ describe('createMiiBoxer', () => {
   });
 
   it('adds subtle deterministic leg and trunk motion for footwork input', () => {
+    const input = { speed01: 1, forward: 1, strafe: 1 };
     const boxer = createMiiBoxer();
-    boxer.animate(0.4);
-    const planted = snapshotPose(boxer.root);
-
-    boxer.animate(0.4, { speed01: 1, forward: 1, strafe: 1 });
-    const moving = snapshotPose(boxer.root);
-    expect(poseDifference(planted, moving)).toBeGreaterThan(0.05);
+    const still = createMiiBoxer();
+    boxer.animate(0);
+    still.animate(0);
+    animateFrames(boxer, 0, 30, input);
+    animateFrames(still, 0, 30);
+    expect(poseDifference(snapshotPose(boxer.root), snapshotPose(still.root))).toBeGreaterThan(0.05);
 
     // The stride fades with elapsed time; once faded it matches a boxer that never moved.
-    boxer.animate(2);
-    const still = createMiiBoxer();
-    still.animate(0.4);
-    still.animate(2);
+    animateFrames(boxer, 0.5, 90);
+    animateFrames(still, 0.5, 90);
     expect(snapshotPose(boxer.root)).toEqual(snapshotPose(still.root));
+  });
+
+  it('ramps the stride in instead of applying full speed in the first frame', () => {
+    const input = { speed01: 1, forward: 1, strafe: 0 };
+    const boxer = createMiiBoxer();
+    const still = createMiiBoxer();
+    boxer.animate(0);
+    still.animate(0);
+    const hipDifference = () =>
+      Math.abs(named(boxer.root, 'mii-boxer-left-hip').rotation.x - named(still.root, 'mii-boxer-left-hip').rotation.x);
+
+    boxer.animate(FRAME_S, input);
+    still.animate(FRAME_S);
+    const firstFrame = hipDifference();
+    animateFrames(boxer, FRAME_S, 29, input);
+    animateFrames(still, FRAME_S, 29);
+
+    expect(firstFrame).toBeGreaterThan(0.001);
+    expect(firstFrame).toBeLessThan(0.03);
+    expect(hipDifference()).toBeGreaterThan(0.1);
+  });
+
+  it('smooths a footwork direction reversal through center', () => {
+    const boxer = createMiiBoxer();
+    const still = createMiiBoxer();
+    boxer.animate(0);
+    still.animate(0);
+    animateFrames(boxer, 0, 30, { speed01: 1, forward: 1, strafe: 0 });
+    animateFrames(still, 0, 30);
+    const pitchDifference = () =>
+      named(boxer.root, 'mii-boxer-body').rotation.x - named(still.root, 'mii-boxer-body').rotation.x;
+    const forwardPitch = pitchDifference();
+
+    boxer.animate(0.5 + FRAME_S, { speed01: 1, forward: -1, strafe: 0 });
+    still.animate(0.5 + FRAME_S);
+    expect(pitchDifference()).toBeGreaterThan(0);
+    expect(pitchDifference()).toBeLessThan(forwardPitch);
+
+    animateFrames(boxer, 0.5 + FRAME_S, 18, { speed01: 1, forward: -1, strafe: 0 });
+    animateFrames(still, 0.5 + FRAME_S, 18);
+    expect(pitchDifference()).toBeLessThan(-0.02);
   });
 
   it('damps the footwork instead of snapping the legs when the boxer stops', () => {
     const run = (stopped: number) => {
       const boxer = createMiiBoxer();
       const still = createMiiBoxer();
-      boxer.animate(1, { speed01: 1, forward: 1, strafe: 1 });
-      still.animate(1);
-      boxer.animate(1 + stopped);
-      still.animate(1 + stopped);
+      boxer.animate(0);
+      still.animate(0);
+      animateFrames(boxer, 0, 30, { speed01: 1, forward: 1, strafe: 0 });
+      animateFrames(still, 0, 30);
+      boxer.animate(0.5 + stopped);
+      still.animate(0.5 + stopped);
       return {
         pose: snapshotPose(boxer.root),
         leftover: Math.abs(
-          named(boxer.root, 'mii-boxer-left-hip').rotation.x - named(still.root, 'mii-boxer-left-hip').rotation.x,
+          named(boxer.root, 'mii-boxer-body').rotation.x - named(still.root, 'mii-boxer-body').rotation.x,
         ),
       };
     };
-    expect(run(1 / 60).leftover).toBeGreaterThan(0.05);
+    expect(run(FRAME_S).leftover).toBeGreaterThan(0.02);
     expect(run(1).leftover).toBe(0);
-    expect(run(1 / 60).pose).toEqual(run(1 / 60).pose);
+    expect(run(FRAME_S).pose).toEqual(run(FRAME_S).pose);
   });
 
-  it.each([
-    ['windup', 0.5],
-    ['punch', 0.12],
-  ] as const)('mirrors the %s arms for the left hand', (state, time) => {
+  it('keeps pose and momentum continuous when a transition is interrupted', () => {
+    const boxer = createMiiBoxer();
+    boxer.animate(0);
+    boxer.setState('guard');
+    animateFrames(boxer, 0, 4);
+    const interruptedAt = 4 * FRAME_S;
+    const before = snapshotPose(boxer.root);
+    const pitchBefore = named(boxer.root, 'mii-boxer-body').rotation.x;
+
+    boxer.setState('hit');
+    boxer.animate(interruptedAt);
+    expect(snapshotPose(boxer.root)).toEqual(before);
+
+    // A millisecond is too little time for the hit retarget to erase the inbound guard momentum.
+    boxer.animate(interruptedAt + 0.001);
+    expect(named(boxer.root, 'mii-boxer-body').rotation.x).toBeLessThan(pitchBefore);
+  });
+
+  it('never moves at the instant of a retarget through the windup-punch-recover-hit chain', () => {
+    const runChain = () => {
+      const boxer = createMiiBoxer();
+      boxer.animate(0);
+      boxer.setState('guard');
+      // Each retarget lands mid-motion: five frames into the previous, still unsettled state.
+      const retargets = new Map<number, MiiBoxerState>([
+        [6, 'windup'],
+        [11, 'punch'],
+        [16, 'recover'],
+        [21, 'hit'],
+      ]);
+      for (let frame = 1; frame <= 30; frame += 1) {
+        const time = frame * FRAME_S;
+        boxer.animate(time);
+        const next = retargets.get(frame);
+        if (next) {
+          const atBoundary = snapshotPose(boxer.root);
+          boxer.setState(next);
+          boxer.animate(time);
+          // Zero time elapsed across the retarget, so a continuous integration bit-repeats the pose.
+          expect(snapshotPose(boxer.root)).toEqual(atBoundary);
+        }
+      }
+      return snapshotPose(boxer.root);
+    };
+    expect(runChain()).toEqual(runChain());
+  });
+
+  it('carries velocity across the windup-punch retarget instead of restarting from rest', () => {
+    const eps = 0.001;
+    const woundUpToBoundary = () => {
+      const boxer = createMiiBoxer();
+      boxer.animate(0);
+      boxer.setState('guard');
+      animateFrames(boxer, 0, 12);
+      boxer.setState('windup');
+      animateFrames(boxer, 0.2, 6);
+      return boxer;
+    };
+    const boundary = 0.3;
+    const travel = (boxer: MiiBoxer) => {
+      const at = snapshotPose(boxer.root);
+      boxer.animate(boundary + eps);
+      return poseDifference(at, snapshotPose(boxer.root));
+    };
+
+    // Both boxers reach the boundary instant through the identical sequence, so they are bit-equal
+    // there; one keeps winding up, the other retargets to punch. The retargeted boxer's velocity
+    // is the inbound velocity, damped a little by the spring over the millisecond — not erased.
+    const uninterrupted = woundUpToBoundary();
+    const inbound = travel(uninterrupted);
+    const retargeted = woundUpToBoundary();
+    retargeted.setState('punch');
+    const outbound = travel(retargeted);
+    expect(inbound).toBeGreaterThan(0.0005);
+    expect(outbound / inbound).toBeGreaterThan(0.5);
+  });
+
+  it('follows a punch through and damps the return without a hold plateau', () => {
+    const boxer = createMiiBoxer();
+    boxer.animate(0);
+    boxer.setState('windup');
+    animateFrames(boxer, 0, 30);
+    const windupZ = glovePoint(boxer, 'right').z;
+    boxer.setState('punch');
+    const travel: number[] = [];
+    for (let frame = 1; frame <= 30; frame += 1) {
+      boxer.animate(0.5 + frame * FRAME_S);
+      travel.push(glovePoint(boxer, 'right').z);
+    }
+
+    expect(Math.abs(travel[0]! - windupZ)).toBeLessThan(0.03);
+
+    // More negative is farther forward. The target extension peaks at 0.085 s and the spring
+    // follow-through crests the glove a few frames later; before the crest the glove moves
+    // strictly forward, after it strictly back — a single continuous peak, never a flat hold.
+    const crest = travel.indexOf(Math.min(...travel));
+    expect(crest).toBeGreaterThanOrEqual(5);
+    expect(crest).toBeLessThanOrEqual(8);
+    for (let frame = 0; frame < crest; frame += 1) expect(travel[frame + 1]!).toBeLessThan(travel[frame]!);
+    for (let frame = crest; frame < 18; frame += 1) expect(travel[frame + 1]!).toBeGreaterThan(travel[frame]!);
+
+    // A hold plateau would park the glove for several frames; here only the crest straddle moves
+    // less than a tenth of a millimetre, and the return is essentially at rest well before 0.5 s.
+    let parked = 0;
+    for (let frame = 1; frame < 20; frame += 1) {
+      if (Math.abs(travel[frame]! - travel[frame - 1]!) < 1e-4) parked += 1;
+    }
+    expect(parked).toBeLessThanOrEqual(1);
+    expect(Math.abs(travel[29]! - travel[28]!)).toBeLessThan(0.001);
+    expect(travel[29]! - travel[crest]!).toBeGreaterThan(0.2);
+  });
+
+  it('mirrors the windup arms for the left hand', () => {
     const pose = (hand: 'left' | 'right') => {
       const boxer = createMiiBoxer();
       boxer.animate(0);
-      boxer.setState(state, hand);
-      // Past the blend from idle.
-      boxer.animate(time);
-      if (state === 'windup') boxer.animate(time);
+      boxer.setState('windup', hand);
+      boxer.animate(0.5);
       return boxer;
     };
     const right = pose('right');
@@ -281,6 +437,36 @@ describe('createMiiBoxer', () => {
       expect(mirrored.z).toBeCloseTo(-thrown.z);
     }
     expect(named(left.root, 'mii-boxer-body').rotation.y).toBeCloseTo(-named(right.root, 'mii-boxer-body').rotation.y);
+    expect(named(left.root, 'mii-boxer-left-hip').rotation.x).toBeCloseTo(
+      named(right.root, 'mii-boxer-left-hip').rotation.x,
+    );
+  });
+
+  it('mirrors the punch arms for the left hand near full extension', () => {
+    const pose = (hand: 'left' | 'right') => {
+      const boxer = createMiiBoxer();
+      boxer.animate(0);
+      boxer.setState('punch', hand);
+      animateFrames(boxer, 0, 8); // the crest of the extension
+      return boxer;
+    };
+    const right = pose('right');
+    const left = pose('left');
+    // Mirroring is approximate to within a couple of degrees: the punch target starts from the
+    // captured entry pose, and neither it nor the idle stance it grows from is mirror symmetric,
+    // so the springs track slightly different paths for the two hands. A broken mirror would be
+    // off by radians, not hundredths.
+    for (const joint of ['shoulder', 'elbow'] as const) {
+      const thrown = named(right.root, `mii-boxer-right-${joint}`).rotation;
+      const mirrored = named(left.root, `mii-boxer-left-${joint}`).rotation;
+      expect(mirrored.x).toBeCloseTo(thrown.x, 1);
+      expect(mirrored.y).toBeCloseTo(-thrown.y, 1);
+      expect(mirrored.z).toBeCloseTo(-thrown.z, 1);
+    }
+    expect(named(left.root, 'mii-boxer-body').rotation.y).toBeCloseTo(
+      -named(right.root, 'mii-boxer-body').rotation.y,
+      1,
+    );
     expect(named(left.root, 'mii-boxer-left-hip').rotation.x).toBeCloseTo(
       named(right.root, 'mii-boxer-left-hip').rotation.x,
     );
@@ -311,10 +497,13 @@ describe('createMiiBoxer', () => {
     expect(spread(recover)).toBeGreaterThan(spread(guard) + 0.1);
   });
 
-  it('rejects non-finite animation times', () => {
-    const boxer = createMiiBoxer();
-    expect(() => boxer.animate(Number.NaN)).toThrow(TypeError);
-  });
+  it.each([Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY])(
+    'rejects non-finite animation time %s',
+    (time) => {
+      const boxer = createMiiBoxer();
+      expect(() => boxer.animate(time)).toThrow(TypeError);
+    },
+  );
 });
 
 describe('createFirstPersonGloves', () => {
